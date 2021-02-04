@@ -197,10 +197,10 @@ machine_at_p2bls_init(const machine_t *model)
 {
     int ret;
 
-    if (model->flags & MACHINE_COREBOOT)
+    if (model->flags & MACHINE_COREBOOT) {
     	ret = bios_load_linear(L"roms/machines/p2bls/coreboot.rom",
-			       0x000c0000, 262144, 0);
-    else
+			       0x00000000, 1048576, 0);
+    } else
     	ret = bios_load_linear(L"roms/machines/p2bls/1014ls.003",
 			       0x000c0000, 262144, 0);
 
@@ -223,7 +223,7 @@ machine_at_p2bls_init(const machine_t *model)
     device_add(&piix4e_device);
     device_add(&keyboard_ps2_pci_device);
     device_add(&w83977ef_device);
-    device_add(&sst_flash_39sf020_device);
+    //device_add(&sst_flash_39sf020_device);
     spd_register(SPD_TYPE_SDRAM, 0xF, 256);
 
     hwm_values_t machine_hwm = {

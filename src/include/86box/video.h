@@ -315,6 +315,7 @@ extern const device_t s3_diamond_stealth64_pci_device;
 extern const device_t s3_diamond_stealth64_vlb_device;
 extern const device_t s3_diamond_stealth64_964_pci_device;
 extern const device_t s3_diamond_stealth64_964_vlb_device;
+extern const device_t s3_trio64v2_dx_pci_device;
 
 /* S3 ViRGE */
 extern const device_t s3_virge_vlb_device;
