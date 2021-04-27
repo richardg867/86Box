@@ -31,6 +31,10 @@
 #include <86box/device.h>
 #include <86box/video.h>
 #include <86box/vid_mda.h>
+#ifdef USE_CLI
+# define TEXT_RENDER_MDA
+# include <86box/vid_text_render.h>
+#endif
 
 static int mdacols[256][2][2];
 
@@ -103,7 +107,7 @@ void mda_recalctimings(mda_t *mda)
 void mda_poll(void *p)
 {
         mda_t *mda = (mda_t *)p;
-        uint16_t ca = (mda->crtc[15] | (mda->crtc[14] << 8)) & 0x3fff;
+        uint16_t ca = (mda->crtc[15] | (mda->crtc[14] << 8)) & 0x3fff, ma;
         int drawcursor;
         int x, c;
         int oldvc;
@@ -126,6 +130,13 @@ void mda_poll(void *p)
                                 video_wait_for_buffer();
                         }
                         mda->lastline = mda->displine;
+#ifdef USE_CLI
+                        if ((mda->displine % 8) == 0) {
+                        	ma = mda->ma;
+                        	text_render_mda(mda, ca, mda->ma / mda->crtc[1]);
+                        	mda->ma = ma;
+                        }
+#endif
                         for (x = 0; x < mda->crtc[1]; x++)
                         {
                                 chr  = mda->vram[(mda->ma << 1) & 0xfff];

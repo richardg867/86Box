@@ -500,6 +500,11 @@ RFLAGS		+= -DMTR_ENABLED
 MINITRACEOBJ	:= minitrace.o
 endif
 
+#ifeq ($(CLI, y))
+OPTS		+= -DUSE_CLI
+CLIOBJ		:= vid_text_render.o
+#endif
+
 # Options for the DEV branch.
 ifeq ($(DEV_BRANCH), y)
 OPTS		+= -DDEV_BRANCH
@@ -810,7 +815,7 @@ OBJ		:= $(MAINOBJ) $(CPUOBJ) $(CHIPSETOBJ) $(MCHOBJ) $(DEVOBJ) $(MEMOBJ) \
 		   $(FDDOBJ) $(GAMEOBJ) $(CDROMOBJ) $(ZIPOBJ) $(MOOBJ) $(HDDOBJ) $(MINIVHDOBJ) \
 		   $(NETOBJ) $(PRINTOBJ) $(SCSIOBJ) $(SIOOBJ) $(SNDOBJ) $(VIDOBJ) \
 		   $(PLATOBJ) $(UIOBJ) $(FSYNTHOBJ) $(MUNTOBJ) $(DEVBROBJ) \
-		   $(DISCORDOBJ) $(MINITRACEOBJ)
+		   $(DISCORDOBJ) $(MINITRACEOBJ) $(CLIOBJ)
 ifdef EXOBJ
 OBJ		+= $(EXOBJ)
 endif

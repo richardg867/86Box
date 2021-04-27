@@ -39,6 +39,10 @@
 #include <86box/video.h>
 #include <86box/vid_svga.h>
 #include <86box/vid_svga_render.h>
+#ifdef USE_CLI
+# define TEXT_RENDER_SVGA
+# include <86box/vid_text_render.h>
+#endif
 
 
 void svga_doblit(int y1, int y2, int wx, int wy, svga_t *svga);
@@ -211,6 +215,10 @@ svga_out(uint16_t addr, uint8_t val, void *p)
 					svga->pallook[index] = makecol32(svga->vgapal[index].r, svga->vgapal[index].g, svga->vgapal[index].b);
 				else
 					svga->pallook[index] = makecol32(video_6to8[svga->vgapal[index].r & 0x3f], video_6to8[svga->vgapal[index].g & 0x3f], video_6to8[svga->vgapal[index].b & 0x3f]);
+#ifdef USE_CLI
+				if (index <= 15)
+					text_render_setpal(ansi_palette[index], svga->pallook[svga->egapal[index]]);
+#endif
 				svga->dac_pos = 0; 
 				svga->dac_addr = (svga->dac_addr + 1) & 255; 
 				break;
