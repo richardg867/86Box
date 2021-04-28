@@ -19,6 +19,7 @@
  *		Copyright 2017-2020 Fred N. van Kempen.
  */
 #include <inttypes.h>
+#include <io.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -207,28 +208,37 @@ pclog_ex(const char *fmt, va_list ap)
 	char temp[1024];
 
 	if (strcmp(fmt, "") == 0)
-	return;
+		return;
 
 	if (stdlog == NULL) {
-	if (log_path[0] != '\0') {
-		stdlog = plat_fopen(log_path, "w");
-		if (stdlog == NULL)
+		if (log_path[0] != '\0') {
+			stdlog = plat_fopen(log_path, "w");
+			if (stdlog == NULL)
+				stdlog = stdout;
+		} else {
+# ifdef USE_CLI
+			/* Don't output to stdout unless it is redirected. */
+#  ifdef _WIN32
+			if (_isatty(_fileno(stdout)))
+#  else
+			if (isatty(fileno(stdout)))
+#  endif
+				return;
+# endif
 			stdlog = stdout;
-	} else {
-		stdlog = stdout;
-	}
+		}
 	}
 
 	vsprintf(temp, fmt, ap);
 	if (suppr_seen && ! strcmp(buff, temp)) {
-	seen++;
+		seen++;
 	} else {
-	if (suppr_seen && seen) {
-		fprintf(stdlog, "*** %d repeats ***\n", seen);
-	}
-	seen = 0;
-	strcpy(buff, temp);
-	fprintf(stdlog, temp, ap);
+		if (suppr_seen && seen) {
+			fprintf(stdlog, "*** %d repeats ***\n", seen);
+		}
+		seen = 0;
+		strcpy(buff, temp);
+		fprintf(stdlog, temp, ap);
 	}
 
 	fflush(stdlog);

@@ -40,7 +40,6 @@
 #include <86box/vid_svga.h>
 #include <86box/vid_svga_render.h>
 #ifdef USE_CLI
-# define TEXT_RENDER_SVGA
 # include <86box/vid_text_render.h>
 #endif
 
@@ -216,7 +215,7 @@ svga_out(uint16_t addr, uint8_t val, void *p)
 				else
 					svga->pallook[index] = makecol32(video_6to8[svga->vgapal[index].r & 0x3f], video_6to8[svga->vgapal[index].g & 0x3f], video_6to8[svga->vgapal[index].b & 0x3f]);
 #ifdef USE_CLI
-				if (index <= 15)
+				if (index < 16)
 					text_render_setpal(ansi_palette[index], svga->pallook[svga->egapal[index]]);
 #endif
 				svga->dac_pos = 0; 
@@ -395,6 +394,11 @@ svga_set_ramdac_type(svga_t *svga, int type)
 			svga->pallook[c] = makecol32((svga->vgapal[c].r & 0x3f) * 4,
 						     (svga->vgapal[c].g & 0x3f) * 4,
 						     (svga->vgapal[c].b & 0x3f) * 4);
+
+#ifdef USE_CLI
+		if (c < 16)
+			text_render_setpal(ansi_palette[c], svga->pallook[svga->egapal[c]]);
+#endif
 	}
     }
 }

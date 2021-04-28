@@ -33,6 +33,9 @@
 #include <86box/video.h>
 #include <86box/vid_cga.h>
 #include <86box/vid_cga_comp.h>
+#ifdef USE_CLI
+# include <86box/vid_text_render.h>
+#endif
 
 
 #define CGA_RGB 0
@@ -230,6 +233,14 @@ cga_poll(void *p)
 			}
 		}
 		if (cga->cgamode & 1) {
+#ifdef USE_CLI
+			if ((cga->displine % 8) == 0)
+				text_render_cga(cga->ma / cga->crtc[1],
+				   cga->crtc[1], 1,
+				   cga->charbuffer, 0, sizeof(cga->charbuffer) - 1, 1,
+				   cga->cgamode & 0x08, cga->cgamode & 0x20,
+				   ca - cga->ma, cga->con);
+#endif
 			for (x = 0; x < cga->crtc[1]; x++) {
 				if (cga->cgamode & 8) {	
 					chr = cga->charbuffer[x << 1];
@@ -260,6 +271,14 @@ cga_poll(void *p)
 				cga->ma++;
 			}
 		} else if (!(cga->cgamode & 2)) {
+#ifdef USE_CLI
+			if ((cga->displine % 8) == 0)
+				text_render_cga(cga->ma / cga->crtc[1],
+				   cga->crtc[1], 1,
+				   cga->vram, cga->ma << 1, 0x3fff, 1,
+				   cga->cgamode & 0x08, cga->cgamode & 0x20,
+				   ca, cga->con);
+#endif
 			for (x = 0; x < cga->crtc[1]; x++) {
 				if (cga->cgamode & 8) {
 					chr  = cga->vram[((cga->ma << 1) & 0x3fff)];
@@ -294,6 +313,9 @@ cga_poll(void *p)
 				}
 			}
 		} else if (!(cga->cgamode & 16)) {
+#ifdef USE_CLI
+			text_render_gfx("CGA %dx%d");
+#endif
 			cols[0] = (cga->cgacol & 15) | 16;
 			col = (cga->cgacol & 16) ? 24 : 16;
 			if (cga->cgamode & 4) {
@@ -325,6 +347,9 @@ cga_poll(void *p)
 				}
 			}
 		} else {
+#ifdef USE_CLI
+			text_render_gfx("CGA %dx%d");
+#endif
 			cols[0] = 0; cols[1] = (cga->cgacol & 15) + 16;
 			for (x = 0; x < cga->crtc[1]; x++) {
 				if (cga->cgamode & 8)	

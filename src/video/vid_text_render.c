@@ -30,13 +30,16 @@
 #include <86box/timer.h>
 #include <86box/video.h>
 #include <86box/vid_mda.h>
+#include <86box/vid_cga.h>
 #include <86box/vid_svga.h>
 #include <86box/vid_text_render.h>
 
 
-#define TEXT_RENDER_OUTPUT	stdout
+#define TEXT_RENDER_OUTPUT	stderr
 #define TEXT_RENDER_BUFSIZE	4096
 
+#define CHECK_INIT()	if (!text_render_initialized) \
+				text_render_init();
 #define APPEND_SGR()	if (!sgr_started) { \
 				sgr_started = 1; \
 				p += sprintf(p, "\033["); \
@@ -116,7 +119,7 @@ uint8_t text_render_cx, text_render_cy;
 uint32_t text_render_palette[16];
 uint32_t *text_render_256col;
 char text_render_line_buffer[50][TEXT_RENDER_BUFSIZE];
-char text_render_gfx_type[16] = "\0";
+char text_render_gfx_str[32] = "\0";
 int text_render_gfx_w = -1, text_render_gfx_h = -1;
 
 
@@ -157,7 +160,7 @@ text_render_setcolor_256(char *p, uint8_t idx, uint8_t bg)
 {
     /* Set a color from the 256-color palette using the approximations calculated by text_render_setpal_256 */
     uint8_t approx = text_render_palette[idx];
-    if (approx < 8) /* save bandwidth by using standard SGRs on 8-color palette colors */
+    if (approx < 8) /* save a little bit of bandwidth by using standard SGRs on 8-color palette colors */
     	return sprintf(p, "%d", (bg ? 40 : 30) + approx);
     else
     	return sprintf(p, "%d;5;%d", bg ? 48 : 38, approx);
@@ -212,9 +215,8 @@ text_render_setpal_true(uint8_t index, uint32_t color)
 void
 text_render_setpal_init(uint8_t index, uint32_t color)
 {
-    if (!text_render_initialized)
-    	text_render_init();
-
+    /* Initialize the text renderer, then retry. */
+    CHECK_INIT();
     text_render_setpal(index, color);
 }
 
@@ -345,8 +347,7 @@ text_render_init()
 void
 text_render_blank()
 {
-    if (!text_render_initialized)
-    	text_render_init();
+    CHECK_INIT();
 
     /* Clear screen. */
     fprintf(TEXT_RENDER_OUTPUT, "\033[2J");
@@ -357,8 +358,10 @@ text_render_blank()
 }
 
 void
-text_render_gfx(char *type)
+text_render_gfx(char *str)
 {
+    CHECK_INIT();
+
     uint8_t render = 0, i;
     char buf[256], boxattr[] = "\033[30;47m", resetattr[] = "\033[0m";
 
@@ -374,13 +377,13 @@ text_render_gfx(char *type)
     	text_render_gfx_h = h;
     }
 
-    if (!strncmp(type, text_render_gfx_type, sizeof(text_render_gfx_type) - 1)) {
+    if (!strncmp(str, text_render_gfx_str, sizeof(text_render_gfx_str) - 1)) {
     	render = 1;
-    	strncpy(text_render_gfx_type, type, sizeof(text_render_gfx_type) - 1);
+    	strncpy(text_render_gfx_str, str, sizeof(text_render_gfx_str) - 1);
     }
 
     if (render) {
-    	sprintf(buf, "%s %dx%d", type, get_actual_size_x(), get_actual_size_y());
+    	sprintf(buf, str, get_actual_size_x(), get_actual_size_y());
     	fprintf(TEXT_RENDER_OUTPUT, "\033[2J\033[1;1H%s%s%s", resetattr, boxattr, cp437[0xc9]);
     	for (i = 0; i < strlen(buf); i++)
     		fprintf(TEXT_RENDER_OUTPUT, cp437[0xcd]);
@@ -398,45 +401,51 @@ text_render_gfx(char *type)
 void
 text_render_mda(mda_t *mda, uint16_t ca, uint8_t cy)
 {
+    CHECK_INIT();
+
     char buf[TEXT_RENDER_BUFSIZE], *p;
     int x;
-    uint8_t chr, attr, cx = 0, new_cx = text_render_cx, new_cy = text_render_cy;
-    uint8_t sgr_started = 0, sgr_blackout = 1, sgr_ul, sgr_int, sgr_blink, sgr_invert;
-    uint8_t prev_sgr_ul = 0, prev_sgr_int = 0, prev_sgr_blink = 0, prev_sgr_invert = 0;
+    uint8_t chr, attr, attr77, cx = 0, new_cx = text_render_cx, new_cy = text_render_cy;
+    uint8_t sgr_started = 0, sgr_blackout = 1, sgr_ul, sgr_int, sgr_blink, sgr_reverse;
+    uint8_t prev_sgr_ul = 0, prev_sgr_int = 0, prev_sgr_blink = 0, prev_sgr_reverse = 0;
 
     p = buf;
-    p += sprintf(p, "\033[%d;1H\033[0m", cy + 1);
+    p += sprintf(p, "\033[%d;1H\033[0m\033[2K", cy + 1);
 
     for (x = 0; x < mda->crtc[1]; x++) {
     	chr  = mda->vram[(mda->ma << 1) & 0xfff];
         attr = mda->vram[((mda->ma << 1) + 1) & 0xfff];
 
-        if ((attr == 0x00) || (attr == 0x08) || (attr == 0x80) || (attr == 0x88)) {
+        attr77 = attr & 0x77;
+        if (!attr77) {
         	/* Create a blank space by discarding all attributes then printing a space. */
         	if (!sgr_blackout) {
         		APPEND_SGR();
         		p += sprintf(p, "0");
         		sgr_blackout = 1;
-        		prev_sgr_ul = prev_sgr_int = prev_sgr_blink = prev_sgr_invert = 0;
+        		prev_sgr_ul = prev_sgr_int = prev_sgr_blink = prev_sgr_reverse = 0;
         	}
-        	chr = ' ';
+        	chr = 0;
         } else {
         	sgr_blackout = 0;
 
-	        sgr_ul = (attr & 3) == 1;
+        	/* Set reverse. */
+        	sgr_reverse = (attr77 == 0x70);
+	        if (sgr_reverse != prev_sgr_reverse) {
+	        	APPEND_SGR();
+	        	p += sprintf(p, sgr_reverse ? "7" : "27");
+	        	prev_sgr_reverse = sgr_reverse;
+	        }
+
+	        /* Set underline. Cannot co-exist with reverse. */
+	        sgr_ul = !sgr_reverse && ((attr & 0x07) == 1);
 	        if (sgr_ul != prev_sgr_ul) {
 	        	APPEND_SGR();
 	        	p += sprintf(p, sgr_ul ? "4" : "24");
 	        	prev_sgr_ul = sgr_ul;
 	        }
 
-	        sgr_int = attr & 0x08;
-	        if (sgr_int != prev_sgr_int) {
-	        	APPEND_SGR();
-	        	p += sprintf(p, sgr_int ? "1" : "22");
-	        	prev_sgr_int = sgr_int;
-	        }
-
+	        /* Set blink, if enabled. */
 	        sgr_blink = (mda->ctrl & 0x20) && (attr & 0x80);
 	        if (sgr_blink != prev_sgr_blink) {
 			APPEND_SGR();
@@ -444,26 +453,28 @@ text_render_mda(mda_t *mda, uint16_t ca, uint8_t cy)
 			prev_sgr_blink = sgr_blink;
 	        }
 
-	        /* Each inverted attribute has its intricacies, but having
-	           them all be the same is good enough for this purpose. */
-	        sgr_invert = (attr == 0x70) || (attr == 0x78) || (attr == 0xf0) || (attr == 0xf8);
-	        if (sgr_invert != prev_sgr_invert) {
+	        /* Set intense. Cannot co-exist with both reverse and blink. */
+	        sgr_int = (attr & 0x08) && !(sgr_reverse && sgr_blink);
+	        if (sgr_int != prev_sgr_int) {
 	        	APPEND_SGR();
-	        	p += sprintf(p, sgr_invert ? "7" : "27");
-	        	prev_sgr_invert = sgr_invert;
+	        	p += sprintf(p, sgr_int ? "1" : "22");
+	        	prev_sgr_int = sgr_int;
 	        }
 	}
 
+	/* If the cursor is on this location, set it as the new cursor position. */
         if ((mda->ma == ca) && mda->con) {
 		new_cx = cx;
 		new_cy = cy;
 	}
 
+	/* Finish any SGRs we may have started. */
 	if (sgr_started) {
 		sgr_started = 0;
 		p += sprintf(p, "m");
 	}
 
+	/* Output the character. */
         p += sprintf(p, cp437[chr]);
 
         mda->ma++;
@@ -472,10 +483,11 @@ text_render_mda(mda_t *mda, uint16_t ca, uint8_t cy)
 
     if (memcmp(buf, text_render_line_buffer[cy], p - buf)) {
     	fprintf(TEXT_RENDER_OUTPUT, buf);
-    	text_render_cx = ~new_cx; /* force the cursor to reposition, which also flushes the output */
+    	text_render_cx = ~new_cx; /* force a cursor update, which also flushes the output */
     	memcpy(text_render_line_buffer[cy], buf, p - buf);
     }
 
+    /* Update cursor if required. */
     if ((new_cx != text_render_cx) || (new_cy != text_render_cy)) {
     	if (mda->con) {
     		text_render_cx = new_cx;
@@ -488,24 +500,32 @@ text_render_mda(mda_t *mda, uint16_t ca, uint8_t cy)
 }
 
 void
-text_render_svga(svga_t *svga, int xinc, uint8_t cy)
+text_render_cga(uint8_t cy,
+		int xlimit, int xinc,
+		uint8_t *fb, uint32_t fb_base, uint32_t fb_mask, uint8_t fb_step,
+		uint8_t do_render, uint8_t do_blink,
+		uint32_t ca, uint8_t con)
 {
+    CHECK_INIT();
+
     char buf[TEXT_RENDER_BUFSIZE], *p;
     int x;
+    uint32_t ma = fb_base;
     uint8_t chr, attr, cx = 0, new_cx = text_render_cx, new_cy = text_render_cy;
     uint8_t sgr_started = 0, sgr_bg, sgr_fg, sgr_blink;
     uint8_t prev_sgr_bg = 0, prev_sgr_fg = 0, prev_sgr_blink = 0;
 
     p = buf;
-    p += sprintf(p, "\033[%d;1H", cy + 1);
+    p += sprintf(p, "\033[%d;1H\033[0m\033[2K", cy + 1);
 
-    for (x = 0; x < (svga->hdisp + svga->scrollcache); x += xinc) {
-	if (svga->crtc[0x17] & 0x80) {
-		chr  = svga->vram[(svga->ma << 1) & svga->vram_display_mask];
-		attr = svga->vram[((svga->ma << 1) + 1) & svga->vram_display_mask];
+    for (x = 0; x < xlimit; x += xinc) {
+	if (do_render) {
+		chr  = fb[(ma << 1) & fb_mask];
+		attr = fb[((ma << 1) + 1) & fb_mask];
 	} else
 		chr = attr = 0;
 
+	/* Set foreground color. */
 	sgr_fg = ansi_palette[attr & 15];
 	if ((x == 0) || (sgr_fg != prev_sgr_fg)) {
 		APPEND_SGR();
@@ -513,12 +533,14 @@ text_render_svga(svga_t *svga, int xinc, uint8_t cy)
 		prev_sgr_fg = sgr_fg;
 	}
 
-	if (svga->attrregs[0x10] & 0x08) {
+	/* If blinking is enabled, use the top bit for that instead of bright background. */
+	if (do_blink) {
 		sgr_blink = attr & 0x80;
 		attr &= 0x7f;
 	} else
 		sgr_blink = 0;
 
+	/* Set background color. */
 	sgr_bg = ansi_palette[attr >> 4];
 	if ((x == 0) || (sgr_bg != prev_sgr_bg)) {
 		APPEND_SGR();
@@ -526,36 +548,41 @@ text_render_svga(svga_t *svga, int xinc, uint8_t cy)
 		prev_sgr_bg = sgr_bg;
 	}
 
+	/* Set blink. */
 	if ((x == 0) || (sgr_blink != prev_sgr_blink)) {
 		APPEND_SGR();
 		p += sprintf(p, sgr_blink ? "5" : "25");
 		prev_sgr_blink = sgr_blink;
 	}
 
-	if ((svga->ma == svga->ca) && svga->con) {
+	/* If the cursor is on this location, set it as the new cursor position. */
+	if ((ma == ca) && con) {
 		new_cx = cx;
 		new_cy = cy;
 	}
 
+	/* Finish any SGRs we may have started. */
 	if (sgr_started) {
 		sgr_started = 0;
 		p += sprintf(p, "m");
 	}
 
+	/* Output the character. */
 	p += sprintf(p, cp437[chr]);
 
-	svga->ma += 4;
+	ma += fb_step;
 	cx++;
     }
 
     if (memcmp(buf, text_render_line_buffer[cy], p - buf)) {
     	fprintf(TEXT_RENDER_OUTPUT, buf);
-    	text_render_cx = ~new_cx; /* force the cursor to reposition, which also flushes the output */
+    	text_render_cx = ~new_cx; /* force a cursor update, which also flushes the output */
     	memcpy(text_render_line_buffer[cy], buf, p - buf);
     }
 
+    /* Update cursor if required. */
     if ((new_cx != text_render_cx) || (new_cy != text_render_cy)) {
-    	if (svga->con) {
+    	if (con) {
     		text_render_cx = new_cx;
     		text_render_cy = new_cy;
     	} else {
@@ -563,10 +590,4 @@ text_render_svga(svga_t *svga, int xinc, uint8_t cy)
     	}
     	text_render_updatecursor();
     }
-}
-
-void
-text_render_svga_gfx(svga_t *svga)
-{
-    
 }

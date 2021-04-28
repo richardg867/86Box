@@ -28,7 +28,6 @@
 #include <86box/vid_svga.h>
 #include <86box/vid_svga_render.h>
 #ifdef USE_CLI
-# define TEXT_RENDER_SVGA
 # include <86box/vid_text_render.h>
 #endif
 
@@ -77,7 +76,10 @@ svga_render_blank(svga_t *svga)
     }
 
 #ifdef USE_CLI
-    text_render_blank();
+    if (svga->dpms)
+	text_render_gfx("VGA Sleep");
+    else
+	text_render_blank();
 #endif
 }
 
@@ -118,7 +120,7 @@ svga_render_overscan_right(svga_t *svga)
 void
 svga_render_text_40(svga_t *svga)
 {     
-    uint32_t *p, ma;
+    uint32_t *p;
     int x, xx;
     int drawcursor, xinc;
     uint8_t chr, attr, dat;
@@ -137,11 +139,13 @@ svga_render_text_40(svga_t *svga)
 	xinc = (svga->seqregs[1] & 1) ? 16 : 18;
 
 #ifdef USE_CLI
-	ma = svga->ma; /* FIXME: makes no sense. should be line. on 80 too. */
-	if (((ma % 4) == 0) && (svga->displine < get_actual_size_y())) {
-		text_render_svga(svga, xinc, (ma >> 2) / 40);
-		svga->ma = ma;
-	}
+	/* See comment on svga_render_text_80 */
+	if ((svga->sc == 0) && (svga->displine < 400) && (get_actual_size_y() <= 400))
+		text_render_cga((svga->ma >> 2) / 40,
+				svga->hdisp + svga->scrollcache, xinc,
+				svga->vram, svga->ma, svga->vram_display_mask, 4,
+				svga->crtc[0x17] & 0x80, svga->attrregs[0x10] & 0x08,
+				svga->ca, !(svga->crtc[0x0a] & 0x20) && ((svga->crtc[0x0b] & 0x1f) >= (svga->crtc[0x0a] & 0x1f)));
 #endif
 
 	for (x = 0; x < (svga->hdisp + svga->scrollcache); x += xinc) {
@@ -193,7 +197,7 @@ svga_render_text_40(svga_t *svga)
 void
 svga_render_text_80(svga_t *svga)
 {
-    uint32_t *p, ma;
+    uint32_t *p;
     int x, xx;
     int drawcursor, xinc;
     uint8_t chr, attr, dat;
@@ -212,11 +216,14 @@ svga_render_text_80(svga_t *svga)
 	xinc = (svga->seqregs[1] & 1) ? 8 : 9;
 
 #ifdef USE_CLI
-	ma = svga->ma;
-	if (((ma % 4) == 0) && (svga->displine < get_actual_size_y())) {
-		text_render_svga(svga, xinc, (ma >> 2) / 80);
-		svga->ma = ma;
-	}
+	/* Ugly workaround for GA-686BX BIOS setup screen, which redefines
+	   the value returned by get_actual_size_y() on the last text row. */
+	if ((svga->sc == 0) && (svga->displine < 400) && (get_actual_size_y() <= 400))
+		text_render_cga((svga->ma >> 2) / 80,
+				svga->hdisp + svga->scrollcache, xinc,
+				svga->vram, svga->ma, svga->vram_display_mask, 4,
+				svga->crtc[0x17] & 0x80, svga->attrregs[0x10] & 0x08,
+				svga->ca, !(svga->crtc[0x0a] & 0x20) && ((svga->crtc[0x0b] & 0x1f) >= (svga->crtc[0x0a] & 0x1f)));
 #endif
 
 	for (x = 0; x < (svga->hdisp + svga->scrollcache); x += xinc) {
@@ -406,7 +413,7 @@ svga_render_2bpp_lowres(svga_t *svga)
 
     if (svga->changedvram[changed_offset] || svga->changedvram[changed_offset + 1] || svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("VGA");
+	text_render_gfx("VGA %dx%d");
 #endif
 
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
@@ -476,7 +483,7 @@ svga_render_2bpp_highres(svga_t *svga)
 
     if (svga->changedvram[changed_offset] || svga->changedvram[changed_offset + 1] || svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("VGA");
+	//text_render_gfx("VGA %dx%d");
 #endif
 
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
@@ -545,7 +552,7 @@ svga_render_4bpp_lowres(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("VGA");
+	text_render_gfx("VGA %dx%d");
 #endif
 
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
@@ -626,10 +633,11 @@ svga_render_4bpp_highres(svga_t *svga)
 
     if (svga->changedvram[changed_offset] || svga->changedvram[changed_offset + 1] || svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("VGA");
+	text_render_gfx("VGA %dx%d");
 #endif
 
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+	uint32_t *q = &buffer32->line[svga->displine + svga->y_add - 1][svga->x_add];
 
 	if (svga->firstline_draw == 2000) 
 		svga->firstline_draw = svga->displine;
@@ -686,6 +694,7 @@ svga_render_4bpp_highres(svga_t *svga)
 			memset(p, 0x00, 8 * sizeof(uint32_t));
 
 		p += 8;
+		q += 8;
 	}
     }
 }
@@ -703,7 +712,7 @@ svga_render_8bpp_lowres(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("VGA");
+	text_render_gfx("VGA %dx%d");
 #endif
 
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
@@ -753,7 +762,7 @@ svga_render_8bpp_highres(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("VGA");
+	text_render_gfx("VGA %dx%d");
 #endif
 
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
@@ -820,7 +829,7 @@ svga_render_15bpp_lowres(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("VGA");
+	text_render_gfx("VGA %dx%d");
 #endif
 
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
@@ -861,7 +870,7 @@ svga_render_15bpp_highres(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("VGA");
+	text_render_gfx("VGA %dx%d");
 #endif
 
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
@@ -908,7 +917,7 @@ svga_render_15bpp_mix_lowres(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("VGA");
+	text_render_gfx("VGA %dx%d");
 #endif
 
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
@@ -951,7 +960,7 @@ svga_render_15bpp_mix_highres(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("VGA");
+	text_render_gfx("VGA %dx%d");
 #endif
 
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
@@ -1002,7 +1011,7 @@ svga_render_16bpp_lowres(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("VGA");
+	text_render_gfx("VGA %dx%d");
 #endif
 
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
@@ -1040,7 +1049,7 @@ svga_render_16bpp_highres(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("VGA");
+	text_render_gfx("VGA %dx%d");
 #endif
 
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
@@ -1086,7 +1095,7 @@ svga_render_24bpp_lowres(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("VGA");
+	text_render_gfx("VGA %dx%d");
 #endif
 
 	if (svga->firstline_draw == 2000) 
@@ -1119,7 +1128,7 @@ svga_render_24bpp_highres(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("VGA");
+	text_render_gfx("VGA %dx%d");
 #endif
 
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
@@ -1162,7 +1171,7 @@ svga_render_32bpp_lowres(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("VGA");
+	text_render_gfx("VGA %dx%d");
 #endif
 
 	if (svga->firstline_draw == 2000) 
@@ -1195,7 +1204,7 @@ svga_render_32bpp_highres(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] ||  svga->changedvram[(svga->ma >> 12) + 1] || svga->changedvram[(svga->ma >> 12) + 2] || svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("VGA");
+	text_render_gfx("VGA %dx%d");
 #endif
 
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
@@ -1229,7 +1238,7 @@ svga_render_ABGR8888_highres(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] ||  svga->changedvram[(svga->ma >> 12) + 1] || svga->changedvram[(svga->ma >> 12) + 2] || svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("VGA");
+	text_render_gfx("VGA %dx%d");
 #endif
 
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
@@ -1263,7 +1272,7 @@ svga_render_RGBA8888_highres(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] ||  svga->changedvram[(svga->ma >> 12) + 1] || svga->changedvram[(svga->ma >> 12) + 2] || svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("VGA");
+	text_render_gfx("VGA %dx%d");
 #endif
 
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
