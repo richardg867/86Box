@@ -190,6 +190,12 @@ text_render_setpal_256(uint8_t index, uint32_t color)
 
     for (int i = 0; i < 256; i++) {
 	palette_color = text_render_256col[i];
+	if (palette_color == color) {
+		/* Stop immediately if an exact match was found. */
+		best_idx = i;
+		break;
+	}
+
 	rdif = ((palette_color >> 16) & 0xff) - ((color >> 16) & 0xff);
 	gdif = ((palette_color >> 8) & 0xff) - ((color >> 8) & 0xff);
 	bdif = (palette_color & 0xff) - (color & 0xff);
@@ -209,6 +215,7 @@ void
 text_render_setpal_true(uint8_t index, uint32_t color)
 {
     /* True color terminals can be given the full RGB color. */
+    //pclog("CLI Render: setpal_true(%d, %06X)\n", index, color);
     text_render_palette[index] = color;
 }
 
@@ -259,7 +266,7 @@ text_render_fillcolortable(uint32_t *table, uint16_t count)
 		color |= (uint8_t) ((i - 16) / 6 % 6 * 85 / 2) << 8;
 		color |= (uint8_t) ((i - 16) % 6 * 85 / 2);
 	} else { /* grayscale ramp */
-		color  = i * 10 - 2312;
+		color  = (uint8_t) (i * 10 - 2312);
 		color |= color << 8;
 		color |= (color & 0xff) << 16;
 	}
@@ -350,7 +357,7 @@ text_render_blank()
     CHECK_INIT();
 
     /* Clear screen. */
-    fprintf(TEXT_RENDER_OUTPUT, "\033[2J");
+    fprintf(TEXT_RENDER_OUTPUT, "\033[3J");
 
     /* Disable cursor and flush. */
     text_render_cx = text_render_cy = -1;
@@ -384,7 +391,7 @@ text_render_gfx(char *str)
 
     if (render) {
     	sprintf(buf, str, get_actual_size_x(), get_actual_size_y());
-    	fprintf(TEXT_RENDER_OUTPUT, "\033[2J\033[1;1H%s%s%s", resetattr, boxattr, cp437[0xc9]);
+    	fprintf(TEXT_RENDER_OUTPUT, "\033[3J\033[1;1H%s%s%s", resetattr, boxattr, cp437[0xc9]);
     	for (i = 0; i < strlen(buf); i++)
     		fprintf(TEXT_RENDER_OUTPUT, cp437[0xcd]);
     	fprintf(TEXT_RENDER_OUTPUT, "%s%s\033[2;1H%s%s%s%s%s\033[3;1H%s%s", cp437[0xbb], resetattr, boxattr, cp437[0xba], buf, cp437[0xba], resetattr, boxattr, cp437[0xc8]);
@@ -399,22 +406,29 @@ text_render_gfx(char *str)
 }
 
 void
-text_render_mda(mda_t *mda, uint16_t ca, uint8_t cy)
+text_render_mda(uint8_t xlimit,
+		uint8_t *fb, uint16_t fb_base,
+		uint8_t do_render, uint8_t do_blink,
+		uint16_t ca, uint8_t con)
 {
     CHECK_INIT();
 
     char buf[TEXT_RENDER_BUFSIZE], *p;
     int x;
-    uint8_t chr, attr, attr77, cx = 0, new_cx = text_render_cx, new_cy = text_render_cy;
+    uint32_t ma = fb_base;
+    uint8_t chr, attr, attr77, cy = ma / xlimit, cx = 0, new_cx = text_render_cx, new_cy = text_render_cy;
     uint8_t sgr_started = 0, sgr_blackout = 1, sgr_ul, sgr_int, sgr_blink, sgr_reverse;
     uint8_t prev_sgr_ul = 0, prev_sgr_int = 0, prev_sgr_blink = 0, prev_sgr_reverse = 0;
 
     p = buf;
     p += sprintf(p, "\033[%d;1H\033[0m\033[2K", cy + 1);
 
-    for (x = 0; x < mda->crtc[1]; x++) {
-    	chr  = mda->vram[(mda->ma << 1) & 0xfff];
-        attr = mda->vram[((mda->ma << 1) + 1) & 0xfff];
+    for (x = 0; x < xlimit; x++) {
+    	if (do_render) {
+    		chr  = fb[(ma << 1) & 0xfff];
+        	attr = fb[((ma << 1) + 1) & 0xfff];
+        } else
+        	chr = attr = 0;
 
         attr77 = attr & 0x77;
         if (!attr77) {
@@ -446,7 +460,7 @@ text_render_mda(mda_t *mda, uint16_t ca, uint8_t cy)
 	        }
 
 	        /* Set blink, if enabled. */
-	        sgr_blink = (mda->ctrl & 0x20) && (attr & 0x80);
+	        sgr_blink = do_blink && (attr & 0x80);
 	        if (sgr_blink != prev_sgr_blink) {
 			APPEND_SGR();
 			p += sprintf(p, sgr_blink ? "5" : "25");
@@ -463,7 +477,7 @@ text_render_mda(mda_t *mda, uint16_t ca, uint8_t cy)
 	}
 
 	/* If the cursor is on this location, set it as the new cursor position. */
-        if ((mda->ma == ca) && mda->con) {
+        if ((ma == ca) && con) {
 		new_cx = cx;
 		new_cy = cy;
 	}
@@ -477,7 +491,7 @@ text_render_mda(mda_t *mda, uint16_t ca, uint8_t cy)
 	/* Output the character. */
         p += sprintf(p, cp437[chr]);
 
-        mda->ma++;
+        ma++;
         cx++;
     }
 
@@ -489,7 +503,7 @@ text_render_mda(mda_t *mda, uint16_t ca, uint8_t cy)
 
     /* Update cursor if required. */
     if ((new_cx != text_render_cx) || (new_cy != text_render_cy)) {
-    	if (mda->con) {
+    	if (con) {
     		text_render_cx = new_cx;
     		text_render_cy = new_cy;
     	} else {

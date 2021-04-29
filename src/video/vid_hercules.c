@@ -31,6 +31,9 @@
 #include <86box/pit.h>
 #include <86box/device.h>
 #include <86box/video.h>
+#ifdef USE_CLI
+# include <86box/vid_text_render.h>
+#endif
 
 
 typedef struct {
@@ -274,6 +277,9 @@ hercules_poll(void *priv)
 
 		// if ((dev->ctrl & 2) && (dev->ctrl2 & 1)) {
 		if (dev->ctrl & 2) {
+#ifdef USE_CLI
+			text_render_gfx("Hercules %dx%d");
+#endif
 			ca = (dev->sc & 3) * 0x2000;
 			// if ((dev->ctrl & 0x80) && (dev->ctrl2 & 2)) 
 			if (dev->ctrl & 0x80)
@@ -292,6 +298,10 @@ hercules_poll(void *priv)
 					video_blend((x << 4) + c, dev->displine);
 			}
 		} else {
+#ifdef USE_CLI
+			if ((dev->displine % 8) == 0)
+				text_render_mda(dev->crtc[1], dev->vram, dev->ma, dev->ctrl & 8, dev->ctrl & 0x20, ca, dev->con);
+#endif
 			for (x = 0; x < dev->crtc[1]; x++) {
 				if (dev->ctrl & 8) {
 					chr  = dev->vram[(dev->ma << 1) & 0xfff];

@@ -122,6 +122,9 @@ svga_out(uint16_t addr, uint8_t val, void *p)
 						svga->egapal[c] = (svga->attrregs[c] & 0x3f) |
 								  ((svga->attrregs[0x14] & 0xc) << 4);
 					}
+#ifdef USE_CLI
+					text_render_setpal(ansi_palette[c], svga->pallook[svga->egapal[c]]);
+#endif
 				}
 			}
 			/* Recalculate timings on change of attribute register 0x11
@@ -215,8 +218,8 @@ svga_out(uint16_t addr, uint8_t val, void *p)
 				else
 					svga->pallook[index] = makecol32(video_6to8[svga->vgapal[index].r & 0x3f], video_6to8[svga->vgapal[index].g & 0x3f], video_6to8[svga->vgapal[index].b & 0x3f]);
 #ifdef USE_CLI
-				if (index < 16)
-					text_render_setpal(ansi_palette[index], svga->pallook[svga->egapal[index]]);
+				for (c = 0; c < 16; c++)
+					text_render_setpal(ansi_palette[c], svga->pallook[svga->egapal[c]]);
 #endif
 				svga->dac_pos = 0; 
 				svga->dac_addr = (svga->dac_addr + 1) & 255; 

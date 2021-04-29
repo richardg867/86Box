@@ -23,9 +23,10 @@ void	text_render_setpal_init(uint8_t index, uint32_t color);
 void	text_render_blank();
 void	text_render_gfx(char *type);
 
-#ifdef TEXT_RENDER_MDA
-void	text_render_mda(mda_t *mda, uint16_t ca, uint8_t cy);
-#endif
+void	text_render_mda(uint8_t xlimit,
+			uint8_t *fb, uint16_t fb_base,
+			uint8_t do_render, uint8_t do_blink,
+			uint16_t ca, uint8_t con);
 void	text_render_cga(uint8_t cy,
 			int xlimit, int xinc,
 			uint8_t *fb, uint32_t fb_base, uint32_t fb_mask, uint8_t fb_step,
