@@ -236,10 +236,10 @@ cga_poll(void *p)
 #ifdef USE_CLI
 			if ((cga->displine % 8) == 0)
 				text_render_cga(cga->ma / cga->crtc[1],
-				   cga->crtc[1], 1,
-				   cga->charbuffer, 0, sizeof(cga->charbuffer) - 1, 1,
-				   cga->cgamode & 0x08, cga->cgamode & 0x20,
-				   ca - cga->ma, cga->con);
+						cga->crtc[1], 1,
+						cga->charbuffer, 0, sizeof(cga->charbuffer) - 1, 1,
+						cga->cgamode & 0x08, cga->cgamode & 0x20,
+						ca - cga->ma, !(cga->crtc[0x0a] & 0x20) && ((cga->crtc[0x0b] & 0x1f) >= (cga->crtc[0x0a] & 0x1f)));
 #endif
 			for (x = 0; x < cga->crtc[1]; x++) {
 				if (cga->cgamode & 8) {	
@@ -274,10 +274,10 @@ cga_poll(void *p)
 #ifdef USE_CLI
 			if ((cga->displine % 8) == 0)
 				text_render_cga(cga->ma / cga->crtc[1],
-				   cga->crtc[1], 1,
-				   cga->vram, cga->ma << 1, 0x3fff, 1,
-				   cga->cgamode & 0x08, cga->cgamode & 0x20,
-				   ca, cga->con);
+						cga->crtc[1], 1,
+						cga->vram, cga->ma << 1, 0x3fff, 1,
+						cga->cgamode & 0x08, cga->cgamode & 0x20,
+						ca, !(cga->crtc[0x0a] & 0x20) && ((cga->crtc[0x0b] & 0x1f) >= (cga->crtc[0x0a] & 0x1f)));
 #endif
 			for (x = 0; x < cga->crtc[1]; x++) {
 				if (cga->cgamode & 8) {

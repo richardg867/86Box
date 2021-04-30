@@ -290,7 +290,7 @@ svga_render_text_80_ksc5601(svga_t *svga)
 
     if (svga->fullchange) {
 #ifdef USE_CLI
-	text_render_gfx("KSC5601");
+	text_render_gfx("VGA KSC5601");
 #endif
 
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];

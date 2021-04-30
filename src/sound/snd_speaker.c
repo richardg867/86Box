@@ -29,6 +29,9 @@
 
 int speaker_mute = 0, speaker_gated = 0;
 int speaker_enable = 0, was_speaker_enable = 0;
+#ifdef USE_CLI
+int speaker_bell = 0, speaker_bell_cycles = 0;
+#endif
 
 int gated, speakval, speakon;
 
@@ -47,7 +50,7 @@ speaker_set_count(uint8_t new_m, int new_count)
     speaker_count = (double) new_count;
 }
 
-
+int fc = 0;
 void
 speaker_update(void)
 {
@@ -79,6 +82,18 @@ speaker_update(void)
 			was_speaker_enable = 0;
 
 		speaker_buffer[speaker_pos] = val;
+
+#ifdef USE_CLI
+		if ((!!val) ^ speaker_bell) {
+			speaker_bell = !!val;
+			if (speaker_bell && (speaker_bell_cycles > 26)) {
+				fprintf(stderr, "\x07");
+				fflush(stderr);
+			}
+			speaker_bell_cycles = 0;
+		}
+		speaker_bell_cycles++;
+#endif
 	    }
     }
 }
@@ -108,4 +123,7 @@ speaker_init(void)
 {
     sound_add_handler(speaker_get_buffer, NULL);
     speaker_mute = 0;
+#ifdef USE_CLI
+    speaker_bell = speaker_bell_cycles = 0;
+#endif
 }

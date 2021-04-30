@@ -164,9 +164,17 @@ dump_page(prnt_t *dev)
     }
     fseek(fp, 0, SEEK_END);
 
+#ifdef USE_CLI
+    fprintf(stderr, "\033[5i");
+#endif
+
     /* If this is not a new file, add a formfeed first. */
-    if (ftell(fp) != 0)
+    if (ftell(fp) != 0) {
 	fputc('\014', fp);
+#ifdef USE_CLI
+	fputc('\014', stderr);
+#endif
+    }
 
     for (y = 0; y < dev->curr_y; y++) {
 	for (x = 0; x < dev->page->w; x++) {
@@ -174,15 +182,26 @@ dump_page(prnt_t *dev)
 		if (ch == 0x00) {
 			/* End of line marker. */
 			fputc('\n', fp);
+#ifdef USE_CLI
+			fputc('\n', stderr);
+#endif
 			break;
 		} else {
 			fputc(ch, fp);
+#ifdef USE_CLI
+			fputc(ch, stderr);
+#endif
 		}
 	}
     }
 
     /* All done, close the file. */
     fclose(fp);
+
+#ifdef USE_CLI
+    fprintf(stderr, "\033[4i");
+    fflush(stderr);
+#endif
 }
 
 

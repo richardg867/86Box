@@ -30,6 +30,9 @@
 #include <86box/rom.h>
 #include <86box/device.h>
 #include <86box/video.h>
+#ifdef USE_CLI
+# include <86box/vid_text_render.h>
+#endif
 
 
 /* extended CRTC registers */
@@ -799,6 +802,26 @@ text_line(incolor_t *dev, uint16_t ca)
     uint8_t chr, attr;
     uint32_t col;
 
+#ifdef USE_CLI
+	if ((dev->displine % 8) == 0) {
+		c = dev->crtc[INCOLOR_CRTC_XMODE] & 5;
+		if ((c == 0) || (c == 4)) {
+			if (dev->crtc[INCOLOR_CRTC_EXCEPT] & INCOLOR_EXCEPT_ALTATTR)
+				text_render_mda(dev->crtc[1],
+						dev->vram, dev->ma,
+						dev->ctrl & 8, dev->ctrl & INCOLOR_CTRL_BLINK,
+						ca, dev->con);
+			else
+				text_render_cga(dev->ma / dev->crtc[1],
+						dev->crtc[1], 1,
+						dev->vram, dev->ma, 0xfff, 1,
+						dev->ctrl & 8, dev->ctrl & INCOLOR_CTRL_BLINK,
+						ca, dev->con);
+		} else
+			text_render_gfx("Hercules InColor RAMfont");
+	}
+#endif
+
     for (x = 0; x < dev->crtc[1]; x++) {
 	if (dev->ctrl & 8) {
 		chr  = dev->vram[(dev->ma << 1) & 0xfff];
@@ -860,6 +883,10 @@ graphics_line(incolor_t *dev)
     int x, c, plane, col;
     uint8_t ink;
     uint16_t val[4];
+
+#ifdef USE_CLI
+    text_render_gfx("Hercules InColor %dx%d");
+#endif
 
     /* Graphics mode. */
     ca = (dev->sc & 3) * 0x2000;

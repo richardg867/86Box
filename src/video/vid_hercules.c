@@ -300,7 +300,10 @@ hercules_poll(void *priv)
 		} else {
 #ifdef USE_CLI
 			if ((dev->displine % 8) == 0)
-				text_render_mda(dev->crtc[1], dev->vram, dev->ma, dev->ctrl & 8, dev->ctrl & 0x20, ca, dev->con);
+				text_render_mda(dev->crtc[1],
+						dev->vram, dev->ma,
+						dev->ctrl & 8, dev->ctrl & 0x20,
+						ca, dev->con);
 #endif
 			for (x = 0; x < dev->crtc[1]; x++) {
 				if (dev->ctrl & 8) {
@@ -332,6 +335,10 @@ hercules_poll(void *priv)
 			}
 		}
 	}
+#ifdef USE_CLI
+	else
+		text_render_blank();
+#endif
 	dev->sc = oldsc;
 
 	if (dev->vc == dev->crtc[7] && !dev->sc)

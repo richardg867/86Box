@@ -38,6 +38,9 @@
 #include <86box/vid_cga.h>
 #include <86box/vid_nga.h>
 #include <86box/vid_cga_comp.h>
+#ifdef USE_CLI
+# include <86box/vid_text_render.h>
+#endif
 
 
 
@@ -184,6 +187,14 @@ nga_poll(void *priv)
 				nga->cga.lastline = nga->cga.displine;
 				/* 80-col */
 				if ((nga->cga.cgamode & 1) && !(nga->cga.cgamode & 2)) {
+#ifdef USE_CLI
+					if ((nga->cga.displine % 8) == 0)
+						text_render_cga(nga->cga.ma / nga->cga.crtc[1],
+								nga->cga.crtc[1], 1,
+								nga->cga.charbuffer, 0, sizeof(nga->cga.charbuffer) - 1, 1,
+								nga->cga.cgamode & 0x08, nga->cga.cgamode & 0x20,
+								ca - nga->cga.ma, !(nga->cga.crtc[0x0a] & 0x20) && ((nga->cga.crtc[0x0b] & 0x1f) >= (nga->cga.crtc[0x0a] & 0x1f)));
+#endif
 					/* for each text column */
 					for (x = 0; x < nga->cga.crtc[1]; x++) {
 						/* video output enabled */
@@ -223,6 +234,14 @@ nga_poll(void *priv)
 				} 
 				/* 40-col */
 				else if (!(nga->cga.cgamode & 2)) {
+#ifdef USE_CLI
+					if ((nga->cga.displine % 8) == 0)
+						text_render_cga(nga->cga.ma / nga->cga.crtc[1],
+								nga->cga.crtc[1], 1,
+								nga->cga.vram, nga->cga.ma << 1, 0x3fff, 1,
+								nga->cga.cgamode & 0x08, nga->cga.cgamode & 0x20,
+								ca, !(nga->cga.crtc[0x0a] & 0x20) && ((nga->cga.crtc[0x0b] & 0x1f) >= (nga->cga.crtc[0x0a] & 0x1f)));
+#endif
 					/* for each text column */
 					for (x = 0; x < nga->cga.crtc[1]; x++) {
 						if (nga->cga.cgamode & 8) {
@@ -260,6 +279,9 @@ nga_poll(void *priv)
 						
 					}
 				} else {
+#ifdef USE_CLI
+					text_render_gfx("NGA %dx%d");
+#endif
 					/* high res modes */
 					if (nga->cga.cgamode & 0x40) {
 						/* 640x400x2 mode */
@@ -343,7 +365,6 @@ nga_poll(void *priv)
 					}
 				}
 			} else {
-				
 				/* nga specific */
 				cols[0] = ((nga->cga.cgamode & 0x12) == 0x12) ? 0 : (nga->cga.cgacol & 15) + 16;
 				/* 80-col */
