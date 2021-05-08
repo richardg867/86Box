@@ -29,6 +29,9 @@
 #include <86box/rom.h>
 #include <86box/device.h>
 #include <86box/video.h>
+#ifdef USE_CLI
+# include <86box/vid_text_render.h>
+#endif
 
 
 #define ROM_SIGMA_FONT		"roms/video/sigma/sigma400_font.rom"
@@ -426,6 +429,10 @@ static void sigma_text80(sigma_t *sigma)
 	++ca;
     ca &= 0x3fff;
 
+#ifdef USE_CLI
+    text_render_gfx("Sigma Color 80-column");
+#endif
+
     /* The Sigma 400 seems to use screen widths stated in words
        (40 for 80-column, 20 for 40-column) */
     for (x = 0; x < (sigma->crtc[1] << 1); x++) {
@@ -482,6 +489,10 @@ sigma_text40(sigma_t *sigma)
 	++ca;
     ca &= 0x3fff;
 
+#ifdef USE_CLI
+    text_render_gfx("Sigma Color 40-column");
+#endif
+
     /* The Sigma 400 seems to use screen widths stated in words
        (40 for 80-column, 20 for 40-column) */
     for (x = 0; x < (sigma->crtc[1] << 1); x++) {
@@ -525,7 +536,11 @@ sigma_gfx400(sigma_t *sigma)
     unsigned char *vram = &sigma->vram[((sigma->ma << 1) & 0x1FFF) +
 				       (sigma->sc & 3) * 0x2000];
     uint8_t plane[4];
-    uint8_t mask, col, c;	
+    uint8_t mask, col, c;
+
+#ifdef USE_CLI
+    text_render_gfx("Sigma Color %dx%d");
+#endif
 
     for (x = 0; x < (sigma->crtc[1] << 1); x++) {
 	plane[0] = vram[x];	
@@ -558,7 +573,11 @@ sigma_gfx200(sigma_t *sigma)
     unsigned char *vram = &sigma->vram[((sigma->ma << 1) & 0x1FFF) +
 				       (sigma->sc & 2) * 0x1000];
     uint8_t plane[4];
-    uint8_t mask, col, c;	
+    uint8_t mask, col, c;
+
+#ifdef USE_CLI
+    text_render_gfx("Sigma Color %dx%d");
+#endif
 
     for (x = 0; x < (sigma->crtc[1] << 1); x++) {
 	plane[0] = vram[x];	
@@ -589,7 +608,11 @@ sigma_gfx4col(sigma_t *sigma)
     unsigned char *vram = &sigma->vram[((sigma->ma << 1) & 0x1FFF) +
 				       (sigma->sc & 2) * 0x1000];
     uint8_t plane[4];
-    uint8_t mask, col, c;	
+    uint8_t mask, col, c;
+
+#ifdef USE_CLI
+    text_render_gfx("Sigma Color %dx%d");
+#endif
 
     for (x = 0; x < (sigma->crtc[1] << 1); x++) {
 	plane[0] = vram[x];	

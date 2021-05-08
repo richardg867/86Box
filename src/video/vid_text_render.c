@@ -44,11 +44,8 @@
 #define APPEND_SGR()	if (!sgr_started) { \
 				sgr_started = 1; \
 				p += sprintf(p, "\033["); \
-				if (x == 0) \
-					p += sprintf(p, "0;"); \
-			} else { \
-				p += sprintf(p, ";"); \
-			}
+			} else \
+				p += sprintf(p, ";");
 
 
 enum {
@@ -64,7 +61,9 @@ enum {
        video cards, where supported. We can't enable both 5 and 6
        simultaneously, as they don't cancel each other out on mintty
        and possibly other terminals, resulting in irregular blinking. */
-    TERM_CTL_RAPIDBLINK	= 0x01
+    TERM_CTL_RAPIDBLINK	= 0x01,
+    /* Printing through aux port CSIs. */
+    TERM_CTL_PRINT	= 0x02
 };
 
 enum {
@@ -83,14 +82,14 @@ const uint8_t ansi_palette[] = {
 /* Lookup table for converting code page 437 to UTF-8. */
 // s = ''; i = 0; for (var x of $('#thetable').find('td')) { c = $(x).find('small')[0].innerText.split('\n')[1]; s += ('"' + encodeURI(String.fromCodePoint(parseInt(c, 16))).replace(/%/g, '\\x') + '",').padEnd(16); if (++i % 16 == 0) s += '\n'; }
 static const char *cp437[] = {
-    /* 00 */ " ",	    "\xE2\x98\xBA", "\xE2\x98\xBB", "\xE2\x99\xA5", "\xE2\x99\xA6", "\xE2\x99\xA3", "\xE2\x99\xA0", "\xE2\x80\xA2", "\xE2\x97\x98", "\xE2\x97\x8B", "\xE2\x97\x99", "\xE2\x99\x82", "\xE2\x99\x80", "\xE2\x99\xAA", "\xE2\x99\xAB", "\xE2\x98\xBC",
+    /* 00 */ " ",            "\xE2\x98\xBA", "\xE2\x98\xBB", "\xE2\x99\xA5", "\xE2\x99\xA6", "\xE2\x99\xA3", "\xE2\x99\xA0", "\xE2\x80\xA2", "\xE2\x97\x98", "\xE2\x97\x8B", "\xE2\x97\x99", "\xE2\x99\x82", "\xE2\x99\x80", "\xE2\x99\xAA", "\xE2\x99\xAB", "\xE2\x98\xBC",
     /* 10 */ "\xE2\x96\xBA", "\xE2\x97\x84", "\xE2\x86\x95", "\xE2\x80\xBC", "\xC2\xB6",     "\xC2\xA7",     "\xE2\x96\xAC", "\xE2\x86\xA8", "\xE2\x86\x91", "\xE2\x86\x93", "\xE2\x86\x92", "\xE2\x86\x90", "\xE2\x88\x9F", "\xE2\x86\x94", "\xE2\x96\xB2", "\xE2\x96\xBC",
-    /* 20 */ " ",	    "!",	    "\"",	   "#",	    "$",	    "%",	    "&",	    "'",	    "(",	    ")",	    "*",	    "+",	    ",",	    "-",	    ".",	    "/",
-    /* 30 */ "0",	    "1",	    "2",	    "3",	    "4",	    "5",	    "6",	    "7",	    "8",	    "9",	    ":",	    ";",	    "<",	    "=",	    ">",	    "?",
-    /* 40 */ "@",	    "A",	    "B",	    "C",	    "D",	    "E",	    "F",	    "G",	    "H",	    "I",	    "J",	    "K",	    "L",	    "M",	    "N",	    "O",
-    /* 50 */ "P",	    "Q",	    "R",	    "S",	    "T",	    "U",	    "V",	    "W",	    "X",	    "Y",	    "Z",	    "[",	    "\\",	   "]",	    "^",	    "_",
-    /* 60 */ "`",	    "a",	    "b",	    "c",	    "d",	    "e",	    "f",	    "g",	    "h",	    "i",	    "j",	    "k",	    "l",	    "m",	    "n",	    "o",
-    /* 70 */ "p",	    "q",	    "r",	    "s",	    "t",	    "u",	    "v",	    "w",	    "x",	    "y",	    "z",	    "{",	    "|",	    "}",	    "~",	    "\xE2\x8C\x82",
+    /* 20 */ " ",            "!",            "\"",           "#",            "$",            "%",            "&",            "'",            "(",            ")",            "*",            "+",            ",",            "-",            ".",            "/",
+    /* 30 */ "0",            "1",            "2",            "3",            "4",            "5",            "6",            "7",            "8",            "9",            ":",            ";",            "<",            "=",            ">",            "?",
+    /* 40 */ "@",            "A",            "B",            "C",            "D",            "E",            "F",            "G",            "H",            "I",            "J",            "K",            "L",            "M",            "N",            "O",
+    /* 50 */ "P",            "Q",            "R",            "S",            "T",            "U",            "V",            "W",            "X",            "Y",            "Z",            "[",            "\\",           "]",            "^",            "_",
+    /* 60 */ "`",            "a",            "b",            "c",            "d",            "e",            "f",            "g",            "h",            "i",            "j",            "k",            "l",            "m",            "n",            "o",
+    /* 70 */ "p",            "q",            "r",            "s",            "t",            "u",            "v",            "w",            "x",            "y",            "z",            "{",            "|",            "}",            "~",            "\xE2\x8C\x82",
     /* 80 */ "\xC3\x87",     "\xC3\xBC",     "\xC3\xA9",     "\xC3\xA2",     "\xC3\xA4",     "\xC3\xA0",     "\xC3\xA5",     "\xC3\xA7",     "\xC3\xAA",     "\xC3\xAB",     "\xC3\xA8",     "\xC3\xAF",     "\xC3\xAE",     "\xC3\xAC",     "\xC3\x84",     "\xC3\x85",
     /* 90 */ "\xC3\x89",     "\xC3\xA6",     "\xC3\x86",     "\xC3\xB4",     "\xC3\xB6",     "\xC3\xB2",     "\xC3\xBB",     "\xC3\xB9",     "\xC3\xBF",     "\xC3\x96",     "\xC3\x9C",     "\xC2\xA2",     "\xC2\xA3",     "\xC2\xA5",     "\xE2\x82\xA7", "\xC6\x92",
     /* A0 */ "\xC3\xA1",     "\xC3\xAD",     "\xC3\xB3",     "\xC3\xBA",     "\xC3\xB1",     "\xC3\x91",     "\xC2\xAA",     "\xC2\xBA",     "\xC2\xBF",     "\xE2\x8C\x90", "\xC2\xAC",     "\xC2\xBD",     "\xC2\xBC",     "\xC2\xA1",     "\xC2\xAB",     "\xC2\xBB",
@@ -108,24 +107,24 @@ static const struct {
     const uint8_t ctl;
     const uint8_t gfx;
 } term_types[] = {
-    {"iterm",		TERM_COLOR_24BIT, 0,			0			},
-    {"iterm2",		TERM_COLOR_24BIT, 0,			TERM_GFX_PNG		},
-    {"kitty",		TERM_COLOR_24BIT, 0,			TERM_GFX_PNG_KITTY	}, /* not to be confused with the PuTTY fork */
-    {"konsole",		TERM_COLOR_24BIT, 0,			0			},
-    {"linux",		TERM_COLOR_24BIT, 0,			0			},
-    {"mintty",		TERM_COLOR_24BIT, TERM_CTL_RAPIDBLINK,	TERM_GFX_SIXEL | TERM_GFX_PNG},
-    {"termite",		TERM_COLOR_24BIT, 0,			0			}, /* not to be confused with the CompuPhase product */
-    {"tmux",		TERM_COLOR_24BIT, 0,			0			},
-    {"vte",		TERM_COLOR_24BIT, 0,			0			},
-    {"xfce",		TERM_COLOR_24BIT, 0,			0			},
-    {"xterm-24bit",	TERM_COLOR_24BIT, 0,			0			},
-    {"xterm-24bits",	TERM_COLOR_24BIT, 0,			0			},
-    {"xterm-256color",	TERM_COLOR_24BIT, 0,			0			},
-    {"putty",		TERM_COLOR_4BIT,  0,			0			},
-    {"xterm-16color",	TERM_COLOR_4BIT,  0,			0			},
-    {"vt100",		TERM_COLOR_NONE,  0,			0			},
-    {"vt220",		TERM_COLOR_NONE,  0,			0			},
-    {"vt240",		TERM_COLOR_NONE,  0,			TERM_GFX_SIXEL		},
+    {"iterm",		TERM_COLOR_24BIT, 0,					0			},
+    {"iterm2",		TERM_COLOR_24BIT, 0,					TERM_GFX_PNG		},
+    {"kitty",		TERM_COLOR_24BIT, 0,					TERM_GFX_PNG_KITTY	}, /* not to be confused with the PuTTY fork */
+    {"konsole",		TERM_COLOR_24BIT, 0,					0			},
+    {"linux",		TERM_COLOR_24BIT, 0,					0			},
+    {"mintty",		TERM_COLOR_24BIT, TERM_CTL_RAPIDBLINK | TERM_CTL_PRINT,	TERM_GFX_SIXEL | TERM_GFX_PNG},
+    {"termite",		TERM_COLOR_24BIT, 0,					0			}, /* not to be confused with the CompuPhase product */
+    {"tmux",		TERM_COLOR_24BIT, 0,					0			},
+    {"vte",		TERM_COLOR_24BIT, 0,					0			},
+    {"xfce",		TERM_COLOR_24BIT, 0,					0			},
+    {"xterm-24bit",	TERM_COLOR_24BIT, 0,					0			},
+    {"xterm-24bits",	TERM_COLOR_24BIT, 0,					0			},
+    {"xterm-256color",	TERM_COLOR_24BIT, 0,					0			},
+    {"putty",		TERM_COLOR_4BIT,  0,					0			},
+    {"xterm-16color",	TERM_COLOR_4BIT,  0,					0			},
+    {"vt100",		TERM_COLOR_NONE,  0,					0			},
+    {"vt220",		TERM_COLOR_NONE,  0,					0			},
+    {"vt240",		TERM_COLOR_NONE,  0,					TERM_GFX_SIXEL		},
     {NULL, 0, 0, 0} /* assume TERM_COLOR_3BIT and no control/graphics capability for other terminals */
 };
 
@@ -390,7 +389,11 @@ text_render_init()
 	default:
 		text_render_setcolor = text_render_setcolor_noop;
 		text_render_setpal = text_render_setpal_noop;
+		break;
     }
+
+    /* Override the default color for dark yellow, as CGA typically renders that as brown. */
+    text_render_setpal(3, 0xaa5500);
 
     /* Start with the cursor disabled. */
     text_render_cx = -1;
@@ -519,7 +522,7 @@ text_render_mda(uint8_t xlimit,
 		}
 
 		/* Set underline. Cannot co-exist with reverse. */
-		sgr_ul = !sgr_reverse && ((attr & 0x07) == 1);
+		sgr_ul = ((attr & 0x07) == 1) && !sgr_reverse;
 		if (sgr_ul != prev_sgr_ul) {
 			APPEND_SGR();
 			p += sprintf(p, sgr_ul ? "4" : "24");
@@ -527,14 +530,14 @@ text_render_mda(uint8_t xlimit,
 		}
 
 		/* Set blink, if enabled. */
-		sgr_blink = do_blink && (attr & 0x80);
+		sgr_blink = (attr & 0x80) && do_blink;
 		if (sgr_blink != prev_sgr_blink) {
 			APPEND_SGR();
 			p += sprintf(p, sgr_blink ? ((text_render_term_ctl & TERM_CTL_RAPIDBLINK) ? "6" : "5") : "25");
 			prev_sgr_blink = sgr_blink;
 		}
 
-		/* Set intense. Cannot co-exist with both reverse and blink. */
+		/* Set intense. Cannot co-exist with both reverse and blink simultaneously. */
 		sgr_int = (attr & 0x08) && !(sgr_reverse && sgr_blink);
 		if (sgr_int != prev_sgr_int) {
 			APPEND_SGR();

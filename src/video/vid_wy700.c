@@ -28,6 +28,9 @@
 #include <86box/mem.h>
 #include <86box/device.h>
 #include <86box/video.h>
+#ifdef USE_CLI
+# include <86box/vid_text_render.h>
+#endif
 
 
 #define WY700_XSIZE 1280
@@ -538,7 +541,7 @@ void wy700_textline(wy700_t *wy700)
  * attributes are used */
 	if (wy700->cga_crtc[9] == 0 || wy700->cga_crtc[9] == 13)
 	{
-		mda = 1;	
+		mda = 1;
 	}
 
 	if (wy700->font)
@@ -559,6 +562,20 @@ void wy700_textline(wy700_t *wy700)
 		cursorline = ((wy700->real_crtc[10] & 0x1F) <= sc) &&
 			     ((wy700->real_crtc[11] & 0x1F) >= sc);
 	}
+
+#ifdef USE_CLI
+	if (mda)
+		text_render_mda(w,
+				wy700->vram, ma,
+				1, wy700->cga_ctrl & 0x20,
+				ca, !(wy700->real_crtc[0x0a] & 0x20) && ((wy700->real_crtc[0x0b] & 0x1f) >= (wy700->real_crtc[0x0a] & 0x1f)));
+	else
+		text_render_cga(w,
+				w, 1,
+				wy700->vram, ma, 0x3fff, 1,
+				1, wy700->cga_ctrl & 0x20,
+				ca, !(wy700->real_crtc[0x0a] & 0x20) && ((wy700->real_crtc[0x0b] & 0x1f) >= (wy700->real_crtc[0x0a] & 0x1f)));
+#endif
 
 	for (x = 0; x < w; x++)
 	{
@@ -622,6 +639,10 @@ void wy700_cgaline(wy700_t *wy700)
 	       (wy700->displine >> 3) * 80 +
 	       ((ma & ~1) << 1);
 
+#ifdef USE_CLI
+	text_render_gfx("Wyse 700 %dx%d");
+#endif
+
 	/* The fixed mode setting here programs the real CRTC with a screen 
 	 * width to 20, so draw in 20 fixed chunks of 4 bytes each */
 	for (x = 0; x < 20; x++)
@@ -678,6 +699,10 @@ void wy700_medresline(wy700_t *wy700)
 	uint32_t addr;
 
 	addr = (wy700->displine >> 1) * 80 + 4 * wy700->wy700_base;
+
+#ifdef USE_CLI
+	text_render_gfx("Wyse 700 %dx%d");
+#endif
 
 	for (x = 0; x < 20; x++)
 	{
@@ -741,6 +766,11 @@ void wy700_hiresline(wy700_t *wy700)
 	{	
 		if (wy700->displine & 1) addr += 0x10000;
 	}
+
+#ifdef USE_CLI
+	text_render_gfx("Wyse 700 %dx%d");
+#endif
+
 	for (x = 0; x < 40; x++)
 	{
 		dat =  ((wy700->vram[addr     & 0x1FFFF] << 24) | 

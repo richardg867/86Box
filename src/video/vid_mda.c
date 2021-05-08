@@ -132,9 +132,9 @@ void mda_poll(void *p)
 #ifdef USE_CLI
                         if ((mda->displine % 8) == 0)
                                 text_render_mda(mda->crtc[1],
-                                		mda->vram, mda->ma,
-                                		1, mda->ctrl & 0x20,
-                                		ca, mda->con);
+                                                mda->vram, mda->ma,
+                                                1, mda->ctrl & 0x20,
+                                                ca, !(mda->crtc[0x0a] & 0x20) && ((mda->crtc[0x0b] & 0x1f) >= (mda->crtc[0x0a] & 0x1f)));
 #endif
                         for (x = 0; x < mda->crtc[1]; x++)
                         {
@@ -162,10 +162,6 @@ void mda_poll(void *p)
                                 }
                         }
                 }
-#ifdef USE_CLI
-                else
-                        text_render_blank();
-#endif
                 mda->sc = oldsc;
                 if (mda->vc == mda->crtc[7] && !mda->sc)
                 {

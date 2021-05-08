@@ -39,7 +39,9 @@
 #include <86box/vid_cga.h>
 #include <86box/vid_ogc.h>
 #include <86box/vid_cga_comp.h>
-
+#ifdef USE_CLI
+# include <86box/vid_text_render.h>
+#endif
 
 
 /*
@@ -228,6 +230,14 @@ ogc_poll(void *priv)
 				ogc->cga.lastline = ogc->cga.displine;
 				/* 80-col */
 				if (ogc->cga.cgamode & 1) {
+#ifdef USE_CLI
+					if ((ogc->cga.displine % 8) == 0)
+						text_render_cga(ogc->cga.ma / ogc->cga.crtc[1],
+								ogc->cga.crtc[1], 1,
+								ogc->cga.charbuffer, 0, sizeof(ogc->cga.charbuffer) - 1, 1,
+								ogc->cga.cgamode & 0x08, ogc->cga.cgamode & 0x20,
+								ca - ogc->cga.ma, !(ogc->cga.crtc[0x0a] & 0x20) && ((ogc->cga.crtc[0x0b] & 0x1f) >= (ogc->cga.crtc[0x0a] & 0x1f)));
+#endif
 					/* for each text column */
 					for (x = 0; x < ogc->cga.crtc[1]; x++) {
 						/* video output enabled */
@@ -281,6 +291,14 @@ ogc_poll(void *priv)
 				} 
 				/* 40-col */
 				else if (!(ogc->cga.cgamode & 2)) {
+#ifdef USE_CLI
+					if ((ogc->cga.displine % 8) == 0)
+						text_render_cga(ogc->cga.ma / ogc->cga.crtc[1],
+								ogc->cga.crtc[1], 1,
+								ogc->cga.charbuffer, 0, sizeof(ogc->cga.charbuffer) - 1, 1,
+								ogc->cga.cgamode & 0x08, ogc->cga.cgamode & 0x20,
+								ca - ogc->cga.ma, !(ogc->cga.crtc[0x0a] & 0x20) && ((ogc->cga.crtc[0x0b] & 0x1f) >= (ogc->cga.crtc[0x0a] & 0x1f)));
+#endif
 					for (x = 0; x < ogc->cga.crtc[1]; x++) {
 						if (ogc->cga.cgamode & 8) {
 							chr  = ogc->cga.vram[((ogc->cga.ma << 1) & 0x3fff) + ogc->base];
@@ -333,6 +351,9 @@ ogc_poll(void *priv)
 						
 					}
 				} else {
+#ifdef USE_CLI
+					text_render_gfx("OGC %dx%d");
+#endif
 					/* 640x400 mode */
 					if (ogc->ctrl_3de & 1 ) {
 						dat2 = ((ogc->cga.sc & 1) * 0x4000) | (ogc->lineff * 0x2000);

@@ -35,6 +35,9 @@
 #include <86box/video.h>
 #include <86box/vid_cga.h>
 #include <86box/vid_cga_comp.h>
+#ifdef USE_CLI
+# include <86box/vid_text_render.h>
+#endif
 
 
 #define CGA_RGB 0
@@ -136,6 +139,14 @@ compaq_cga_poll(void *p)
 		}
 
 		if (self->cga.cgamode & 1) {
+#ifdef USE_CLI
+			if ((self->cga.displine % 8) == 0)
+				text_render_cga(self->cga.ma / self->cga.crtc[1],
+						self->cga.crtc[1], 1,
+						self->cga.charbuffer, 0, sizeof(self->cga.charbuffer) - 1, 1,
+						self->cga.cgamode & 0x08, self->cga.cgamode & 0x20,
+						ca - self->cga.ma, !(self->cga.crtc[0x0a] & 0x20) && ((self->cga.crtc[0x0b] & 0x1f) >= (self->cga.crtc[0x0a] & 0x1f)));
+#endif
 			for (x = 0; x < self->cga.crtc[1]; x++) {
 				chr = self->cga.charbuffer[x << 1];
 				attr = self->cga.charbuffer[(x << 1) + 1];
@@ -181,6 +192,14 @@ compaq_cga_poll(void *p)
 				self->cga.ma++;
 			}
 		} else {
+#ifdef USE_CLI
+			if ((self->cga.displine % 8) == 0)
+				text_render_cga(self->cga.ma / self->cga.crtc[1],
+						self->cga.crtc[1], 1,
+						self->cga.vram, self->cga.ma << 1, 0x3fff, 1,
+						self->cga.cgamode & 0x08, self->cga.cgamode & 0x20,
+						ca, !(self->cga.crtc[0x0a] & 0x20) && ((self->cga.crtc[0x0b] & 0x1f) >= (self->cga.crtc[0x0a] & 0x1f)));
+#endif
 			for (x = 0; x < self->cga.crtc[1]; x++) {
 				chr  = self->cga.vram[((self->cga.ma << 1) & 0x3fff)];
 				attr = self->cga.vram[(((self->cga.ma << 1) + 1) & 0x3fff)];

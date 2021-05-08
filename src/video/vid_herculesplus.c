@@ -428,7 +428,7 @@ text_line(herculesplus_t *dev, uint16_t ca)
 			text_render_mda(dev->crtc[1],
 					dev->vram, dev->ma,
 					dev->ctrl & 8, dev->ctrl & 0x20,
-					ca, dev->con);
+					ca, !(dev->crtc[0x0a] & 0x20) && ((dev->crtc[0x0b] & 0x1f) >= (dev->crtc[0x0a] & 0x1f)));
 		else
 			text_render_gfx("Hercules Plus RAMfont");
 	}

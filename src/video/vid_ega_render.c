@@ -132,6 +132,15 @@ ega_render_text_40(ega_t *ega)
 	p = &buffer32->line[ega->displine + ega->y_add][ega->x_add];
 	xinc = (ega->seqregs[1] & 1) ? 16 : 18;
 
+#ifdef USE_CLI
+	if (ega->sc == 0)
+		text_render_cga((ega->ma >> 2) / 40,
+				ega->hdisp + ega->scrollcache, xinc,
+				ega->vram, ega->ma, ega->vrammask, 4,
+				ega->crtc[0x17] & 0x80, ega->attrregs[0x10] & 0x08,
+				ega->ca, !(ega->crtc[0x0a] & 0x20) && ((ega->crtc[0x0b] & 0x1f) >= (ega->crtc[0x0a] & 0x1f)));
+#endif
+
 	for (x = 0; x < (ega->hdisp + ega->scrollcache); x += xinc) {
 		drawcursor = ((ega->ma == ega->ca) && ega->con && ega->cursoron);
 

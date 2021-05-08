@@ -31,6 +31,9 @@
 #include <86box/device.h>
 #include <86box/plat.h>
 #include <86box/video.h>
+#ifdef USE_CLI
+# include <86box/vid_text_render.h>
+#endif
 
 
 #define BIOS_ROM_PATH	"roms/video/genius/8x12.bin"
@@ -429,6 +432,14 @@ genius_textline(genius_t *genius, uint8_t background, int mda, int cols80)
 	cursorline = 0;
     else
 	cursorline = ((crtc[10] & 0x1F) <= sc) && ((crtc[11] & 0x1F) >= sc);
+
+#ifdef USE_CLI
+	if ((dl % 8) == 0)
+		text_render_mda(w,
+				framebuf, ma,
+				1, ctrl & 0x20,
+				ca, ctrl & 8);
+#endif
 
     for (x = 0; x < w; x++) {
 #if 0

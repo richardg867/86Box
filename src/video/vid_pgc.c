@@ -90,6 +90,9 @@
 #include <86box/video.h>
 #include <86box/vid_cga.h>
 #include <86box/vid_pgc.h>
+#ifdef USE_CLI
+# include <86box/vid_text_render.h>
+#endif
 
 
 #define PGC_CGA_WIDTH	640
@@ -2333,7 +2336,16 @@ pgc_cga_text(pgc_t *dev, int w)
     int cw = (w == 80) ? 8 : 16;
 
     addr = &dev->cga_vram[((ma + ((dev->displine / pitch) * w)) * 2) & 0x3ffe];
-    ma += (dev->displine / pitch) * w;	
+    ma += (dev->displine / pitch) * w;
+
+#ifdef USE_CLI
+    if ((dev->displine % 8) == 0)
+	text_render_cga(dev->displine / pitch,
+			w, 1,
+			dev->cga_vram, ma, 0x3fff, 1,
+			dev->mapram[0x3d8] & 0x08, dev->mapram[0x3d8] & 0x20,
+			ca, !(dev->mapram[0x3ea] & 0x20) && ((dev->mapram[0x3eb] & 0x1f) >= (dev->mapram[0x3ea] & 0x1f)));
+#endif
 
     for (x = 0; x < w; x++) {
 	chr  = *addr++;
@@ -2381,6 +2393,10 @@ pgc_cga_gfx40(pgc_t *dev)
     uint8_t *addr;
     uint16_t dat;
 
+#ifdef USE_CLI
+    text_render_gfx("PGC %dx%d");
+#endif
+
     cols[0] = (dev->mapram[0x3d9] & 15) + 16;
     col = ((dev->mapram[0x3d9] & 16) ? 8 : 0) + 16;
 
@@ -2425,6 +2441,10 @@ pgc_cga_gfx80(pgc_t *dev)
     uint16_t ma = (dev->mapram[0x3ed] | (dev->mapram[0x3ec] << 8)) & 0x3fff;
     uint8_t *addr;
     uint16_t dat;
+
+#ifdef USE_CLI
+    text_render_gfx("PGC %dx%d");
+#endif
 
     cols[0] = 16;
     cols[1] = (dev->mapram[0x3d9] & 15) + 16;
