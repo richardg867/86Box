@@ -500,10 +500,10 @@ RFLAGS		+= -DMTR_ENABLED
 MINITRACEOBJ	:= minitrace.o
 endif
 
-#ifeq ($(CLI, y))
+ifeq ($(CLI), y)
 OPTS		+= -DUSE_CLI
 CLIOBJ		:= vid_text_render.o
-#endif
+endif
 
 # Options for the DEV branch.
 ifeq ($(DEV_BRANCH), y)
