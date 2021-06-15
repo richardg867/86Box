@@ -28,6 +28,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <wchar.h>
+#ifdef _WIN32
+# include <windows.h>
+#endif
 #define HAVE_STDARG_H
 #include <86box/86box.h>
 #include "cpu.h"
@@ -63,7 +66,11 @@ rom_fopen(char *fn, char *mode)
 {
     char temp[1024];
 
-    plat_append_filename(temp, exe_path, fn);
+    /* Hack for allowing absolute paths. */
+    if (fn[0] == '\x01')
+	strcpy(temp, fn + 1);
+    else
+	plat_append_filename(temp, exe_path, fn);
 
     return(plat_fopen(temp, mode));
 }
@@ -74,7 +81,11 @@ rom_getfile(char *fn, char *s, int size)
 {
     FILE *f;
 
-    plat_append_filename(s, exe_path, fn);
+    /* Hack for allowing absolute paths. */
+    if (fn[0] == '\x01')
+	strcpy(s, fn + 1);
+    else
+	plat_append_filename(s, exe_path, fn);
 
     f = plat_fopen(s, "rb");
     if (f != NULL) {
@@ -523,9 +534,256 @@ bios_load_linear_combined2_ex(char *fn1, char *fn2, char *fn3, char *fn4, char *
 
 
 int
+bios_load_pe_resource(char *fn, char *type, uint32_t resource, uint32_t subresource)
+{
+#ifdef _WIN32
+    /* Expand any environment variables in the file path. */
+    char new_fn[2048];
+    new_fn[0] = 0x01; /* tell rom_fopen this is an absolute path */
+    uint32_t result = ExpandEnvironmentStrings(fn, new_fn + 1, sizeof(new_fn) - 1);
+    if ((result == 0) || (result >= sizeof(new_fn)))
+	return 0;
+#else
+    char *new_fn = fn;
+#endif
+
+    rom_log("ROM: PE \"%s\" resource %s/%d/%d: ", new_fn, type, resource, subresource);
+
+    /* Open file. */
+    FILE *fp = plat_fopen(new_fn + 1, "rb");
+    if (!fp) {
+	rom_log("could not open file\n", fn);
+	return 0;
+    }
+
+    /* Skip DOS stub, read and compare PE signature. */
+    uint32_t pe_offset, pe_signature = -1;
+    if ((fseek(fp, 60, SEEK_SET) < 0) ||
+	(fread(&pe_offset, sizeof(pe_offset), 1, fp) < 1) ||
+	(fseek(fp, pe_offset, SEEK_SET) < 0) ||
+	(fread(&pe_signature, sizeof(pe_signature), 1, fp) < 1) ||
+	(pe_signature != 0x00004550)) {
+	rom_log("PE signature short read or mismatch (%08X)\n", pe_signature);
+	goto fail;
+    }
+
+    /* Read COFF header and skip optional header. */
+    struct {
+	uint16_t	Machine, NumberOfSections;
+	uint32_t	TimeDateStamp, PointerToSymbolTable, NumberOfSymbols;
+	uint16_t	SizeOfOptionalHeader, Characteristics;
+    } coff;
+    if ((fread(&coff, sizeof(coff), 1, fp) < 1) ||
+	(fseek(fp, coff.SizeOfOptionalHeader, SEEK_CUR) < 0)) {
+	rom_log("COFF header short read\n");
+	goto fail;
+    }
+
+    /* Look for the .rsrc section. */
+    uint32_t i, sections_offset = ftell(fp);
+    struct {
+	char		Name[8];
+	uint32_t	VirtualSize, VirtualAddress, SizeOfRawData,
+			PointerToRawData, PointerToRelocations, PointerToLinenumbers;
+	uint16_t	NumberOfRelocations, NumberOfLinenumbers;
+	uint32_t	Characteristics;
+    } section;
+    for (i = 0; i < coff.NumberOfSections; i++) {
+	/* Read section header. */
+	if (fread(&section, sizeof(section), 1, fp) < 1) {
+		rom_log("section %d header short read\n", i);
+		goto fail;
+	}
+
+	/* Compare section name. */
+	if (!memcmp(section.Name, ".rsrc\x00", 6))
+		break;
+    }
+    if (i >= coff.NumberOfSections) {
+	rom_log("no .rsrc section found (out of %d)\n", coff.NumberOfSections);
+	goto fail;
+    }
+
+    /* Read root directory header. */
+    struct {
+	uint32_t	Characteristics, TimeDateStamp;
+	uint16_t	MajorVersion, MinorVersion, NumberOfNameEntries,
+			NumberOfIDEntries;
+    } rdt;
+    if ((fseek(fp, section.PointerToRawData, SEEK_SET) < 0) ||
+	(fread(&rdt, sizeof(rdt), 1, fp) < 1)) {
+	rom_log("root directory header short read\n");
+	goto fail;
+    }
+
+    /* Read root directory entries. */
+    uint32_t rde_offset, name_offset, j;
+    uint16_t name_len, codepoint;
+    struct {
+	union {
+		uint32_t NameOffset;
+		uint32_t IntegerID;
+	};
+	union {
+		uint32_t SubdirOffset;
+		uint32_t DataEntryOffset;
+	};
+    } rde;
+    for (i = 0; i < rdt.NumberOfIDEntries; i++) {
+	if (fread(&rde, sizeof(rde), 1, fp) < 1) {
+		rom_log("root directory entry %d short read\n", i);
+		goto fail;
+	}
+
+	/* We're looking for a directory with a name. */
+	name_offset = rde.NameOffset & 0x7fffffff;
+	if (!name_offset || !(rde.SubdirOffset & 0x80000000))
+		continue;
+
+	/* Read name length. */
+	rde_offset = ftell(fp);
+	if ((fseek(fp, section.PointerToRawData + name_offset, SEEK_SET) < 0) ||
+	    (fread(&name_len, sizeof(name_len), 1, fp) < 1)) {
+		rom_log("root directory entry %d name length short read\n", i);
+		goto fail;
+	}
+
+	/* Compare UTF-16 name. */
+	for (j = 0; j < name_len; j++) {
+		if (fread(&codepoint, sizeof(codepoint), 1, fp) < 1) {
+			rom_log("root directory entry %d name data short read\n", i);
+			goto fail;
+		}
+		if (codepoint != type[j])
+			goto next_rde;
+	}
+	break;
+
+next_rde:
+	if (fseek(fp, rde_offset, SEEK_SET) < 0) {
+		rom_log("root directory entry %d re-seek failed\n", i);
+		goto fail;
+	}
+    }
+    if (i >= rdt.NumberOfIDEntries) {
+	rom_log("root directory \"%s\" not found\n", i, type);
+	goto fail;
+    }
+
+    /* Read subdirectory header. */
+    if ((fseek(fp, section.PointerToRawData + (rde.SubdirOffset & 0x7fffffff), SEEK_SET) < 0) ||
+	(fread(&rdt, sizeof(rdt), 1, fp) < 1)) {
+	rom_log("subdirectory header short read\n");
+	goto fail;
+    }
+
+    /* Read subdirectory entries. */
+    for (i = 0; i < rdt.NumberOfIDEntries; i++) {
+	if (fread(&rde, sizeof(rde), 1, fp) < 1) {
+		rom_log("subdirectory entry %d short read\n", i);
+		goto fail;
+	}
+
+	/* We're looking for a subdirectory with an integer ID. */
+	if ((rde.IntegerID & 0x80000000) || !(rde.SubdirOffset & 0x80000000))
+		continue;
+
+	/* Compare ID. */
+	if (rde.IntegerID == resource)
+		break;
+    }
+    if (i >= rdt.NumberOfIDEntries) {
+	rom_log("subdirectory %d not found\n", resource);
+	goto fail;
+    }
+
+    /* Read leaf header. */
+    if ((fseek(fp, section.PointerToRawData + (rde.SubdirOffset & 0x7fffffff), SEEK_SET) < 0) ||
+	(fread(&rdt, sizeof(rdt), 1, fp) < 1)) {
+	rom_log("leaf header short read\n");
+	goto fail;
+    }
+
+    /* Read leaf entries. */
+    for (i = 0; i < rdt.NumberOfIDEntries; i++) {
+	if (fread(&rde, sizeof(rde), 1, fp) < 1) {
+		rom_log("leaf entry %d short read\n", i);
+		goto fail;
+	}
+
+	/* We're looking for a leaf with an integer ID and a data entry. */
+	if ((rde.IntegerID & 0x80000000) || (rde.DataEntryOffset & 0x80000000))
+		continue;
+
+	/* Compare ID if we're looking for a specific sub-resource. */
+	if ((rde.IntegerID == subresource) || (subresource == -1))
+		break;
+    }
+    if (i >= rdt.NumberOfIDEntries) {
+	if (subresource == -1)
+		rom_log("no leaves found\n");
+	else
+		rom_log("leaf %d not found\n", subresource);
+	goto fail;
+    }
+
+    /* Re-parse sections to translate the data entry RVA to a real offset. */
+    if (fseek(fp, sections_offset, SEEK_SET) < 0) {
+	rom_log("section header re-seek failed\n");
+	goto fail;
+    }
+    rde.DataEntryOffset += section.VirtualAddress;
+    for (i = 0; i < coff.NumberOfSections; i++) {
+	/* Read section header. */
+	if (fread(&section, sizeof(section), 1, fp) < 1) {
+		rom_log("section header short read\n");
+		goto fail;
+	}
+
+	/* Check virtual address range. */
+	if ((rde.DataEntryOffset >= section.VirtualAddress) &&
+	    (rde.DataEntryOffset <= (section.VirtualAddress + section.SizeOfRawData)))
+		break;
+    }
+    if (i >= coff.NumberOfSections) {
+	rom_log("no section matching VA %08X\n", rde.DataEntryOffset);
+	goto fail;
+    }
+
+    /* Read data entry from the real offset. */
+    if (fseek(fp, section.PointerToRawData +
+		  (rde.DataEntryOffset - section.VirtualAddress), SEEK_SET) < 0) {
+	rom_log("data entry seek failed\n");
+	goto fail;
+    }
+    struct {
+	uint32_t	DataRVA, DataSize, Codepage, Reserved;
+    } data;
+    if (fread(&data, sizeof(data), 1, fp) < 1) {
+	rom_log("data entry short read\n");
+	goto fail;
+    }
+
+    /* Load ROM from the real data offset. This probably shouldn't assume the
+       data RVA has the same base as the data entry RVA, but it works. */
+    rom_log("loading %d bytes from offset %d\n", data.DataSize,
+	    section.PointerToRawData + (data.DataRVA - section.VirtualAddress));
+    fclose(fp);
+    return bios_load_linear(new_fn, 0x00100000 - data.DataSize,
+			    data.DataSize,
+			    section.PointerToRawData +
+			    (data.DataRVA - section.VirtualAddress));
+
+fail:
+    fclose(fp);
+    return 0;
+}
+
+
+int
 rom_init(rom_t *rom, char *fn, uint32_t addr, int sz, int mask, int off, uint32_t flags)
 {
-    rom_log("rom_init(%08X, %08X, %08X, %08X, %08X, %08X, %08X)\n", rom, fn, addr, sz, mask, off, flags);
+    rom_log("rom_init(%08X, \"%s\", %08X, %08X, %08X, %08X, %08X)\n", rom, fn, addr, sz, mask, off, flags);
 
     /* Allocate a buffer for the image. */
     rom->rom = malloc(sz);
@@ -555,7 +813,7 @@ rom_init(rom_t *rom, char *fn, uint32_t addr, int sz, int mask, int off, uint32_
 int
 rom_init_oddeven(rom_t *rom, char *fn, uint32_t addr, int sz, int mask, int off, uint32_t flags)
 {
-    rom_log("rom_init(%08X, %08X, %08X, %08X, %08X, %08X, %08X)\n", rom, fn, addr, sz, mask, off, flags);
+    rom_log("rom_init_oddeven(%08X, \"%s\", %08X, %08X, %08X, %08X, %08X)\n", rom, fn, addr, sz, mask, off, flags);
 
     /* Allocate a buffer for the image. */
     rom->rom = malloc(sz);
@@ -585,6 +843,8 @@ rom_init_oddeven(rom_t *rom, char *fn, uint32_t addr, int sz, int mask, int off,
 int
 rom_init_interleaved(rom_t *rom, char *fnl, char *fnh, uint32_t addr, int sz, int mask, int off, uint32_t flags)
 {
+    rom_log("rom_init_oddeven(%08X, \"%s\", \"%s\", %08X, %08X, %08X, %08X, %08X)\n", rom, fnl, fnh, addr, sz, mask, off, flags);
+
     /* Allocate a buffer for the image. */
     rom->rom = malloc(sz);
     memset(rom->rom, 0xff, sz);
