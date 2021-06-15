@@ -130,6 +130,8 @@ video_cards[] = {
     { "cl_gd5436_pci",		&gd5436_pci_device			},
     { "cl_gd5440_pci",		&gd5440_pci_device			},
     { "cl_gd5446_pci",		&gd5446_pci_device			},
+    { "cl_gd5446_bochs_pci",	&gd5446_bochs_pci_device		},
+    { "cl_gd5446_seabios_pci",	&gd5446_seabios_pci_device		},
     { "cl_gd5480_pci",		&gd5480_pci_device			},
     { "ctl3d_banshee_pci",	&creative_voodoo_banshee_device  	},
     { "stealth32_pci",		&et4000w32p_pci_device			},

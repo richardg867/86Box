@@ -42,7 +42,7 @@
 
 #define BIOS_GD5401_PATH		"roms/video/cirruslogic/avga1.rom"
 #define BIOS_GD5402_PATH		"roms/video/cirruslogic/avga2.rom"
-#define BIOS_GD5402_ONBOARD_PATH	"roms/machines/cbm_sl386sx25/c000.rom"
+#define BIOS_GD5402_ONBOARD_PATH	"roms/machines/cmdsl386sx25/c000.rom"
 #define BIOS_GD5420_PATH		"roms/video/cirruslogic/5420.vbi"
 #define BIOS_GD5422_PATH		"roms/video/cirruslogic/cl5422.bin"
 #define BIOS_GD5426_PATH		"roms/video/cirruslogic/Diamond SpeedStar PRO VLB v3.04.bin"
@@ -56,6 +56,8 @@
 #define BIOS_GD5436_PATH		"roms/video/cirruslogic/5436.vbi"
 #define BIOS_GD5440_PATH		"roms/video/cirruslogic/BIOS.BIN"
 #define BIOS_GD5446_PATH		"roms/video/cirruslogic/5446BV.VBI"
+#define BIOS_GD5446_BOCHS_PATH		"roms/video/cirruslogic/VGABIOS-lgpl-latest-cirrus"
+#define BIOS_GD5446_SEABIOS_PATH	"roms/video/cirruslogic/vgabios-cirrus.bin"
 #define BIOS_GD5446_STB_PATH		"roms/video/cirruslogic/stb nitro64v.BIN"
 #define BIOS_GD5480_PATH		"roms/video/cirruslogic/clgd5480.rom"
 
@@ -153,7 +155,7 @@ typedef struct gd54xx_t
 
     svga_t		svga;
 
-    int			has_bios, rev,
+    int			has_bios, bios_size, rev,
 			bit32;
     rom_t		bios_rom;
 
@@ -3680,7 +3682,7 @@ cl_pci_write(int func, int addr, uint8_t val, void *p)
 		gd54xx->pci_regs[addr] = val;
 		if (gd54xx->pci_regs[0x30] & 0x01) {
 			uint32_t addr = (gd54xx->pci_regs[0x32] << 16) | (gd54xx->pci_regs[0x33] << 24);
-			mem_mapping_set_addr(&gd54xx->bios_rom.mapping, addr, 0x8000);
+			mem_mapping_set_addr(&gd54xx->bios_rom.mapping, addr, gd54xx->bios_size);
 		} else
 			mem_mapping_disable(&gd54xx->bios_rom.mapping);
 		return;
@@ -3734,6 +3736,7 @@ static void
 
     gd54xx->rev = 0;
     gd54xx->has_bios = 1;
+    gd54xx->bios_size = 0x8000;
 
     switch (id) {
 	
@@ -3821,7 +3824,13 @@ static void
 	case CIRRUS_ID_CLGD5446:
 		if (info->local & 0x100)
 			romfn = BIOS_GD5446_STB_PATH;
-		else
+		else if (info->local & 0x200) {
+			romfn = BIOS_GD5446_SEABIOS_PATH;
+			gd54xx->bios_size = 0x10000;
+		} else if (info->local & 0x400) {
+			romfn = BIOS_GD5446_BOCHS_PATH;
+			gd54xx->bios_size = 0x10000;
+		} else
 			romfn = BIOS_GD5446_PATH;
 		break;
 
@@ -3851,7 +3860,7 @@ static void
     gd54xx->vram_mask = gd54xx->vram_size - 1;
 
     if (romfn)
-	rom_init(&gd54xx->bios_rom, romfn, 0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
+	rom_init(&gd54xx->bios_rom, romfn, 0xc0000, gd54xx->bios_size, gd54xx->bios_size - 1, 0, MEM_MAPPING_EXTERNAL);
 
     if (info->flags & DEVICE_ISA)
 	video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_gd54xx_isa);
@@ -4068,6 +4077,18 @@ static int
 gd5446_available(void)
 {
     return rom_present(BIOS_GD5446_PATH);
+}
+
+static int
+gd5446_bochs_available(void)
+{
+    return rom_present(BIOS_GD5446_BOCHS_PATH);
+}
+
+static int
+gd5446_seabios_available(void)
+{
+    return rom_present(BIOS_GD5446_SEABIOS_PATH);
 }
 
 static int
@@ -4567,6 +4588,34 @@ const device_t gd5446_pci_device =
     gd54xx_close, 
     NULL,
     { gd5446_available },
+    gd54xx_speed_changed,
+    gd54xx_force_redraw,
+    gd5434_config
+};
+
+const device_t gd5446_bochs_pci_device =
+{
+    "Cirrus Logic CL-GD 5446 (Bochs) (PCI)",
+    DEVICE_PCI,
+    CIRRUS_ID_CLGD5446 | 0x400,
+    gd54xx_init,
+    gd54xx_close, 
+    NULL,
+    { gd5446_bochs_available },
+    gd54xx_speed_changed,
+    gd54xx_force_redraw,
+    gd5434_config
+};
+
+const device_t gd5446_seabios_pci_device =
+{
+    "Cirrus Logic CL-GD 5446 (QEMU) (PCI)",
+    DEVICE_PCI,
+    CIRRUS_ID_CLGD5446 | 0x200,
+    gd54xx_init,
+    gd54xx_close, 
+    NULL,
+    { gd5446_seabios_available },
     gd54xx_speed_changed,
     gd54xx_force_redraw,
     gd5434_config

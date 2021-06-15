@@ -238,6 +238,8 @@ extern const device_t gd5436_pci_device;
 extern const device_t gd5440_onboard_pci_device;
 extern const device_t gd5440_pci_device;
 extern const device_t gd5446_pci_device;
+extern const device_t gd5446_bochs_pci_device;
+extern const device_t gd5446_seabios_pci_device;
 extern const device_t gd5446_stb_pci_device;
 extern const device_t gd5480_pci_device;
 
