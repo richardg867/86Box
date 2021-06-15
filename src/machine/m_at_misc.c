@@ -38,13 +38,38 @@
 #include <86box/machine.h>
 #include <86box/sound.h>
 
+
 int
 machine_at_vpc2007_init(const machine_t *model)
 {
-    int ret;
+    int ret, i;
 
     ret = bios_load_linear("roms/machines/vpc2007/13500.bin",
 			   0x000c0000, 262144, 0);
+
+#ifdef _WIN32
+    /* Load ROM from an installed copy of Virtual PC if required. */
+    char *vpc_paths[] = {
+	/* Virtual PC 2004/2007 */
+	"%ProgramFiles%\\Microsoft Virtual PC\\Virtual PC.exe",
+# ifdef _WIN64
+	"%ProgramFiles(x86)%"
+# else
+	"%ProgramW6432%"
+# endif
+	"\\Microsoft Virtual PC\\Virtual PC.exe",
+
+	/* Windows Virtual PC */
+	"%SystemRoot%\\System32\\vpc.exe",
+# ifndef _WIN64
+	"%SystemRoot%\\Sysnative\\vpc.exe",
+# endif
+
+	NULL
+    };
+    for (i = 0; !ret && vpc_paths[i]; i++)
+	ret = bios_load_pe_resource(vpc_paths[i], "BIOS", 13500, -1);
+#endif
 
     if (bios_only || !ret)
 	return ret;
