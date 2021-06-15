@@ -47,6 +47,7 @@
 #define ROM_PHOENIX_VISION864		"roms/video/s3/86c864p.bin"
 #define ROM_DIAMOND_STEALTH64_964	"roms/video/s3/964_107h.rom"
 #define ROM_PHOENIX_TRIO32		"roms/video/s3/86c732p.bin"
+#define ROM_VPC_TRIO32			"roms/video/s3/13501.bin"
 #define ROM_NUMBER9_9FX			"roms/video/s3/s3_764.bin"
 #define ROM_PHOENIX_TRIO64		"roms/video/s3/86c764x1.bin"
 #define ROM_DIAMOND_STEALTH64_764	"roms/video/s3/stealt64.bin"
@@ -63,6 +64,7 @@ enum
 	S3_PARADISE_BAHAMAS64,
 	S3_DIAMOND_STEALTH64_964,
 	S3_PHOENIX_TRIO32,
+	S3_VPC_TRIO32,
 	S3_PHOENIX_TRIO64,
 	S3_PHOENIX_TRIO64_ONBOARD,
 	S3_PHOENIX_VISION864,
@@ -163,6 +165,7 @@ typedef struct s3_t
 	mem_mapping_t new_mmio_mapping;
 	
 	uint8_t has_bios;
+	int bios_size, bios_mask;
 	rom_t bios_rom;
 
 	svga_t svga;
@@ -5661,7 +5664,7 @@ s3_pci_write(int func, int addr, uint8_t val, void *p)
 		if (s3->pci_regs[0x30] & 0x01)
 		{
 			uint32_t biosaddr = (s3->pci_regs[0x32] << 16) | (s3->pci_regs[0x33] << 24);
-			mem_mapping_set_addr(&s3->bios_rom.mapping, biosaddr, 0x8000);
+			mem_mapping_set_addr(&s3->bios_rom.mapping, biosaddr, s3->bios_size);
 		}
 		else
 		{
@@ -5696,7 +5699,7 @@ static void *s3_init(const device_t *info)
 	s3_t *s3 = malloc(sizeof(s3_t));
 	svga_t *svga = &s3->svga;
 	int vram;
-	uint32_t vram_size;
+	uint32_t vram_size, bios_size = 0x8000;
 
 	switch(info->local) {
 		case S3_ORCHID_86C911:
@@ -5796,6 +5799,15 @@ static void *s3_init(const device_t *info)
 			else
 				video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_s3_trio32_vlb);
 			break;
+		case S3_VPC_TRIO32:
+			bios_fn = ROM_VPC_TRIO32;
+			bios_size = 0x10000;
+			chip = S3_TRIO32;
+			if (info->flags & DEVICE_PCI)
+				video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_s3_trio32_pci);
+			else
+				video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_s3_trio32_vlb);
+			break;
 		case S3_PHOENIX_TRIO64:
 			bios_fn = ROM_PHOENIX_TRIO64;
 			chip = S3_TRIO64;
@@ -5866,7 +5878,9 @@ static void *s3_init(const device_t *info)
 
 	s3->has_bios = (bios_fn != NULL);
 	if (s3->has_bios) {
-		rom_init(&s3->bios_rom, (char *) bios_fn, 0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
+		s3->bios_size = bios_size;
+		s3->bios_mask = bios_size - 1;
+		rom_init(&s3->bios_rom, (char *) bios_fn, 0xc0000, s3->bios_size, s3->bios_mask, 0, MEM_MAPPING_EXTERNAL);
 		if (info->flags & DEVICE_PCI)
 			mem_mapping_disable(&s3->bios_rom.mapping);
 	}
@@ -6144,10 +6158,44 @@ static void *s3_init(const device_t *info)
 
 		case S3_PHOENIX_TRIO32:
 		case S3_DIAMOND_STEALTH_SE:
+		case S3_VPC_TRIO32:
 			svga->decode_mask = (4 << 20) - 1;
 			s3->id = 0xe1; /*Trio32*/
 			s3->id_ext = s3->id_ext_pci = 0x10;
 			s3->packed_mmio = 1;
+
+			/* Patch PCI header into the Virtual PC VBIOS. */
+			if (info->local == S3_VPC_TRIO32) {
+				memset(s3->bios_rom.rom + 0xbfe0, 0, 0x18);
+
+				s3->bios_rom.rom[0x18] = 0xe0; /* pointer to PCI header */
+				s3->bios_rom.rom[0x19] = 0xbf;
+
+				s3->bios_rom.rom[0xbfe0] = 'P'; /* signature */
+				s3->bios_rom.rom[0xbfe1] = 'C';
+				s3->bios_rom.rom[0xbfe2] = 'I';
+				s3->bios_rom.rom[0xbfe3] = 'R';
+
+				s3->bios_rom.rom[0xbfe4] = 0x33; /* vendor ID */
+				s3->bios_rom.rom[0xbfe5] = 0x53;
+				s3->bios_rom.rom[0xbfe6] = s3->id_ext_pci; /* device ID */
+				s3->bios_rom.rom[0xbfe7] = 0x88;
+
+				s3->bios_rom.rom[0xbfea] = 0x18; /* header length */
+
+				s3->bios_rom.rom[0xbfef] = 0x03; /* class */
+
+				s3->bios_rom.rom[0xbff0] = 0x60; /* ROM length in 512-byte blocks */
+				s3->bios_rom.rom[0xbff1] = 0x00;
+				s3->bios_rom.rom[0xbff2] = 0x01; /* code type */
+				s3->bios_rom.rom[0xbff5] = 0x60; /* max runtime length */
+
+				/* Recalculate checksum. */
+				uint8_t checksum = 0;
+				for (int i = 0; i < 0xbfff; i++)
+					checksum -= s3->bios_rom.rom[i];
+				s3->bios_rom.rom[0xbfff] = checksum;
+			}
 
 			svga->clock_gen = s3;
 			svga->getclock = s3_trio64_getclock;
@@ -6271,6 +6319,11 @@ static int s3_diamond_stealth_se_available(void)
 	return rom_present(ROM_DIAMOND_STEALTH_SE);
 }
 
+static int s3_vpc_trio32_available(void)
+{
+	return rom_present(ROM_VPC_TRIO32);
+}
+
 static int s3_9fx_available(void)
 {
 	return rom_present(ROM_NUMBER9_9FX);
@@ -6382,6 +6435,36 @@ static const device_config_t s3_phoenix_trio32_config[] =
 			},
 			{
 				"2 MB", 2
+			},
+			{
+				""
+			}
+		}
+	},
+	{
+		"", "", -1
+	}
+};
+
+static const device_config_t s3_vpc_trio32_config[] =
+{
+	{
+		"memory", "Memory size", CONFIG_SELECTION, "", 8, "", { 0 },
+		{
+			{
+				"512 KB", 0
+			},
+			{
+				"1 MB", 1
+			},
+			{
+				"2 MB", 2
+			},
+			{
+				"4 MB", 4
+			},
+			{
+				"8 MB", 8
 			},
 			{
 				""
@@ -6694,6 +6777,20 @@ const device_t s3_diamond_stealth_se_pci_device =
 	s3_speed_changed,
 	s3_force_redraw,
 	s3_phoenix_trio32_config
+};
+
+const device_t s3_vpc_trio32_pci_device =
+{
+	"S3 Trio32 (Microsoft Virtual PC 2007) PCI",
+	DEVICE_PCI,
+	S3_VPC_TRIO32,
+	s3_init,
+	s3_close,
+	NULL,
+	{ s3_vpc_trio32_available },
+	s3_speed_changed,
+	s3_force_redraw,
+	s3_vpc_trio32_config
 };
 
 

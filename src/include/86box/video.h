@@ -333,6 +333,7 @@ extern const device_t s3_9fx_vlb_device;
 extern const device_t s3_9fx_pci_device;
 extern const device_t s3_phoenix_trio32_vlb_device;
 extern const device_t s3_phoenix_trio32_pci_device;
+extern const device_t s3_vpc_trio32_pci_device;
 extern const device_t s3_diamond_stealth_se_vlb_device;
 extern const device_t s3_diamond_stealth_se_pci_device;
 extern const device_t s3_phoenix_trio64_vlb_device;
