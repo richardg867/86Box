@@ -356,38 +356,6 @@ static uint8_t s3_accel_in(uint16_t port, void *p);
 static uint8_t	s3_pci_read(int func, int addr, void *p);
 static void	s3_pci_write(int func, int addr, uint8_t val, void *p);
 
-/*Remap address for chain-4/doubleword style layout*/
-static __inline uint32_t 
-dword_remap(svga_t *svga, uint32_t in_addr)
-{
-	if (svga->packed_chain4)
-		return in_addr;
-	
-	return ((in_addr << 2) & 0x3fff0) |
-		((in_addr >> 14) & 0xc) |
-		(in_addr & ~0x3fffc);
-}
-static __inline uint32_t 
-dword_remap_w(svga_t *svga, uint32_t in_addr)
-{
-	if (svga->packed_chain4)
-		return in_addr;	
-	
-	return ((in_addr << 2) & 0x1fff8) |
-		((in_addr >> 14) & 0x6) |
-		(in_addr & ~0x1fffe);
-}
-static __inline uint32_t 
-dword_remap_l(svga_t *svga, uint32_t in_addr)
-{
-	if (svga->packed_chain4)
-		return in_addr;	
-	
-	return ((in_addr << 2) & 0xfffc) |
-		((in_addr >> 14) & 0x3) |
-		(in_addr & ~0xffff);
-}
-
 static __inline void
 wake_fifo_thread(s3_t *s3)
 {
@@ -506,15 +474,17 @@ s3_accel_out_pixtrans_w(s3_t *s3, uint16_t val)
 				s3_accel_start(8, 1, val | (val << 16), 0, s3);	
 			} else if ((s3->accel.cmd & 0x400) && (svga->crtc[0x53] & 0x08))
 				s3_accel_start(32, 1, val | (val << 16), 0, s3);
-			else
+			else {
 				s3_accel_start(16, 1, val | (val << 16), 0, s3);
+			}
 		} else {
 			if ((s3->accel.cmd & 0x600) == 0x000)	
 				s3_accel_start(1, 1, 0xffffffff, val | (val << 16), s3);	
 			else if (s3->accel.cmd & 0x400)
 				s3_accel_start(4, 1, 0xffffffff, val | (val << 16), s3);
-			else
+			else {
 				s3_accel_start(2, 1, 0xffffffff, val | (val << 16), s3);
+			}
 		}
 	}
 }
@@ -536,7 +506,7 @@ s3_accel_out_pixtrans_l(s3_t *s3, uint32_t val)
 				if (s3->accel.cmd & 0x1000)	
 					val = ((val & 0xff000000) >> 24) | ((val & 0x00ff0000) >> 8) | ((val & 0x0000ff00) << 8) | ((val & 0x000000ff) << 24);	
 				s3_accel_start(32, 1, val, 0, s3);	
-			} else if ((s3->accel.cmd & 0x600) == 0x200) {	
+			} else if ((s3->accel.cmd & 0x600) == 0x200) {
 				if (s3->accel.cmd & 0x1000)	
 					val = ((val & 0xff00ff00) >> 8) | ((val & 0x00ff00ff) << 8);	
 				s3_accel_start(16, 1, val, 0, s3);	
@@ -550,7 +520,7 @@ s3_accel_out_pixtrans_l(s3_t *s3, uint32_t val)
 		} else {	
 			if (s3->accel.cmd & 0x400) {
 				s3_accel_start(4, 1, 0xffffffff, val, s3);
-			} else if ((s3->accel.cmd & 0x600) == 0x200) {	
+			} else if ((s3->accel.cmd & 0x600) == 0x200) {
 				s3_accel_start(2, 1, 0xffffffff, val, s3);	
 				s3_accel_start(2, 1, 0xffffffff, val >> 16, s3);	
 			} else {	
@@ -1669,10 +1639,8 @@ s3_hwcursor_draw(svga_t *svga, int displine)
 
 	for (x = 0; x < 64; x += 16)
 	{
-		uint32_t remapped_addr = dword_remap(svga, svga->hwcursor_latch.addr);
-	
-		dat[0] = (svga->vram[remapped_addr]     << 8) | svga->vram[remapped_addr + 1];
-		dat[1] = (svga->vram[remapped_addr + 2] << 8) | svga->vram[remapped_addr + 3];
+		dat[0] = (svga->vram[svga->hwcursor_latch.addr]     << 8) | svga->vram[svga->hwcursor_latch.addr + 1];
+		dat[1] = (svga->vram[svga->hwcursor_latch.addr + 2] << 8) | svga->vram[svga->hwcursor_latch.addr + 3];
                 if (svga->crtc[0x55] & 0x10) {
                         /*X11*/
                         for (xx = 0; xx < 16; xx++) {
@@ -1950,8 +1918,7 @@ static void s3_trio64v_overlay_draw(svga_t *svga, int displine)
         int x_size, x_read = 4, x_write = 4;
         int x;
         uint32_t *p;
-		uint32_t remapped_addr = dword_remap(svga, svga->overlay_latch.addr);
-        uint8_t *src = &svga->vram[remapped_addr];
+        uint8_t *src = &svga->vram[svga->overlay_latch.addr];
 
         p = &(buffer32->line[displine][offset + svga->x_add]);
 
@@ -2277,8 +2244,6 @@ s3_out(uint16_t addr, uint8_t val, void *p)
 		{
 			case 0x31:
 			s3->ma_ext = (s3->ma_ext & 0x1c) | ((val & 0x30) >> 4);
-			if (!svga->packed_chain4)
-				svga->force_dword_mode = !!(val & 0x08);
 			break;
 			case 0x32:
 			if (svga->crtc[0x31] & 0x30)
@@ -2608,6 +2573,10 @@ static void s3_recalctimings(svga_t *svga)
 	
 	svga->lowres = !((svga->gdcreg[5] & 0x40) && (svga->crtc[0x3a] & 0x10));
 	if ((svga->gdcreg[5] & 0x40) && (svga->crtc[0x3a] & 0x10)) {
+		if (!(svga->crtc[0x14] & 0x40)) /*There are still accel issues with dword mode enabled, so
+										  disable dword mode for now.*/
+			svga->crtc[0x14] |= 0x40;
+
 		switch (svga->bpp) {
 			case 8:
 			svga->render = svga_render_8bpp_highres;
@@ -2712,6 +2681,10 @@ static void s3_trio64v_recalctimings(svga_t *svga)
 		
 		svga->lowres = !((svga->gdcreg[5] & 0x40) && (svga->crtc[0x3a] & 0x10));
 		if ((svga->gdcreg[5] & 0x40) && (svga->crtc[0x3a] & 0x10)) {
+			if (!(svga->crtc[0x14] & 0x40)) /*There are still accel issues with dword mode enabled, so
+											  disable dword mode for now.*/
+				svga->crtc[0x14] |= 0x40;
+
 			switch (svga->bpp) {
 				case 8:
 				svga->render = svga_render_8bpp_highres;
@@ -3761,9 +3734,9 @@ polygon_setup(s3_t *s3)
 }
 
 
-#define READ(addr, dat) if (s3->bpp == 0)      dat = svga->vram[dword_remap(svga, addr) & s3->vram_mask]; \
-			    else if (s3->bpp == 1) dat = vram_w[dword_remap_w(svga, addr) & (s3->vram_mask >> 1)]; \
-			    else		   dat = vram_l[dword_remap_l(svga, addr) & (s3->vram_mask >> 2)];
+#define READ(addr, dat) if (s3->bpp == 0)      dat = svga->vram[(addr) & s3->vram_mask]; \
+			    else if (s3->bpp == 1) dat = vram_w[(addr) & (s3->vram_mask >> 1)]; \
+			    else		   dat = vram_l[(addr) & (s3->vram_mask >> 2)];
 
 #define MIX_READ {											       \
 			switch ((mix_dat & mix_mask) ? (s3->accel.frgd_mix & 0xf) : (s3->accel.bkgd_mix & 0xf)) \
@@ -4068,18 +4041,18 @@ polygon_setup(s3_t *s3)
 
 #define WRITE(addr, dat)     if (s3->bpp == 0)									       \
 			{											       \
-				svga->vram[dword_remap(svga, addr) & s3->vram_mask] = dat;					  \
-				svga->changedvram[(dword_remap(svga, addr) & s3->vram_mask) >> 12] = changeframecount;		   \
+				svga->vram[(addr) & s3->vram_mask] = dat;					  \
+				svga->changedvram[((addr) & s3->vram_mask) >> 12] = changeframecount;		   \
 			}											       \
 			else if (s3->bpp == 1)									  \
 			{											       \
-				vram_w[dword_remap_w(svga, addr) & (s3->vram_mask >> 1)] = dat;				       \
-				svga->changedvram[(dword_remap_w(svga, addr) & (s3->vram_mask >> 1)) >> 11] = changeframecount;	    \
+				vram_w[(addr) & (s3->vram_mask >> 1)] = dat;				       \
+				svga->changedvram[((addr) & (s3->vram_mask >> 1)) >> 11] = changeframecount;	    \
 			}											       \
 			else											    \
 			{											       \
-				vram_l[dword_remap_l(svga, addr) & (s3->vram_mask >> 2)] = dat;				       \
-				svga->changedvram[(dword_remap_l(svga, addr) & (s3->vram_mask >> 2)) >> 10] = changeframecount;	    \
+				vram_l[(addr) & (s3->vram_mask >> 2)] = dat;				       \
+				svga->changedvram[((addr) & (s3->vram_mask >> 2)) >> 10] = changeframecount;	    \
 			}
 
 
@@ -6125,8 +6098,7 @@ static void *s3_init(const device_t *info)
 				svga->crtc[0x59] = 0x00;
 				svga->crtc[0x5a] = 0x0a;
 			}
-			svga->packed_chain4 = 1;
-			
+
 			svga->ramdac = device_add(&ibm_rgb528_ramdac_device);
 			svga->clock_gen = device_add(&icd2061_device);
 			svga->getclock = icd2061_getclock;
@@ -6149,7 +6121,6 @@ static void *s3_init(const device_t *info)
 				svga->crtc[0x59] = 0x00;
 				svga->crtc[0x5a] = 0x0a;
 			}
-			svga->packed_chain4 = 1;
 
 			svga->ramdac = device_add(&sdac_ramdac_device);
 			svga->clock_gen = svga->ramdac;
@@ -6207,7 +6178,7 @@ static void *s3_init(const device_t *info)
 		case S3_PHOENIX_TRIO64VPLUS_ONBOARD:
 		case S3_DIAMOND_STEALTH64_764:
 			if (device_get_config_int("memory") == 1)
-				s3->svga.vram_max = 1 << 20;	/* Phoenix BIOS does not expect VRAM to be mirrored. */
+				svga->vram_max = 1 << 20;	/* Phoenix BIOS does not expect VRAM to be mirrored. */
 				/* Fall over. */
 
 		case S3_NUMBER9_9FX:
@@ -6219,7 +6190,6 @@ static void *s3_init(const device_t *info)
 			if (info->local == S3_PHOENIX_TRIO64VPLUS || info->local == S3_PHOENIX_TRIO64VPLUS_ONBOARD) {
 				if (s3->pci)
 					svga->crtc[0x53] = 0x08;
-				svga->packed_chain4 = 1;
 			}
 
 			svga->clock_gen = s3;
@@ -6233,7 +6203,6 @@ static void *s3_init(const device_t *info)
 			s3->packed_mmio = 1;
 			svga->crtc[0x53] = 0x08;
 			svga->crtc[0x6c] = 1;
-			svga->packed_chain4 = 1;
 
 			svga->clock_gen = s3;
 			svga->getclock = s3_trio64_getclock;
@@ -6245,6 +6214,8 @@ static void *s3_init(const device_t *info)
 
 	s3->i2c = i2c_gpio_init("ddc_s3");
 	s3->ddc = ddc_init(i2c_gpio_get_bus(s3->i2c));
+	
+	svga->packed_chain4 = 1;
 
 	return s3;
 }
