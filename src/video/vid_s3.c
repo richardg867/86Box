@@ -32,6 +32,7 @@
 #include <86box/plat.h>
 #include <86box/video.h>
 #include <86box/i2c.h>
+#include <86box/machine.h>
 #include <86box/vid_ddc.h>
 #include <86box/vid_svga.h>
 #include <86box/vid_svga_render.h>
@@ -355,6 +356,8 @@ static void s3_accel_out_l(uint16_t port, uint32_t val, void *p);
 static uint8_t s3_accel_in(uint16_t port, void *p);
 static uint8_t	s3_pci_read(int func, int addr, void *p);
 static void	s3_pci_write(int func, int addr, uint8_t val, void *p);
+
+static char *s3_vpc_trio32_findrom(uint32_t *offset, uint32_t *size);
 
 static __inline void
 wake_fifo_thread(s3_t *s3)
@@ -5672,7 +5675,7 @@ static void *s3_init(const device_t *info)
 	s3_t *s3 = malloc(sizeof(s3_t));
 	svga_t *svga = &s3->svga;
 	int vram;
-	uint32_t vram_size, bios_size = 0x8000;
+	uint32_t vram_size, bios_offset = 0, bios_size = 0x8000;
 
 	switch(info->local) {
 		case S3_ORCHID_86C911:
@@ -5773,8 +5776,7 @@ static void *s3_init(const device_t *info)
 				video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_s3_trio32_vlb);
 			break;
 		case S3_VPC_TRIO32:
-			bios_fn = ROM_VPC_TRIO32;
-			bios_size = 0x10000;
+			bios_fn = s3_vpc_trio32_findrom(&bios_offset, &bios_size);
 			chip = S3_TRIO32;
 			if (info->flags & DEVICE_PCI)
 				video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_s3_trio32_pci);
@@ -5853,7 +5855,7 @@ static void *s3_init(const device_t *info)
 	if (s3->has_bios) {
 		s3->bios_size = bios_size;
 		s3->bios_mask = bios_size - 1;
-		rom_init(&s3->bios_rom, (char *) bios_fn, 0xc0000, s3->bios_size, s3->bios_mask, 0, MEM_MAPPING_EXTERNAL);
+		rom_init(&s3->bios_rom, (char *) bios_fn, 0xc0000, s3->bios_size, s3->bios_mask, bios_offset, MEM_MAPPING_EXTERNAL);
 		if (info->flags & DEVICE_PCI)
 			mem_mapping_disable(&s3->bios_rom.mapping);
 	}
@@ -6137,35 +6139,37 @@ static void *s3_init(const device_t *info)
 
 			/* Patch PCI header into the Virtual PC VBIOS. */
 			if (info->local == S3_VPC_TRIO32) {
-				memset(s3->bios_rom.rom + 0xbfe0, 0, 0x18);
+				/* Establish a location for the PCI header. */
+				uint32_t rom_size = s3->bios_rom.rom[0x02] * 512;
+				uint32_t pci_hdr_base = rom_size - 0x20;
 
-				s3->bios_rom.rom[0x18] = 0xe0; /* pointer to PCI header */
-				s3->bios_rom.rom[0x19] = 0xbf;
+				/* Set pointer to PCI header. */
+				s3->bios_rom.rom[0x18] = pci_hdr_base & 0xff;
+				s3->bios_rom.rom[0x19] = pci_hdr_base >> 8;
 
-				s3->bios_rom.rom[0xbfe0] = 'P'; /* signature */
-				s3->bios_rom.rom[0xbfe1] = 'C';
-				s3->bios_rom.rom[0xbfe2] = 'I';
-				s3->bios_rom.rom[0xbfe3] = 'R';
-
-				s3->bios_rom.rom[0xbfe4] = 0x33; /* vendor ID */
-				s3->bios_rom.rom[0xbfe5] = 0x53;
-				s3->bios_rom.rom[0xbfe6] = s3->id_ext_pci; /* device ID */
-				s3->bios_rom.rom[0xbfe7] = 0x88;
-
-				s3->bios_rom.rom[0xbfea] = 0x18; /* header length */
-
-				s3->bios_rom.rom[0xbfef] = 0x03; /* class */
-
-				s3->bios_rom.rom[0xbff0] = 0x60; /* ROM length in 512-byte blocks */
-				s3->bios_rom.rom[0xbff1] = 0x00;
-				s3->bios_rom.rom[0xbff2] = 0x01; /* code type */
-				s3->bios_rom.rom[0xbff5] = 0x60; /* max runtime length */
+				/* Fill PCI header. */
+				struct pci_hdr {
+					char     signature[4];
+					uint16_t vendor_id, device_id, dev_list_ptr, header_length;
+					uint8_t  header_rev, progif_code, subclass_code, class_code;
+					uint16_t rom_length, rom_rev;
+					uint8_t  code_type, last_image;
+					uint16_t runtime_len;
+				} *pci_hdr = (struct pci_hdr *) (s3->bios_rom.rom + pci_hdr_base);
+				memset(pci_hdr, 0, sizeof(struct pci_hdr));
+				memcpy(pci_hdr->signature, "PCIR", 4);
+				pci_hdr->vendor_id = 0x5333;
+				pci_hdr->device_id = 0x8800 | s3->id_ext_pci;
+				pci_hdr->header_length = 0x18;
+				pci_hdr->class_code = 0x03;
+				pci_hdr->rom_length = pci_hdr->runtime_len = 0x60; /* in 512-byte blocks */
+				pci_hdr->last_image = 0x01;
 
 				/* Recalculate checksum. */
 				uint8_t checksum = 0;
-				for (int i = 0; i < 0xbfff; i++)
+				for (int i = 0; i < (rom_size - 1); i++)
 					checksum -= s3->bios_rom.rom[i];
-				s3->bios_rom.rom[0xbfff] = checksum;
+				s3->bios_rom.rom[rom_size - 1] = checksum;
 			}
 
 			svga->clock_gen = s3;
@@ -6290,9 +6294,30 @@ static int s3_diamond_stealth_se_available(void)
 	return rom_present(ROM_DIAMOND_STEALTH_SE);
 }
 
+static char *s3_vpc_trio32_findrom(uint32_t *offset, uint32_t *size) {
+	if (rom_present(ROM_VPC_TRIO32)) {
+		*offset = 0;
+		*size = 0x10000;
+		return ROM_VPC_TRIO32;
+	}
+
+#ifdef _WIN32
+	/* Load ROM from an installed copy of Virtual PC if required. */
+	for (int i = 0; vpc_paths[i]; i++) {
+		*size = rom_get_pe_resource(vpc_paths[i], "BIOS", 13501, -1, offset);
+		if (!(*size))
+			continue;
+		return vpc_paths[i];
+	}
+#endif
+
+	return NULL;
+}
+
 static int s3_vpc_trio32_available(void)
 {
-	return rom_present(ROM_VPC_TRIO32);
+	uint32_t offset, size;
+	return s3_vpc_trio32_findrom(&offset, &size) && size;
 }
 
 static int s3_9fx_available(void)

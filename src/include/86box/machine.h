@@ -565,6 +565,9 @@ extern int	machine_at_trinity371_init(const machine_t *);
 extern int	machine_at_p6bap_init(const machine_t *);
 
 /* m_at_misc.c */
+#ifdef _WIN32
+extern char	*vpc_paths[];
+#endif
 extern int	machine_at_vpc2007_init(const machine_t *);
 
 /* m_at_t3100e.c */

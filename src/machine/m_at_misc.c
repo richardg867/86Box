@@ -39,6 +39,28 @@
 #include <86box/sound.h>
 
 
+#ifdef _WIN32
+char *vpc_paths[] = {
+    /* Virtual PC 2004/2007 */
+    "%ProgramFiles%\\Microsoft Virtual PC\\Virtual PC.exe",
+# ifdef _WIN64
+    "%ProgramFiles(x86)%"
+# else
+    "%ProgramW6432%"
+# endif
+    "\\Microsoft Virtual PC\\Virtual PC.exe",
+
+    /* Windows Virtual PC */
+    "%SystemRoot%\\System32\\vpc.exe",
+# ifndef _WIN64
+    "%SystemRoot%\\Sysnative\\vpc.exe",
+# endif
+
+    NULL
+};
+#endif
+
+
 int
 machine_at_vpc2007_init(const machine_t *model)
 {
@@ -49,26 +71,13 @@ machine_at_vpc2007_init(const machine_t *model)
 
 #ifdef _WIN32
     /* Load ROM from an installed copy of Virtual PC if required. */
-    char *vpc_paths[] = {
-	/* Virtual PC 2004/2007 */
-	"%ProgramFiles%\\Microsoft Virtual PC\\Virtual PC.exe",
-# ifdef _WIN64
-	"%ProgramFiles(x86)%"
-# else
-	"%ProgramW6432%"
-# endif
-	"\\Microsoft Virtual PC\\Virtual PC.exe",
-
-	/* Windows Virtual PC */
-	"%SystemRoot%\\System32\\vpc.exe",
-# ifndef _WIN64
-	"%SystemRoot%\\Sysnative\\vpc.exe",
-# endif
-
-	NULL
-    };
-    for (i = 0; !ret && vpc_paths[i]; i++)
-	ret = bios_load_pe_resource(vpc_paths[i], "BIOS", 13500, -1);
+    uint32_t size, offset;
+    for (i = 0; !ret && vpc_paths[i]; i++) {
+	size = rom_get_pe_resource(vpc_paths[i], "BIOS", 13500, -1, &offset);
+	if (!size)
+		continue;
+	ret = bios_load_linear(vpc_paths[i], 0x00100000 - size, size, offset);
+    }
 #endif
 
     if (bios_only || !ret)

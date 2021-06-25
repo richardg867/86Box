@@ -82,5 +82,8 @@ extern int	rom_init_interleaved(rom_t *rom, char *fn_low,
 				     int size, int mask, int file_offset,
 				     uint32_t flags);
 
+extern uint32_t	rom_get_pe_resource(char *fn, char *type, uint32_t resource,
+				    uint32_t subresource, uint32_t *offset);
+
 
 #endif	/*EMU_ROM_H*/
