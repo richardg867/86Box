@@ -6294,7 +6294,8 @@ static int s3_diamond_stealth_se_available(void)
 	return rom_present(ROM_DIAMOND_STEALTH_SE);
 }
 
-static char *s3_vpc_trio32_findrom(uint32_t *offset, uint32_t *size) {
+static char *s3_vpc_trio32_findrom(uint32_t *offset, uint32_t *size)
+{
 	if (rom_present(ROM_VPC_TRIO32)) {
 		*offset = 0;
 		*size = 0x10000;

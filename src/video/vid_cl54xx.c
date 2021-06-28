@@ -1289,9 +1289,9 @@ gd54xx_in(uint16_t addr, void *p)
 				svga->dac_pos=0;
 				svga->dac_addr = (svga->dac_addr + 1) & 255;
 				if (svga->seqregs[0x12] & 2)
-                        		ret = gd54xx->extpal[index].b & 0x3f;
+                    		ret = gd54xx->extpal[index].b & 0x3f;
 				else
-                        		ret = svga->vgapal[index].b & 0x3f;
+                    		ret = svga->vgapal[index].b & 0x3f;
 				break;
                 }
                 break;
@@ -1953,7 +1953,7 @@ gd54xx_writew(uint32_t addr, uint16_t val, void *p)
     addr = (addr & 0x7fff) + svga->extra_banks[(addr >> 15) & 1];
 
     if (svga->writemode < 4)	
-    	svga_writew_linear(addr, val, svga);
+	svga_writew_linear(addr, val, svga);
     else {
 	svga_write_linear(addr, val, svga);
 	svga_write_linear(addr + 1, val >> 8, svga);
@@ -3729,7 +3729,7 @@ static void
     gd54xx_t *gd54xx = malloc(sizeof(gd54xx_t));
     svga_t *svga = &gd54xx->svga;
     int id = info->local & 0xff;
-    int vram;
+    int vram, set_default_vram = 0;
     char *romfn = NULL;
     memset(gd54xx, 0, sizeof(gd54xx_t));
 
@@ -3834,6 +3834,7 @@ static void
 		} else if (info->local & 0x400) {
 			romfn = BIOS_GD5446_BOCHS_PATH;
 			gd54xx->bios_size = 0x10000;
+			set_default_vram = 1;
 		} else
 			romfn = BIOS_GD5446_PATH;
 		break;
@@ -3987,6 +3988,30 @@ static void
 	gd54xx->crtcreg_mask = 0x7f;
     else
 	gd54xx->crtcreg_mask = 0x3f;
+
+    /* Set default VRAM size for Bochs VBIOS. */
+    if (set_default_vram) {
+	svga->seqregs[0x06] = 0x0f;
+	svga->seqregs[0x0f] = 0x00;
+	switch (vram) {
+		case 4:
+			svga->seqregs[0x0f] |= 0x80;
+			/* fall-through */
+
+		case 2:
+			svga->seqregs[0x0f] |= 0x08;
+			/* fall-through */
+
+		case 1:
+			svga->seqregs[0x0f] |= 0x10;
+			break;
+	}
+	svga->seqregs[0x15] = (vram == 4) ? 0x04 : 0x03;
+	svga->seqregs[0x17] = 0x20;
+	svga->seqregs[0x1f] = 0x2d;
+
+	svga->gdcreg[0x18] = 0x0f;
+    }
 
     gd54xx->overlay.colorkeycompare = 0xff;
 
