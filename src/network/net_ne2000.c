@@ -334,10 +334,14 @@ page3_read(nic_t *dev, uint32_t off, unsigned int len)
 		return((dev->board == NE2K_RTL8019AS) ? dev->pnp_csnsav : 0x00);
 
 	case 0xe:	/* 8029ASID0 */
-		return(0x29);
+		if (dev->board == NE2K_RTL8029AS)
+			return(0x29);
+		break;
 
 	case 0xf:	/* 8029ASID1 */
-		return(0x08);
+		if (dev->board == NE2K_RTL8029AS)
+			return(0x80);
+		break;
 
 	default:
 		break;
@@ -571,13 +575,7 @@ static void
 nic_ioset(nic_t *dev, uint16_t addr)
 {	
     if (dev->is_pci) {
-	io_sethandler(addr, 16,
-			 nic_readb, nic_readw, nic_readl,
-			 nic_writeb, nic_writew, nic_writel, dev);
-	io_sethandler(addr+16, 16,
-			 nic_readb, nic_readw, nic_readl,
-			 nic_writeb, nic_writew, nic_writel, dev);
-	io_sethandler(addr+0x1f, 1,
+	io_sethandler(addr, 32,
 			 nic_readb, nic_readw, nic_readl,
 			 nic_writeb, nic_writew, nic_writel, dev);
     } else {
@@ -593,9 +591,6 @@ nic_ioset(nic_t *dev, uint16_t addr)
 				 nic_readb, nic_readw, NULL,
 				 nic_writeb, nic_writew, NULL, dev);
 	}
-	io_sethandler(addr+0x1f, 1,
-			 nic_readb, NULL, NULL,
-			 nic_writeb, NULL, NULL, dev);	
     }
 }
 
@@ -604,13 +599,7 @@ static void
 nic_ioremove(nic_t *dev, uint16_t addr)
 {
     if (dev->is_pci) {
-	io_removehandler(addr, 16,
-			 nic_readb, nic_readw, nic_readl,
-			 nic_writeb, nic_writew, nic_writel, dev);
-	io_removehandler(addr+16, 16,
-			 nic_readb, nic_readw, nic_readl,
-			 nic_writeb, nic_writew, nic_writel, dev);
-	io_removehandler(addr+0x1f, 1,
+	io_removehandler(addr, 32,
 			 nic_readb, nic_readw, nic_readl,
 			 nic_writeb, nic_writew, nic_writel, dev);
     } else {
@@ -626,9 +615,6 @@ nic_ioremove(nic_t *dev, uint16_t addr)
 				 nic_readb, nic_readw, NULL,
 				 nic_writeb, nic_writew, NULL, dev);
 	}
-	io_removehandler(addr+0x1f, 1,
-			 nic_readb, NULL, NULL,
-			 nic_writeb, NULL, NULL, dev);	
     }
 }
 

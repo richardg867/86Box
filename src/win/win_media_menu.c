@@ -140,7 +140,7 @@ media_menu_set_name_zip(int drive)
     } else {
 	mbstoc16s(fn, zip_drives[drive].image_path, sizeof_w(fn));
 	_swprintf(name, plat_get_string(IDS_2054),
-		  type, drive+1, temp, zip_drives[drive].image_path);
+		  type, drive+1, temp, fn);
     }
 
     mii.cbSize = sizeof(mii);
@@ -295,7 +295,9 @@ is_valid_cdrom(int i)
 {
     if ((cdrom[i].bus_type == CDROM_BUS_ATAPI) && !MACHINE_HAS_IDE && memcmp(hdc_get_internal_name(hdc_current), "ide", 3))
 	return 0;
-    if ((cdrom[i].bus_type == CDROM_BUS_SCSI) && !MACHINE_HAS_SCSI && (scsi_card_current == 0))
+    if ((cdrom[i].bus_type == CDROM_BUS_SCSI) && !MACHINE_HAS_SCSI &&
+	(scsi_card_current[0] == 0) && (scsi_card_current[1] == 0) &&
+	(scsi_card_current[2] == 0) && (scsi_card_current[3] == 0))
 	return 0;
     return cdrom[i].bus_type != 0;
 }
@@ -305,7 +307,9 @@ is_valid_zip(int i)
 {
     if ((zip_drives[i].bus_type == ZIP_BUS_ATAPI) && !MACHINE_HAS_IDE && memcmp(hdc_get_internal_name(hdc_current), "ide", 3))
 	return 0;
-    if ((zip_drives[i].bus_type == ZIP_BUS_SCSI) && !MACHINE_HAS_SCSI && (scsi_card_current == 0))
+    if ((zip_drives[i].bus_type == ZIP_BUS_SCSI) && !MACHINE_HAS_SCSI &&
+	(scsi_card_current[0] == 0) && (scsi_card_current[1] == 0) &&
+	(scsi_card_current[2] == 0) && (scsi_card_current[3] == 0))
 	return 0;
     return zip_drives[i].bus_type != 0;
 }
@@ -315,7 +319,9 @@ is_valid_mo(int i)
 {
     if ((mo_drives[i].bus_type == MO_BUS_ATAPI) && !MACHINE_HAS_IDE && memcmp(hdc_get_internal_name(hdc_current), "ide", 3))
 	return 0;
-    if ((mo_drives[i].bus_type == MO_BUS_SCSI) && !MACHINE_HAS_SCSI && (scsi_card_current == 0))
+    if ((mo_drives[i].bus_type == MO_BUS_SCSI) && !MACHINE_HAS_SCSI &&
+	(scsi_card_current[0] == 0) && (scsi_card_current[1] == 0) &&
+	(scsi_card_current[2] == 0) && (scsi_card_current[3] == 0))
 	return 0;
     return mo_drives[i].bus_type != 0;
 }

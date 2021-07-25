@@ -30,6 +30,7 @@
 #include <86box/timer.h>
 #include <86box/nvr.h>
 #include <86box/plat.h>
+#include <86box/m_xt_xi8088.h>
 
 
 typedef struct sst_t
@@ -174,13 +175,14 @@ static uint8_t
 sst_read_id(uint32_t addr, void *p)
 {
     sst_t *dev = (sst_t *) p;
+    uint8_t ret = 0xff;
 
     if ((addr & 0xffff) == 0)
-	return SST_ID_MANUFACTURER;	/* SST */
+	ret = SST_ID_MANUFACTURER;	/* SST */
     else if ((addr & 0xffff) == 1)
-	return dev->id;
-    else
-	return 0xff;
+	ret = dev->id;
+
+    return ret;
 }
 
 
@@ -236,7 +238,10 @@ sst_write(uint32_t addr, uint8_t val, void *p)
 	case 2:
 	case 5:
 		/* 3rd and 6th Bus Write Cycle */
-		if ((addr & 0x7fff) == 0x5555)
+		if ((dev->command_state == 5) && (val == SST_SECTOR_ERASE)) {
+			/* Sector erase - can be on any address. */
+			sst_new_command(dev, addr, val);
+		} else if ((addr & 0x7fff) == 0x5555)
 			sst_new_command(dev, addr, val);
 		else
 			dev->command_state = 0;
@@ -372,7 +377,7 @@ sst_init(const device_t *info)
     else if (dev->id == SST_ID_SST39SF040)
 	dev->size = 0x80000;
     else
-	dev->size = 0x20000;
+	dev->size = ((dev->id == SST_ID_SST39SF010) && (strstr(machine_get_internal_name_ex(machine), "xi8088")) && !xi8088_bios_128kb()) ? 0x10000 : 0x20000;
     dev->mask = dev->size - 1;
     dev->page_mask = dev->mask & 0xffffff80;	/* Filter out A0-A6. */
     dev->sdp = 1;

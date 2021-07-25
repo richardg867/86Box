@@ -16,7 +16,7 @@
  *		Copyright 2008-2020 Sarah Walker.
  *		Copyright 2016-2020 Miran Grca.
  *		Copyright 2020 Melissa Goad.
- *		Copyright 2020 RichardG.
+ *		Copyright 2020-2021 RichardG.
  */
 
 #include <stdarg.h>
@@ -58,6 +58,7 @@
 #define VIA_PIPC_596B	0x05962300
 #define VIA_PIPC_686A	0x06861400
 #define VIA_PIPC_686B	0x06864000
+#define VIA_PIPC_8231	0x82311000
 
 
 typedef struct
@@ -118,6 +119,7 @@ pipc_reset_hard(void *priv)
     memset(dev->power_regs, 0, 256);
     memset(dev->ac97_regs, 0, 512);
 
+    /* PCI-ISA bridge registers */
     dev->pci_isa_regs[0x00] = 0x06; dev->pci_isa_regs[0x01] = 0x11;
     dev->pci_isa_regs[0x02] = dev->local >> 16;
     dev->pci_isa_regs[0x03] = dev->local >> 24;
@@ -167,19 +169,23 @@ pipc_reset_hard(void *priv)
 
     if (dev->local <= VIA_PIPC_586B)
 	dev->ide_regs[0x40] = 0x04;
-    dev->ide_regs[0x41] = (dev->local <= VIA_PIPC_686A) ? 0x06 : 0x02;
+    dev->ide_regs[0x41] = (dev->local == VIA_PIPC_686B) ? 0x06 : 0x02;
     dev->ide_regs[0x42] = 0x09;
     dev->ide_regs[0x43] = (dev->local >= VIA_PIPC_686A) ? 0x0a : 0x3a;
     dev->ide_regs[0x44] = 0x68;
+    if (dev->local == VIA_PIPC_686B)
+	dev->ide_regs[0x45] = 0x20;
+    else if (dev->local >= VIA_PIPC_8231)
+	dev->ide_regs[0x45] = 0x03;
     dev->ide_regs[0x46] = 0xc0;
     dev->ide_regs[0x48] = 0xa8; dev->ide_regs[0x49] = 0xa8;
     dev->ide_regs[0x4a] = 0xa8; dev->ide_regs[0x4b] = 0xa8;
     dev->ide_regs[0x4c] = 0xff;
-    dev->ide_regs[0x4e] = 0xff;
-    dev->ide_regs[0x4f] = 0xff;
-    dev->ide_regs[0x50] = dev->ide_regs[0x51] = dev->ide_regs[0x52] = dev->ide_regs[0x53] = (dev->local >= VIA_PIPC_686A) ? 0x07 : 0x03;
+    if (dev->local != VIA_PIPC_686B)
+	dev->ide_regs[0x4e] = dev->ide_regs[0x4f] = 0xff;
+    dev->ide_regs[0x50] = dev->ide_regs[0x51] = dev->ide_regs[0x52] = dev->ide_regs[0x53] = ((dev->local == VIA_PIPC_686A) || (dev->local == VIA_PIPC_686B)) ? 0x07 : 0x03;
     if (dev->local >= VIA_PIPC_596A)
-	dev->ide_regs[0x54] = 0x06;
+	dev->ide_regs[0x54] = ((dev->local == VIA_PIPC_686A) || (dev->local == VIA_PIPC_686B)) ? 0x04 : 0x06;
 
     dev->ide_regs[0x61] = 0x02;
     dev->ide_regs[0x69] = 0x02;
@@ -189,6 +195,7 @@ pipc_reset_hard(void *priv)
 	dev->ide_regs[0xc2] = 0x02;
     }
 
+    /* USB registers */
     for (i = 0; i <= (dev->local >= VIA_PIPC_686A); i++) {
 	dev->max_func++;
 	dev->usb_regs[i][0x00] = 0x06; dev->usb_regs[i][0x01] = 0x11;
@@ -213,6 +220,10 @@ pipc_reset_hard(void *priv)
 		case VIA_PIPC_686B:
 			dev->usb_regs[i][0x08] = 0x1a;
 			break;
+
+		case VIA_PIPC_8231:
+			dev->usb_regs[i][0x08] = 0x1e;
+			break;
 	}
 
 	dev->usb_regs[i][0x0a] = 0x03;
@@ -220,6 +231,8 @@ pipc_reset_hard(void *priv)
 	dev->usb_regs[i][0x0d] = 0x16;
 	dev->usb_regs[i][0x20] = 0x01;
 	dev->usb_regs[i][0x21] = 0x03;
+	if (dev->local == VIA_PIPC_686B)
+		dev->usb_regs[i][0x34] = 0x80;
 	dev->usb_regs[i][0x3d] = 0x04;
 
 	dev->usb_regs[i][0x60] = 0x10;
@@ -230,21 +243,29 @@ pipc_reset_hard(void *priv)
 	dev->usb_regs[i][0xc1] = 0x20;
     }
 
+    /* power management registers */
     if (dev->acpi) {
 	dev->max_func++;
 	dev->power_regs[0x00] = 0x06; dev->power_regs[0x01] = 0x11;
-	if (dev->local <= VIA_PIPC_586B)
-		dev->power_regs[0x02] = 0x40;
-	else if (dev->local <= VIA_PIPC_596B)
-		dev->power_regs[0x02] = 0x50;
-	else
-		dev->power_regs[0x02] = 0x57;
-	dev->power_regs[0x03] = 0x30;
+	if (dev->local >= VIA_PIPC_8231) {
+		/* The VT8231 preliminary datasheet lists *two* inaccurate
+		   device IDs (3068 and 3057). Real dumps have 8235. */
+		dev->power_regs[0x02] = 0x35; dev->power_regs[0x03] = 0x82;
+	} else {
+		if (dev->local <= VIA_PIPC_586B)
+			dev->power_regs[0x02] = 0x40;
+		else if (dev->local <= VIA_PIPC_596B)
+			dev->power_regs[0x02] = 0x50;
+		else
+			dev->power_regs[0x02] = 0x57;
+		dev->power_regs[0x03] = 0x30;
+	}
 	dev->power_regs[0x04] = 0x00; dev->power_regs[0x05] = 0x00;
 	dev->power_regs[0x06] = (dev->local == VIA_PIPC_686B) ? 0x90 : 0x80; dev->power_regs[0x07] = 0x02;
 	switch (dev->local) {
 		case VIA_PIPC_586B:
 		case VIA_PIPC_686A:
+		case VIA_PIPC_8231:
 			dev->power_regs[0x08] = 0x10;
 			break;
 
@@ -260,10 +281,17 @@ pipc_reset_hard(void *priv)
 			dev->power_regs[0x08] = 0x40;
 			break;
 	}
+	if (dev->local == VIA_PIPC_686B)
+		dev->power_regs[0x34] = 0x68;
 	dev->power_regs[0x40] = 0x20;
 
-	dev->power_regs[0x42] = 0xd0;
+	dev->power_regs[0x42] = 0x50;
 	dev->power_regs[0x48] = 0x01;
+
+	if (dev->local == VIA_PIPC_686B) {
+		dev->power_regs[0x68] = 0x01;
+		dev->power_regs[0x6a] = 0x02;
+	}
 
 	if (dev->local >= VIA_PIPC_686A)
 		dev->power_regs[0x70] = 0x01;
@@ -274,13 +302,26 @@ pipc_reset_hard(void *priv)
 		dev->power_regs[0x90] = 0x01;
     }
 
+    /* AC97/MC97 registers */
     if (dev->local >= VIA_PIPC_686A) {
 	for (i = 0; i <= 1; i++) {
 		dev->max_func++;
 		dev->ac97_regs[i][0x00] = 0x06; dev->ac97_regs[i][0x01] = 0x11;
 		dev->ac97_regs[i][0x02] = 0x58 + (0x10 * i); dev->ac97_regs[i][0x03] = 0x30;
 		dev->ac97_regs[i][0x06] = 0x10 * (1 - i); dev->ac97_regs[i][0x07] = 0x02;
-		dev->ac97_regs[i][0x08] = (dev->local == VIA_PIPC_686A) ? 0x12 : 0x50;
+		switch (dev->local) {
+			case VIA_PIPC_686A:
+				dev->ac97_regs[i][0x08] = (i == 0) ? 0x12 : 0x01;
+				break;
+
+			case VIA_PIPC_686B:
+				dev->ac97_regs[i][0x08] = (i == 0) ? 0x50 : 0x30;
+				break;
+
+			case VIA_PIPC_8231:
+				dev->ac97_regs[i][0x08] = (i == 0) ? 0x40 : 0x20;
+				break;
+		}
 
 		if (i == 0) {
 			dev->ac97_regs[i][0x0a] = 0x01;
@@ -291,7 +332,12 @@ pipc_reset_hard(void *priv)
 		}
 
 		dev->ac97_regs[i][0x10] = 0x01;
-		dev->ac97_regs[i][0x14] = 0x01;
+		dev->ac97_regs[i][(dev->local >= VIA_PIPC_8231) ? 0x1c : 0x14] = 0x01;
+
+		if ((i == 0) && (dev->local >= VIA_PIPC_8231)) {
+			dev->ac97_regs[i][0x18] = 0x31;
+			dev->ac97_regs[i][0x19] = 0x03;
+		}
 
 		dev->ac97_regs[i][0x3d] = 0x03;
 
@@ -313,6 +359,9 @@ pipc_reset_hard(void *priv)
 
     ide_pri_disable();
     ide_sec_disable();
+
+    nvr_via_wp_set(0x00, 0x32, dev->nvr);
+    nvr_via_wp_set(0x00, 0x0d, dev->nvr);
 }
 
 
@@ -413,7 +462,7 @@ pipc_read(int func, int addr, void *priv)
 		if (ret & 0x80) /* bit 7 set = use bit 6 */
 			c = ret & 0x40;
 		else if (ide_drives[c]) /* bit 7 clear = use SET FEATURES mode */
-			c = (ide_drives[c]->mdma_mode & 0xf00) == 0x300;
+			c = (ide_drives[c]->mdma_mode & 0x300) == 0x300;
 		else /* no drive here */
 			c = 0;
 		/* 586A/B datasheet claims bit 5 must be clear for UDMA, unlike later models where
@@ -433,6 +482,12 @@ pipc_read(int func, int addr, void *priv)
 			ret |= 0x10;
 		else
 			ret &= ~0x10;
+	} else if ((addr == 0xd2) && (dev->local == VIA_PIPC_686B)) {
+		/* SMBus clock select bit. */
+		if (dev->smbus->clock == 16384)
+			ret &= ~0x10;
+		else
+			ret |= 0x10;
 	}
     }
     else if ((func <= (pm_func + 2)) && !(dev->pci_isa_regs[0x85] & ((func == (pm_func + 1)) ? 0x04 : 0x08))) /* AC97 / MC97 */
@@ -450,7 +505,7 @@ nvr_update_io_mapping(pipc_t *dev)
     if (dev->nvr_enabled)
 	nvr_at_handler(0, 0x0074, dev->nvr);
 
-    if ((dev->pci_isa_regs[0x5b] & 0x02) && (dev->pci_isa_regs[0x48] & 0x08))
+    if ((dev->pci_isa_regs[0x5b] & 0x02) || (dev->pci_isa_regs[0x48] & 0x08))
 	nvr_at_handler(1, 0x0074, dev->nvr);
 }
 
@@ -512,9 +567,7 @@ pipc_write(int func, int addr, uint8_t val, void *priv)
 					cpu_set_isa_pci_div(2);
 					break;
 
-				case 0xa:
-					cpu_set_isa_pci_div(4);
-					break;
+				/* case 0xa: same as default */
 
 				case 0xb:
 					cpu_set_isa_pci_div(6);
@@ -532,7 +585,7 @@ pipc_write(int func, int addr, uint8_t val, void *priv)
 					cpu_set_isa_pci_div(12);
 					break;
 
-				/* Half PIT clock. */
+				/* Half oscillator clock. */
 				case 0xf:
 					cpu_set_isa_speed(7159091);
 					break;
@@ -632,6 +685,8 @@ pipc_write(int func, int addr, uint8_t val, void *priv)
 		case 0x77:
 			if (val & 0x10)
 				pclog("PIPC: Warning: Internal I/O APIC enabled.\n");
+			nvr_via_wp_set(!!(val & 0x04), 0x32, dev->nvr);
+			nvr_via_wp_set(!!(val & 0x02), 0x0d, dev->nvr);
 			break;
 
 		case 0x80: case 0x86: case 0x87:
@@ -735,6 +790,8 @@ pipc_write(int func, int addr, uint8_t val, void *priv)
 		case 0x41:
 			if (dev->local <= VIA_PIPC_686A)
 				dev->ide_regs[0x41] = val;
+			else if (dev->local == VIA_PIPC_8231)
+				dev->ide_regs[0x41] = val & 0xf6;
 			else
 				dev->ide_regs[0x41] = val & 0xf2;
 			break;
@@ -755,7 +812,7 @@ pipc_write(int func, int addr, uint8_t val, void *priv)
 				dev->ide_regs[0x44] = val & 0x7b;
 			else if (dev->local <= VIA_PIPC_596B)
 				dev->ide_regs[0x44] = val & 0x7f;
-			else if (dev->local <= VIA_PIPC_686A)
+			else if ((dev->local <= VIA_PIPC_686A) || (dev->local == VIA_PIPC_8231))
 				dev->ide_regs[0x44] = val & 0x69;
 			else
 				dev->ide_regs[0x44] = val & 0x7d;
@@ -764,7 +821,7 @@ pipc_write(int func, int addr, uint8_t val, void *priv)
 		case 0x45:
 			if (dev->local <= VIA_PIPC_586B)
 				dev->ide_regs[0x45] = val & 0x40;
-			else if (dev->local <= VIA_PIPC_596B)
+			else if ((dev->local <= VIA_PIPC_596B) || (dev->local == VIA_PIPC_8231))
 				dev->ide_regs[0x45] = val & 0x4f;
 			else if (dev->local <= VIA_PIPC_686A)
 				dev->ide_regs[0x45] = val & 0x5f;
@@ -773,7 +830,7 @@ pipc_write(int func, int addr, uint8_t val, void *priv)
 			break;
 
 		case 0x46:
-			if (dev->local <= VIA_PIPC_686A)
+			if ((dev->local <= VIA_PIPC_686A) || (dev->local == VIA_PIPC_8231))
 				dev->ide_regs[0x46] = val & 0xf3;
 			else
 				dev->ide_regs[0x46] = val & 0xc0;
@@ -784,7 +841,7 @@ pipc_write(int func, int addr, uint8_t val, void *priv)
 				dev->ide_regs[addr] = val & 0xc3;
 			else if (dev->local <= VIA_PIPC_596B)
 				dev->ide_regs[addr] = val & ((addr & 1) ? 0xc3 : 0xcb);
-			else if (dev->local <= VIA_PIPC_686A)
+			else if ((dev->local <= VIA_PIPC_686A) || (dev->local == VIA_PIPC_8231))
 				dev->ide_regs[addr] = val & ((addr & 1) ? 0xc7 : 0xcf);
 			else
 				dev->ide_regs[addr] = val & 0xd7;
@@ -803,11 +860,14 @@ pipc_write(int func, int addr, uint8_t val, void *priv)
 	if ((addr < 4) || (addr == 5) || (addr == 6) || ((addr >= 8) && (addr < 0xd)) ||
 	    ((addr >= 0xe) && (addr < 0x20)) || ((addr >= 0x22) && (addr < 0x3c)) ||
 	    ((addr >= 0x3e) && (addr < 0x40)) || ((addr >= 0x42) && (addr < 0x44)) ||
-	    ((addr >= 0x46) && (addr < 0xc0)) || (addr >= 0xc2))
+	    ((addr >= 0x46) && (addr < 0x84)) || ((addr >= 0x85) && (addr < 0xc0)) || (addr >= 0xc2))
 		return;
 
 	/* Check disable bits for both controllers */
 	if ((func == 2) ? (dev->pci_isa_regs[0x48] & 0x04) : (dev->pci_isa_regs[0x85] & 0x10))
+		return;
+
+	if ((dev->local <= VIA_PIPC_596B) && (addr == 0x84))
 		return;
 
 	switch (addr) {
@@ -867,9 +927,16 @@ pipc_write(int func, int addr, uint8_t val, void *priv)
 			break;
 
 		case 0x42:
-			dev->power_regs[addr] &= ~0x0f;
-			dev->power_regs[addr] |= val & 0x0f;
+			dev->power_regs[addr] &= ~0x2f;
+			dev->power_regs[addr] |= val & 0x2f;
 			acpi_set_irq_line(dev->acpi, dev->power_regs[addr]);
+			break;
+
+		case 0x54:
+			if (dev->local <= VIA_PIPC_596B)
+				dev->power_regs[addr] = val; /* write-only on 686A+ */
+			else
+				smbus_piix4_setclock(dev->smbus, (val & 0x80) ? 65536 : 16384); /* final clock undocumented on 686A, assume RTC*2 like 686B */
 			break;
 
 		case 0x61: case 0x62: case 0x63:
@@ -883,12 +950,17 @@ pipc_write(int func, int addr, uint8_t val, void *priv)
 				vt82c686_hwm_write(addr, val, subdev);
 			break;
 
-		case 0x80: case 0x81: case 0x84: /* 596(A) has the SMBus I/O base here instead. Enable bit is assumed. */
+		case 0x80: case 0x81: case 0x84: /* 596A has the SMBus I/O base and enable bit here instead. */
 			dev->power_regs[addr] = val;
 			smbus_piix4_remap(dev->smbus, (dev->power_regs[0x81] << 8) | (dev->power_regs[0x80] & 0xf0), dev->power_regs[0x84] & 0x01);
 			break;
 
-		case 0x90: case 0x91: case 0xd2:
+		case 0xd2:
+			if (dev->local == VIA_PIPC_686B)
+				smbus_piix4_setclock(dev->smbus, (val & 0x04) ? 65536 : 16384);
+			/* fall-through */
+
+		case 0x90: case 0x91:
 			dev->power_regs[addr] = val;
 			smbus_piix4_remap(dev->smbus, (dev->power_regs[0x91] << 8) | (dev->power_regs[0x90] & 0xf0), dev->power_regs[0xd2] & 0x01);
 			break;
@@ -946,6 +1018,8 @@ pipc_reset(void *p)
 	pipc_write(1, 0x40, 0x04, p);
     else
 	pipc_write(1, 0x40, 0x00, p);
+
+    pipc_write(0, 0x77, 0x00, p);
 }
 
 
@@ -974,7 +1048,7 @@ pipc_init(const device_t *info)
 
     dev->nvr = device_add(&via_nvr_device);
 
-    if (dev->local >= VIA_PIPC_686B)
+    if (dev->local == VIA_PIPC_686B)
 	dev->smbus = device_add(&via_smbus_device);
     else if (dev->local >= VIA_PIPC_596A)
 	dev->smbus = device_add(&piix4_smbus_device);
@@ -1030,8 +1104,8 @@ const device_t via_vt82c586b_device =
     "VIA VT82C586B",
     DEVICE_PCI,
     VIA_PIPC_586B,
-    pipc_init, 
-    pipc_close, 
+    pipc_init,
+    pipc_close,
     pipc_reset,
     { NULL },
     NULL,
@@ -1039,13 +1113,13 @@ const device_t via_vt82c586b_device =
     NULL
 };
 
-const device_t via_vt82c596_device =
+const device_t via_vt82c596a_device =
 {
-    "VIA VT82C596(A)",
+    "VIA VT82C596A",
     DEVICE_PCI,
     VIA_PIPC_596A,
-    pipc_init, 
-    pipc_close, 
+    pipc_init,
+    pipc_close,
     pipc_reset,
     { NULL },
     NULL,
@@ -1059,8 +1133,8 @@ const device_t via_vt82c596b_device =
     "VIA VT82C596B",
     DEVICE_PCI,
     VIA_PIPC_596B,
-    pipc_init, 
-    pipc_close, 
+    pipc_init,
+    pipc_close,
     pipc_reset,
     { NULL },
     NULL,
@@ -1074,8 +1148,8 @@ const device_t via_vt82c686a_device =
     "VIA VT82C686A",
     DEVICE_PCI,
     VIA_PIPC_686A,
-    pipc_init, 
-    pipc_close, 
+    pipc_init,
+    pipc_close,
     pipc_reset,
     { NULL },
     NULL,
@@ -1089,8 +1163,23 @@ const device_t via_vt82c686b_device =
     "VIA VT82C686B",
     DEVICE_PCI,
     VIA_PIPC_686B,
-    pipc_init, 
-    pipc_close, 
+    pipc_init,
+    pipc_close,
+    pipc_reset,
+    { NULL },
+    NULL,
+    NULL,
+    NULL
+};
+
+
+const device_t via_vt8231_device =
+{
+    "VIA VT8231",
+    DEVICE_PCI,
+    VIA_PIPC_8231,
+    pipc_init,
+    pipc_close,
     pipc_reset,
     { NULL },
     NULL,

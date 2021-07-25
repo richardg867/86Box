@@ -59,7 +59,7 @@ typedef struct _joystick_instance_ {
 } joystick_instance_t;
 
 
-int		joystick_type = 1;
+int		joystick_type = 0;
 
 
 static const joystick_if_t joystick_none = {
@@ -324,17 +324,16 @@ gameport_remap(void *priv, uint16_t address)
 
     if (dev->addr) {
 	/* Add this port to the active ports list. */
-	if ((dev->addr & 0xfff8) == 0x200) {
-		/* Port within 200-207h: add to top. */
+	if ( !active_gameports || ((dev->addr & 0xfff8) == 0x200)) {
+		/* No ports have been added yet, or port within 200-207h: add to top. */
 		dev->next = active_gameports;
 		active_gameports = dev;
 	} else {
 		/* Port at other addresses: add to bottom. */
 		other_dev = active_gameports;
-		while (other_dev && other_dev->next)
+		while (other_dev->next)
 			other_dev = other_dev->next;
-		if (other_dev)
-			other_dev->next = dev;
+		other_dev->next = dev;
 	}
 
 	io_sethandler(dev->addr, dev->len,
@@ -361,7 +360,7 @@ gameport_add(const device_t *gameport_type)
 {
     /* Prevent a standalone game port from being added later on, unless this
        is an unused Super I/O game port (no MACHINE_GAMEPORT machine flag). */
-    if (!(gameport_type->local & 0x1000000) || (machines[machine].flags & MACHINE_GAMEPORT))
+    if (!(gameport_type->local & GAMEPORT_SIO) || (machines[machine].flags & MACHINE_GAMEPORT))
 	standalone_gameport_type = NULL;
 
     /* Add game port device. */
@@ -408,7 +407,7 @@ gameport_init(const device_t *info)
     gameport_remap(dev, info->local & 0xffff);
 
     /* Register ISAPnP if this is a standard game port card. */
-    if (info->local == 0x200)
+    if ((info->local & 0xffff) == 0x200)
 	isapnp_set_device_defaults(isapnp_add_card(gameport_pnp_rom, sizeof(gameport_pnp_rom), gameport_pnp_config_changed, NULL, NULL, NULL, dev), 0, gameport_pnp_defaults);
 
     return dev;

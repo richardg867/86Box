@@ -296,6 +296,7 @@ typedef struct voodoo_t
         int swap_pending;
 
         int bilinear_enabled;
+		int dithersub_enabled;
 
         int fb_size;
         uint32_t fb_mask;
@@ -499,8 +500,9 @@ typedef struct voodoo_t
         void *codegen_data;
 
         struct voodoo_set_t *set;
-        
-        
+
+	uint8_t fifo_thread_run, render_thread_run[4];
+
         uint8_t *vram, *changedvram;
         
         void *p;

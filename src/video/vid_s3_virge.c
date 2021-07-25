@@ -150,6 +150,8 @@ typedef struct s3d_t
         uint32_t txs;
         uint32_t tys;
         int ty01, ty12, tlr;
+
+        uint8_t fog_r, fog_g, fog_b;
 } s3d_t;
         
 typedef struct virge_t
@@ -286,6 +288,8 @@ typedef struct virge_t
 
 	uint8_t subsys_stat, subsys_cntl, advfunc_cntl;
 
+	uint8_t render_thread_run, fifo_thread_run;
+
 	uint8_t serialport;
 
 	void *i2c, *ddc;
@@ -347,6 +351,7 @@ enum
         CMD_SET_COMMAND_MASK = (15 << 27)
 };
 
+#define CMD_SET_FE         (1 << 17)
 #define CMD_SET_ABC_SRC    (1 << 18)
 #define CMD_SET_ABC_ENABLE (1 << 19)
 #define CMD_SET_TWE        (1 << 26)
@@ -578,8 +583,13 @@ static void s3_virge_out(uint16_t addr, uint8_t val, void *p)
                 {
                         if (svga->crtcreg < 0xe || svga->crtcreg > 0x10)
                         {
-                                svga->fullchange = changeframecount;
-                                svga_recalctimings(svga);
+				if ((svga->crtcreg == 0xc) || (svga->crtcreg == 0xd)) {
+                                	svga->fullchange = 3;
+					svga->ma_latch = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) + ((svga->crtc[8] & 0x60) >> 5);
+				} else {
+					svga->fullchange = changeframecount;
+	                                svga_recalctimings(svga);
+				}
                         }
                 }
                 break;
@@ -1114,7 +1124,7 @@ static void fifo_thread(void *param)
 {
         virge_t *virge = (virge_t *)param;
         
-        while (1)
+        while (virge->fifo_thread_run)
         {
                 thread_set_event(virge->fifo_not_full_event);
                 thread_wait_event(virge->wake_fifo_thread, -1);
@@ -1550,6 +1560,11 @@ s3_virge_mmio_write_l(uint32_t addr, uint32_t val, void *p)
 				s3_virge_bitblt(virge, -1, 0);
 			break;
 			
+			case 0xb0f4: case 0xb4f4:
+			virge->s3d_tri.fog_b = val & 0xff;
+			virge->s3d_tri.fog_g = (val >> 8) & 0xff;
+			virge->s3d_tri.fog_r = (val >> 16) & 0xff;
+			break;
 			case 0xb4d4:
 			virge->s3d_tri.z_base = val & 0x3ffff8;
 			break;
@@ -2968,6 +2983,13 @@ static void tri(virge_t *virge, s3d_t *s3d_tri, s3d_state_t *state, int yc, int3
 
                                         dest_pixel(state);
 
+                                        if (s3d_tri->cmd_set & CMD_SET_FE)
+                                        {
+                                                int a = state->a >> 7;
+                                                state->dest_rgba.r = ((state->dest_rgba.r * a) + (s3d_tri->fog_r * (255 - a))) / 255;
+                                                state->dest_rgba.g = ((state->dest_rgba.g * a) + (s3d_tri->fog_g * (255 - a))) / 255;
+                                                state->dest_rgba.b = ((state->dest_rgba.b * a) + (s3d_tri->fog_b * (255 - a))) / 255;
+                                        }
                                         if (s3d_tri->cmd_set & CMD_SET_ABC_ENABLE)
                                         {
                                                 switch (bpp)
@@ -3215,7 +3237,7 @@ static void render_thread(void *param)
 {
         virge_t *virge = (virge_t *)param;
         
-        while (1)
+        while (virge->render_thread_run)
         {
                 thread_wait_event(virge->wake_render_thread, -1);
                 thread_reset_event(virge->wake_render_thread);
@@ -3877,10 +3899,12 @@ static void *s3_virge_init(const device_t *info)
         virge->wake_render_thread = thread_create_event();
         virge->wake_main_thread = thread_create_event();
         virge->not_full_event = thread_create_event();
+	virge->render_thread_run = 1;
         virge->render_thread = thread_create(render_thread, virge);
 
         virge->wake_fifo_thread = thread_create_event();
         virge->fifo_not_full_event = thread_create_event();
+	virge->fifo_thread_run = 1;
         virge->fifo_thread = thread_create(fifo_thread, virge);
  
         virge->i2c = i2c_gpio_init("ddc_s3_virge");
@@ -3895,12 +3919,16 @@ static void s3_virge_close(void *p)
 {
         virge_t *virge = (virge_t *)p;
 
-        thread_kill(virge->render_thread);
+	virge->render_thread_run = 0;
+        thread_set_event(virge->wake_render_thread);
+        thread_wait(virge->render_thread, -1);
         thread_destroy_event(virge->not_full_event);
         thread_destroy_event(virge->wake_main_thread);
         thread_destroy_event(virge->wake_render_thread);
         
-        thread_kill(virge->fifo_thread);
+	virge->fifo_thread_run = 0;
+        thread_set_event(virge->wake_fifo_thread);
+        thread_wait(virge->fifo_thread, -1);
         thread_destroy_event(virge->wake_fifo_thread);
         thread_destroy_event(virge->fifo_not_full_event);
 
