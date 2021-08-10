@@ -626,9 +626,9 @@ pipc_read(int func, int addr, void *priv)
     int c;
     uint8_t pm_func = dev->usb[1] ? 4 : 3;
 
-    if (func > dev->max_func)
+    if (func > dev->max_func) {
 	return ret;
-    else if (func == 0) { /* PCI-ISA bridge */
+    } else if (func == 0) { /* PCI-ISA bridge */
 	if ((addr >= 0x60) && (addr <= 0x6f)) { /* DMA shadow registers */
 		c = (addr & 0x0e) >> 1;
 		if (addr & 0x01)
@@ -637,32 +637,34 @@ pipc_read(int func, int addr, void *priv)
 			ret = (dma[c].ab & 0x000000f0);
 			ret |= (!!(dma_e & (1 << c)) << 3);
 		}
-	} else
+	} else {
 		ret = dev->pci_isa_regs[addr];
-    }
-    else if ((func == 1) && !(dev->pci_isa_regs[0x48] & 0x02)) { /* IDE */
-	ret = dev->ide_regs[addr];
-	if ((addr >= 0x50) && (addr <= 0x53)) { /* UDMA timing registers */
-		/* Set or clear bit 5 according to UDMA mode. Documentation is unclear, but a real
-		   686B does set bit 5 when UDMA is enabled through the method specified in bit 7. */
-		c = 0x53 - addr;
-		if (ret & 0x80) /* bit 7 set = use bit 6 */
-			c = ret & 0x40;
-		else if (ide_drives[c]) /* bit 7 clear = use SET FEATURES mode */
-			c = (ide_drives[c]->mdma_mode & 0x300) == 0x300;
-		else /* no drive here */
-			c = 0;
-		/* 586A/B datasheet claims bit 5 must be clear for UDMA, unlike later models where
-		   it must be set, but the Windows driver doesn't care and always checks if it's set. */
-		if (c)
-			ret |= 0x20;
-		else
-			ret &= ~0x20;
 	}
-    }
-    else if ((func < pm_func) && !((func == 2) ? (dev->pci_isa_regs[0x48] & 0x04) : (dev->pci_isa_regs[0x85] & 0x10))) /* USB */
-	ret = dev->usb_regs[func - 2][addr];
-    else if (func == pm_func) { /* Power */
+    } else if (func == 1) { /* IDE */
+	if (!(dev->pci_isa_regs[0x48] & 0x02)) {
+		ret = dev->ide_regs[addr];
+		if ((addr >= 0x50) && (addr <= 0x53)) { /* UDMA timing registers */
+			/* Set or clear bit 5 according to UDMA mode. Documentation is unclear, but a real
+			   686B does set bit 5 when UDMA is enabled through the method specified in bit 7. */
+			c = 0x53 - addr;
+			if (ret & 0x80) /* bit 7 set = use bit 6 */
+				c = ret & 0x40;
+			else if (ide_drives[c]) /* bit 7 clear = use SET FEATURES mode */
+				c = (ide_drives[c]->mdma_mode & 0x300) == 0x300;
+			else /* no drive here */
+				c = 0;
+			/* 586A/B datasheet claims bit 5 must be clear for UDMA, unlike later models where
+			   it must be set, but the Windows driver doesn't care and always checks if it's set. */
+			if (c)
+				ret |= 0x20;
+			else
+				ret &= ~0x20;
+		}
+	}
+    } else if (func < pm_func) { /* USB */
+	if (dev->usb[func - 2] && ((func == 2) ? !(dev->pci_isa_regs[0x48] & 0x04) : !(dev->pci_isa_regs[0x85] & 0x10)))
+		ret = dev->usb_regs[func - 2][addr];
+    } else if (func == pm_func) { /* Power */
 	ret = dev->power_regs[addr];
 	if (addr == 0x42) {
 		if (dev->nvr->regs[0x0d] & 0x80)
@@ -676,12 +678,13 @@ pipc_read(int func, int addr, void *priv)
 		else
 			ret |= 0x10;
 	}
-    }
-    else if ((func <= (pm_func + 2)) && !(dev->pci_isa_regs[0x85] & ((func == (pm_func + 1)) ? 0x04 : 0x08))) { /* AC97 / MC97 */
-	if (addr == 0x40)
-		ret = ac97_via_read_status(dev->ac97, func - pm_func - 1);
-	else
-		ret = dev->ac97_regs[func - pm_func - 1][addr];
+    } else if (func <= (pm_func + 2)) { /* AC97 / MC97 */
+	if (dev->ac97 && !(dev->pci_isa_regs[0x85] & (0x08 >> (func == (pm_func + 1))))) {
+		if (addr == 0x40)
+			ret = ac97_via_read_status(dev->ac97, func - pm_func - 1);
+		else
+			ret = dev->ac97_regs[func - pm_func - 1][addr];
+	}
     }
 
     pipc_log("PIPC: read(%d, %02X) = %02X\n", func, addr, ret);
@@ -693,11 +696,15 @@ pipc_read(int func, int addr, void *priv)
 static void
 nvr_update_io_mapping(pipc_t *dev)
 {
-    if (dev->nvr_enabled)
+    if (dev->nvr_enabled) {
+	dev->nvr_enabled = 0;
 	nvr_at_handler(0, 0x0074, dev->nvr);
+    }
 
-    if ((dev->pci_isa_regs[0x5b] & 0x02) || (dev->pci_isa_regs[0x48] & 0x08))
+    if ((dev->pci_isa_regs[0x5b] & 0x02) || (dev->pci_isa_regs[0x48] & 0x08)) {
+	dev->nvr_enabled = 1;
 	nvr_at_handler(1, 0x0074, dev->nvr);
+    }
 }
 
 
