@@ -78,7 +78,7 @@ svga_render_blank(svga_t *svga)
 
 #ifdef USE_CLI
     if (svga->dpms)
-	text_render_gfx("VGA Sleep");
+	text_render_gfx_box("VGA Sleep");
     else
 	text_render_blank();
 #endif

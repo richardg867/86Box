@@ -81,7 +81,6 @@ const uint8_t ansi_palette[] = {
 };
 
 /* Lookup table for converting code page 437 to UTF-8. */
-// s = ''; i = 0; for (var x of $('#thetable').find('td')) { c = $(x).find('small')[0].innerText.split('\n')[1]; s += ('"' + encodeURI(String.fromCodePoint(parseInt(c, 16))).replace(/%/g, '\\x') + '",').padEnd(16); if (++i % 16 == 0) s += '\n'; }
 static const char *cp437[] = {
     /* 00 */ " ",            "\xE2\x98\xBA", "\xE2\x98\xBB", "\xE2\x99\xA5", "\xE2\x99\xA6", "\xE2\x99\xA3", "\xE2\x99\xA0", "\xE2\x80\xA2", "\xE2\x97\x98", "\xE2\x97\x8B", "\xE2\x97\x99", "\xE2\x99\x82", "\xE2\x99\x80", "\xE2\x99\xAA", "\xE2\x99\xAB", "\xE2\x98\xBC",
     /* 10 */ "\xE2\x96\xBA", "\xE2\x97\x84", "\xE2\x86\x95", "\xE2\x80\xBC", "\xC2\xB6",     "\xC2\xA7",     "\xE2\x96\xAC", "\xE2\x86\xA8", "\xE2\x86\x91", "\xE2\x86\x93", "\xE2\x86\x92", "\xE2\x86\x90", "\xE2\x88\x9F", "\xE2\x86\x94", "\xE2\x96\xB2", "\xE2\x96\xBC",
@@ -133,15 +132,15 @@ static const struct {
 };
 
 
-uint8_t text_render_initialized = 0;
-uint8_t text_render_term_color = TERM_COLOR_3BIT, text_render_term_ctl = 0, text_render_term_gfx = 0;
-uint8_t text_render_cx, text_render_cy;
-uint32_t text_render_palette[16];
-uint32_t *text_render_8bitcol;
-char text_render_line_buffer[TEXT_RENDER_BUF_LINES][TEXT_RENDER_BUF_SIZE];
-char text_render_gfx_str[32] = "\0";
-int text_render_gfx_w = -1, text_render_gfx_h = -1;
-time_t text_render_gfx_last = 0;
+uint8_t text_render_initialized = 0,
+	text_render_term_color = TERM_COLOR_3BIT, text_render_term_ctl = 0, text_render_term_gfx = 0,
+	text_render_cx, text_render_cy;
+uint32_t text_render_palette[16],
+	 *text_render_8bitcol;
+char	text_render_line_buffer[TEXT_RENDER_BUF_LINES][TEXT_RENDER_BUF_SIZE],
+	text_render_gfx_str[32] = "\0";
+int	text_render_gfx_w = -1, text_render_gfx_h = -1;
+time_t	text_render_gfx_last = 0;
 
 
 /* Callbacks specific to each color capability level. */
@@ -166,8 +165,7 @@ text_render_setcolor_3bit(char *p, uint8_t idx, uint8_t bg)
 int
 text_render_setcolor_4bit(char *p, uint8_t idx, uint8_t bg) {
     /* Set a color from the 16-color ANSI palette. */
-    uint8_t pre_attr = 0;
-    uint8_t sgr = (bg ? 40 : 30) + (idx & 7);
+    uint8_t pre_attr = 0, sgr = (bg ? 40 : 30) + (idx & 7);
 
     if (idx & 8) {
 	if (bg)
@@ -244,7 +242,6 @@ void
 text_render_setpal_24bit(uint8_t index, uint32_t color)
 {
     /* True color terminals can be given the full RGB color. */
-    //pclog("CLI Render: setpal_24bit(%d, %06X)\n", index, color);
     text_render_palette[index] = color;
 }
 
@@ -423,14 +420,21 @@ text_render_blank()
 void
 text_render_gfx(char *str)
 {
-    CHECK_INIT();
-
     /* Let video.c trigger an image render if this terminal supports graphics. */
     if (text_render_term_gfx & (TERM_GFX_PNG | TERM_GFX_PNG_KITTY)) {
 	if (time(NULL) - text_render_gfx_last) /* render at 1 FPS */
 		text_render_png = 1;
 	return;
     }
+
+    /* Render infobox otherwise. */
+    text_render_gfx_box(str);
+}
+
+void
+text_render_gfx_box(char *str)
+{
+    CHECK_INIT();
 
     uint8_t render = 0, i, w, h;
     char buf[256];
@@ -514,11 +518,18 @@ text_render_gfx_image(char *fn)
 	goto end;
     fseek(f, 0, SEEK_SET);
 
+    /* Invalidate any infobox contents. */
+    text_render_gfx_w = -1;
+    text_render_line_buffer[0][0] = '\x00';
+
+    /* Move to the top left corner. */
+    fprintf(TEXT_RENDER_OUTPUT, "\033[1;1H");
+
     /* Output image according to the terminal's capabilities. */
     uint8_t buf[3], read;
     if (text_render_term_gfx & TERM_GFX_PNG) {
 	/* Output header. */
-	fprintf(TEXT_RENDER_OUTPUT, "\033[1;1H\033]1337;File=name=cy5wbmc=;size=%d:", size);
+	fprintf(TEXT_RENDER_OUTPUT, "\033]1337;File=name=cy5wbmc=;size=%d:", size);
 
 	/* Encode the image as base64. */
 	while ((read = fread(buf, 1, 3, f)))

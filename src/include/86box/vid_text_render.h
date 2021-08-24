@@ -6,7 +6,7 @@
  *
  *		This file is part of the 86Box distribution.
  *
- *		Renderers for ANSI text output.
+ *		Definitions for ANSI text output renderers.
  *
  *
  *
@@ -14,6 +14,8 @@
  *
  *		Copyright 2021 RichardG.
  */
+#ifndef EMU_VID_TEXT_RENDER_H
+# define EMU_VID_TEXT_RENDER_H
 
 extern const uint8_t	ansi_palette[];
 
@@ -21,7 +23,8 @@ extern const uint8_t	ansi_palette[];
 void	text_render_init();
 void	text_render_setpal_init(uint8_t index, uint32_t color);
 void	text_render_blank();
-void	text_render_gfx(char *type);
+void	text_render_gfx(char *str);
+void	text_render_gfx_box(char *str);
 void	text_render_gfx_image(char *fn);
 
 void	text_render_mda(uint8_t xlimit,
@@ -36,3 +39,5 @@ void	text_render_cga(uint8_t cy,
 
 
 extern void	(*text_render_setpal)(uint8_t index, uint32_t color);
+
+#endif
