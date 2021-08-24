@@ -69,10 +69,16 @@
 #include <86box/plat.h>
 #include <86box/video.h>
 #include <86box/vid_svga.h>
+#ifdef USE_CLI
+# include <86box/vid_text_render.h>
+#endif
 
 #include <minitrace/minitrace.h>
 
 volatile int	screenshots = 0;
+#ifdef USE_CLI
+volatile int	text_render_png = 0;
+#endif
 bitmap_t	*buffer32 = NULL;
 bitmap_t	*render_buffer = NULL;
 uint8_t		fontdat[2048][8];		/* IBM CGA font */
@@ -453,6 +459,16 @@ void blit_thread(void *param)
 	screenshots--;
 	video_log("screenshot taken, %i left\n", screenshots);
     }
+
+#ifdef USE_CLI
+    if (text_render_png) {
+	if (render_buffer != NULL) {
+		video_take_screenshot("cli_temp.png", blit_data.x, blit_data.y, blit_data.y1, blit_data.y2, blit_data.w, blit_data.h);
+		text_render_gfx_image("cli_temp.png");
+	}
+	text_render_png = 0;
+    }
+#endif
 
     if (blit_func)
 	blit_func(blit_data.x, blit_data.y,

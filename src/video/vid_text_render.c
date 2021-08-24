@@ -20,6 +20,7 @@
 #include <string.h>
 #include <wchar.h>
 #include <math.h>
+#include <time.h>
 #ifdef _WIN32
 # include <windows.h>
 # include <VersionHelpers.h>
@@ -100,6 +101,9 @@ static const char *cp437[] = {
     /* F0 */ "\xE2\x89\xA1", "\xC2\xB1",     "\xE2\x89\xA5", "\xE2\x89\xA4", "\xE2\x8C\xA0", "\xE2\x8C\xA1", "\xC3\xB7",     "\xE2\x89\x88", "\xC2\xB0",     "\xE2\x88\x99", "\xC2\xB7",     "\xE2\x88\x9A", "\xE2\x81\xBF", "\xC2\xB2",     "\xE2\x96\xA0", "\xC2\xA0"
 };
 
+/* Lookup table for encoding images as base64. */
+static const char base64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
 /* Lookup table for terminal types. */
 static const struct {
     const char	  *name;
@@ -137,6 +141,7 @@ uint32_t *text_render_8bitcol;
 char text_render_line_buffer[TEXT_RENDER_BUF_LINES][TEXT_RENDER_BUF_SIZE];
 char text_render_gfx_str[32] = "\0";
 int text_render_gfx_w = -1, text_render_gfx_h = -1;
+time_t text_render_gfx_last = 0;
 
 
 /* Callbacks specific to each color capability level. */
@@ -420,6 +425,13 @@ text_render_gfx(char *str)
 {
     CHECK_INIT();
 
+    /* Let video.c trigger an image render if this terminal supports graphics. */
+    if (text_render_term_gfx & (TERM_GFX_PNG | TERM_GFX_PNG_KITTY)) {
+	if (time(NULL) - text_render_gfx_last) /* render at 1 FPS */
+		text_render_png = 1;
+	return;
+    }
+
     uint8_t render = 0, i, w, h;
     char buf[256];
     const char boxattr[] = "\033[30;47m", resetattr[] = "\033[0m";
@@ -470,6 +482,81 @@ text_render_gfx(char *str)
 	text_render_cx = -1;
 	text_render_updatecursor();
     }
+}
+
+static void
+base64_encode_tri(uint8_t *buf, uint8_t len)
+{
+    uint32_t tri = buf[0] << 16;
+    if (len >= 2) {
+	tri |= buf[1] << 8;
+	if (len == 3)
+		tri |= buf[2];
+    }
+    fprintf(TEXT_RENDER_OUTPUT, "%c%c%c%c",
+	    base64[tri >> 18],
+	    base64[(tri >> 12) & 0x3f],
+	    (len == 1) ? '=' : base64[(tri >> 6) & 0x3f],
+	    (len <= 2) ? '=' : base64[tri & 0x3f]);
+}
+
+void
+text_render_gfx_image(char *fn)
+{
+    /* Open image file. */
+    FILE *f = fopen(fn, "rb");
+    if (!f)
+	return;
+
+    /* Determine the image file's size. */
+    int size = fseek(f, 0, SEEK_END) + 1;
+    if (size < 1)
+	goto end;
+    fseek(f, 0, SEEK_SET);
+
+    /* Output image according to the terminal's capabilities. */
+    uint8_t buf[3], read;
+    if (text_render_term_gfx & TERM_GFX_PNG) {
+	/* Output header. */
+	fprintf(TEXT_RENDER_OUTPUT, "\033[1;1H\033]1337;File=name=cy5wbmc=;size=%d:", size);
+
+	/* Encode the image as base64. */
+	while ((read = fread(buf, 1, 3, f)))
+		base64_encode_tri(buf, read);
+
+	/* Output terminator. */
+	fprintf(TEXT_RENDER_OUTPUT, "\a");
+    } else if (text_render_term_gfx & TERM_GFX_PNG_KITTY) {
+	uint8_t first = 1;
+	while (size) {
+		/* Output chunk header. */
+		fprintf(TEXT_RENDER_OUTPUT, "\033_G");
+		if (first) {
+			first = 0;
+			fprintf(TEXT_RENDER_OUTPUT, "f=100,");
+		}
+		fprintf(TEXT_RENDER_OUTPUT, "m=%d;", size > 4096);
+
+		/* Output up to 4096 bytes (1024 base64 encoded quads) per chunk. */
+		for (int i = 0; i < 1024; i++) {
+			if ((read = fread(buf, 1, 3, f)))
+				base64_encode_tri(buf, read);
+			else
+				break;
+		}
+
+		/* Output chunk terminator. */
+		fprintf(TEXT_RENDER_OUTPUT, "\033\\");
+	}
+    }
+
+end:
+    /* Clean up. */
+    fflush(TEXT_RENDER_OUTPUT);
+    fclose(f);
+
+    /* Set last render time to keep track of framerate. */
+    text_render_gfx_last = time(NULL);
 }
 
 void
@@ -607,10 +694,12 @@ text_render_cga(uint8_t cy,
     p = buf;
     p += sprintf(p, "\033[%d;1H\033[0m\033[2K", cy + 1);
 
-    fb[(ma << 1) & fb_mask] = '0' + (cy / 10);
-    fb[((ma << 1) + fb_step) & fb_mask] = 0x0f;
-    fb[((ma << 1) + fb_step + fb_step) & fb_mask] = '0' + (cy % 10);
-    fb[((ma << 1) + fb_step + fb_step + fb_step) & fb_mask] = 0x0f;
+#if 0
+    fb[((ma << 1) + (fb_step * 0)) & fb_mask] = '0' + (cy / 10);
+    fb[((ma << 1) + (fb_step * 1)) & fb_mask] = 0x0f;
+    fb[((ma << 1) + (fb_step * 2)) & fb_mask] = '0' + (cy % 10);
+    fb[((ma << 1) + (fb_step * 3)) & fb_mask] = 0x0f;
+#endif
 
     for (x = 0; x < xlimit; x += xinc) {
 	if (do_render) {

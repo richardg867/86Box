@@ -22,6 +22,7 @@ void	text_render_init();
 void	text_render_setpal_init(uint8_t index, uint32_t color);
 void	text_render_blank();
 void	text_render_gfx(char *type);
+void	text_render_gfx_image(char *fn);
 
 void	text_render_mda(uint8_t xlimit,
 			uint8_t *fb, uint16_t fb_base,
