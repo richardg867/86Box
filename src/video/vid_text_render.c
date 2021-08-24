@@ -408,7 +408,7 @@ text_render_blank()
 
     /* Clear screen if we're not rendering the graphics mode box. */
     if (text_render_line_buffer[0][0] != '\xFF')
-	fprintf(TEXT_RENDER_OUTPUT, "\033[2J\033[3J");
+	fprintf(TEXT_RENDER_OUTPUT, "\033[0m\033[2J\033[3J");
 
     /* Disable cursor and flush output. */
     text_render_cx = -1;
