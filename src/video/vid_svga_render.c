@@ -140,8 +140,7 @@ svga_render_text_40(svga_t *svga)
 	xinc = (svga->seqregs[1] & 1) ? 16 : 18;
 
 #ifdef USE_CLI
-	/* See comment on svga_render_text_80 */
-	if ((svga->sc == 0) && (svga->displine < 400) && (get_actual_size_y() <= 400))
+	if ((svga->sc == 0) && (svga->displine < get_actual_size_y()))
 		text_render_cga((svga->ma >> 2) / 40,
 				svga->hdisp + svga->scrollcache, xinc,
 				svga->vram, svga->ma, svga->vram_display_mask, 4,
@@ -219,9 +218,7 @@ svga_render_text_80(svga_t *svga)
 	xinc = (svga->seqregs[1] & 1) ? 8 : 9;
 
 #ifdef USE_CLI
-	/* Ugly workaround for GA-686BX BIOS setup screen, which redefines
-	   the value returned by get_actual_size_y() on the last text row. */
-	if ((svga->sc == 0) && (svga->displine < 400) && (get_actual_size_y() <= 400))
+	if ((svga->sc == 0) && (svga->displine < get_actual_size_y()))
 		text_render_cga((svga->ma >> 2) / 80,
 				svga->hdisp + svga->scrollcache, xinc,
 				svga->vram, svga->ma, svga->vram_display_mask, 4,
@@ -474,7 +471,7 @@ svga_render_2bpp_highres(svga_t *svga)
 
     if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
 #ifdef USE_CLI
-	//text_render_gfx("VGA %dx%d");
+	text_render_gfx("VGA %dx%d");
 #endif
 
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
