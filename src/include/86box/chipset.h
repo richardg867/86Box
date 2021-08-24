@@ -44,6 +44,9 @@ extern const device_t	scat_sx_device;
 extern const device_t	cs8230_device;
 extern const device_t   cs4031_device;
 
+/* ETEQ */
+extern const device_t   et6000_device;
+
 /* G2 */
 extern const device_t   gc100_device;
 extern const device_t   gc100a_device;
@@ -109,9 +112,8 @@ extern const device_t	sis_85c471_device;
 extern const device_t	sis_85c496_device;
 extern const device_t	sis_85c496_ls486e_device;
 extern const device_t	sis_85c50x_device;
-#if defined(DEV_BRANCH) && defined(USE_SIS_5571)
+extern const device_t	sis_5511_device;
 extern const device_t	sis_5571_device;
-#endif
 extern const device_t	sis_5598_device;
 
 /* ST */
@@ -142,10 +144,11 @@ extern const device_t	via_apro133_device;
 extern const device_t	via_apro133a_device;
 extern const device_t	via_vt8601_device;
 extern const device_t	via_vt82c586b_device;
-extern const device_t	via_vt82c596_device;
+extern const device_t	via_vt82c596a_device;
 extern const device_t	via_vt82c596b_device;
 extern const device_t	via_vt82c686a_device;
 extern const device_t	via_vt82c686b_device;
+extern const device_t	via_vt8231_device;
 
 /* VLSI */
 extern const device_t   vl82c480_device;

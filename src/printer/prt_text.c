@@ -154,7 +154,7 @@ dump_page(prnt_t *dev)
     if (! plat_dir_check(path))
         plat_dir_create(path);
     plat_path_slash(path);
-    strcpy(path, dev->filename);
+    strcat(path, dev->filename);
 
     /* Create the file. */
     fp = plat_fopen(path, "a");
@@ -502,7 +502,7 @@ prnt_close(void *priv)
 
 
 const lpt_device_t lpt_prt_text_device = {
-    "Generic TEXT printer",
+    "Generic Text Printer",
     prnt_init,
     prnt_close,
     write_data,

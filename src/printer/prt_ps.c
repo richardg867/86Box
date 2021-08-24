@@ -145,7 +145,7 @@ convert_to_pdf(ps_t *dev)
     strcat(input_fn, dev->filename);
 
     strcpy(output_fn, input_fn);
-    strcat(output_fn + strlen(output_fn) - 3, ".pdf");
+    strcpy(output_fn + strlen(output_fn) - 3, ".pdf");
 
     gsargv[0] = "";
     gsargv[1] = "-dNOPAUSE";
@@ -389,7 +389,7 @@ ps_close(void *p)
 
 
 const lpt_device_t lpt_prt_ps_device = {
-    .name = "Generic PostScript printer",
+    .name = "Generic PostScript Printer",
     .init = ps_init,
     .close = ps_close,
     .write_data = ps_write_data,

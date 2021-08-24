@@ -86,7 +86,7 @@
    and declared here instead. */
 int		dopause;		/* system is paused */
 int		doresize;			/* screen resize requested */
-int		is_quit;				/* system exit requested */
+volatile int		is_quit;				/* system exit requested */
 uint64_t	timer_freq;
 char        emu_version[200];		/* version ID string */
 
@@ -130,6 +130,10 @@ int video_fullscreen_scale = 0;		/* (C) video */
 int video_fullscreen_first = 0;		/* (C) video */
 int enable_overscan = 0;			/* (C) video */
 int force_43 = 0;				/* (C) video */
+int video_filter_method = 1;			/* (C) video */
+int video_vsync = 0;				/* (C) video */
+int video_framerate = -1;			/* (C) video */
+char video_shader[512] = { '\0' };		/* (C) video */
 int	serial_enabled[SERIAL_MAX] = {0,0};	/* (C) enable serial ports */
 int bugger_enabled = 0;			/* (C) enable ISAbugger */
 int postcard_enabled = 0;			/* (C) enable POST card */
@@ -205,9 +209,8 @@ void
 pclog_ex(const char *fmt, va_list ap)
 {
 #ifndef RELEASE_BUILD
-	char temp[1024];
+    char temp[1024];
 
-	if (strcmp(fmt, "") == 0)
 		return;
 
 	if (stdlog == NULL) {
@@ -242,6 +245,7 @@ pclog_ex(const char *fmt, va_list ap)
 	}
 
 	fflush(stdlog);
+    fflush(stdlog);
 #endif
 }
 
@@ -273,47 +277,86 @@ pclog(const char *fmt, ...)
 void
 fatal(const char *fmt, ...)
 {
-	char temp[1024];
-	va_list ap;
-	char *sp;
+    char temp[1024];
+    va_list ap;
+    char *sp;
 
-	va_start(ap, fmt);
+    va_start(ap, fmt);
 
-	if (stdlog == NULL) {
+    if (stdlog == NULL) {
 	if (log_path[0] != '\0') {
 		stdlog = plat_fopen(log_path, "w");
 		if (stdlog == NULL)
 			stdlog = stdout;
-	} else {
+	} else
 		stdlog = stdout;
-	}
-	}
+    }
 
-	vsprintf(temp, fmt, ap);
-	fprintf(stdlog, "%s", temp);
-	fflush(stdlog);
-	va_end(ap);
+    vsprintf(temp, fmt, ap);
+    fprintf(stdlog, "%s", temp);
+    fflush(stdlog);
+    va_end(ap);
 
-	nvr_save();
+    nvr_save();
 
-	config_save();
+    config_save();
 
 #ifdef ENABLE_808X_LOG
-	dumpregs(1);
+    dumpregs(1);
 #endif
 
-	/* Make sure the message does not have a trailing newline. */
-	if ((sp = strchr(temp, '\n')) != NULL) *sp = '\0';
+    /* Make sure the message does not have a trailing newline. */
+    if ((sp = strchr(temp, '\n')) != NULL) *sp = '\0';
 
-	/* Cleanly terminate all of the emulator's components so as
-	   to avoid things like threads getting stuck. */
-	do_stop();
+    /* Cleanly terminate all of the emulator's components so as
+       to avoid things like threads getting stuck. */
+    do_stop();
 
-	ui_msgbox(MBX_ERROR | MBX_FATAL | MBX_ANSI, temp);
+    ui_msgbox(MBX_ERROR | MBX_FATAL | MBX_ANSI, temp);
 
-	fflush(stdlog);
+    fflush(stdlog);
 
-	exit(-1);
+    exit(-1);
+}
+
+
+void
+fatal_ex(const char *fmt, va_list ap)
+{
+    char temp[1024];
+    char *sp;
+
+    if (stdlog == NULL) {
+	if (log_path[0] != '\0') {
+		stdlog = plat_fopen(log_path, "w");
+		if (stdlog == NULL)
+			stdlog = stdout;
+	} else
+		stdlog = stdout;
+    }
+
+    vsprintf(temp, fmt, ap);
+    fprintf(stdlog, "%s", temp);
+    fflush(stdlog);
+
+    nvr_save();
+
+    config_save();
+
+#ifdef ENABLE_808X_LOG
+    dumpregs(1);
+#endif
+
+    /* Make sure the message does not have a trailing newline. */
+    if ((sp = strchr(temp, '\n')) != NULL) *sp = '\0';
+
+    /* Cleanly terminate all of the emulator's components so as
+       to avoid things like threads getting stuck. */
+    do_stop();
+
+    ui_msgbox(MBX_ERROR | MBX_FATAL | MBX_ANSI, temp);
+
+    fflush(stdlog);
 }
 
 
@@ -682,7 +725,7 @@ pc_send_ca(uint16_t sc)
 void
 pc_send_cad(void)
 {
-	pc_send_ca(0xE053);
+	pc_send_ca(0x153);
 }
 
 
@@ -765,6 +808,7 @@ pc_reset_hard_init(void)
 
 	sound_reset();
 
+	scsi_reset();
 	scsi_device_init();
 
 	/* Initialize the actual machine and its basic modules. */
@@ -851,18 +895,22 @@ pc_reset_hard_init(void)
 	cycles = cycles_main = 0;
 
 	mbstowcs(wmachine, machine_getname(), strlen(machine_getname())+1);
-    mbstowcs(wcpufamily, cpu_f->name,
-	     strlen(cpu_f->name)+1);
-    wcp = wcschr(wcpufamily, L'(');
-    if (wcp) /* remove parentheses */
-	*(wcp - 1) = L'\0';
-    mbstowcs(wcpu, cpu_s->name, strlen(cpu_s->name)+1);
-    swprintf(mouse_msg[0], sizeof_w(mouse_msg[0]), L"%ls v%ls - %%i%%%% - %ls - %ls/%ls - %ls",
-	     EMU_NAME_W, EMU_VERSION_W, wmachine, wcpufamily, wcpu,
-	     plat_get_string(IDS_2077));
-    swprintf(mouse_msg[1], sizeof_w(mouse_msg[1]), L"%ls v%ls - %%i%%%% - %ls - %ls/%ls - %ls",
-	     EMU_NAME_W, EMU_VERSION_W, wmachine, wcpufamily, wcpu,
-	     (mouse_get_buttons() > 2) ? plat_get_string(IDS_2078) : plat_get_string(IDS_2079));
+
+	if (!cpu_override)
+		mbstowcs(wcpufamily, cpu_f->name, strlen(cpu_f->name)+1);
+	else
+		swprintf(wcpufamily, sizeof_w(wcpufamily), L"[U] %hs", cpu_f->name);
+
+	wcp = wcschr(wcpufamily, L'(');
+	if (wcp) /* remove parentheses */
+		*(wcp - 1) = L'\0';
+	mbstowcs(wcpu, cpu_s->name, strlen(cpu_s->name)+1);
+	swprintf(mouse_msg[0], sizeof_w(mouse_msg[0]), L"%ls v%ls - %%i%%%% - %ls - %ls/%ls - %ls",
+		EMU_NAME_W, EMU_VERSION_W, wmachine, wcpufamily, wcpu,
+		plat_get_string(IDS_2077));
+	swprintf(mouse_msg[1], sizeof_w(mouse_msg[1]), L"%ls v%ls - %%i%%%% - %ls - %ls/%ls - %ls",
+		EMU_NAME_W, EMU_VERSION_W, wmachine, wcpufamily, wcpu,
+		(mouse_get_buttons() > 2) ? plat_get_string(IDS_2078) : plat_get_string(IDS_2079));
 }
 
 
@@ -884,13 +932,8 @@ pc_close(thread_t *ptr)
 	/* Claim the video blitter. */
 	startblit();
 
-	/* Terminate the main thread. */
-	if (ptr != NULL) {
-	thread_kill(ptr);
-
-	/* Wait some more. */
-	plat_delay_ms(200);
-	}
+	/* Terminate the UI thread. */
+	is_quit = 1;
 
 #if (defined(USE_DYNAREC) && defined(USE_NEW_DYNAREC))
 	codegen_close();
@@ -917,7 +960,7 @@ pc_close(thread_t *ptr)
 
 #ifdef ENABLE_808X_LOG
 	if (dump_on_exit)
-	dumpregs(0);
+		dumpregs(0);
 #endif
 
 	video_close();

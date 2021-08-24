@@ -32,7 +32,7 @@
 # define strcasecmp	_stricmp
 #endif
 
-#if defined(UNIX) && defined(FREEBSD)
+#if defined(UNIX) && defined(FREEBSD) || defined(__APPLE__)
 /* FreeBSD has largefile by default. */
 # define fopen64        fopen
 # define fseeko64       fseeko
@@ -64,8 +64,8 @@ extern "C" {
 /* Global variables residing in the platform module. */
 extern int	dopause,			/* system is paused */
 		doresize,			/* screen resize requested */
-		is_quit,				/* system exit requested */
 		mouse_capture;			/* mouse is captured in app */
+extern volatile int	is_quit;				/* system exit requested */
 
 #ifdef MTR_ENABLED
 extern int tracing_on;
@@ -79,6 +79,8 @@ extern int	update_icons;
 
 extern int	unscaled_size_x,		/* current unscaled size X */
 		unscaled_size_y;		/* current unscaled size Y */
+
+extern int	kbd_req_capture, hide_status_bar;
 
 /* System-related functions. */
 extern char	*fix_exe_path(char *str);
@@ -101,6 +103,7 @@ extern int	plat_dir_check(char *path);
 extern int	plat_dir_create(char *path);
 extern uint64_t	plat_timer_read(void);
 extern uint32_t	plat_get_ticks(void);
+extern uint32_t	plat_get_micro_ticks(void);
 extern void	plat_delay_ms(uint32_t count);
 extern void	plat_pause(int p);
 extern void	plat_mouse_capture(int on);
@@ -111,7 +114,7 @@ extern void	plat_vidsize(int x, int y);
 extern void	plat_setfullscreen(int on);
 extern void	plat_resize(int x, int y);
 extern void	plat_vidapi_enable(int enabled);
-
+extern void	plat_vid_reload_options(void);
 
 /* Resource management. */
 extern void	set_language(int id);
@@ -128,6 +131,10 @@ extern void	plat_power_off(void);
 
 
 /* Platform-specific device support. */
+extern void	cassette_mount(char *fn, uint8_t wp);
+extern void	cassette_eject(void);
+extern void	cartridge_mount(uint8_t id, char *fn, uint8_t wp);
+extern void	cartridge_eject(uint8_t id);
 extern void	floppy_mount(uint8_t id, char *fn, uint8_t wp);
 extern void	floppy_eject(uint8_t id);
 extern void	cdrom_mount(uint8_t id, char *fn);
@@ -149,7 +156,6 @@ typedef void event_t;
 typedef void mutex_t;
 
 extern thread_t	*thread_create(void (*thread_func)(void *param), void *param);
-extern void	thread_kill(thread_t *arg);
 extern int	thread_wait(thread_t *arg, int timeout);
 extern event_t	*thread_create_event(void);
 extern void	thread_set_event(event_t *arg);

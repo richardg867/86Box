@@ -21,15 +21,15 @@ extern void lpt_port_irq(int i, uint8_t irq);
 extern void lpt_port_remove(int i);
 extern void lpt1_remove_ams(void);
 
-#define lpt1_init(a)	lpt_port_init(0, a);
-#define lpt1_irq(a)	lpt_port_irq(0, a);
-#define lpt1_remove()	lpt_port_remove(0);
-#define lpt2_init(a)	lpt_port_init(1, a);
-#define lpt2_irq(a)	lpt_port_irq(1, a);
-#define lpt2_remove()	lpt_port_remove(1);
-#define lpt3_init(a)	lpt_port_init(2, a);
-#define lpt3_irq(a)	lpt_port_irq(2, a);
-#define lpt3_remove()	lpt_port_remove(2);
+#define lpt1_init(a)	lpt_port_init(0, a)
+#define lpt1_irq(a)	lpt_port_irq(0, a)
+#define lpt1_remove()	lpt_port_remove(0)
+#define lpt2_init(a)	lpt_port_init(1, a)
+#define lpt2_irq(a)	lpt_port_irq(1, a)
+#define lpt2_remove()	lpt_port_remove(1)
+#define lpt3_init(a)	lpt_port_init(2, a)
+#define lpt3_irq(a)	lpt_port_irq(2, a)
+#define lpt3_remove()	lpt_port_remove(2)
 
 
 void lpt_devices_init(void);
@@ -61,5 +61,7 @@ extern const lpt_device_t lpt_dac_device;
 extern const lpt_device_t lpt_dac_stereo_device;
 
 extern const lpt_device_t dss_device;
+
+extern const lpt_device_t lpt_hasp_savquest_device;
 
 #endif /*EMU_LPT_H*/

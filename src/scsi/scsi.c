@@ -26,6 +26,7 @@
 #define HAVE_STDARG_H
 #include <86box/86box.h>
 #include <86box/device.h>
+#include <86box/machine.h>
 #include <86box/hdc.h>
 #include <86box/hdd.h>
 #include <86box/plat.h>
@@ -45,8 +46,9 @@
 #endif
 
 
-int		scsi_card_current = 0;
-int		scsi_card_last = 0;
+int		scsi_card_current[SCSI_BUS_MAX] = { 0, 0 };
+
+static uint8_t	next_scsi_bus = 0;
 
 
 typedef const struct {
@@ -67,6 +69,7 @@ static SCSI_CARD scsi_cards[] = {
     { "bt545s",		&buslogic_545s_device,	},
     { "lcs6821n",	&scsi_lcs6821n_device,	},
     { "rt1000b",	&scsi_rt1000b_device,	},
+    { "t128",		&scsi_t128_device,	},
     { "t130b",		&scsi_t130b_device,	},
 #ifdef WALTJE
     { "scsiat",		&scsi_scsiat_device,	},
@@ -86,6 +89,27 @@ static SCSI_CARD scsi_cards[] = {
     { "bt445s",		&buslogic_445s_device,	},
     { "",		NULL,			},
 };
+
+
+void
+scsi_reset(void)
+{
+    next_scsi_bus = 0;
+}
+
+
+uint8_t
+scsi_get_bus(void)
+{
+    uint8_t ret = next_scsi_bus;
+
+    if (next_scsi_bus >= SCSI_BUS_MAX)
+	return 0xff;
+
+    next_scsi_bus++;
+
+    return ret;
+}
 
 
 int
@@ -139,10 +163,21 @@ scsi_card_get_from_internal_name(char *s)
 void
 scsi_card_init(void)
 {
-    if (!scsi_cards[scsi_card_current].device)
-	return;
+    int i = 0, max = SCSI_BUS_MAX;
 
-    device_add(scsi_cards[scsi_card_current].device);
+    /* On-board SCSI controllers get the first bus, so if one is present,
+       increase our instance number here. */
+    if (machines[machine].flags & MACHINE_SCSI)
+	max--;
 
-    scsi_card_last = scsi_card_current;
+    /* Do not initialize any controllers if we have do not have any SCSI
+       bus left. */
+    if (max > 0) {
+	for (i = 0; i < max; i++) {
+		if (!scsi_cards[scsi_card_current[i]].device)
+			continue;
+
+		device_add_inst(scsi_cards[scsi_card_current[i]].device, i + 1);
+	}
+    }
 }

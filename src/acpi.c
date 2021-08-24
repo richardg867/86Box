@@ -124,8 +124,6 @@ acpi_reg_read_common_regs(int size, uint16_t addr, void *p)
 		ret = (dev->regs.pmsts >> shift16) & 0xff;
 		if (addr == 0x01)
 			ret |= (acpi_rtc_status << 2);
-		else
-			ret |= 0x10;
 		break;
 	case 0x02: case 0x03:
 		/* PMEN - Power Management Resume Enable Register (IO) */
@@ -482,7 +480,7 @@ acpi_reg_read_via(int size, uint16_t addr, void *p)
 	case 0x42:
 		/* GPIO port Output Value */
 		if (size == 1)
-			ret = dev->regs.gpio_val & 0xff;
+			ret = dev->regs.gpio_val & 0x13;
 		break;
 	case 0x44:
 		/* GPIO port Input Value */
@@ -531,6 +529,11 @@ acpi_reg_read_via_596b(int size, uint16_t addr, void *p)
     shift32 = (addr & 3) << 3;
 
     switch (addr) {
+	case 0x42:
+		/* GPIO port Output Value */
+		if (size == 1)
+			ret = dev->regs.gpio_val & 0x13;
+		break;
 	case 0x44: case 0x45:
 		/* External SMI Input Value */
 		ret = (dev->regs.extsmi_val >> shift16) & 0xff;
@@ -541,7 +544,7 @@ acpi_reg_read_via_596b(int size, uint16_t addr, void *p)
 		break;
 	case 0x4c: case 0x4d: case 0x4e: case 0x4f:
 		/* GPO Port Output Value */
-		ret = (dev->regs.gpi_val >> shift32) & 0xff;
+		ret = (dev->regs.gpo_val >> shift32) & 0xff;
 		break;
 	default:
 		ret = acpi_reg_read_via_common(size, addr, p);
@@ -781,7 +784,7 @@ acpi_reg_write_intel(int size, uint16_t addr, uint8_t val, void *p)
 		break;
 	case 0x18: case 0x19:
 		/* GLBSTS - Global Status Register (IO) */
-		dev->regs.glbsts &= ~((val << shift16) & 0x0dd7);
+		dev->regs.glbsts &= ~((val << shift16) & 0x0d27);
 		break;
 	case 0x1c: case 0x1d: case 0x1e: case 0x1f:
 		/* DEVSTS - Device Status Register (IO) */
@@ -1034,7 +1037,7 @@ acpi_reg_write_via(int size, uint16_t addr, uint8_t val, void *p)
 	case 0x42:
 		/* GPIO port Output Value */
 		if (size == 1) {
-			dev->regs.gpio_val = val & 0x1f;
+			dev->regs.gpio_val = val & 0x13;
 			acpi_i2c_set(dev);
 		}
 		break;
@@ -1060,6 +1063,11 @@ acpi_reg_write_via_596b(int size, uint16_t addr, uint8_t val, void *p)
     shift32 = (addr & 3) << 3;
 
     switch (addr) {
+	case 0x42:
+		/* GPIO port Output Value */
+		if (size == 1)
+			dev->regs.gpio_val = val & 0x13;
+		break;
 	case 0x4c: case 0x4d: case 0x4e: case 0x4f:
 		/* GPO Port Output Value */
 		dev->regs.gpo_val = ((dev->regs.gpo_val & ~(0xff << shift32)) | (val << shift32)) & 0x7fffffff;
@@ -1571,7 +1579,14 @@ acpi_reset(void *priv)
 	dev->regs.gpi_val = 0xffff7fc1;
 	if (!strcmp(machines[machine].internal_name, "ficva503a"))
 		dev->regs.gpi_val |= 0x00000004;
+	if (!strcmp(machines[machine].internal_name, "6via90ap"))
+		dev->regs.gpi_val |= 0x00000004;
+	// dev->regs.gpi_val = 0xffffffe5;
+	// dev->regs.gpi_val = 0x00000004;
     }
+
+    /* Power on always generates a resume event. */
+    dev->regs.pmsts |= 0x8000;
 
     acpi_rtc_status = 0;
 }

@@ -180,6 +180,7 @@ enum
 
 #define VGAINIT0_EXTENDED_SHIFT_OUT (1 << 12)
 
+#define VIDPROCCFG_VIDPROC_ENABLE (1 << 0)
 #define VIDPROCCFG_CURSOR_MODE (1 << 1)
 #define VIDPROCCFG_INTERLACE (1 << 3)
 #define VIDPROCCFG_HALF_MODE (1 << 4)
@@ -239,6 +240,9 @@ enum
 #define VIDSERIAL_I2C_SDA_W (1 << 25)
 #define VIDSERIAL_I2C_SCK_R (1 << 26)
 #define VIDSERIAL_I2C_SDA_R (1 << 27)
+
+#define MISCINIT0_Y_ORIGIN_SWAP_SHIFT (18)
+#define MISCINIT0_Y_ORIGIN_SWAP_MASK (0xfff << MISCINIT0_Y_ORIGIN_SWAP_SHIFT)
 
 #ifdef ENABLE_BANSHEE_LOG
 int banshee_do_log = ENABLE_BANSHEE_LOG;
@@ -325,8 +329,13 @@ static void banshee_out(uint16_t addr, uint8_t val, void *p)
                         }
                         if (svga->crtcreg < 0xe || svga->crtcreg > 0x11 || (svga->crtcreg == 0x11 && old != val))
                         {
-                                svga->fullchange = changeframecount;
-                                svga_recalctimings(svga);
+				if ((svga->crtcreg == 0xc) || (svga->crtcreg == 0xd)) {
+                                	svga->fullchange = 3;
+					svga->ma_latch = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) + ((svga->crtc[8] & 0x60) >> 5);
+				} else {
+					svga->fullchange = changeframecount;
+	                                svga_recalctimings(svga);
+				}
                         }
                 }
                 break;
@@ -566,6 +575,8 @@ static void banshee_recalctimings(svga_t *svga)
                 svga->bpp = 8;
         }
 
+		svga->fb_only = (banshee->vidProcCfg & VIDPROCCFG_VIDPROC_ENABLE);
+
         if (((svga->miscout >> 2) & 3) == 3)
         {
                 int k = banshee->pllCtrl0 & 3;
@@ -637,6 +648,7 @@ static void banshee_ext_outl(uint16_t addr, uint32_t val, void *p)
 
                 case Init_miscInit0:
                 banshee->miscInit0 = val;
+				voodoo->y_origin_swap = (val & MISCINIT0_Y_ORIGIN_SWAP_MASK) >> MISCINIT0_Y_ORIGIN_SWAP_SHIFT;
                 break;
                 case Init_miscInit1:
                 banshee->miscInit1 = val;
@@ -664,6 +676,7 @@ static void banshee_ext_outl(uint16_t addr, uint32_t val, void *p)
                 banshee->vgaInit1 = val;
                 svga->write_bank = (val & 0x3ff) << 15;
                 svga->read_bank = ((val >> 10) & 0x3ff) << 15;
+		svga->packed_chain4 = !!(val & 0x00100000);
                 break;
 
                 case PLL_pllCtrl0:
@@ -2615,6 +2628,12 @@ static const device_config_t banshee_sgram_config[] =
                 .default_int = 1
         },
         {
+                .name = "dithersub",
+                .description = "Dither subtraction",
+                .type = CONFIG_BINARY,
+                .default_int = 1
+        },
+        {
                 .name = "dacfilter",
                 .description = "Screen Filter",
                 .type = CONFIG_BINARY,
@@ -2662,6 +2681,12 @@ static const device_config_t banshee_sdram_config[] =
         {
                 .name = "bilinear",
                 .description = "Bilinear filtering",
+                .type = CONFIG_BINARY,
+                .default_int = 1
+        },
+        {
+                .name = "dithersub",
+                .description = "Dither subtraction",
                 .type = CONFIG_BINARY,
                 .default_int = 1
         },

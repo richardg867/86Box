@@ -119,7 +119,6 @@ int		isa_cycles, cpu_inited,
 		timing_iret_pm_outer, timing_call_rm, timing_call_pm, timing_call_pm_gate,
 		timing_call_pm_gate_inner, timing_retf_rm, timing_retf_pm, timing_retf_pm_outer,
 		timing_jmp_rm, timing_jmp_pm, timing_jmp_pm_gate, timing_misaligned;
-
 uint32_t	cpu_features, cpu_fast_off_flags;
 
 uint64_t	cpu_CR4_mask, tsc = 0;
@@ -359,6 +358,8 @@ cpu_set(void)
     acycs = 0;
 #endif
 
+    soft_reset_pci = 0;
+
     cpu_alt_reset = 0;
     unmask_a20_in_smm = 0;
 
@@ -374,17 +375,18 @@ cpu_set(void)
     is_am486dxl  = (cpu_s->cpu_type == CPU_Am486DXL);
 
     cpu_isintel = !strcmp(cpu_f->manufacturer, "Intel");
-    cpu_iscyrix = !strcmp(cpu_f->manufacturer, "Cyrix");
+    cpu_iscyrix = !strcmp(cpu_f->manufacturer, "Cyrix") || !strcmp(cpu_f->manufacturer, "ST");
 
     /* SL-Enhanced Intel 486s have the same SMM save state table layout as Pentiums,
        and the WinChip datasheet claims those are Pentium-compatible as well. AMD Am486DXL/DXL2 also has compatible SMM, or would if not for it's different SMBase*/
     is_pentium   = (cpu_isintel && (cpu_s->cpu_type >= CPU_i486SX_SLENH) && (cpu_s->cpu_type < CPU_PENTIUMPRO)) ||
 		   !strcmp(cpu_f->manufacturer, "IDT") || (cpu_s->cpu_type == CPU_Am486DXL);
-    is_k5        = !strcmp(cpu_f->manufacturer, "AMD") && (cpu_s->cpu_type > CPU_ENH_Am486DX);
+    is_k5        = !strcmp(cpu_f->manufacturer, "AMD") && (cpu_s->cpu_type > CPU_ENH_Am486DX) && (cpu_s->cpu_type < CPU_K6);
     is_k6        = (cpu_s->cpu_type >= CPU_K6) && !strcmp(cpu_f->manufacturer, "AMD");
     /* The Samuel 2 datasheet claims it's Celeron-compatible. */
     is_p6        = (cpu_isintel && (cpu_s->cpu_type >= CPU_PENTIUMPRO)) || !strcmp(cpu_f->manufacturer, "VIA");
-    is_cxsmm     = !strcmp(cpu_f->manufacturer, "Cyrix") && (cpu_s->cpu_type >= CPU_Cx486S);
+    is_cxsmm     = (!strcmp(cpu_f->manufacturer, "Cyrix") || !strcmp(cpu_f->manufacturer, "ST")) &&
+		   (cpu_s->cpu_type >= CPU_Cx486S);
 
     hasfpu       = (fpu_type != FPU_NONE);
     hascache     = (cpu_s->cpu_type >= CPU_486SLC) || (cpu_s->cpu_type == CPU_IBM386SLC) ||
@@ -808,10 +810,17 @@ cpu_set(void)
 
 	case CPU_Cx486S:
 	case CPU_Cx486DX:
+	case CPU_STPC:
 #ifdef USE_DYNAREC
-		x86_setopcodes(ops_386, ops_c486_0f, dynarec_ops_386, dynarec_ops_c486_0f);
+		if (cpu_s->cpu_type == CPU_STPC)
+			x86_setopcodes(ops_386, ops_stpc_0f, dynarec_ops_386, dynarec_ops_stpc_0f);
+		else
+			x86_setopcodes(ops_386, ops_c486_0f, dynarec_ops_386, dynarec_ops_c486_0f);
 #else
-		x86_setopcodes(ops_386, ops_c486_0f);
+		if (cpu_s->cpu_type == CPU_STPC)
+			x86_setopcodes(ops_386, ops_stpc_0f);
+		else
+			x86_setopcodes(ops_386, ops_c486_0f);
 #endif
 
                 timing_rr			=   1;	/* register dest - register src */
@@ -845,6 +854,9 @@ cpu_set(void)
 		timing_jmp_pm_gate		=  37;
 
 		timing_misaligned		=   3;
+
+		if (cpu_s->cpu_type == CPU_STPC)
+			cpu_features = CPU_FEATURE_RDTSC;
 		break;
 
 	case CPU_Cx5x86:
@@ -1379,8 +1391,10 @@ cpu_set_isa_speed(int speed)
     if (speed) {
 	cpu_isa_speed = speed;
 	pc_speed_changed();
-    } else
+    } else if (cpu_busspeed >= 8000000)
 	cpu_isa_speed = 8000000;
+    else
+	cpu_isa_speed = cpu_busspeed;
 
     cpu_log("cpu_set_isa_speed(%d) = %d\n", speed, cpu_isa_speed);
 }
@@ -2949,7 +2963,7 @@ cpu_read(uint16_t addr, void *priv)
 	if ((cyrix_addr & 0xf0) == 0xc0)
 		return 0xff;
 
-	if (cyrix_addr == 0x20 && cpu_s->cpu_type == CPU_Cx5x86)
+	if (cyrix_addr == 0x20 && (cpu_s->cpu_type == CPU_Cx5x86))
 		return 0xff;
     }
 

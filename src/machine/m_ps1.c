@@ -6,7 +6,7 @@
  *
  *		This file is part of the 86Box distribution.
  *
- *		Emulation of the IBM PS/1 models 2011, 2121 and 2133.
+ *		Emulation of the IBM PS/1 models 2011, 2121.
  *
  * Model 2011:	The initial model, using a 10MHz 80286.
  *
@@ -458,6 +458,10 @@ ps1_setup(int model)
     lpt1_remove();
     lpt1_init(0x3bc);
 
+    mem_remap_top(384);
+
+    device_add(&ps_nvr_device);
+
     if (model == 2011) {
 	rom_init(&ps->high_rom,
 		 "roms/machines/ibmps1es/f80000.bin",
@@ -467,7 +471,7 @@ ps1_setup(int model)
 
 	device_add(&snd_device);
 
-	device_add(&fdc_at_actlow_device);
+	device_add(&fdc_at_ps1_device);
 
  	/* Enable the builtin HDC. */
 	if (hdc_current == 1) {
@@ -484,7 +488,7 @@ ps1_setup(int model)
 
 	rom_init(&ps->high_rom,
 		 "roms/machines/ibmps1_2121/fc0000.bin",
-		 0xfc0000, 0x20000, 0x1ffff, 0, MEM_MAPPING_EXTERNAL);
+		 0xfc0000, 0x40000, 0x3ffff, 0, MEM_MAPPING_EXTERNAL);
 
 	/* Initialize the video controller. */
 	if (gfxcard == VID_INTERNAL)
@@ -503,15 +507,11 @@ ps1_common_init(const machine_t *model)
 {
     machine_common_init(model);
 
-    mem_remap_top(384);
-
     refresh_at_enable = 1;
     pit_ctr_set_out_func(&pit->counters[1], pit_refresh_timer_at);
 
     dma16_init();
     pic2_init();
-
-    device_add(&ps_nvr_device);
 
     device_add(&keyboard_ps2_ps1_device);
 
@@ -555,37 +555,5 @@ machine_ps1_m2121_init(const machine_t *model)
     ps1_setup(2121);
 
     return ret;
-}
-
-
-int
-machine_ps1_m2133_init(const machine_t *model)
-{
-    int ret;
-
-    ret = bios_load_linear("roms/machines/ibmps1_2133/ps1_2133_52g2974_rom.bin",
-			   0x000e0000, 131072, 0);
-
-    if (bios_only || !ret)
-	return ret;
-
-    ps1_common_init(model);
-    device_add(&ide_isa_device);
-    device_add(&vl82c480_device);
-    device_add(&pc87332_398_device);
-
-    nmi_mask = 0x80;
-
-    if (gfxcard == VID_INTERNAL)
-	device_add(&gd5426_onboard_device);
-
-    return ret;
-}
-
-
-const device_t *
-ps1_m2133_get_device(void)
-{
-    return &gd5426_onboard_device;
 }
 

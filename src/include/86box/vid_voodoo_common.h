@@ -296,6 +296,7 @@ typedef struct voodoo_t
         int swap_pending;
 
         int bilinear_enabled;
+		int dithersub_enabled;
 
         int fb_size;
         uint32_t fb_mask;
@@ -469,6 +470,8 @@ typedef struct voodoo_t
         uint32_t tile_base, tile_stride;
         int tile_stride_shift, tile_x, tile_x_real;
 
+        int y_origin_swap;
+
         int read_time, write_time, burst_time;
 
         pc_timer_t wake_timer;
@@ -497,8 +500,9 @@ typedef struct voodoo_t
         void *codegen_data;
 
         struct voodoo_set_t *set;
-        
-        
+
+	uint8_t fifo_thread_run, render_thread_run[4];
+
         uint8_t *vram, *changedvram;
         
         void *p;

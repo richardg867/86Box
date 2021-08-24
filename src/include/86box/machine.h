@@ -37,6 +37,7 @@
 #define MACHINE_BUS_PCI		0x00000200	/* sys has PCI bus */
 #define MACHINE_BUS_PCMCIA	0x00000400	/* sys has PCMCIA bus */
 #define MACHINE_BUS_AGP		0x00000800	/* sys has AGP bus */
+#define MACHINE_BUS_AC97	0x00080000	/* sys has AC97 bus (ACR/AMR/CNR slot) */
 /* Combined flags. */
 #define MACHINE_PC		0x00000004	/* sys is PC/XT-compatible (ISA) */
 #define MACHINE_AT		0x0000000C	/* sys is AT-compatible (ISA + ISA16) */
@@ -82,6 +83,7 @@
 #define MACHINE_IDE_QUAD	0x07800000	/* sys has int quad IDE/ATAPI - mark as dual + both ter and and qua IDE/ATAPI */
 #define MACHINE_SCSI		0x08000000	/* sys has int single SCSI - mark as pri SCSI */
 #define MACHINE_SCSI_DUAL	0x18000000	/* sys has int dual SCSI - mark as both pri and sec SCSI */
+#define MACHINE_CARTRIDGE	0x20000000	/* sys has two cartridge bays */
 
 #define IS_ARCH(m, a)		(machines[m].flags & (a)) ? 1 : 0;
 #define IS_AT(m)		((machines[m].flags & 0x00000FC8) && !(machines[m].flags & MACHINE_PC98)) ? 1 : 0;
@@ -97,7 +99,10 @@ enum {
     MACHINE_TYPE_286,
     MACHINE_TYPE_386SX,
     MACHINE_TYPE_386DX,
+    MACHINE_TYPE_386DX_486,
     MACHINE_TYPE_486,
+    MACHINE_TYPE_486_S3,
+    MACHINE_TYPE_486_MISC,
     MACHINE_TYPE_SOCKET4,
     MACHINE_TYPE_SOCKET5,
     MACHINE_TYPE_SOCKET7_3V,
@@ -105,6 +110,7 @@ enum {
     MACHINE_TYPE_SOCKETS7,
     MACHINE_TYPE_SOCKET8,
     MACHINE_TYPE_SLOT1,
+    MACHINE_TYPE_SLOT1_2,
     MACHINE_TYPE_SLOT2,
     MACHINE_TYPE_SOCKET370,
     MACHINE_TYPE_MISC,
@@ -314,9 +320,10 @@ extern int	machine_at_opti495_init(const machine_t *);
 extern int	machine_at_opti495_ami_init(const machine_t *);
 extern int	machine_at_opti495_mr_init(const machine_t *);
 
-#if defined(DEV_BRANCH) && defined(USE_VECT486VL)
 extern int	machine_at_vect486vl_init(const machine_t *);
-#endif
+extern int	machine_at_d824_init(const machine_t *);
+
+extern int	machine_at_pcs46c_init(const machine_t *);
 
 extern int	machine_at_403tg_init(const machine_t *);
 extern int	machine_at_pc330_6573_init(const machine_t *);
@@ -344,9 +351,7 @@ extern int	machine_at_486sp3_init(const machine_t *);
 extern int	machine_at_486sp3c_init(const machine_t *);
 extern int	machine_at_486sp3g_init(const machine_t *);
 extern int	machine_at_486ap4_init(const machine_t *);
-#if defined(DEV_BRANCH) && defined(NO_SIO)
 extern int	machine_at_486vipio2_init(const machine_t *);
-#endif
 extern int	machine_at_abpb4_init(const machine_t *);
 extern int	machine_at_win486pci_init(const machine_t *);
 
@@ -361,9 +366,9 @@ extern int	machine_at_pcm5330_init(const machine_t *);
 
 #ifdef EMU_DEVICE_H
 extern const device_t 	*at_acera1g_get_device(void);
-#if defined(DEV_BRANCH) && defined(USE_VECT486VL)
 extern const device_t 	*at_vect486vl_get_device(void);
-#endif
+extern const device_t 	*at_d824_get_device(void);
+extern const device_t 	*at_pcs46c_get_device(void);
 extern const device_t 	*at_valuepoint433_get_device(void);
 #endif
 
@@ -422,6 +427,8 @@ extern const device_t	*at_thor_get_device(void);
 #endif
 
 /* m_at_socket7_s7.c */
+extern int	machine_at_ap5s_init(const machine_t *);
+
 extern int	machine_at_chariot_init(const machine_t *);
 extern int	machine_at_mr586_init(const machine_t *);
 extern int	machine_at_thor_init(const machine_t *);
@@ -462,10 +469,9 @@ extern int	machine_at_an430tx_init(const machine_t *);
 extern int	machine_at_mb540n_init(const machine_t *);
 extern int	machine_at_p5mms98_init(const machine_t *);
 
-#if defined(DEV_BRANCH) && defined(USE_SIS_5571)
 extern int	machine_at_r534f_init(const machine_t *);
 extern int	machine_at_ms5146_init(const machine_t *);
-#endif
+
 #if defined(DEV_BRANCH) && defined(USE_M154X)
 extern int	machine_at_m560_init(const machine_t *);
 extern int	machine_at_ms5164_init(const machine_t *);
@@ -593,11 +599,6 @@ extern const device_t	*pcjr_get_device(void);
 /* m_ps1.c */
 extern int	machine_ps1_m2011_init(const machine_t *);
 extern int	machine_ps1_m2121_init(const machine_t *);
-extern int	machine_ps1_m2133_init(const machine_t *);
-
-#ifdef EMU_DEVICE_H
-extern const device_t	*ps1_m2133_get_device(void);
-#endif
 
 /* m_ps1_hdc.c */
 #ifdef EMU_DEVICE_H
@@ -612,10 +613,8 @@ extern int	machine_ps2_m30_286_init(const machine_t *);
 extern int	machine_ps2_model_50_init(const machine_t *);
 extern int	machine_ps2_model_55sx_init(const machine_t *);
 extern int	machine_ps2_model_70_type3_init(const machine_t *);
-#if defined(DEV_BRANCH) && defined(USE_PS2M70T4)
-extern int	machine_ps2_model_70_type4_init(const machine_t *);
-#endif
 extern int	machine_ps2_model_80_init(const machine_t *);
+extern int	machine_ps2_model_80_axx_init(const machine_t *);
 
 /* m_tandy.c */
 extern int	tandy1k_eeprom_read(void);

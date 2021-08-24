@@ -520,6 +520,9 @@ vid_out(uint16_t addr, uint8_t val, void *priv)
     t1kvid_t *vid = dev->vid;
     uint8_t old;
 
+    if ((addr >= 0x3d0) && (addr <= 0x3d7))
+	addr = (addr & 0xff9) | 0x004;
+
     switch (addr) {
 	case 0x03d4:
 		vid->crtcreg = val & 0x1f;
@@ -588,6 +591,9 @@ vid_in(uint16_t addr, void *priv)
     tandy_t *dev = (tandy_t *)priv;
     t1kvid_t *vid = dev->vid;
     uint8_t ret = 0xff;
+
+    if ((addr >= 0x3d0) && (addr <= 0x3d7))
+	addr = (addr & 0xff9) | 0x004;
 
     switch (addr) {
 	case 0x03d4:
@@ -805,8 +811,13 @@ vid_poll(void *priv)
 					}
 				} else {
 					for (c = 0; c < 8; c++) {
-						buffer32->line[(vid->displine << 1)][(x << 3) + c + 8] = buffer32->line[(vid->displine << 1) + 1][(x << 3) + c + 8] =
-							cols[(fontdat[chr][vid->sc & 7] & (1 << (c ^ 7))) ? 1 : 0];
+						if (vid->sc == 8) {
+							buffer32->line[(vid->displine << 1)][(x << 3) + c + 8] = buffer32->line[(vid->displine << 1) + 1][(x << 3) + c + 8] =
+								cols[(fontdat[chr][7] & (1 << (c ^ 7))) ? 1 : 0];
+						} else {
+							buffer32->line[(vid->displine << 1)][(x << 3) + c + 8] = buffer32->line[(vid->displine << 1) + 1][(x << 3) + c + 8] =
+								cols[(fontdat[chr][vid->sc & 7] & (1 << (c ^ 7))) ? 1 : 0];
+						}
 					}
 				}
 				if (drawcursor) {
@@ -838,9 +849,15 @@ vid_poll(void *priv)
 							cols[0];
 				} else {
 					for (c = 0; c < 8; c++) {
-						buffer32->line[(vid->displine << 1)][(x << 4) + (c << 1) + 8] =  buffer32->line[(vid->displine << 1) + 1][(x << 4) + (c << 1) + 8] = 
-						buffer32->line[(vid->displine << 1)][(x << 4) + (c << 1) + 1 + 8] = buffer32->line[(vid->displine << 1) + 1][(x << 4) + (c << 1) + 1 + 8] =
-							cols[(fontdat[chr][vid->sc & 7] & (1 << (c ^ 7))) ? 1 : 0];
+						if (vid->sc == 8) {
+							buffer32->line[(vid->displine << 1)][(x << 4) + (c << 1) + 8] =  buffer32->line[(vid->displine << 1) + 1][(x << 4) + (c << 1) + 8] = 
+							buffer32->line[(vid->displine << 1)][(x << 4) + (c << 1) + 1 + 8] = buffer32->line[(vid->displine << 1) + 1][(x << 4) + (c << 1) + 1 + 8] =
+								cols[(fontdat[chr][7] & (1 << (c ^ 7))) ? 1 : 0];
+						} else {
+							buffer32->line[(vid->displine << 1)][(x << 4) + (c << 1) + 8] =  buffer32->line[(vid->displine << 1) + 1][(x << 4) + (c << 1) + 8] = 
+							buffer32->line[(vid->displine << 1)][(x << 4) + (c << 1) + 1 + 8] = buffer32->line[(vid->displine << 1) + 1][(x << 4) + (c << 1) + 1 + 8] =
+								cols[(fontdat[chr][vid->sc & 7] & (1 << (c ^ 7))) ? 1 : 0];
+						}
 					}
 				}
 				if (drawcursor) {
@@ -1502,6 +1519,8 @@ machine_tandy1k_init(const machine_t *model, int type)
 
     if (fdc_type == FDC_INTERNAL)	
 	device_add(&fdc_xt_tandy_device);
+
+    video_reset(gfxcard);
 
     switch(type) {
 	case TYPE_TANDY:

@@ -90,11 +90,22 @@ device_init(void)
 void
 device_set_context(device_context_t *c, const device_t *d, int inst)
 {
+    void *sec, *single_sec;
+
     memset(c, 0, sizeof(device_context_t));
     c->dev = d;
-    if (inst)
+    if (inst) {
     	sprintf(c->name, "%s #%i", d->name, inst);
-    else
+
+	/* If this is the first instance and a numbered section is not present, but a non-numbered
+	   section of the same name is, rename the non-numbered section to numbered. */
+	if (inst == 1) {
+		sec = config_find_section(c->name);
+		single_sec = config_find_section((char *) d->name);
+		if ((sec == NULL) && (single_sec != NULL))
+			config_rename_section(single_sec, c->name);
+	}
+    } else
     	sprintf(c->name, "%s", d->name);
 }
 
@@ -383,6 +394,8 @@ device_get_name(const device_t *d, int bus, char *name)
 		sbus = "PCI";
 	else if (d->flags & DEVICE_AGP)
 		sbus = "AGP";
+	else if (d->flags & DEVICE_AC97)
+		sbus = "AMR";
 
 	if (sbus != NULL) {
 		/* First concatenate [<Bus>] before the device's name. */
@@ -654,6 +667,8 @@ device_is_valid(const device_t *device, int mflags)
     if ((device->flags & DEVICE_AGP) && !(mflags & MACHINE_BUS_AGP)) return(0);
 
     if ((device->flags & DEVICE_PS2) && !(mflags & MACHINE_BUS_PS2)) return(0);
+
+    if ((device->flags & DEVICE_AC97) && !(mflags & MACHINE_BUS_AC97)) return(0);
 
     return(1);
 }

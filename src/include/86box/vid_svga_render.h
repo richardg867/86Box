@@ -27,6 +27,8 @@ extern int scrollcache;
 
 extern uint8_t edatlookup[4][4];
 
+void svga_recalc_remap_func(svga_t *svga);
+
 #ifdef CLI_BUILD
 void svga_render_updatepal(svga_t *svga, int index);
 #endif
@@ -41,6 +43,7 @@ void svga_render_text_80_ksc5601(svga_t *svga);
 
 void svga_render_2bpp_lowres(svga_t *svga);
 void svga_render_2bpp_highres(svga_t *svga);
+void svga_render_2bpp_headland_highres(svga_t *svga);
 void svga_render_4bpp_lowres(svga_t *svga);
 void svga_render_4bpp_highres(svga_t *svga);
 void svga_render_8bpp_lowres(svga_t *svga);

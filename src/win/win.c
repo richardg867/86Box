@@ -69,6 +69,7 @@ HANDLE		ghMutex;
 LCID		lang_id;		/* current language ID used */
 DWORD		dwSubLangID;
 int		acp_utf8;		/* Windows supports UTF-8 codepage */
+volatile int	cpu_thread_run = 1;
 
 
 /* Local data. */
@@ -99,17 +100,18 @@ static const struct {
     int		(*pause)(void);
     void	(*enable)(int enable);
     void	(*set_fs)(int fs);
+    void	(*reload)(void);
 } vid_apis[RENDERERS_NUM] = {
-  {	"SDL_Software", 1, (int(*)(void*))sdl_inits, sdl_close, NULL, sdl_pause, sdl_enable, sdl_set_fs		},
-  {	"SDL_Hardware", 1, (int(*)(void*))sdl_inith, sdl_close, NULL, sdl_pause, sdl_enable, sdl_set_fs		},
-  {	"SDL_OpenGL", 1, (int(*)(void*))sdl_initho, sdl_close, NULL, sdl_pause, sdl_enable, sdl_set_fs	}
-#ifdef DEV_BRANCH
- ,{	"OpenGL_Core", 1, (int(*)(void*))opengl_init, opengl_close, opengl_resize, opengl_pause, NULL, opengl_set_fs}
+  {	"SDL_Software", 1, (int(*)(void*))sdl_inits, sdl_close, NULL, sdl_pause, sdl_enable, sdl_set_fs, sdl_reload	},
+  {	"SDL_Hardware", 1, (int(*)(void*))sdl_inith, sdl_close, NULL, sdl_pause, sdl_enable, sdl_set_fs, sdl_reload	},
+  {	"SDL_OpenGL", 1, (int(*)(void*))sdl_initho, sdl_close, NULL, sdl_pause, sdl_enable, sdl_set_fs, sdl_reload	}
+#if defined(DEV_BRANCH) && defined(USE_OPENGL)
+ ,{	"OpenGL_Core", 1, (int(*)(void*))opengl_init, opengl_close, opengl_resize, opengl_pause, NULL, opengl_set_fs, opengl_reload}
 #else
- ,{	"OpenGL_Core", 1, (int(*)(void*))sdl_initho, sdl_close, NULL, sdl_pause, sdl_enable, sdl_set_fs	} /* fall back to SDL_OpenGL */
+ ,{	"OpenGL_Core", 1, (int(*)(void*))sdl_initho, sdl_close, NULL, sdl_pause, sdl_enable, sdl_set_fs, NULL		} /* fall back to SDL_OpenGL */
 #endif
 #ifdef USE_VNC
- ,{	"VNC", 0, vnc_init, vnc_close, vnc_resize, vnc_pause, NULL, NULL					}
+ ,{	"VNC", 0, vnc_init, vnc_close, vnc_resize, vnc_pause, NULL, NULL						}
 #endif
 };
 
@@ -416,6 +418,9 @@ WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpszArg, int nCmdShow)
 
     SetCurrentProcessExplicitAppUserModelID(AppID);
 
+    /* Initialize the COM library for the main thread. */
+    CoInitializeEx(NULL, COINIT_MULTITHREADED);
+
     /* Check if Windows supports UTF-8 */
     if (GetACP() == CP_UTF8)
 	acp_utf8 = 1;
@@ -464,6 +469,9 @@ WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpszArg, int nCmdShow)
     /* Handle our GUI. */
     i = ui_init(nCmdShow);
 
+    /* Uninitialize COM before exit. */
+    CoUninitialize();
+
     free(argbuf);
     free(argv);
     return(i);
@@ -480,7 +488,7 @@ main_thread(void *param)
     title_update = 1;
     old_time = GetTickCount();
     drawits = frames = 0;
-    while (!is_quit) {
+    while (!is_quit && cpu_thread_run) {
 	/* See if it is time to run a frame of code. */
 	new_time = GetTickCount();
 	drawits += (new_time - old_time);
@@ -504,7 +512,7 @@ main_thread(void *param)
 		Sleep(1);
 
 	/* If needed, handle a screen resize. */
-	if (doresize && !video_fullscreen) {
+	if (doresize && !video_fullscreen && !is_quit) {
 		if (vid_resize & 2)
 			plat_resize(fixed_size_x, fixed_size_y);
 		else
@@ -512,6 +520,8 @@ main_thread(void *param)
 		doresize = 0;
 	}
     }
+
+    is_quit = 1;
 }
 
 
@@ -535,7 +545,7 @@ do_start(void)
     win_log("Main timer precision: %llu\n", timer_freq);
 
     /* Start the emulator, really. */
-    thMain = thread_create(main_thread, &is_quit);
+    thMain = thread_create(main_thread, NULL);
     SetThreadPriority(thMain, THREAD_PRIORITY_HIGHEST);
 }
 
@@ -544,16 +554,17 @@ do_start(void)
 void
 do_stop(void)
 {
-    is_quit = 1;
+    /* Claim the video blitter. */
+    startblit();
 
-    plat_delay_ms(100);
-
-    if (source_hwnd)
-	PostMessage((HWND) (uintptr_t) source_hwnd, WM_HAS_SHUTDOWN, (WPARAM) 0, (LPARAM) hwndMain);
+    vid_apis[vid_api].close();
 
     pc_close(thMain);
 
     thMain = NULL;
+
+    if (source_hwnd)
+	PostMessage((HWND) (uintptr_t) source_hwnd, WM_HAS_SHUTDOWN, (WPARAM) 0, (LPARAM) hwndMain);
 }
 
 
@@ -857,9 +868,8 @@ plat_timer_read(void)
     return(li.QuadPart);
 }
 
-
-uint32_t
-plat_get_ticks(void)
+static LARGE_INTEGER
+plat_get_ticks_common(void)
 {
     LARGE_INTEGER EndingTime, ElapsedMicroseconds;
 
@@ -880,9 +890,20 @@ plat_get_ticks(void)
     ElapsedMicroseconds.QuadPart *= 1000000;
     ElapsedMicroseconds.QuadPart /= Frequency.QuadPart;
 
-    return (uint32_t) (ElapsedMicroseconds.QuadPart / 1000);
+    return ElapsedMicroseconds;
 }
 
+uint32_t
+plat_get_ticks(void)
+{
+	return (uint32_t)(plat_get_ticks_common().QuadPart / 1000);
+}
+
+uint32_t
+plat_get_micro_ticks(void)
+{
+	return (uint32_t)plat_get_ticks_common().QuadPart;
+}
 
 void
 plat_delay_ms(uint32_t count)
@@ -928,7 +949,7 @@ plat_vidapi_name(int api)
 	case 2:
 		name = "sdl_opengl";
 		break;
-#ifdef DEV_BRANCH
+#if defined(DEV_BRANCH) && defined(USE_OPENGL)
 	case 3:
 		name = "opengl_core";
 		break;
@@ -1054,7 +1075,10 @@ plat_setfullscreen(int on)
 			GetClientRect(hwndMain, &rect);
 
 			temp_x = rect.right - rect.left + 1;
-			temp_y = rect.bottom - rect.top + 1 - sbar_height;
+			if (hide_status_bar)
+				temp_y = rect.bottom - rect.top + 1;
+			else
+				temp_y = rect.bottom - rect.top + 1 - sbar_height;
 		} else {
 			if (dpi_scale) {
 				temp_x = MulDiv((vid_resize & 2) ? fixed_size_x : unscaled_size_x, dpi, 96);
@@ -1065,7 +1089,10 @@ plat_setfullscreen(int on)
 			}
 
 			/* Main Window. */
-			ResizeWindowByClientArea(hwndMain, temp_x, temp_y + sbar_height);
+			if (hide_status_bar)
+				ResizeWindowByClientArea(hwndMain, temp_x, temp_y);
+			else
+				ResizeWindowByClientArea(hwndMain, temp_x, temp_y + sbar_height);
 		}
 
 		/* Render window. */
@@ -1102,6 +1129,15 @@ plat_setfullscreen(int on)
     /* This is needed for OpenGL. */
     plat_vidapi_enable(0);
     plat_vidapi_enable(1);
+}
+
+void
+plat_vid_reload_options(void)
+{
+	if (!vid_api_inited || !vid_apis[vid_api].reload)
+		return;
+
+	vid_apis[vid_api].reload();
 }
 
 

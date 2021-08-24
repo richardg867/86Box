@@ -38,6 +38,7 @@
 #include <86box/machine.h>
 #include <86box/sound.h>
 #include <86box/clock.h>
+#include <86box/snd_ac97.h>
 
 int
 machine_at_p65up5_cpknd_init(const machine_t *model)
@@ -468,8 +469,10 @@ machine_at_tsunamiatx_init(const machine_t *model)
     device_add(&i440bx_device);
     device_add(&piix4e_device);
 
-    if (sound_card_current == SOUND_INTERNAL)
-    	device_add(&es1371_onboard_device);
+    if (sound_card_current == SOUND_INTERNAL) {
+	device_add(&es1371_onboard_device);
+	device_add(&cs4297_device); /* found on other Tyan boards around the same time */
+    }
 
     device_add(&pc87309_device);
     device_add(&keyboard_ps2_ami_pci_device);
@@ -540,7 +543,7 @@ machine_at_ficka6130_init(const machine_t *model)
     pci_register_slot(0x0B, PCI_CARD_NORMAL,      4, 1, 2, 3);
     pci_register_slot(0x01, PCI_CARD_AGPBRIDGE,   1, 2, 3, 4);
     device_add(&via_apro_device);
-    device_add(&via_vt82c596_device);
+    device_add(&via_vt82c596a_device);
     device_add(&w83877tf_device);
     device_add(&keyboard_ps2_ami_pci_device);
     device_add(&sst_flash_29ee020_device);
@@ -678,8 +681,10 @@ machine_at_ms6168_common_init(const machine_t *model)
     if (gfxcard == VID_INTERNAL)
     	device_add(&voodoo_3_2000_agp_onboard_8m_device);
 
-    if (sound_card_current == SOUND_INTERNAL)
-    	device_add(&es1371_onboard_device);
+    if (sound_card_current == SOUND_INTERNAL) {
+	device_add(&es1371_onboard_device);
+	device_add(&cs4297_device);
+    }
 }
 
 

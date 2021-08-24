@@ -59,7 +59,7 @@ static uint8_t		pci_pmc = 0, last_pci_card = 0, last_normal_pci_card = 0, last_p
 static uint8_t		pci_card_to_slot_mapping[256][32], pci_bus_number_to_index_mapping[256];
 static uint8_t		pci_irqs[16], pci_irq_level[16];
 static uint64_t		pci_irq_hold[16];
-static pci_mirq_t	pci_mirqs[3];
+static pci_mirq_t	pci_mirqs[4];
 static int		pci_type,
 			pci_switch,
 			pci_index,
@@ -377,6 +377,7 @@ pci_set_mirq(uint8_t mirq, int level)
     if (level && (pci_irq_hold[irq_line] & (1ULL << irq_bit))) {
 	/* IRQ already held, do nothing. */
 	pci_log("pci_set_mirq(%02X): MIRQ is already holding the IRQ\n", mirq);
+	picintlevel(1 << irq_line);
 	return;
     }
     pci_log("pci_set_mirq(%02X): MIRQ not yet holding the IRQ\n", mirq);
@@ -391,6 +392,7 @@ pci_set_mirq(uint8_t mirq, int level)
 		picint(1 << irq_line);
     } else if (level && pci_irq_hold[irq_line]) {
 	pci_log("pci_set_mirq(%02X): IRQ line already being held\n", mirq);
+	picintlevel(1 << irq_line);
     }
 
     /* If the IRQ is level-triggered, mark that this MIRQ is holding it. */
@@ -446,9 +448,10 @@ pci_set_irq(uint8_t card, uint8_t pci_int)
     } else
 	pci_log("pci_set_irq(%02X, %02X): Using IRQ %i\n", card, pci_int, irq_line);
 
-    if (picint_is_level(irq_line) && (pci_irq_hold[irq_line] & (1ULL << slot))) {
+    if (level && (pci_irq_hold[irq_line] & (1ULL << slot))) {
 	/* IRQ already held, do nothing. */
 	pci_log("pci_set_irq(%02X, %02X): Card is already holding the IRQ\n", card, pci_int);
+	picintlevel(1 << irq_line);
 	return;
     }
     pci_log("pci_set_irq(%02X, %02X): Card not yet holding the IRQ\n", card, pci_int);
@@ -463,6 +466,7 @@ pci_set_irq(uint8_t card, uint8_t pci_int)
 		picint(1 << irq_line);
     } else if (level && pci_irq_hold[irq_line]) {
 	pci_log("pci_set_irq(%02X, %02X): IRQ line already being held\n", card, pci_int);
+	picintlevel(1 << irq_line);
     }
 
     /* If the IRQ is level-triggered, mark that this card is holding it. */

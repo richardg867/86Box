@@ -107,8 +107,13 @@ oti_out(uint16_t addr, uint8_t val, void *p)
 		svga->crtc[idx] = val;
 		if (old != val) {
 			if ((idx < 0x0e) || (idx > 0x10)) {
-				svga->fullchange = changeframecount;
-				svga_recalctimings(svga);
+				if (idx == 0x0c || idx == 0x0d) {
+					svga->fullchange = 3;
+					svga->ma_latch = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) + ((svga->crtc[8] & 0x60) >> 5);
+				} else {
+					svga->fullchange = changeframecount;
+					svga_recalctimings(svga);
+				}
 			}
 		}
 		break;
@@ -128,7 +133,7 @@ oti_out(uint16_t addr, uint8_t val, void *p)
 		switch (idx) {
 			case 0xD:
 				if (oti->chip_id == OTI_067) {
-					svga->vram_display_mask = (val & 0xc) ? oti->vram_mask : 0x3ffff;
+					svga->vram_display_mask = (val & 0x0c) ? oti->vram_mask : 0x3ffff;
 					if (!(val & 0x80))
 						svga->vram_display_mask = 0x3ffff;
 
@@ -137,24 +142,24 @@ oti_out(uint16_t addr, uint8_t val, void *p)
 					else
 						mem_mapping_enable(&svga->mapping);
 				} else if (oti->chip_id == OTI_077) {
-					svga->vram_display_mask = (val & 0xc) ? oti->vram_mask : 0x3ffff;
+					svga->vram_display_mask = (val & 0x0c) ? oti->vram_mask : 0x3ffff;
 
 					switch ((val & 0xc0) >> 6) {
 						case 0x00:	/* 256 kB of memory */
 						default:
 							enable = (oti->vram_size >= 256);
-							if (val & 0xc)
+							if (val & 0x0c)
 								svga->vram_display_mask = MIN(oti->vram_mask, 0x3ffff);
 							break;
 						case 0x01:	/* 1 MB of memory */
 						case 0x03:
 							enable = (oti->vram_size >= 1024);
-							if (val & 0xc)
+							if (val & 0x0c)
 								svga->vram_display_mask = MIN(oti->vram_mask, 0xfffff);
 							break;
 						case 0x02:	/* 512 kB of memory */
 							enable = (oti->vram_size >= 512);
-							if (val & 0xc)
+							if (val & 0x0c)
 								svga->vram_display_mask = MIN(oti->vram_mask, 0x7ffff);
 							break;
 					}
@@ -329,8 +334,13 @@ oti_recalctimings(svga_t *svga)
     oti_t *oti = (oti_t *)svga->p;
 
     if (oti->regs[0x14] & 0x08) svga->ma_latch |= 0x10000;
+	if (oti->regs[0x16] & 0x08) svga->ma_latch |= 0x20000;
 
-    if (oti->regs[0x0d] & 0x0c) svga->rowoffset <<= 1;
+	if (oti->regs[0x14] & 0x01) svga->vtotal += 0x400;
+	if (oti->regs[0x14] & 0x02) svga->dispend += 0x400;
+	if (oti->regs[0x14] & 0x04) svga->vsyncstart += 0x400;
+
+    if ((oti->regs[0x0d] & 0x0c) && !(oti->regs[0x0d] & 0x10)) svga->rowoffset <<= 1;
 
     svga->interlace = oti->regs[0x14] & 0x80;
 }
@@ -400,6 +410,7 @@ oti_init(const device_t *info)
 		  oti_in, NULL, NULL, oti_out, NULL, NULL, oti);
 
     oti->svga.miscout = 1;
+	oti->svga.packed_chain4 = 1;
 
     return(oti);
 }

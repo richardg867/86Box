@@ -23,6 +23,7 @@
 #define FLAG_EXT_WRITE		4
 #define FLAG_LATCH8		8
 #define FLAG_NOSKEW		16
+#define FLAG_ADDR_BY16	32
 
 
 typedef struct {
@@ -146,6 +147,16 @@ typedef struct svga_t
     /*Used to implement CRTC[0x17] bit 2 hsync divisor*/
     int hsync_divisor;
 
+	/*Tseng-style chain4 mode - CRTC dword mode is the same as byte mode, chain4
+	  addresses are shifted to match*/
+	int packed_chain4;
+
+	/*Force CRTC to dword mode, regardless of CR14/CR17. Required for S3 enhanced mode*/
+	int force_dword_mode;
+
+	int remap_required;
+	uint32_t (*remap_func)(struct svga_t *svga, uint32_t in_addr);
+
     void *ramdac, *clock_gen;
 } svga_t;
 
@@ -208,8 +219,8 @@ extern void	ati68860_ramdac_set_render(void *p, svga_t *svga);
 extern void	ati68860_ramdac_set_pallook(void *p, int i, uint32_t col);
 extern void	ati68860_hwcursor_draw(svga_t *svga, int displine);
 
-extern void	att49x_ramdac_out(uint16_t addr, uint8_t val, void *p, svga_t *svga);
-extern uint8_t	att49x_ramdac_in(uint16_t addr, void *p, svga_t *svga);
+extern void	att49x_ramdac_out(uint16_t addr, int rs2, uint8_t val, void *p, svga_t *svga);
+extern uint8_t	att49x_ramdac_in(uint16_t addr, int rs2, void *p, svga_t *svga);
 
 extern float	av9194_getclock(int clock, void *p);
 
@@ -236,8 +247,8 @@ extern void	ics2595_write(void *p, int strobe, int dat);
 extern double	ics2595_getclock(void *p);
 extern void	ics2595_setclock(void *p, double clock);
 
-extern void	sc1148x_ramdac_out(uint16_t addr, uint8_t val, void *p, svga_t *svga);
-extern uint8_t	sc1148x_ramdac_in(uint16_t addr, void *p, svga_t *svga);
+extern void	sc1148x_ramdac_out(uint16_t addr, int rs2, uint8_t val, void *p, svga_t *svga);
+extern uint8_t	sc1148x_ramdac_in(uint16_t addr, int rs2, void *p, svga_t *svga);
 
 extern void	sc1502x_ramdac_out(uint16_t addr, uint8_t val, void *p, svga_t *svga);
 extern uint8_t	sc1502x_ramdac_in(uint16_t addr, void *p, svga_t *svga);
@@ -257,6 +268,7 @@ extern uint8_t	tkd8001_ramdac_in(uint16_t addr, void *p, svga_t *svga);
 #ifdef EMU_DEVICE_H
 extern const device_t ati68860_ramdac_device;
 extern const device_t att490_ramdac_device;
+extern const device_t att491_ramdac_device;
 extern const device_t att492_ramdac_device;
 extern const device_t av9194_device;
 extern const device_t bt484_ramdac_device;
@@ -272,6 +284,8 @@ extern const device_t icd2061_device;
 extern const device_t ics9161_device;
 extern const device_t sc11483_ramdac_device;
 extern const device_t sc11487_ramdac_device;
+extern const device_t sc11484_ramdac_device;
+extern const device_t sc11484_nors2_ramdac_device;
 extern const device_t sc1502x_ramdac_device;
 extern const device_t sdac_ramdac_device;
 extern const device_t stg_ramdac_device;

@@ -54,6 +54,7 @@ enum {
     CPU_Am486DX,
     CPU_Am486DXL,
     CPU_Cx486DX,
+    CPU_STPC,
     CPU_i486SX_SLENH,
     CPU_i486DX_SLENH,
     CPU_ENH_Am486DX,
@@ -697,6 +698,10 @@ typedef struct
 
 extern uint32_t	addr64, addr64_2;
 extern uint32_t	addr64a[8], addr64a_2[8];
+
+extern int	soft_reset_pci;
+
+extern int	reset_on_hlt, hlt_reset_pending;
 
 extern cyrix_t	cyrix;
 

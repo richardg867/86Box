@@ -110,6 +110,7 @@ static const struct {
     { "ide_isa",		&ide_isa_device			},
     { "ide_isa_2ch",		&ide_isa_2ch_device		},
     { "xtide_at",		&xtide_at_device		},
+    { "xtide_at_386",		&xtide_at_386_device		},
     { "xtide_at_ps2",		&xtide_at_ps2_device		},
     { "xta_wdxt150",		&xta_wdxt150_device		},
     { "xtide_acculogic",	&xtide_acculogic_device		},
@@ -117,8 +118,8 @@ static const struct {
     { "esdi_mca",		&esdi_ps2_device		},
     { "ide_pci",		&ide_pci_device			},
     { "ide_pci_2ch",		&ide_pci_2ch_device		},
-    { "vlb_isa",		&ide_vlb_device			},
-    { "vlb_isa_2ch",		&ide_vlb_2ch_device		},
+    { "ide_vlb",		&ide_vlb_device			},
+    { "ide_vlb_2ch",		&ide_vlb_2ch_device		},
     { "",			NULL				}
 };
 

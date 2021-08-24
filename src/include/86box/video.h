@@ -197,7 +197,9 @@ extern const device_t mach64gx_pci_device;
 extern const device_t mach64vt2_device;
 
 /* ATi 18800 */
+#if defined(DEV_BRANCH) && defined(USE_VGAWONDER)
 extern const device_t ati18800_wonder_device;
+#endif
 extern const device_t ati18800_vga88_device;
 extern const device_t ati18800_device;
 
@@ -282,6 +284,8 @@ extern const device_t incolor_device;
 /* Headland GC-2xx/HT-2xx */
 extern const device_t g2_gc205_device;
 extern const device_t v7_vga_1024i_device;
+extern const device_t radius_svga_multiview_isa_device;
+extern const device_t radius_svga_multiview_mca_device;
 extern const device_t ht216_32_pb410a_device;
 extern const device_t ht216_32_standalone_device;
 
@@ -311,6 +315,9 @@ extern const device_t paradise_pvga1a_device;
 extern const device_t paradise_wd90c11_megapc_device;
 extern const device_t paradise_wd90c11_device;
 extern const device_t paradise_wd90c30_device;
+
+/* Realtek (S)VGA */
+extern const device_t realtek_rtg3106_device;
 
 /* S3 9XX/8XX/Vision/Trio */
 extern const device_t s3_orchid_86c911_isa_device;
@@ -370,6 +377,8 @@ extern const device_t sigma_device;
 extern const device_t tgui9400cxi_device;
 extern const device_t tgui9440_vlb_device;
 extern const device_t tgui9440_pci_device;
+extern const device_t tgui9660_pci_device;
+extern const device_t tgui9680_pci_device;
 
 /* IBM PS/1 (S)VGA */
 extern const device_t ibm_ps1_2121_device;

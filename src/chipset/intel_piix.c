@@ -230,7 +230,7 @@ kbc_alias_update_io_mapping(piix_t *dev)
 static void
 smbus_update_io_mapping(piix_t *dev)
 {
-    smbus_piix4_remap(dev->smbus, (dev->regs[3][0x91] << 8) | (dev->regs[3][0x90] & 0xf0), (dev->regs[3][PCI_REG_COMMAND] & PCI_COMMAND_IO) && (dev->regs[3][0xd2] & 0x01));
+    smbus_piix4_remap(dev->smbus, ((uint16_t) (dev->regs[3][0x91] << 8)) | (dev->regs[3][0x90] & 0xf0), (dev->regs[3][PCI_REG_COMMAND] & PCI_COMMAND_IO) && (dev->regs[3][0xd2] & 0x01));
 }
 
 
@@ -396,9 +396,9 @@ piix_write(int func, int addr, uint8_t val, void *priv)
 			else
 				fregs[addr] = val & 0xcf;
 			if (val & 0x80)
-				pci_set_mirq_routing(PCI_MIRQ0, PCI_IRQ_DISABLED);
+				pci_set_mirq_routing(PCI_MIRQ0 + (addr & 0x01), PCI_IRQ_DISABLED);
 			else
-				pci_set_mirq_routing(PCI_MIRQ0, val & 0xf);
+				pci_set_mirq_routing(PCI_MIRQ0 + (addr & 0x01), val & 0xf);
 			piix_log("MIRQ%i is %s\n", addr & 0x01, (val & 0x20) ? "disabled" : "enabled");
 		}
 		break;
@@ -589,18 +589,13 @@ piix_write(int func, int addr, uint8_t val, void *priv)
     } else if (func == 1)  switch(addr) {	/* IDE */
 	case 0x04:
 		fregs[0x04] = (val & 5);
-		if (dev->type < 3)
+		if (dev->type <= 3)
 			fregs[0x04] |= 0x02;
 		piix_ide_handlers(dev, 0x03);
 		piix_ide_bm_handlers(dev);
 		break;
 	case 0x07:
-		if (val & 0x20)
-			fregs[0x07] &= 0xdf;
-		if (val & 0x10)
-			fregs[0x07] &= 0xef;
-		if (val & 0x08)
-			fregs[0x07] &= 0xf7;
+		fregs[0x07] &= ~(val & 0x38);
 		break;
 	case 0x09:
 		if (dev->type == 5) {
@@ -613,36 +608,52 @@ piix_write(int func, int addr, uint8_t val, void *priv)
 		fregs[0x0d] = val & 0xf0;
 		break;
 	case 0x10:
-		fregs[0x10] = (val & 0xf8) | 1;
-		piix_ide_handlers(dev, 0x01);
+		if (dev->type == 5) {
+			fregs[0x10] = (val & 0xf8) | 1;
+			piix_ide_handlers(dev, 0x01);
+		}
 		break;
 	case 0x11:
-		fregs[0x11] = val;
-		piix_ide_handlers(dev, 0x01);
+		if (dev->type == 5) {
+			fregs[0x11] = val;
+			piix_ide_handlers(dev, 0x01);
+		}
 		break;
 	case 0x14:
-		fregs[0x14] = (val & 0xfc) | 1;
-		piix_ide_handlers(dev, 0x01);
+		if (dev->type == 5) {
+			fregs[0x14] = (val & 0xfc) | 1;
+			piix_ide_handlers(dev, 0x01);
+		}
 		break;
 	case 0x15:
-		fregs[0x15] = val;
-		piix_ide_handlers(dev, 0x01);
+		if (dev->type == 5) {
+			fregs[0x15] = val;
+			piix_ide_handlers(dev, 0x01);
+		}
 		break;
 	case 0x18:
-		fregs[0x18] = (val & 0xf8) | 1;
-		piix_ide_handlers(dev, 0x02);
+		if (dev->type == 5) {
+			fregs[0x18] = (val & 0xf8) | 1;
+			piix_ide_handlers(dev, 0x02);
+		}
 		break;
 	case 0x19:
-		fregs[0x19] = val;
-		piix_ide_handlers(dev, 0x02);
+		if (dev->type == 5) {
+			fregs[0x19] = val;
+			piix_ide_handlers(dev, 0x02);
+		}
 		break;
 	case 0x1c:
-		fregs[0x1c] = (val & 0xfc) | 1;
-		piix_ide_handlers(dev, 0x02);
+		if (dev->type == 5) {
+			fregs[0x1c] = (val & 0xfc) | 1;
+			piix_ide_handlers(dev, 0x02);
+		}
 		break;
 	case 0x1d:
-		fregs[0x1d] = val;
-		piix_ide_handlers(dev, 0x02);
+		if (dev->type == 5) {
+			fregs[0x1d] = val;
+			piix_ide_handlers(dev, 0x02);
+		}
 		break;
 	case 0x20:
 		fregs[0x20] = (val & 0xf0) | 1;
@@ -653,7 +664,8 @@ piix_write(int func, int addr, uint8_t val, void *priv)
 		piix_ide_bm_handlers(dev);
 		break;
 	case 0x3c:
-		fregs[0x3c] = val;
+		if (dev->type == 5)
+			fregs[0x3c] = val;
 		break;
 	case 0x3d:
 		if (dev->type == 5)
@@ -689,6 +701,8 @@ piix_write(int func, int addr, uint8_t val, void *priv)
 	case 0x5c: case 0x5d:
 		if (dev->type > 4)
 			fregs[addr] = val;
+		break;
+	default:
 		break;
     } else if (func == 2)  switch(addr) {	/* USB */
 	case 0x04:
@@ -890,6 +904,8 @@ piix_read(int func, int addr, void *priv)
 	ret = fregs[addr];
 	if ((func == 0) && (addr == 0x4e))
 		ret |= keyboard_at_get_mouse_scan();
+	else if ((func == 2) && (addr == 0xff))
+		ret |= 0xef;
 
 	piix_log("PIIX function %i read: %02X from %02X\n", func, ret, addr);
     }
@@ -1033,6 +1049,8 @@ piix_reset_hard(piix_t *dev)
     /* Function 1: IDE */
     fregs = (uint8_t *) dev->regs[1];
     piix_log("PIIX Function 1: %02X%02X:%02X%02X\n", fregs[0x01], fregs[0x00], fregs[0x03], fregs[0x02]);
+    if (dev->type < 4)
+	fregs[0x04] = 0x02;
     fregs[0x06] = 0x80; fregs[0x07] = 0x02;
     if (dev->type == 4)
 	fregs[0x08] = dev->rev & 0x07;
@@ -1278,7 +1296,7 @@ static void
 	dev->acpi = device_add(&acpi_intel_device);
 	acpi_set_slot(dev->acpi, dev->pci_slot);
 	acpi_set_nvr(dev->acpi, dev->nvr);
-	acpi_set_gpireg2_default(dev->acpi, (dev->type > 4) ? 0xf1 : 0xfd);
+	acpi_set_gpireg2_default(dev->acpi, (dev->type > 4) ? 0xf1 : 0xdd);
 
 	dev->ddma = device_add(&ddma_device);
     } else
@@ -1374,7 +1392,7 @@ static void
     else
 	dev->board_config[1] |= 0x00;
 
-    device_add(&i8254_sec_device);
+    // device_add(&i8254_sec_device);
 
     return dev;
 }

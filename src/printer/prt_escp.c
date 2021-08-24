@@ -595,7 +595,7 @@ update_font(escp_t *dev)
     /* Create a full pathname for the ROM file. */
     strcpy(path, dev->fontpath);
     plat_path_slash(path);
-    strcpy(path, fn);
+    strcat(path, fn);
 
     escp_log("Temp file=%s\n", path);
 
@@ -2143,7 +2143,7 @@ escp_close(void *priv)
 
 
 const lpt_device_t lpt_prt_escp_device = {
-    "EPSON ESC/P compatible printer",
+    "Generic ESC/P Dot-Matrix",
     escp_init,
     escp_close,
     write_data,

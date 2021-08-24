@@ -110,12 +110,13 @@ extern const device_t sb_2_device;
 extern const device_t sb_pro_v1_device;
 extern const device_t sb_pro_v2_device;
 extern const device_t sb_pro_mcv_device;
-extern const device_t sb_pro_cs423x_device;
+extern const device_t sb_pro_compat_device;
 extern const device_t sb_16_device;
 extern const device_t sb_16_pnp_device;
 extern const device_t sb_32_pnp_device;
 extern const device_t sb_awe32_device;
 extern const device_t sb_awe32_pnp_device;
+extern const device_t sb_awe64_gold_device;
 
 /* Innovation SSI-2001 */
 extern const device_t ssi2001_device;

@@ -67,6 +67,8 @@ int		infocus = 1, button_down = 0;
 int		rctrl_is_lalt = 0;
 int		user_resize = 0;
 int		fixed_size_x = 0, fixed_size_y = 0;
+int		kbd_req_capture = 0;
+int		hide_status_bar = 0;
 
 extern char	openfilestring[512];
 extern WCHAR	wopenfilestring[512];
@@ -80,11 +82,9 @@ static int	hook_enabled = 0;
 #endif
 static int	manager_wm = 0;
 static int	save_window_pos = 0, pause_state = 0;
-static int  dpi = 96;
-static int  padded_frame = 0;
-
-
-static int vis = -1;
+static int	dpi = 96;
+static int	padded_frame = 0;
+static int	vis = -1;
 
 /* Per Monitor DPI Aware v2 APIs, Windows 10 v1703+ */
 void* user32_handle = NULL;
@@ -177,17 +177,89 @@ video_toggle_option(HMENU h, int *val, int id)
     device_force_redraw();
 }
 
+#if defined(DEV_BRANCH) && defined(USE_OPENGL)
+/* Recursively finds and deletes target submenu */
+static int
+delete_submenu(HMENU parent, HMENU target)
+{
+	for (int i = 0; i < GetMenuItemCount(parent); i++)
+	{
+		MENUITEMINFO mii;
+		mii.cbSize = sizeof(mii);
+		mii.fMask = MIIM_SUBMENU;
+
+		if (GetMenuItemInfo(parent, i, TRUE, &mii) != 0)
+		{
+			if (mii.hSubMenu == target)
+			{
+				DeleteMenu(parent, i, MF_BYPOSITION);
+				return 1;
+			}
+			else if (mii.hSubMenu != NULL)
+			{
+				if (delete_submenu(mii.hSubMenu, target))
+					return 1;
+			}
+		}
+	}
+
+	return 0;
+}
+#endif
+
+static void
+show_render_options_menu()
+{
+#if defined(DEV_BRANCH) && defined(USE_OPENGL)
+	static int menu_vidapi = -1;
+	static HMENU cur_menu = NULL;
+	
+	if (vid_api == menu_vidapi)
+		return;
+
+	if (cur_menu != NULL)
+	{
+		if (delete_submenu(menuMain, cur_menu))
+			cur_menu = NULL;
+	}
+
+	if (cur_menu == NULL)
+	{
+		switch (IDM_VID_SDL_SW + vid_api)
+		{
+		case IDM_VID_OPENGL_CORE:
+			cur_menu = LoadMenu(hinstance, VID_GL_SUBMENU);
+			InsertMenu(GetSubMenu(menuMain, 1), 4, MF_BYPOSITION | MF_STRING | MF_POPUP, (UINT_PTR)cur_menu, plat_get_string(IDS_2144));
+			CheckMenuItem(menuMain, IDM_VID_GL_FPS_BLITTER, video_framerate == -1 ? MF_CHECKED : MF_UNCHECKED);
+			CheckMenuItem(menuMain, IDM_VID_GL_FPS_25, video_framerate == 25 ? MF_CHECKED : MF_UNCHECKED);
+			CheckMenuItem(menuMain, IDM_VID_GL_FPS_30, video_framerate == 30 ? MF_CHECKED : MF_UNCHECKED);
+			CheckMenuItem(menuMain, IDM_VID_GL_FPS_50, video_framerate == 50 ? MF_CHECKED : MF_UNCHECKED);
+			CheckMenuItem(menuMain, IDM_VID_GL_FPS_60, video_framerate == 60 ? MF_CHECKED : MF_UNCHECKED);
+			CheckMenuItem(menuMain, IDM_VID_GL_FPS_75, video_framerate == 75 ? MF_CHECKED : MF_UNCHECKED);
+			CheckMenuItem(menuMain, IDM_VID_GL_VSYNC, video_vsync ? MF_CHECKED : MF_UNCHECKED);
+			EnableMenuItem(menuMain, IDM_VID_GL_NOSHADER, strlen(video_shader) > 0 ? MF_ENABLED : MF_DISABLED);
+			break;
+		}
+	}
+
+	menu_vidapi = vid_api;
+#endif
+}
+
+static void
+video_set_filter_menu(HMENU menu) 
+{
+	CheckMenuItem(menu, IDM_VID_FILTER_NEAREST, vid_api == 0 || video_filter_method == 0 ? MF_CHECKED : MF_UNCHECKED);
+	CheckMenuItem(menu, IDM_VID_FILTER_LINEAR, vid_api != 0 && video_filter_method == 1 ? MF_CHECKED : MF_UNCHECKED);
+	EnableMenuItem(menu, IDM_VID_FILTER_NEAREST, vid_api == 0 ? MF_GRAYED : MF_ENABLED);
+	EnableMenuItem(menu, IDM_VID_FILTER_LINEAR, vid_api == 0 ? MF_GRAYED : MF_ENABLED);
+}
 
 static void
 ResetAllMenus(void)
 {
-#ifndef DEV_BRANCH
-    /* FIXME: until we fix these.. --FvK */
-    EnableMenuItem(menuMain, IDM_CONFIG_LOAD, MF_DISABLED);
-    EnableMenuItem(menuMain, IDM_CONFIG_SAVE, MF_DISABLED);
-#endif
-
     CheckMenuItem(menuMain, IDM_ACTION_RCTRL_IS_LALT, MF_UNCHECKED);
+    CheckMenuItem(menuMain, IDM_ACTION_KBD_REQ_CAPTURE, MF_UNCHECKED);
 
     CheckMenuItem(menuMain, IDM_UPDATE_ICONS, MF_UNCHECKED);
 
@@ -215,6 +287,7 @@ ResetAllMenus(void)
 # endif
 #endif
 
+    CheckMenuItem(menuMain, IDM_VID_HIDE_STATUS_BAR, MF_UNCHECKED);
     CheckMenuItem(menuMain, IDM_VID_FORCE43, MF_UNCHECKED);
     CheckMenuItem(menuMain, IDM_VID_OVERSCAN, MF_UNCHECKED);
     CheckMenuItem(menuMain, IDM_VID_INVERT, MF_UNCHECKED);
@@ -223,8 +296,9 @@ ResetAllMenus(void)
     CheckMenuItem(menuMain, IDM_VID_SDL_SW, MF_UNCHECKED);
     CheckMenuItem(menuMain, IDM_VID_SDL_HW, MF_UNCHECKED);
     CheckMenuItem(menuMain, IDM_VID_SDL_OPENGL, MF_UNCHECKED);
-#ifdef DEV_BRANCH
+#if defined(DEV_BRANCH) && defined(USE_OPENGL)
     CheckMenuItem(menuMain, IDM_VID_OPENGL_CORE, MF_UNCHECKED);
+    show_render_options_menu();
 #endif
 #ifdef USE_VNC
     CheckMenuItem(menuMain, IDM_VID_VNC, MF_UNCHECKED);
@@ -252,6 +326,7 @@ ResetAllMenus(void)
     CheckMenuItem(menuMain, IDM_VID_GRAY_RGB+4, MF_UNCHECKED);
 
     CheckMenuItem(menuMain, IDM_ACTION_RCTRL_IS_LALT, rctrl_is_lalt ? MF_CHECKED : MF_UNCHECKED);
+    CheckMenuItem(menuMain, IDM_ACTION_KBD_REQ_CAPTURE, kbd_req_capture ? MF_CHECKED : MF_UNCHECKED);
 
     CheckMenuItem(menuMain, IDM_UPDATE_ICONS, update_icons ? MF_CHECKED : MF_UNCHECKED);
 
@@ -279,6 +354,7 @@ ResetAllMenus(void)
 # endif
 #endif
 
+    CheckMenuItem(menuMain, IDM_VID_HIDE_STATUS_BAR, hide_status_bar ? MF_CHECKED : MF_UNCHECKED);
     CheckMenuItem(menuMain, IDM_VID_FORCE43, force_43?MF_CHECKED:MF_UNCHECKED);
     CheckMenuItem(menuMain, IDM_VID_OVERSCAN, enable_overscan?MF_CHECKED:MF_UNCHECKED);
     CheckMenuItem(menuMain, IDM_VID_INVERT, invert_display ? MF_CHECKED : MF_UNCHECKED);
@@ -294,6 +370,8 @@ ResetAllMenus(void)
     CheckMenuItem(menuMain, IDM_VID_CGACON, vid_cga_contrast?MF_CHECKED:MF_UNCHECKED);
     CheckMenuItem(menuMain, IDM_VID_GRAYCT_601+video_graytype, MF_CHECKED);
     CheckMenuItem(menuMain, IDM_VID_GRAY_RGB+video_grayscale, MF_CHECKED);
+
+    video_set_filter_menu(menuMain);
 
 #ifdef USE_DISCORD
     if (discord_loaded)
@@ -328,7 +406,8 @@ LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
     BOOL bControlKeyDown;
     KBDLLHOOKSTRUCT *p;
 
-    if (nCode < 0 || nCode != HC_ACTION || (!mouse_capture && !video_fullscreen))
+    if (nCode < 0 || nCode != HC_ACTION ||
+	(!mouse_capture && !video_fullscreen) || (kbd_req_capture && !mouse_capture && !video_fullscreen))
 	return(CallNextHookEx(hKeyboardHook, nCode, wParam, lParam));
 
     p = (KBDLLHOOKSTRUCT*)lParam;
@@ -397,9 +476,10 @@ plat_power_off(void)
 
     /* Cleanly terminate all of the emulator's components so as
        to avoid things like threads getting stuck. */
-    do_stop();
+    // do_stop();
+    cpu_thread_run = 0;
 
-    exit(-1);
+    // exit(-1);
 }
 
 #ifdef MTR_ENABLED
@@ -593,6 +673,12 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 				config_save();
 				break;
 
+			case IDM_ACTION_KBD_REQ_CAPTURE:
+				kbd_req_capture ^= 1;
+				CheckMenuItem(hmenu, IDM_ACTION_KBD_REQ_CAPTURE, kbd_req_capture ? MF_CHECKED : MF_UNCHECKED);
+				config_save();
+				break;
+
 			case IDM_ACTION_PAUSE:
 				plat_pause(dopause ^ 1);
 				CheckMenuItem(menuMain, IDM_ACTION_PAUSE, dopause ? MF_CHECKED : MF_UNCHECKED);
@@ -600,6 +686,10 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 			case IDM_CONFIG:
 				win_settings_open(hwnd);
+				break;
+
+			case IDM_SND_GAIN:
+				SoundGainDialogCreate(hwnd);
 				break;
 
 			case IDM_ABOUT:
@@ -613,6 +703,18 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 			case IDM_UPDATE_ICONS:
 				update_icons ^= 1;
 				CheckMenuItem(hmenu, IDM_UPDATE_ICONS, update_icons ? MF_CHECKED : MF_UNCHECKED);
+				config_save();
+				break;
+
+			case IDM_VID_HIDE_STATUS_BAR:
+				hide_status_bar ^= 1;
+				CheckMenuItem(hmenu, IDM_VID_HIDE_STATUS_BAR, hide_status_bar ? MF_CHECKED : MF_UNCHECKED);
+				ShowWindow(hwndSBAR, hide_status_bar ? SW_HIDE : SW_SHOW);
+				GetWindowRect(hwnd, &rect);
+				if (hide_status_bar)
+					MoveWindow(hwnd, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top - sbar_height, TRUE);
+				else
+					MoveWindow(hwnd, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top + sbar_height, TRUE);
 				config_save();
 				break;
 
@@ -634,7 +736,10 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 					temp_y = unscaled_size_y;
 				}
 
-				ResizeWindowByClientArea(hwnd, temp_x, temp_y + sbar_height);
+				if (hide_status_bar)
+					ResizeWindowByClientArea(hwnd, temp_x, temp_y);
+				else
+					ResizeWindowByClientArea(hwnd, temp_x, temp_y + sbar_height);
 
 				if (mouse_capture) {
 					ClipCursor(&rect);
@@ -672,7 +777,7 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 			case IDM_VID_SDL_SW:
 			case IDM_VID_SDL_HW:
 			case IDM_VID_SDL_OPENGL:
-#ifdef DEV_BRANCH
+#if defined(DEV_BRANCH) && defined(USE_OPENGL)
 			case IDM_VID_OPENGL_CORE:
 #endif
 #ifdef USE_VNC
@@ -681,8 +786,51 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 				CheckMenuItem(hmenu, IDM_VID_SDL_SW + vid_api, MF_UNCHECKED);
 				plat_setvid(LOWORD(wParam) - IDM_VID_SDL_SW);
 				CheckMenuItem(hmenu, IDM_VID_SDL_SW + vid_api, MF_CHECKED);
+				video_set_filter_menu(hmenu);
+				config_save();
+				show_render_options_menu();
+				break;
+
+#if defined(DEV_BRANCH) && defined(USE_OPENGL)
+			case IDM_VID_GL_FPS_BLITTER:
+			case IDM_VID_GL_FPS_25:
+			case IDM_VID_GL_FPS_30:
+			case IDM_VID_GL_FPS_50:
+			case IDM_VID_GL_FPS_60:
+			case IDM_VID_GL_FPS_75:
+			{
+				static const int fps[] = { -1, 25, 30, 50, 60, 75 };
+				int idx = 0;
+				for (; fps[idx] != video_framerate; idx++);
+				CheckMenuItem(hmenu, IDM_VID_GL_FPS_BLITTER + idx, MF_UNCHECKED);
+				video_framerate = fps[LOWORD(wParam) - IDM_VID_GL_FPS_BLITTER];
+				CheckMenuItem(hmenu, LOWORD(wParam), MF_CHECKED);
+				plat_vid_reload_options();
 				config_save();
 				break;
+			}
+			case IDM_VID_GL_VSYNC:
+				video_vsync = !video_vsync;
+				CheckMenuItem(hmenu, IDM_VID_GL_VSYNC, video_vsync ? MF_CHECKED : MF_UNCHECKED);
+				plat_vid_reload_options();
+				config_save();
+				break;
+			case IDM_VID_GL_SHADER:
+				win_notify_dlg_open();
+				if (file_dlg_st(hwnd, IDS_2143, video_shader, NULL, 0) == 0)
+				{
+					strcpy_s(video_shader, sizeof(video_shader), openfilestring);
+					EnableMenuItem(menuMain, IDM_VID_GL_NOSHADER, strlen(video_shader) > 0 ? MF_ENABLED : MF_DISABLED);
+				}
+				win_notify_dlg_closed();
+				plat_vid_reload_options();
+				break;
+			case IDM_VID_GL_NOSHADER:
+				video_shader[0] = '\0';
+				EnableMenuItem(menuMain, IDM_VID_GL_NOSHADER, MF_DISABLED);
+				plat_vid_reload_options();
+				break;
+#endif
 
 			case IDM_VID_FULLSCREEN:
 				plat_setfullscreen(1);
@@ -711,6 +859,14 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 				device_force_redraw();
 				video_force_resize_set(1);
 				doresize = 1;
+				config_save();
+				break;
+
+			case IDM_VID_FILTER_NEAREST:
+			case IDM_VID_FILTER_LINEAR:				
+				video_filter_method = LOWORD(wParam) - IDM_VID_FILTER_NEAREST;
+				video_set_filter_menu(hmenu);
+				plat_vid_reload_options();
 				config_save();
 				break;
 
@@ -869,7 +1025,10 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 			}
 
 			/* Main Window. */
-			ResizeWindowByClientArea(hwndMain, temp_x, temp_y + sbar_height);
+			if (hide_status_bar)
+				ResizeWindowByClientArea(hwndMain, temp_x, temp_y);
+			else
+				ResizeWindowByClientArea(hwndMain, temp_x, temp_y + sbar_height);
 		} else if (!user_resize)
 			doresize = 1;
 		break;
@@ -899,14 +1058,29 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 		if (!(pos->flags & SWP_NOSIZE) || !user_resize) {
 			plat_vidapi_enable(0);
 
-			MoveWindow(hwndSBAR, 0, rect.bottom - sbar_height, sbar_height, rect.right, TRUE);
-			MoveWindow(hwndRender, 0, 0, rect.right, rect.bottom - sbar_height, TRUE);
+			if (hide_status_bar)
+				MoveWindow(hwndRender, 0, 0, rect.right, rect.bottom, TRUE);
+			else {
+				MoveWindow(hwndSBAR, 0, rect.bottom - sbar_height, sbar_height, rect.right, TRUE);
+				MoveWindow(hwndRender, 0, 0, rect.right, rect.bottom - sbar_height, TRUE);
+			}
 
 			GetClientRect(hwndRender, &rect);
-			if (rect.right != scrnsz_x || rect.bottom != scrnsz_y) {
-				scrnsz_x = rect.right;
-				scrnsz_y = rect.bottom;
-				doresize = 1;
+			if (dpi_scale) {
+				temp_x = MulDiv(rect.right, 96, dpi);
+				temp_y = MulDiv(rect.bottom, 96, dpi);
+
+				if (temp_x != scrnsz_x || temp_y != scrnsz_y) {
+					scrnsz_x = temp_x;
+					scrnsz_y = temp_y;
+					doresize = 1;
+				}
+			} else {
+				if (rect.right != scrnsz_x || rect.bottom != scrnsz_y) {
+					scrnsz_x = rect.right;
+					scrnsz_y = rect.bottom;
+					doresize = 1;
+				}
 			}
 
 			plat_vidsize(rect.right, rect.bottom);
@@ -1162,7 +1336,7 @@ ui_init(int nCmdShow)
     WCHAR title[200];
     WNDCLASSEX wincl;			/* buffer for main window's class */
     RAWINPUTDEVICE ridev;		/* RawInput device */
-    MSG messages;			/* received-messages buffer */
+    MSG messages = {0};			/* received-messages buffer */
     HWND hwnd = NULL;			/* handle for our window */
     HACCEL haccel;			/* handle to accelerator table */
     RECT sbar_rect;			/* RECT of the status bar */
@@ -1272,6 +1446,8 @@ ui_init(int nCmdShow)
     /* Get the actual height of the status bar */
     GetWindowRect(hwndSBAR, &sbar_rect);
     sbar_height = sbar_rect.bottom - sbar_rect.top;
+    if (hide_status_bar)
+	ShowWindow(hwndSBAR, SW_HIDE);
 
     /* Set up main window for resizing if configured. */
     if (vid_resize == 1)
@@ -1294,7 +1470,10 @@ ui_init(int nCmdShow)
 		scrnsz_x = fixed_size_x;
 		scrnsz_y = fixed_size_y;
 	}
-	ResizeWindowByClientArea(hwndMain, scrnsz_x, scrnsz_y + sbar_height);
+	if (hide_status_bar)
+		ResizeWindowByClientArea(hwndMain, scrnsz_x, scrnsz_y);
+	else
+		ResizeWindowByClientArea(hwndMain, scrnsz_x, scrnsz_y + sbar_height);
     }
 
     /* Reset all menus to their defaults. */
@@ -1303,6 +1482,13 @@ ui_init(int nCmdShow)
 
     /* Make the window visible on the screen. */
     ShowWindow(hwnd, nCmdShow);
+
+    /* Warn the user about unsupported configs. */
+    if (cpu_override && ui_msgbox_ex(MBX_WARNING | MBX_QUESTION_OK, (void*)IDS_2145, (void*)IDS_2146, (void*)IDS_2147, (void*)IDS_2119, NULL))
+    {
+	    DestroyWindow(hwnd);
+	    return(0);
+    }
 
     GetClipCursor(&oldclip);
 
@@ -1392,12 +1578,20 @@ ui_init(int nCmdShow)
 		fatal("bRet is -1\n");
 	}
 
-	if (messages.message == WM_QUIT) {
-		is_quit = 1;
-		break;
-	}
+	/* On WM_QUIT, tell the CPU thread to stop running. That will then tell us
+	   to stop running as well. */
+	if (messages.message == WM_QUIT)
+		cpu_thread_run = 0;
 
-	if (! TranslateAccelerator(hwnd, haccel, &messages)) {
+	if (! TranslateAccelerator(hwnd, haccel, &messages))
+	{
+		/* Don't process other keypresses. */
+		if (messages.message == WM_SYSKEYDOWN ||
+			messages.message == WM_SYSKEYUP ||
+			messages.message == WM_KEYDOWN ||
+			messages.message == WM_KEYUP)
+			continue;
+
                 TranslateMessage(&messages);
                 DispatchMessage(&messages);
 	}
@@ -1523,7 +1717,10 @@ plat_resize(int x, int y)
 		x = MulDiv(x, dpi, 96);
 		y = MulDiv(y, dpi, 96);
 	}
-	ResizeWindowByClientArea(hwndMain, x, y + sbar_height);
+	if (hide_status_bar)
+		ResizeWindowByClientArea(hwndMain, x, y);
+	else
+		ResizeWindowByClientArea(hwndMain, x, y + sbar_height);
     }
 }
 
@@ -1533,7 +1730,7 @@ plat_mouse_capture(int on)
 {
     RECT rect;
 
-    if (mouse_type == MOUSE_TYPE_NONE)
+    if (!kbd_req_capture && (mouse_type == MOUSE_TYPE_NONE))
 	return;
 
     if (on && !mouse_capture) {
