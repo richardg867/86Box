@@ -249,6 +249,8 @@ pci_bridge_reset(void *priv)
 	case PCI_BRIDGE_DEC_21150:
 		dev->regs[0x06] = 0x80;
 		dev->regs[0x07] = 0x02;
+		/* Most PCI device listings on forums have revision 06. */
+		dev->regs[0x08] = 0x06;
 		break;
 
 	case AGP_BRIDGE_INTEL_440LX:
@@ -266,7 +268,7 @@ pci_bridge_reset(void *priv)
 	case AGP_BRIDGE_VIA_597:
 	case AGP_BRIDGE_VIA_598:
 	case AGP_BRIDGE_VIA_691:
-    case AGP_BRIDGE_VIA_8601:
+	case AGP_BRIDGE_VIA_8601:
 		dev->regs[0x04] = 0x07;
 		dev->regs[0x06] = 0x20;
 		dev->regs[0x07] = 0x02;
@@ -278,7 +280,7 @@ pci_bridge_reset(void *priv)
     dev->regs[0x0b] = 0x06; /* bridge device */
     dev->regs[0x0e] = 0x01; /* bridge header */
 
-    /* IO BARs */
+    /* I/O BARs */
     if (AGP_BRIDGE(dev->local))
 	dev->regs[0x1c] = 0xf0;
     else
@@ -325,7 +327,9 @@ pci_bridge_init(const device_t *info)
     interrupt_mask = interrupt_count - 1;
     for (i = 0; i < interrupt_count; i++)
 	interrupts[i] = pci_get_int(dev->slot, PCI_INTA + i);
-    pci_bridge_log("PCI Bridge %d: upstream bus %02X slot %02X interrupts %02X %02X %02X %02X\n", dev->bus_index, (dev->slot >> 5) & 0xff, dev->slot & 31, interrupts[0], interrupts[1], interrupts[2], interrupts[3]);
+    pci_bridge_log("PCI Bridge %d: upstream bus %02X slot %02X interrupts %02X %02X %02X %02X\n",
+		   dev->bus_index, (dev->slot >> 5) & 0xff, dev->slot & 31,
+		   interrupts[0], interrupts[1], interrupts[2], interrupts[3]);
 
     if (info->local == PCI_BRIDGE_DEC_21150)
 	slot_count = 9; /* 9 bus masters */
@@ -334,7 +338,12 @@ pci_bridge_init(const device_t *info)
 
     for (i = 0; i < slot_count; i++) {
 	/* Interrupts for bridge slots are assigned in round-robin: ABCD, BCDA, CDAB and so on. */
-	pci_bridge_log("PCI Bridge %d: downstream slot %02X interrupts %02X %02X %02X %02X\n", dev->bus_index, i, interrupts[i & interrupt_mask], interrupts[(i + 1) & interrupt_mask], interrupts[(i + 2) & interrupt_mask], interrupts[(i + 3) & interrupt_mask]);
+	pci_bridge_log("PCI Bridge %d: downstream slot %02X interrupts %02X %02X %02X %02X\n",
+		       dev->bus_index, i,
+		       interrupts[i & interrupt_mask],
+		       interrupts[(i + 1) & interrupt_mask],
+		       interrupts[(i + 2) & interrupt_mask],
+		       interrupts[(i + 3) & interrupt_mask]);
 	pci_register_bus_slot(dev->bus_index, i, AGP_BRIDGE(dev->local) ? PCI_CARD_AGP : PCI_CARD_NORMAL,
 			      interrupts[i & interrupt_mask],
 			      interrupts[(i + 1) & interrupt_mask],
