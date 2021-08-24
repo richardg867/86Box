@@ -406,8 +406,9 @@ text_render_blank()
 {
     CHECK_INIT();
 
-    /* Clear screen. */
-    fprintf(TEXT_RENDER_OUTPUT, "\033[2J\033[3J");
+    /* Clear screen if we're not rendering the graphics mode box. */
+    if (text_render_line_buffer[0][0] != '\xFF')
+	fprintf(TEXT_RENDER_OUTPUT, "\033[2J\033[3J");
 
     /* Disable cursor and flush output. */
     text_render_cx = -1;
@@ -605,6 +606,11 @@ text_render_cga(uint8_t cy,
 
     p = buf;
     p += sprintf(p, "\033[%d;1H\033[0m\033[2K", cy + 1);
+
+    fb[(ma << 1) & fb_mask] = '0' + (cy / 10);
+    fb[((ma << 1) + fb_step) & fb_mask] = 0x0f;
+    fb[((ma << 1) + fb_step + fb_step) & fb_mask] = '0' + (cy % 10);
+    fb[((ma << 1) + fb_step + fb_step + fb_step) & fb_mask] = 0x0f;
 
     for (x = 0; x < xlimit; x += xinc) {
 	if (do_render) {
