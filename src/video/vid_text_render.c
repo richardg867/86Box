@@ -265,6 +265,7 @@ text_render_updatecursor()
     fflush(TEXT_RENDER_OUTPUT);
 }
 
+#ifdef SIGWINCH
 static void
 text_render_updatescreen(int sig)
 {
@@ -278,6 +279,7 @@ text_render_updatescreen(int sig)
     /* Update cursor and flush output. */
     text_render_updatecursor();
 }
+#endif
 
 static int
 text_render_detectterm(char *env) {
