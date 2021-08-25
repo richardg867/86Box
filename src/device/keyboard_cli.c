@@ -192,8 +192,8 @@ keyboard_cli_process(void *priv)
 			if (!strcasecmp(escape_buf, "qq")) { /* quit sequence */
 				/* Quit on the second consecutive quit escape sequence. */
 				if (++quit_escape >= 2) {
-					/* Clear terminal while resetting any SGR attributes. */
-					fprintf(TEXT_RENDER_OUTPUT, "\033[0m\033[2J\033[3J");
+					/* Reset terminal. */
+					fprintf(TEXT_RENDER_OUTPUT, "\033[0m\033[2J\033[3J\033[1;1H\033[25h\033c");
 					fflush(TEXT_RENDER_OUTPUT);
 
 					/* Initiate quit. */
