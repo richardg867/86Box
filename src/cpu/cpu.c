@@ -2160,8 +2160,10 @@ cpu_RDMSR(void)
 					EAX |= ((1 << 25) | (1 << 24) | (0 << 23) | (0 << 22));
 				else
 					EAX |= ((0 << 25) | (0 << 24) | (0 << 23) | (1 << 22));
-				if (cpu_busspeed >= 84000000)
-				EAX |= (1 << 19);
+				if (cpu_busspeed >= 120000000)
+					EAX |= (1 << 18);
+				else if (cpu_busspeed >= 84000000)
+					EAX |= (1 << 19);
 				break;
 			case 0x1107:
 				EAX = msr.fcr;
