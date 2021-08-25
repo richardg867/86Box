@@ -2315,7 +2315,9 @@ amd_k_invalid_rdmsr:
 			case 0x2a:
 				EAX = 0xc4000000;
 				EDX = 0;
-				if (cpu_dmulti == 2.5)
+				if (cpu_dmulti <= 2)
+					EAX |= ((0 << 25) | (0 << 24) | (1 << 23) | (1 << 22));
+				else if (cpu_dmulti == 2.5)
 					EAX |= ((0 << 25) | (1 << 24) | (1 << 23) | (1 << 22));
 				else if (cpu_dmulti == 3)
 					EAX |= ((0 << 25) | (0 << 24) | (0 << 23) | (1 << 22));
@@ -2340,7 +2342,7 @@ amd_k_invalid_rdmsr:
 				else if (cpu_dmulti == 8)
 					EAX |= ((1 << 25) | (0 << 24) | (1 << 23) | (0 << 22));			
 				else
-					EAX |= ((0 << 25) | (1 << 24) | (1 << 23) | (1 << 22));		
+					EAX |= ((1 << 25) | (0 << 24) | (0 << 23) | (0 << 22));
 				if (cpu_s->cpu_type != CPU_PENTIUMPRO) {
 					if (cpu_busspeed >= 84000000)
 						EAX |= (1 << 19);
