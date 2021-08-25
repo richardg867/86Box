@@ -361,16 +361,22 @@ text_render_init()
     }
 #endif
 
-    /* Detect a true color terminal through the COLORTERM environment variable
-       or a DECRQSS query. */
+    /* Detect the terminal's color capability through the
+       COLORTERM environment variable or DECRQSS queries. */
     if (text_render_term_color < TERM_COLOR_24BIT) {
 	env = getenv("COLORTERM");
 	if (env && (strcasecmp(env, "truecolor") || strcasecmp(env, "24bit"))) {
 		text_render_term_color = TERM_COLOR_24BIT; 
 	} else {
-		fprintf(TEXT_RENDER_OUTPUT, "\033[48;2;1;2;3m");
-		if (!strncmp(keyboard_cli_decrqss("$qm"), "P1$r48", 7))
+		fprintf(TEXT_RENDER_OUTPUT, "\033[38;2;1;2;3m");
+		if (!strcmp(keyboard_cli_decrqss("$qm"), "P1$r38:2:1:2:3m")) { /* TODO: semicolon too? */
 			text_render_term_color = TERM_COLOR_24BIT;
+		} else {
+			fprintf(TEXT_RENDER_OUTPUT, "\033[38;5;255m");
+			if (!strcmp(keyboard_cli_decrqss("$qm"), "P1$r38:5:255m")) /* same as above */
+				text_render_term_color = TERM_COLOR_8BIT;
+		}
+
 		fprintf(TEXT_RENDER_OUTPUT, "\033[0m");
 	}
     }
