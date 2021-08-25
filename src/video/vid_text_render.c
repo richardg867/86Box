@@ -20,6 +20,7 @@
 #include <string.h>
 #include <wchar.h>
 #include <math.h>
+#include <signal.h>
 #include <time.h>
 #ifdef _WIN32
 # include <windows.h>
@@ -254,7 +255,7 @@ text_render_setpal_init(uint8_t index, uint32_t color)
 }
 
 
-void
+static void
 text_render_updatecursor()
 {
     if ((text_render_cx == ((uint8_t) -1)) || (text_render_cy == ((uint8_t) -1))) /* cursor disabled */
@@ -264,7 +265,21 @@ text_render_updatecursor()
     fflush(TEXT_RENDER_OUTPUT);
 }
 
-int
+static void
+text_render_updatescreen(int sig)
+{
+    /* Invalidate the entire text buffer to force a redraw. */
+    for (int i = 0; i < TEXT_RENDER_BUF_LINES; i++)
+	text_render_line_buffer[i][0] = '\x00';
+
+    /* Clear screen. */
+    text_render_blank();
+
+    /* Update cursor and flush output. */
+    text_render_updatecursor();
+}
+
+static int
 text_render_detectterm(char *env) {
     if (!env)
 	return -1;
@@ -277,7 +292,7 @@ text_render_detectterm(char *env) {
     return -1;
 }
 
-void
+static void
 text_render_fillcolortable(uint32_t *table, uint16_t count)
 {
     /* Fill a color table with up to a 256-color palette.
@@ -403,6 +418,11 @@ text_render_init()
     /* Start with the cursor disabled. */
     text_render_cx = -1;
     text_render_updatecursor();
+
+#ifdef SIGWINCH
+    /* Redraw screen on terminal resize. */
+    signal(SIGWINCH, text_render_updatescreen);
+#endif
 }
 
 

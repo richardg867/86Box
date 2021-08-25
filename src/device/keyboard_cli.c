@@ -124,23 +124,25 @@ keyboard_cli_signal(int sig)
 {
     vnc_kbinput(1, 0xffe3);
     switch (sig) {
-    	case 0: /* EOF (special case caught in character reading loop) */
-    		keyboard_cli_send('d');
-    		break;
-
-	case SIGINT: /* Ctrl+C */
-    		keyboard_cli_send('c');
+	case 0: /* EOF (special case caught in character reading loop) */
+		keyboard_cli_send('d');
 		break;
-
-#ifndef _WIN32
+#ifdef SIGINT
+	case SIGINT: /* Ctrl+C */
+		keyboard_cli_send('c');
+		break;
+#endif
+#ifdef SIGSTOP
 	case SIGSTOP: /* Ctrl+S */
 		keyboard_cli_send('s');
 		break;
-
+#endif
+#ifdef SIGTSTP
 	case SIGTSTP: /* Ctrl+Z */
 		keyboard_cli_send('z');
 		break;
-
+#endif
+#ifdef SIGQUIT
 	case SIGQUIT: /* Ctrl+\ */
 		keyboard_cli_send('\\');
 		break;
@@ -158,93 +160,98 @@ keyboard_cli_process(void *priv)
     uint16_t code;
 
     while (1) {
-    	c = getchar();
+	c = getchar();
 
-    	/* Check if we're in an escape sequence instead of receiving an arbitrary character. */
-    	if (in_escape) {
-    		if (((c >= '0') && (c <= '9')) || (c == ';') || (!escape_buf_pos && (c != 0x1b))) {
-    			/* Add character to escape sequence buffer. */
-    			if (escape_buf_pos < (sizeof(escape_buf) - 2))
-    				escape_buf[escape_buf_pos++] = c;
-    		} else {
-    			/* Finish escape sequence. */
-    			escape_buf[escape_buf_pos++] = c;
-    			escape_buf[escape_buf_pos] = '\0';
-
-#ifdef KEYBOARD_CLI_DEBUG
-    			fprintf(TEXT_RENDER_OUTPUT, "\033]0;Escape: ");
-    			for (i = 0; i < strlen(escape_buf); i++) {
-    				if ((escape_buf[i] < 0x21) || (escape_buf[i] > 0x7e))
-    					fprintf(TEXT_RENDER_OUTPUT, "[%02X]", escape_buf[i]);
-    				else
-    					fprintf(TEXT_RENDER_OUTPUT, "%c", escape_buf[i]);
-    			}
-    			fprintf(TEXT_RENDER_OUTPUT, "\a");
-    			fflush(TEXT_RENDER_OUTPUT);
-#endif
-
-    			/* Interpret escape sequence. */
-    			if (escape_buf[0] == 0x1b) { /* escaped Escape key */
-    				keyboard_cli_send(0xff1b);
-    			} else if (escape_buf_pos > 1) {
-    				if ((escape_buf[0] == '[') && (escape_buf[escape_buf_pos - 1] == '~')) { /* numeric CSI */
-    					elems = sscanf(escape_buf, "[%d;%d~", &num, &modifier);
-    					if (elems) {
-    						/* Remove modifier if invalid. */
-    						if ((elems < 2) || (modifier >= (sizeof(csi_modifiers) / sizeof(csi_modifiers[0]))) || !csi_modifiers[modifier][0])
-    							modifier = 0;
-
-    						/* Determine keycode. */
-    						if (num < (sizeof(csi_seqs) / sizeof(csi_seqs[0])))
-    							code = csi_seqs[num];
-    						else
-    							code = 0;
-
-    						/* Account for Ctrl+Fx. */
-    						if ((code >> 8) == 0xfe) {
-    							code |= 0xff00;
-    							modifier = 5;
-    						}
-
-    						/* Press modifiers. */
-    						if (modifier) {
-    							for (i = 0; i < 4; i++)
-    								vnc_kbinput(1, csi_modifiers[modifier][i]);
-    						}
-
-    						/* Press and release key. */
-    						if (code)
-    							keyboard_cli_send(code);
-
-    						/* Release modifiers. */
-    						if (modifier) {
-    							for (i = 3; i >= 0; i--)
-    								vnc_kbinput(0, csi_modifiers[modifier][i]);
-    						}
-    					}
-    				} else if ((escape_buf[0] == 'O') || (escape_buf[0] == '[')) { /* SS3 or non-numeric CSI */
-    					/* Press and release key. */
-    					if (escape_buf[1] < (sizeof(ss3_seqs) / sizeof(ss3_seqs[0])))
-    						code = ss3_seqs[(uint8_t) escape_buf[1]];
-    					else
-    						code = 0;
-    					if (code)
-    						keyboard_cli_send(code);
-    				}
-    			}
-
-    			/* Finish escape sequence. */
-    			in_escape = escape_buf_pos = 0;
-    		}
-    		continue;
-    	}
+	/* Check if we're in an escape sequence instead of receiving an arbitrary character. */
+	if (in_escape) {
+		if (((c >= '0') && (c <= '9')) || (c == ';') || (!escape_buf_pos && (c != 0x1b))) {
+			/* Add character to escape sequence buffer. */
+			if (escape_buf_pos < (sizeof(escape_buf) - 2))
+				escape_buf[escape_buf_pos++] = c;
+		} else {
+			/* Finish escape sequence. */
+			escape_buf[escape_buf_pos++] = c;
+			escape_buf[escape_buf_pos] = '\0';
 
 #ifdef KEYBOARD_CLI_DEBUG
-    	fprintf(TEXT_RENDER_OUTPUT, "\033]0;Key: %02X\a", c);
-    	fflush(TEXT_RENDER_OUTPUT);
+			fprintf(TEXT_RENDER_OUTPUT, "\033]0;Escape: ");
+			for (i = 0; i < strlen(escape_buf); i++) {
+				if ((escape_buf[i] < 0x21) || (escape_buf[i] > 0x7e))
+					fprintf(TEXT_RENDER_OUTPUT, "[%02X]", escape_buf[i]);
+				else
+					fprintf(TEXT_RENDER_OUTPUT, "%c", escape_buf[i]);
+			}
+			fprintf(TEXT_RENDER_OUTPUT, "\a");
+			fflush(TEXT_RENDER_OUTPUT);
 #endif
 
-    	/* Receive arbitrary character. */
+			/* Interpret escape sequence. */
+			if (escape_buf[0] == 0x1b) { /* escaped Escape key */
+				keyboard_cli_send(0xff1b);
+			} else if (escape_buf_pos > 1) {
+				if ((escape_buf[0] == '[') && (escape_buf[escape_buf_pos - 1] == '~')) { /* numeric CSI */
+					/* Parse numeric CSI sequence with optional modifier. */
+					elems = sscanf(escape_buf, "[%d;%d~", &num, &modifier);
+					if (elems) {
+						/* Remove modifier if invalid. */
+						if ((elems < 2) ||
+						    (modifier >= (sizeof(csi_modifiers) / sizeof(csi_modifiers[0]))) ||
+						    !csi_modifiers[modifier][0])
+							modifier = 0;
+
+						/* Determine keycode. */
+						if (num < (sizeof(csi_seqs) / sizeof(csi_seqs[0])))
+							code = csi_seqs[num];
+						else
+							code = 0;
+
+						/* Account for special Ctrl+Fx keycodes. */
+						if ((code >> 8) == 0xfe) {
+							code |= 0xff00;
+							modifier = 5;
+						}
+
+						/* Press modifiers. */
+						if (modifier) {
+							for (i = 0; i < 4; i++)
+								vnc_kbinput(1, csi_modifiers[modifier][i]);
+						}
+
+						/* Press and release key. */
+						if (code)
+							keyboard_cli_send(code);
+
+						/* Release modifiers. */
+						if (modifier) {
+							for (i = 3; i >= 0; i--)
+								vnc_kbinput(0, csi_modifiers[modifier][i]);
+						}
+					}
+				} else if ((escape_buf[0] == 'O') || (escape_buf[0] == '[')) { /* SS3 or non-numeric CSI */
+					/* Determine keycode. */
+					if (escape_buf[1] < (sizeof(ss3_seqs) / sizeof(ss3_seqs[0])))
+						code = ss3_seqs[(uint8_t) escape_buf[1]];
+					else
+						code = 0;
+
+					/* Press and release key. */
+					if (code)
+						keyboard_cli_send(code);
+				}
+			}
+
+			/* Finish escape sequence. */
+			in_escape = escape_buf_pos = 0;
+		}
+		continue;
+	}
+
+#ifdef KEYBOARD_CLI_DEBUG
+	fprintf(TEXT_RENDER_OUTPUT, "\033]0;Key: %02X\a", c);
+	fflush(TEXT_RENDER_OUTPUT);
+#endif
+
+	/* Receive arbitrary character. */
 	switch (c) {
 		case 0x0a: /* Enter */
 			keyboard_cli_send(0xff0d);
@@ -302,10 +309,16 @@ keyboard_cli_init()
 #endif
 
     /* Intercept signals to send their Ctrl+x sequences. */
+#ifdef SIGINT
     signal(SIGINT, keyboard_cli_signal);
-#ifndef _WIN32
+#endif
+#ifdef SIGSTOP
     signal(SIGSTOP, keyboard_cli_signal);
+#endif
+#ifdef SIGTSTP
     signal(SIGTSTP, keyboard_cli_signal);
+#endif
+#ifdef SIGQUIT
     signal(SIGQUIT, keyboard_cli_signal);
 #endif
 
