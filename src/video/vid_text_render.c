@@ -361,15 +361,18 @@ text_render_init()
     }
 #endif
 
-    /* Detect a true color terminal through the COLORTERM environment variable. */
+    /* Detect a true color terminal through the COLORTERM environment variable
+       or a DECRQSS query. */
     if (text_render_term_color < TERM_COLOR_24BIT) {
 	env = getenv("COLORTERM");
-	if (env && (strcasecmp(env, "truecolor") || strcasecmp(env, "24bit")))
-		text_render_term_color = TERM_COLOR_24BIT;
-
-	/* TODO: once keyboard input is figured out, there is a third method
-	   to detect a true color terminal, through a DECRQSS query.
-	   ref: https://gist.github.com/XVilka/8346728 */
+	if (env && (strcasecmp(env, "truecolor") || strcasecmp(env, "24bit"))) {
+		text_render_term_color = TERM_COLOR_24BIT; 
+	} else {
+		fprintf(TEXT_RENDER_OUTPUT, "\033[48;2;1;2;3m");
+		if (!strncmp(keyboard_cli_decrqss("$qm"), "P1$r48", 7))
+			text_render_term_color = TERM_COLOR_24BIT;
+		fprintf(TEXT_RENDER_OUTPUT, "\033[0m");
+	}
     }
 
     /* Initialize palette tables for high-color terminals. */

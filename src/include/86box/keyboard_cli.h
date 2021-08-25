@@ -17,6 +17,7 @@
 #ifndef EMU_KEYBOARD_CLI_H
 # define EMU_KEYBOARD_CLI_H
 
+extern char	*keyboard_cli_decrqss(char *query);
 extern void	keyboard_cli_init();
 
 #endif
