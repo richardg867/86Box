@@ -561,7 +561,7 @@ text_render_gfx_image(char *fn)
 	/* Output header. */
 	fprintf(TEXT_RENDER_OUTPUT, "\033]1337;File=name=cy5wbmc=;size=%d:", size);
 
-	/* Encode the image as base64. */
+	/* Output image as base64. */
 	while ((read = fread(buf, 1, 3, f)))
 		base64_encode_tri(buf, read);
 
@@ -569,17 +569,18 @@ text_render_gfx_image(char *fn)
 	fprintf(TEXT_RENDER_OUTPUT, "\a");
     } else if (text_render_term_gfx & TERM_GFX_PNG_KITTY) {
 	uint8_t first = 1;
-	while (size) {
+	while (size > 0) {
 		/* Output chunk header. */
 		fprintf(TEXT_RENDER_OUTPUT, "\033_G");
 		if (first) {
 			first = 0;
 			fprintf(TEXT_RENDER_OUTPUT, "f=100,");
 		}
-		fprintf(TEXT_RENDER_OUTPUT, "m=%d;", size > 4096);
+		fprintf(TEXT_RENDER_OUTPUT, "m=%d;", size > 3072);
 
-		/* Output up to 4096 bytes (1024 base64 encoded quads) per chunk. */
+		/* Output up to 3072 bytes (4096 after base64 encoding) per chunk. */
 		for (int i = 0; i < 1024; i++) {
+			size -= 3;
 			if ((read = fread(buf, 1, 3, f)))
 				base64_encode_tri(buf, read);
 			else

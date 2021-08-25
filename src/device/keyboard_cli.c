@@ -211,7 +211,7 @@ keyboard_cli_process(void *priv)
 							modifier = 5;
 						}
 
-						/* Press modifiers. */
+						/* Press modifier keys. */
 						if (modifier) {
 							for (i = 0; i < 4; i++) {
 								if (csi_modifiers[modifier][i])
@@ -223,7 +223,7 @@ keyboard_cli_process(void *priv)
 						if (code)
 							keyboard_cli_send(code);
 
-						/* Release modifiers. */
+						/* Release modifier keys. */
 						if (modifier) {
 							for (i = 3; i >= 0; i--) {
 								if (csi_modifiers[modifier][i])
@@ -284,7 +284,7 @@ keyboard_cli_process(void *priv)
 void
 keyboard_cli_init()
 {
-    /* Disable echo. */
+    /* Enable raw input. */
 #ifdef _WIN32
     HANDLE h;
     FILE *fp = NULL;
