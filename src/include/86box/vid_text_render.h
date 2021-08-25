@@ -17,6 +17,9 @@
 #ifndef EMU_VID_TEXT_RENDER_H
 # define EMU_VID_TEXT_RENDER_H
 
+#define TEXT_RENDER_OUTPUT	stderr
+
+
 extern const uint8_t	ansi_palette[];
 
 

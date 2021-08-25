@@ -44,6 +44,15 @@ if(VNC)
 	target_link_libraries(86Box vnc vncserver ws2_32)
 endif()
 
+if(CLI)
+	add_compile_definitions(USE_CLI)
+	add_library(cli OBJECT device/keyboard_cli.c video/vid_text_render.c)
+	if(NOT VNC)
+		target_sources(cli PRIVATE vnc_keymap.c)
+	endif()
+	target_link_libraries(86Box cli)
+endif()
+
 target_link_libraries(86Box cpu chipset mch dev mem fdd game cdrom zip mo hdd
 	net print scsi sio snd vid voodoo plat ui)
 

@@ -6,7 +6,7 @@
  *
  *		This file is part of the 86Box distribution.
  *
- *		Renderers for ANSI text output.
+ *		Renderers for ANSI text output in CLI mode.
  *
  *
  *
@@ -29,6 +29,7 @@
 #include <86box/device.h>
 #include <86box/mem.h>
 #include <86box/timer.h>
+#include <86box/keyboard_cli.h>
 #include <86box/video.h>
 #include <86box/vid_mda.h>
 #include <86box/vid_cga.h>
@@ -36,7 +37,6 @@
 #include <86box/vid_text_render.h>
 
 
-#define TEXT_RENDER_OUTPUT	stderr
 #define TEXT_RENDER_BUF_LINES	60
 #define TEXT_RENDER_BUF_SIZE	4096	/* good for a fully packed SVGA 150-column row with some margin */
 
@@ -320,6 +320,9 @@ text_render_init()
     int i;
 
     text_render_initialized = 1;
+
+    /* Initialize keyboard input. */
+    keyboard_cli_init();
 
     /* Detect this terminal's capabilities. */
     i = text_render_detectterm(getenv("TERM_PROGRAM"));

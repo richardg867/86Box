@@ -42,7 +42,7 @@
 #include <86box/vnc.h>
 
 
-static int keysyms_00[] = {
+const int keysyms_00[] = {
     0x0000,	/* 0x00 */
     0x0000,
     0x0000,
@@ -332,7 +332,7 @@ static int keysyms_00[] = {
     0x0000	/* 0xff (XK_ydiaeresis) */
 };
 
-static int keysyms_ff[] = {
+const int keysyms_ff[] = {
     0x0000,	/* 0x00 */
     0x0000,
     0x0000,

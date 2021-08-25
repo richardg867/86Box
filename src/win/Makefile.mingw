@@ -490,7 +490,10 @@ endif
 
 ifeq ($(CLI), y)
 OPTS		+= -DUSE_CLI
-CLIOBJ		:= vid_text_render.o
+CLIOBJ		:= keyboard_cli.o vid_text_render.o
+ ifneq ($(VNC), y)
+  CLIOBJ		+= vnc_keymap.o
+ endif
 endif
 
 # Options for the DEV branch.
