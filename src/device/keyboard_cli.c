@@ -213,8 +213,10 @@ keyboard_cli_process(void *priv)
 
 						/* Press modifiers. */
 						if (modifier) {
-							for (i = 0; i < 4; i++)
-								vnc_kbinput(1, csi_modifiers[modifier][i]);
+							for (i = 0; i < 4; i++) {
+								if (csi_modifiers[modifier][i])
+									vnc_kbinput(1, csi_modifiers[modifier][i]);
+							}
 						}
 
 						/* Press and release key. */
@@ -223,8 +225,10 @@ keyboard_cli_process(void *priv)
 
 						/* Release modifiers. */
 						if (modifier) {
-							for (i = 3; i >= 0; i--)
-								vnc_kbinput(0, csi_modifiers[modifier][i]);
+							for (i = 3; i >= 0; i--) {
+								if (csi_modifiers[modifier][i])
+									vnc_kbinput(0, csi_modifiers[modifier][i]);
+							}
 						}
 					}
 				} else if ((escape_buf[0] == 'O') || (escape_buf[0] == '[')) { /* SS3 or non-numeric CSI */
