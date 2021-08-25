@@ -602,7 +602,7 @@ text_render_mda(uint8_t xlimit,
     p = buf;
     p += sprintf(p, "\033[%d;1H", cy + 1);
     if (text_render_setcolor != text_render_setcolor_noop) {
-	p += sprintf(p, "\033[");
+	p += sprintf(p, "\033[0;");
 	p += text_render_setcolor(p, 0, 1);
 	p += sprintf(p, "m");
     }
@@ -721,7 +721,7 @@ text_render_cga(uint8_t cy,
     p = buf;
     p += sprintf(p, "\033[%d;1H", cy + 1);
     if (text_render_setcolor != text_render_setcolor_noop) {
-	p += sprintf(p, "\033[");
+	p += sprintf(p, "\033[0;");
 	p += text_render_setcolor(p, 0, 1);
 	p += sprintf(p, "m");
     }
