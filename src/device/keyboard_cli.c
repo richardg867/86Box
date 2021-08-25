@@ -106,13 +106,17 @@ static const uint16_t ss3_seqs[] = {
 
 
 static volatile thread_t *keyboard_cli_thread;
-static int	in_escape = 0, escape_buf_pos = 0;
+static int	in_escape = 0, escape_buf_pos = 0, quit_escape = 0;
 static char	escape_buf[256];
 
 
 static void
 keyboard_cli_send(uint16_t key)
 {
+    /* Disarm quit escape sequence. */
+    quit_escape = 0;
+
+    /* Press key, then release after 50ms. */
     vnc_kbinput(1, key);
     plat_delay_ms(50);
     vnc_kbinput(0, key);
@@ -172,7 +176,6 @@ keyboard_cli_process(void *priv)
 			/* Finish escape sequence. */
 			escape_buf[escape_buf_pos++] = c;
 			escape_buf[escape_buf_pos] = '\0';
-
 #ifdef KEYBOARD_CLI_DEBUG
 			fprintf(TEXT_RENDER_OUTPUT, "\033]0;Escape: ");
 			for (i = 0; i < strlen(escape_buf); i++) {
@@ -186,61 +189,77 @@ keyboard_cli_process(void *priv)
 #endif
 
 			/* Interpret escape sequence. */
-			if (escape_buf[0] == 0x1b) { /* escaped Escape key */
-				keyboard_cli_send(0xff1b);
-			} else if (escape_buf_pos > 1) {
-				if ((escape_buf[0] == '[') && (escape_buf[escape_buf_pos - 1] == '~')) { /* numeric CSI */
-					/* Parse numeric CSI sequence with optional modifier. */
-					elems = sscanf(escape_buf, "[%d;%d~", &num, &modifier);
-					if (elems) {
-						/* Remove modifier if invalid. */
-						if ((elems < 2) ||
-						    (modifier >= (sizeof(csi_modifiers) / sizeof(csi_modifiers[0]))) ||
-						    !csi_modifiers[modifier][0])
-							modifier = 0;
+			if (!strcasecmp(escape_buf, "qq")) { /* quit sequence */
+				/* Quit on the second consecutive quit escape sequence. */
+				if (++quit_escape >= 2) {
+					/* Clear terminal while resetting any SGR attributes. */
+					fprintf(TEXT_RENDER_OUTPUT, "\033[0m\033[2J\033[3J");
+					fflush(TEXT_RENDER_OUTPUT);
 
-						/* Determine keycode. */
-						if (num < (sizeof(csi_seqs) / sizeof(csi_seqs[0])))
-							code = csi_seqs[num];
-						else
-							code = 0;
+					/* Initiate quit. */
+					is_quit = 1;
+					return;
+				}
+			} else {
+				/* Disarm quit escape sequence. */
+				quit_escape = 0;
 
-						/* Account for special Ctrl+Fx keycodes. */
-						if ((code >> 8) == 0xfe) {
-							code |= 0xff00;
-							modifier = 5;
-						}
+				if (escape_buf[0] == 0x1b) { /* escaped Escape key */
+					keyboard_cli_send(0xff1b);
+				} else if (escape_buf_pos > 1) {
+					if ((escape_buf[0] == '[') && (escape_buf[escape_buf_pos - 1] == '~')) { /* numeric CSI */
+						/* Parse numeric CSI sequence with optional modifier. */
+						elems = sscanf(escape_buf, "[%d;%d~", &num, &modifier);
+						if (elems) {
+							/* Remove modifier if invalid. */
+							if ((elems < 2) ||
+							    (modifier >= (sizeof(csi_modifiers) / sizeof(csi_modifiers[0]))) ||
+							    !csi_modifiers[modifier][0])
+								modifier = 0;
 
-						/* Press modifier keys. */
-						if (modifier) {
-							for (i = 0; i < 4; i++) {
-								if (csi_modifiers[modifier][i])
-									vnc_kbinput(1, csi_modifiers[modifier][i]);
+							/* Determine keycode. */
+							if (num < (sizeof(csi_seqs) / sizeof(csi_seqs[0])))
+								code = csi_seqs[num];
+							else
+								code = 0;
+
+							/* Account for special Ctrl+Fx keycodes. */
+							if ((code >> 8) == 0xfe) {
+								code |= 0xff00;
+								modifier = 5;
+							}
+
+							/* Press modifier keys. */
+							if (modifier) {
+								for (i = 0; i < 4; i++) {
+									if (csi_modifiers[modifier][i])
+										vnc_kbinput(1, csi_modifiers[modifier][i]);
+								}
+							}
+
+							/* Press and release key. */
+							if (code)
+								keyboard_cli_send(code);
+
+							/* Release modifier keys. */
+							if (modifier) {
+								for (i = 3; i >= 0; i--) {
+									if (csi_modifiers[modifier][i])
+										vnc_kbinput(0, csi_modifiers[modifier][i]);
+								}
 							}
 						}
+					} else if ((escape_buf[0] == 'O') || (escape_buf[0] == '[')) { /* SS3 or non-numeric CSI */
+						/* Determine keycode. */
+						if (escape_buf[1] < (sizeof(ss3_seqs) / sizeof(ss3_seqs[0])))
+							code = ss3_seqs[(uint8_t) escape_buf[1]];
+						else
+							code = 0;
 
 						/* Press and release key. */
 						if (code)
 							keyboard_cli_send(code);
-
-						/* Release modifier keys. */
-						if (modifier) {
-							for (i = 3; i >= 0; i--) {
-								if (csi_modifiers[modifier][i])
-									vnc_kbinput(0, csi_modifiers[modifier][i]);
-							}
-						}
 					}
-				} else if ((escape_buf[0] == 'O') || (escape_buf[0] == '[')) { /* SS3 or non-numeric CSI */
-					/* Determine keycode. */
-					if (escape_buf[1] < (sizeof(ss3_seqs) / sizeof(ss3_seqs[0])))
-						code = ss3_seqs[(uint8_t) escape_buf[1]];
-					else
-						code = 0;
-
-					/* Press and release key. */
-					if (code)
-						keyboard_cli_send(code);
 				}
 			}
 
