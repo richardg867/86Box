@@ -33,7 +33,7 @@
 #include <86box/keyboard.h>
 #include <86box/vid_text_render.h>
 #include <86box/vnc.h>
-
+#define KEYBOARD_CLI_DEBUG 1
 
 /* Lookup tables for converting escape sequences to X11 keycodes. */
 static const uint16_t csi_seqs[] = {
@@ -55,14 +55,14 @@ static const uint16_t csi_seqs[] = {
     [21] = 0xffc7, /* F10 */
     [23] = 0xffc8, /* F11 */
     [24] = 0xffc9, /* F12 */
-    [25] = 0xfebe, /* F13 / Ctrl+F1 */
-    [26] = 0xfebf, /* F14 / Ctrl+F2 */
-    [28] = 0xfec0, /* F15 / Ctrl+F3 */
-    [29] = 0xfec1, /* F16 / Ctrl+F4 */
-    [31] = 0xfec2, /* F17 / Ctrl+F5 */
-    [32] = 0xfec3, /* F18 / Ctrl+F6 */
-    [33] = 0xfec4, /* F19 / Ctrl+F7 */
-    [34] = 0xfec5, /* F20 / Ctrl+F8 */
+    [25] = 0xe3be, /* F13 / Ctrl+F1 */
+    [26] = 0xe3bf, /* F14 / Ctrl+F2 */
+    [28] = 0xe3c0, /* F15 / Ctrl+F3 */
+    [29] = 0xe3c1, /* F16 / Ctrl+F4 */
+    [31] = 0xe3c2, /* F17 / Ctrl+F5 */
+    [32] = 0xe3c3, /* F18 / Ctrl+F6 */
+    [33] = 0xe3c4, /* F19 / Ctrl+F7 */
+    [34] = 0xe3c5, /* F20 / Ctrl+F8 */
 };
 static const uint16_t csi_modifiers[][4] = {
     [2]  = {0xffe1, 0,      0,      0     }, /* Shift */
@@ -102,220 +102,254 @@ static const uint16_t ss3_seqs[] = {
     ['R'] = 0xffc0, /* F3 */
     ['S'] = 0xffc1, /* F4 */
     ['X'] = 0xffbd, /* = */
+    ['Z'] = 0xe189, /* Shift+Tab (sent by PuTTY) */
 };
 
 
 static volatile thread_t *keyboard_cli_thread;
 static event_t	*ready_event, *decrqss_event, *decrqss_ack_event;
-static int	in_escape = 0, escape_buf_pos = 0, quit_escape = 0,
-		can_decrqss = 1, in_decrqss = 0;
-static char	escape_buf[256], *decrqss_buf;
+static int	quit_escape = 0, can_decrqss = 1, in_decrqss = 0;
+static char	dcs_buf[256], *decrqss_buf;
 
 
 static void
-keyboard_cli_send(uint16_t key)
+keyboard_cli_send(uint16_t key, uint8_t modifier)
 {
     /* Disarm quit escape sequence. */
     quit_escape = 0;
 
-    /* Press key, then immediately release it. */
-    vnc_kbinput(1, key);
-    vnc_kbinput(0, key);
+    /* Account for special keycode pages. */
+    switch (key >> 8) {
+	case 0xe1: /* Shift+ */
+		key |= 0xff00;
+		modifier = 2;
+		break;
+
+	case 0xe3: /* Ctrl+ */
+		key |= 0xff00;
+		modifier = 5;
+		break;
+    }
+
+    /* Remove modifier if invalid. */
+    if ((modifier >= (sizeof(csi_modifiers) / sizeof(csi_modifiers[0]))) ||
+	!csi_modifiers[modifier][0])
+	modifier = 0;
+
+    /* Press modifier keys. */
+    int i;
+    if (modifier) {
+	for (i = 0; i < 4; i++) {
+		if (csi_modifiers[modifier][i])
+			vnc_kbinput(1, csi_modifiers[modifier][i]);
+	}
+    }
+
+    /* Press and release key. */
+    if (key) {
+	vnc_kbinput(1, key);
+	vnc_kbinput(0, key);
+    }
+
+    /* Release modifier keys. */
+    if (modifier) {
+	for (i = 3; i >= 0; i--) {
+		if (csi_modifiers[modifier][i])
+			vnc_kbinput(0, csi_modifiers[modifier][i]);
+	}
+    }
 }
 
 
 static void
 keyboard_cli_signal(int sig)
 {
-    vnc_kbinput(1, 0xffe3);
+#ifdef KEYBOARD_CLI_DEBUG
+    fprintf(TEXT_RENDER_OUTPUT, "\033]0;Signal: %d\a", sig);
+    fflush(TEXT_RENDER_OUTPUT);
+#endif
+
     switch (sig) {
-	case 0: /* EOF (special case caught in character reading loop) */
-		keyboard_cli_send('d');
-		break;
 #ifdef SIGINT
 	case SIGINT: /* Ctrl+C */
-		keyboard_cli_send('c');
+		keyboard_cli_send('c', 5);
 		break;
 #endif
 #ifdef SIGSTOP
 	case SIGSTOP: /* Ctrl+S */
-		keyboard_cli_send('s');
+		keyboard_cli_send('s', 5);
 		break;
 #endif
 #ifdef SIGTSTP
 	case SIGTSTP: /* Ctrl+Z */
-		keyboard_cli_send('z');
+		keyboard_cli_send('z', 5);
 		break;
 #endif
 #ifdef SIGQUIT
 	case SIGQUIT: /* Ctrl+\ */
-		keyboard_cli_send('\\');
+		keyboard_cli_send('\\', 5);
 		break;
 #endif
     }
-    vnc_kbinput(0, 0xffe3);
+}
+
+
+static char
+keyboard_cli_readnum(int *dest)
+{
+    char c;
+    while (1) {
+	c = getchar();
+	if ((c < '0') || (c > '9'))
+		break;
+	*dest = (*dest * 10) + (c - '0');
+    }
+    return c;
 }
 
 
 void
 keyboard_cli_process(void *priv)
 {
-    char c;
-    int i, elems, num, modifier;
+    char c, d;
+    int i, modifier;
     uint16_t code;
 
     thread_set_event(ready_event);
 
     while (1) {
+	/* Read a character. */
 	c = getchar();
-
-	/* Check if we're in an escape sequence instead of receiving an arbitrary character. */
-	if (in_escape) {
-		if (((c >= '0') && (c <= '?')) || /* number or delimiter */
-		    (((c != 0x1b) && (c != '\\')) && !escape_buf_pos) || /* first character */
-		    ((escape_buf[0] == 'P') && ((escape_buf_pos == 2) || (escape_buf_pos == 3)))) { /* DECRQSS response */
-			/* Add character to escape sequence buffer. */
-			if (escape_buf_pos < (sizeof(escape_buf) - 2))
-				escape_buf[escape_buf_pos++] = c;
-		} else {
-			/* Finish escape sequence. */
-			escape_buf[escape_buf_pos++] = c;
-			escape_buf[escape_buf_pos] = '\0';
-#ifdef KEYBOARD_CLI_DEBUG
-			fprintf(TEXT_RENDER_OUTPUT, "\033]0;Escape: ");
-			for (i = 0; i < strlen(escape_buf); i++) {
-				if ((escape_buf[i] < 0x21) || (escape_buf[i] > 0x7e))
-					fprintf(TEXT_RENDER_OUTPUT, "[%02X]", escape_buf[i]);
-				else
-					fputc(escape_buf[i], TEXT_RENDER_OUTPUT);
-			}
-			fputc('\a', TEXT_RENDER_OUTPUT);
-			fflush(TEXT_RENDER_OUTPUT);
-#endif
-
-			/* Interpret escape sequence. */
-			if (!strcasecmp(escape_buf, "qq")) { /* quit sequence */
-				/* Quit on the second consecutive quit escape sequence. */
-				if (++quit_escape >= 2) {
-					/* Reset terminal. */
-					fprintf(TEXT_RENDER_OUTPUT, "\033[0m\033[2J\033[3J\033[1;1H\033[25h\033c");
-					fflush(TEXT_RENDER_OUTPUT);
-
-					/* Initiate quit. */
-					is_quit = 1;
-					return;
-				}
-			} else {
-				/* Disarm quit escape sequence. */
-				quit_escape = 0;
-
-				if (escape_buf[0] == 0x1b) { /* escaped Escape key */
-					keyboard_cli_send(0xff1b);
-				} else if (escape_buf_pos > 1) {
-					if ((escape_buf[0] == '[') && (escape_buf[escape_buf_pos - 1] == '~')) { /* numeric CSI */
-						/* Parse numeric CSI sequence with optional modifier. */
-						elems = sscanf(escape_buf, "[%d;%d~", &num, &modifier);
-						if (elems) {
-							/* Remove modifier if invalid. */
-							if ((elems < 2) ||
-							    (modifier >= (sizeof(csi_modifiers) / sizeof(csi_modifiers[0]))) ||
-							    !csi_modifiers[modifier][0])
-								modifier = 0;
-
-							/* Determine keycode. */
-							if (num < (sizeof(csi_seqs) / sizeof(csi_seqs[0])))
-								code = csi_seqs[num];
-							else
-								code = 0;
-
-							/* Account for special Ctrl+Fx keycodes. */
-							if ((code >> 8) == 0xfe) {
-								code |= 0xff00;
-								modifier = 5;
-							}
-
-							/* Press modifier keys. */
-							if (modifier) {
-								for (i = 0; i < 4; i++) {
-									if (csi_modifiers[modifier][i])
-										vnc_kbinput(1, csi_modifiers[modifier][i]);
-								}
-							}
-
-							/* Press and release key. */
-							if (code)
-								keyboard_cli_send(code);
-
-							/* Release modifier keys. */
-							if (modifier) {
-								for (i = 3; i >= 0; i--) {
-									if (csi_modifiers[modifier][i])
-										vnc_kbinput(0, csi_modifiers[modifier][i]);
-								}
-							}
-						}
-					} else if ((escape_buf[0] == 'P') && (escape_buf[2] == '$')) { /* DECRQSS */
-						if (in_decrqss) {
-							/* Allocate and copy to DECRQSS buffer. */
-							decrqss_buf = malloc(strlen(escape_buf) + 1);
-							strcpy(decrqss_buf, escape_buf);
-
-							/* Tell the other thread that the DECRQSS is done. */
-							thread_set_event(decrqss_event);
-
-							/* Wait for acknowledgement. */
-							thread_wait_event(decrqss_ack_event, -1);
-							thread_reset_event(decrqss_ack_event);
-						}
-					} else if ((escape_buf[0] == 'O') || (escape_buf[0] == '[')) { /* SS3 or non-numeric CSI */
-						/* Determine keycode. */
-						if (escape_buf[1] < (sizeof(ss3_seqs) / sizeof(ss3_seqs[0])))
-							code = ss3_seqs[(uint8_t) escape_buf[1]];
-						else
-							code = 0;
-
-						/* Press and release key. */
-						if (code)
-							keyboard_cli_send(code);
-					}
-				}
-			}
-
-			/* Finish escape sequence. */
-			in_escape = escape_buf_pos = 0;
-		}
-		continue;
-	}
 
 #ifdef KEYBOARD_CLI_DEBUG
 	fprintf(TEXT_RENDER_OUTPUT, "\033]0;Key: %02X\a", c);
 	fflush(TEXT_RENDER_OUTPUT);
 #endif
 
-	/* Receive arbitrary character. */
+	/* Interpret the character. */
 	switch (c) {
 		case 0x09: /* Tab */
-			keyboard_cli_send(0xff00 | c);
+			keyboard_cli_send(0xff09, 0);
 			break;
 
-		case 0x0a: /* Enter */
-			keyboard_cli_send(0xff0d);
+		case 0x01 ... 0x08: /* Ctrl+A to Ctrl+H */
+		/* skip Ctrl+I (same code as Tab) */
+		case 0x0a ... 0x1a: /* Ctrl+J to Ctrl+Z */
+			keyboard_cli_send('`' + c, 5);
 			break;
 
 		case 0x1b: /* Escape */
-			in_escape = c;
+			c = getchar();
+			switch (c) {
+				case 0x1b: /* second Escape */
+					keyboard_cli_send(0xff1b, 0);
+					break;
+
+				case 'N': /* SS2 */
+					/* Ignore parameter. */
+					getchar();
+					break;
+
+				case '[': /* CSI */
+					/* Determine if this CSI is numeric or not. */
+					d = getchar();
+					if ((d >= '0') && (d <= '9')) {
+						/* Read numeric code. */
+						i = d - '0';
+						d = keyboard_cli_readnum(&i);
+
+						/* Read numeric modifier if present. */
+						modifier = 0;
+						if ((d >= ':') && (d <= '?'))
+							keyboard_cli_readnum(&modifier);
+#ifdef KEYBOARD_CLI_DEBUG
+						fprintf(TEXT_RENDER_OUTPUT, "\033]0;CSI: %c%d (mod %d)\a", c, i, modifier);
+						fflush(TEXT_RENDER_OUTPUT);
+#endif
+
+						/* Determine keycode. */
+						if (i < (sizeof(csi_seqs) / sizeof(csi_seqs[0])))
+							code = csi_seqs[i];
+						else
+							code = 0;
+
+						/* Send key. */
+						if (code)
+							keyboard_cli_send(code, modifier);
+						break;
+					}
+					/* fall-through */
+
+				case 'O': /* SS3 (or non-numeric CSI on fall-through) */
+					/* Determine keycode. */
+					if (c == 'O')
+						d = getchar();
+					if (d < (sizeof(ss3_seqs) / sizeof(ss3_seqs[0])))
+						code = ss3_seqs[(uint8_t) d];
+					else
+						code = 0;
+#ifdef KEYBOARD_CLI_DEBUG
+					fprintf(TEXT_RENDER_OUTPUT, "\033]0;SS3/CSI: %c%c\a", c, d);
+					fflush(TEXT_RENDER_OUTPUT);
+#endif
+					/* Send key. */
+					if (code)
+						keyboard_cli_send(code, 0);
+					break;
+
+				case 'P': /* DCS */
+				case 'X': /* SOS */
+				case ']': /* OSC */
+				case '^': /* PM */
+				case '_': /* APC */
+					/* Read string until an ST sequence is found. */
+					i = 0;
+					while (1) {
+						d = getchar();
+						if ((d == '\x1b') && (getchar() == '\\')) /* ST */
+							break;
+						if (i < (sizeof(dcs_buf) - 1))
+							dcs_buf[i++] = d;
+					}
+					dcs_buf[i] = '\0';
+#ifdef KEYBOARD_CLI_DEBUG
+					fprintf(TEXT_RENDER_OUTPUT, "\033]0;DCS: %c", c);
+					for (int j = 0; j < strlen(dcs_buf); j++) {
+						if ((dcs_buf[j] >= 0x20) && (dcs_buf[j] <= 0x7e))
+							fputc(dcs_buf[j], TEXT_RENDER_OUTPUT);
+						else
+							fprintf(TEXT_RENDER_OUTPUT, "[%02X]", dcs_buf[j]);
+					}
+					fputc('\a', TEXT_RENDER_OUTPUT);
+					fflush(TEXT_RENDER_OUTPUT);
+#endif
+					/* Process DECRQSS. */
+					if ((c == 'P') && in_decrqss) {
+						/* Allocate and copy to DECRQSS buffer. */
+						decrqss_buf = malloc(strlen(dcs_buf) + 1);
+						strcpy(decrqss_buf, dcs_buf);
+
+						/* Tell the other thread that this DECRQSS is done. */
+						thread_set_event(decrqss_event);
+
+						/* Wait for acknowledgement. */
+						thread_wait_event(decrqss_ack_event, -1);
+						thread_reset_event(decrqss_ack_event);
+					}
+					break;
+			}
 			break;
 
 		case 0x20 ... 0x7e: /* ASCII */
-			keyboard_cli_send(c);
+			keyboard_cli_send(c, 0);
 			break;
 
 		case 0x7f: /* Backspace */
-			keyboard_cli_send(0xff08);
+			keyboard_cli_send(0xff08, 0);
 			break;
 
-		case EOF: /* EOF (Ctrl+D) */
-			keyboard_cli_signal(0);
+		case EOF: /* EOF (Ctrl+Z) */
+			keyboard_cli_send('z', 5);
 			break;
 	}
     }

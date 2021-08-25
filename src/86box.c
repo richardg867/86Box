@@ -225,12 +225,8 @@ pclog_ex(const char *fmt, va_list ap)
 			stdlog = stdout;
 	} else {
 # ifdef USE_CLI
-		/* Don't output to stdout unless it is redirected. */
-#  ifdef _WIN32
-		if (_isatty(_fileno(stdout)))
-#  else
+		/* Don't output to stdout on CLI mode unless it is redirected. */
 		if (isatty(fileno(stdout)))
-#  endif
 			return;
 # endif
 		stdlog = stdout;
