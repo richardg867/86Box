@@ -372,8 +372,13 @@ text_render_init()
 			term_color = TERM_COLOR_24BIT;
 		} else {
 			fprintf(TEXT_RENDER_OUTPUT, "\033[38;5;255m");
-			if (keyboard_cli_decrqss_str("$qm", "38:5:255") >= 0)
+			if (keyboard_cli_decrqss_str("$qm", "38:5:255") >= 0) {
 				term_color = TERM_COLOR_8BIT;
+			} else {
+				fprintf(TEXT_RENDER_OUTPUT, "\033[97m");
+				if (keyboard_cli_decrqss_str("$qm", "97m"))
+					term_color = TERM_COLOR_4BIT;
+			}
 		}
 		fprintf(TEXT_RENDER_OUTPUT, "\033[0m");
 	}
