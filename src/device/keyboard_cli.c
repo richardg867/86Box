@@ -118,9 +118,8 @@ keyboard_cli_send(uint16_t key)
     /* Disarm quit escape sequence. */
     quit_escape = 0;
 
-    /* Press key, then release after 50ms. */
+    /* Press key, then immediately release it. */
     vnc_kbinput(1, key);
-    plat_delay_ms(50);
     vnc_kbinput(0, key);
 }
 
