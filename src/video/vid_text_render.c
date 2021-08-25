@@ -411,9 +411,16 @@ text_render_blank()
 {
     CHECK_INIT();
 
+    char *buf, *p;
+
     /* Clear screen if we're not rendering the graphics mode box. */
-    if (text_render_line_buffer[0][0] != '\xFF')
-	fprintf(TEXT_RENDER_OUTPUT, "\033[0m\033[2J\033[3J");
+    if (text_render_line_buffer[0][0] != '\xFF') {
+	p = buf = malloc(256);
+	p += sprintf(p, "\033[");
+	p += text_render_setcolor(p, 0, 1);
+	fprintf(TEXT_RENDER_OUTPUT, "%sm\033[2J\033[3J", buf);
+	free(buf);
+    }
 
     /* Disable cursor and flush output. */
     text_render_cx = -1;
@@ -593,7 +600,13 @@ text_render_mda(uint8_t xlimit,
 	return;
 
     p = buf;
-    p += sprintf(p, "\033[%d;1H\033[0m\033[2K", cy + 1);
+    p += sprintf(p, "\033[%d;1H", cy + 1);
+    if (text_render_setcolor != text_render_setcolor_noop) {
+	p += sprintf(p, "\033[");
+	p += text_render_setcolor(p, 0, 1);
+	p += sprintf(p, "m");
+    }
+    p += sprintf(p, "\033[2K");
 
     for (x = 0; x < xlimit; x++) {
 	if (do_render) {
@@ -706,7 +719,13 @@ text_render_cga(uint8_t cy,
 	return;
 
     p = buf;
-    p += sprintf(p, "\033[%d;1H\033[0m\033[2K", cy + 1);
+    p += sprintf(p, "\033[%d;1H", cy + 1);
+    if (text_render_setcolor != text_render_setcolor_noop) {
+	p += sprintf(p, "\033[");
+	p += text_render_setcolor(p, 0, 1);
+	p += sprintf(p, "m");
+    }
+    p += sprintf(p, "\033[2K");
 
 #if 0
     fb[((ma << 1) + (fb_step * 0)) & fb_mask] = '0' + (cy / 10);
