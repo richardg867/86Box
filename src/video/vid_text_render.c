@@ -41,7 +41,7 @@
 #define TEXT_RENDER_BUF_LINES	60
 #define TEXT_RENDER_BUF_SIZE	4096	/* good for a fully packed SVGA 150-column row with some margin */
 
-#define CHECK_INIT()	if (!text_render_initialized) \
+#define CHECK_INIT()	if (!cli_initialized) \
 				text_render_init();
 #define APPEND_SGR()	if (!sgr_started) { \
 				sgr_started = 1; \
@@ -133,15 +133,14 @@ static const struct {
 };
 
 
-uint8_t text_render_initialized = 0,
-	text_render_term_color = TERM_COLOR_3BIT, text_render_term_ctl = 0, text_render_term_gfx = 0,
-	text_render_cx, text_render_cy;
-uint32_t text_render_palette[16],
-	 *text_render_8bitcol;
-char	text_render_line_buffer[TEXT_RENDER_BUF_LINES][TEXT_RENDER_BUF_SIZE],
-	text_render_gfx_str[32] = "\0";
-int	text_render_gfx_w = -1, text_render_gfx_h = -1;
-time_t	text_render_gfx_last = 0;
+static uint8_t	cli_initialized = 0,
+		term_color = TERM_COLOR_3BIT, term_ctl = 0, term_gfx = 0,
+		cursor_x, cursor_y;
+static uint32_t	color_palette[16], *color_palette_8bit;
+static char	line_buffer[TEXT_RENDER_BUF_LINES][TEXT_RENDER_BUF_SIZE],
+		gfx_str[32] = "\0";
+static int	gfx_w = -1, gfx_h = -1;
+static time_t	gfx_last = 0;
 
 
 /* Callbacks specific to each color capability level. */
@@ -186,7 +185,7 @@ int
 text_render_setcolor_8bit(char *p, uint8_t idx, uint8_t bg)
 {
     /* Set a color from the 256-color palette using the approximations calculated by text_render_setpal_8bit */
-    uint8_t approx = text_render_palette[idx];
+    uint8_t approx = color_palette[idx];
     if (approx < 8) /* save a little bit of bandwidth by using standard SGRs on 8-color palette colors */
 	return sprintf(p, "%d", (bg ? 40 : 30) + approx);
     else
@@ -197,7 +196,7 @@ int
 text_render_setcolor_24bit(char *p, uint8_t idx, uint8_t bg)
 {
     /* Set a full RGB color. */
-    uint32_t color = text_render_palette[idx];
+    uint32_t color = color_palette[idx];
     return sprintf(p, "%d;2;%d;%d;%d", bg ? 48 : 38, (color >> 16) & 0xff, (color >> 8) & 0xff, color & 0xff);
 }
 
@@ -216,7 +215,7 @@ text_render_setpal_8bit(uint8_t index, uint32_t color)
     double candidate, best = INFINITY;
 
     for (int i = 0; i < 256; i++) {
-	palette_color = text_render_8bitcol[i];
+	palette_color = color_palette_8bit[i];
 	if (palette_color == color) {
 		/* Stop immediately if an exact match was found. */
 		best_idx = i;
@@ -236,14 +235,14 @@ text_render_setpal_8bit(uint8_t index, uint32_t color)
     }
 
     /* Store the 256-color value in our local palette. */
-    text_render_palette[index] = best_idx;
+    color_palette[index] = best_idx;
 }
 
 void
 text_render_setpal_24bit(uint8_t index, uint32_t color)
 {
     /* True color terminals can be given the full RGB color. */
-    text_render_palette[index] = color;
+    color_palette[index] = color;
 }
 
 void
@@ -258,10 +257,10 @@ text_render_setpal_init(uint8_t index, uint32_t color)
 static void
 text_render_updatecursor()
 {
-    if ((text_render_cx == ((uint8_t) -1)) || (text_render_cy == ((uint8_t) -1))) /* cursor disabled */
+    if ((cursor_x == ((uint8_t) -1)) || (cursor_y == ((uint8_t) -1))) /* cursor disabled */
 	fprintf(TEXT_RENDER_OUTPUT, "\033[?25l");
     else /* cursor enabled */
-	fprintf(TEXT_RENDER_OUTPUT, "\033[%d;%dH\033[?25h", text_render_cy + 1, text_render_cx + 1);
+	fprintf(TEXT_RENDER_OUTPUT, "\033[%d;%dH\033[?25h", cursor_y + 1, cursor_x + 1);
     fflush(TEXT_RENDER_OUTPUT);
 }
 
@@ -271,7 +270,7 @@ text_render_updatescreen(int sig)
 {
     /* Invalidate the entire text buffer to force a redraw. */
     for (int i = 0; i < TEXT_RENDER_BUF_LINES; i++)
-	text_render_line_buffer[i][0] = '\x00';
+	line_buffer[i][0] = '\x00';
 
     /* Clear screen. */
     text_render_blank();
@@ -336,7 +335,7 @@ text_render_init()
     char *env;
     int i;
 
-    text_render_initialized = 1;
+    cli_initialized = 1;
 
     /* Initialize keyboard input. */
     keyboard_cli_init();
@@ -347,56 +346,55 @@ text_render_init()
 	i = text_render_detectterm(getenv("TERM"));
 
     if (i != -1) {
-	text_render_term_color = term_types[i].color;
-	text_render_term_ctl = term_types[i].ctl;
-	text_render_term_gfx = term_types[i].gfx;
+	term_color = term_types[i].color;
+	term_ctl = term_types[i].ctl;
+	term_gfx = term_types[i].gfx;
     }
 #ifdef _WIN32
     else {
 	/* Assume an unknown terminal on Windows to be cmd. */
 	if (IsWindows10OrGreater()) /* true color is supported on Windows 10 */
-		text_render_term_color = TERM_COLOR_24BIT;
+		term_color = TERM_COLOR_24BIT;
 	else /* older versions are limited to 16 colors */
-		text_render_term_color = TERM_COLOR_4BIT;
+		term_color = TERM_COLOR_4BIT;
     }
 #endif
 
-    /* Detect the terminal's color capability through the
-       COLORTERM environment variable or DECRQSS queries. */
-    if (text_render_term_color < TERM_COLOR_24BIT) {
+    /* Detect this terminal's color capability through the
+       COLORTERM environment variable or DECRQSS SGR queries. */
+    if (term_color < TERM_COLOR_24BIT) {
 	env = getenv("COLORTERM");
 	if (env && (strcasecmp(env, "truecolor") || strcasecmp(env, "24bit"))) {
-		text_render_term_color = TERM_COLOR_24BIT; 
+		term_color = TERM_COLOR_24BIT; 
 	} else {
 		fprintf(TEXT_RENDER_OUTPUT, "\033[38;2;1;2;3m");
-		if (!strcmp(keyboard_cli_decrqss("$qm"), "P1$r38:2:1:2:3m")) { /* TODO: semicolon too? */
-			text_render_term_color = TERM_COLOR_24BIT;
+		if (keyboard_cli_decrqss_str("$qm", "38:2:1:2:3") >= 0) {
+			term_color = TERM_COLOR_24BIT;
 		} else {
 			fprintf(TEXT_RENDER_OUTPUT, "\033[38;5;255m");
-			if (!strcmp(keyboard_cli_decrqss("$qm"), "P1$r38:5:255m")) /* same as above */
-				text_render_term_color = TERM_COLOR_8BIT;
+			if (keyboard_cli_decrqss_str("$qm", "38:5:255") >= 0)
+				term_color = TERM_COLOR_8BIT;
 		}
-
 		fprintf(TEXT_RENDER_OUTPUT, "\033[0m");
 	}
     }
 
     /* Initialize palette tables for high-color terminals. */
-    if (text_render_term_color >= TERM_COLOR_24BIT) {
+    if (term_color >= TERM_COLOR_24BIT) {
 	/* Fill standard ANSI color values. */
-	text_render_fillcolortable(text_render_palette, sizeof(text_render_palette) / sizeof(text_render_palette[0]));
-    } else if (text_render_term_color >= TERM_COLOR_8BIT) {
+	text_render_fillcolortable(color_palette, sizeof(color_palette) / sizeof(color_palette[0]));
+    } else if (term_color >= TERM_COLOR_8BIT) {
 	/* Map to ANSI colors at first. */
-	for (i = 0; i < sizeof(text_render_palette) / sizeof(text_render_palette[0]); i++)
-		text_render_palette[i] = i;
+	for (i = 0; i < sizeof(color_palette) / sizeof(color_palette[0]); i++)
+		color_palette[i] = i;
 
 	/* Fill color values. */
-	text_render_8bitcol = malloc(256 * sizeof(uint32_t));
-	text_render_fillcolortable(text_render_8bitcol, 256);
+	color_palette_8bit = malloc(256 * sizeof(uint32_t));
+	text_render_fillcolortable(color_palette_8bit, 256);
     }
 
     /* Set the correct setcolor function for this terminal's color capability. */
-    switch (text_render_term_color) {
+    switch (term_color) {
 	case TERM_COLOR_3BIT:
 		text_render_setcolor = text_render_setcolor_3bit;
 		text_render_setpal = text_render_setpal_noop;
@@ -427,7 +425,7 @@ text_render_init()
     text_render_setpal(3, 0xaa5500);
 
     /* Start with the cursor disabled. */
-    text_render_cx = -1;
+    cursor_x = -1;
     text_render_updatecursor();
 
 #ifdef SIGWINCH
@@ -445,7 +443,7 @@ text_render_blank()
     char *buf, *p;
 
     /* Clear screen if we're not rendering the graphics mode box. */
-    if (text_render_line_buffer[0][0] != '\xFF') {
+    if (line_buffer[0][0] != '\xFF') {
 	p = buf = malloc(256);
 	p += sprintf(p, "\033[");
 	p += text_render_setcolor(p, 0, 1);
@@ -454,7 +452,7 @@ text_render_blank()
     }
 
     /* Disable cursor and flush output. */
-    text_render_cx = -1;
+    cursor_x = -1;
     text_render_updatecursor();
 }
 
@@ -462,8 +460,8 @@ void
 text_render_gfx(char *str)
 {
     /* Let video.c trigger an image render if this terminal supports graphics. */
-    if (text_render_term_gfx & (TERM_GFX_PNG | TERM_GFX_PNG_KITTY)) {
-	if (time(NULL) - text_render_gfx_last) /* render at 1 FPS */
+    if (term_gfx & (TERM_GFX_PNG | TERM_GFX_PNG_KITTY)) {
+	if (time(NULL) - gfx_last) /* render at 1 FPS */
 		text_render_png = 1;
 	return;
     }
@@ -483,31 +481,31 @@ text_render_gfx_box(char *str)
 
     /* Render only if the width, height or format string changed. */
     w = get_actual_size_x();
-    if (w != text_render_gfx_w) {
+    if (w != gfx_w) {
 	render = 1;
-	text_render_gfx_w = w;
+	gfx_w = w;
     }
 
     h = get_actual_size_y();
-    if (h != text_render_gfx_h) {
+    if (h != gfx_h) {
 	render = 1;
-	text_render_gfx_h = h;
+	gfx_h = h;
     }
 
-    if (!strncmp(str, text_render_gfx_str, sizeof(text_render_gfx_str) - 1)) {
+    if (!strncmp(str, gfx_str, sizeof(gfx_str) - 1)) {
 	render = 1;
-	strncpy(text_render_gfx_str, str, sizeof(text_render_gfx_str) - 1);
+	strncpy(gfx_str, str, sizeof(gfx_str) - 1);
     }
 
     if (render) {
 	/* Clear the screen if this is the first time we're rendering this. */
-	if (text_render_line_buffer[0][0] != '\xFF') {
+	if (line_buffer[0][0] != '\xFF') {
 		fprintf(TEXT_RENDER_OUTPUT, "\033[2J\033[3J");
 
 		/* Force invalidation of the first 3 line buffers, such that this renderer's output
 		   is guaranteed to be overwritten whenever a proper text renderer comes back online. */
 		for (i = 0; i < 3; i++)
-			strcpy(text_render_line_buffer[i], "\xFF"); /* invalid UTF-8 */
+			strcpy(line_buffer[i], "\xFF"); /* invalid UTF-8 */
 	}
 
 	/* Print message enclosed in a box. */
@@ -524,7 +522,7 @@ text_render_gfx_box(char *str)
 	fprintf(TEXT_RENDER_OUTPUT, "%s%s", cp437[0xbc], resetattr);
 
 	/* Disable cursor and flush output. */
-	text_render_cx = -1;
+	cursor_x = -1;
 	text_render_updatecursor();
     }
 }
@@ -560,15 +558,15 @@ text_render_gfx_image(char *fn)
     fseek(f, 0, SEEK_SET);
 
     /* Invalidate any infobox contents. */
-    text_render_gfx_w = -1;
-    text_render_line_buffer[0][0] = '\x00';
+    gfx_w = -1;
+    line_buffer[0][0] = '\x00';
 
     /* Move to the top left corner. */
     fprintf(TEXT_RENDER_OUTPUT, "\033[1;1H");
 
     /* Output image according to the terminal's capabilities. */
     uint8_t buf[3], read;
-    if (text_render_term_gfx & TERM_GFX_PNG) {
+    if (term_gfx & TERM_GFX_PNG) {
 	/* Output header. */
 	fprintf(TEXT_RENDER_OUTPUT, "\033]1337;File=name=cy5wbmc=;size=%d:", size);
 
@@ -578,7 +576,7 @@ text_render_gfx_image(char *fn)
 
 	/* Output terminator. */
 	fprintf(TEXT_RENDER_OUTPUT, "\a");
-    } else if (text_render_term_gfx & TERM_GFX_PNG_KITTY) {
+    } else if (term_gfx & TERM_GFX_PNG_KITTY) {
 	uint8_t first = 1;
 	while (size > 0) {
 		/* Output chunk header. */
@@ -609,7 +607,7 @@ end:
     fclose(f);
 
     /* Set last render time to keep track of framerate. */
-    text_render_gfx_last = time(NULL);
+    gfx_last = time(NULL);
 }
 
 void
@@ -623,7 +621,7 @@ text_render_mda(uint8_t xlimit,
     char buf[TEXT_RENDER_BUF_SIZE], *p;
     int x;
     uint32_t ma = fb_base;
-    uint8_t chr, attr, attr77, cy = ma / xlimit, cx = 0, new_cx = text_render_cx, new_cy = text_render_cy;
+    uint8_t chr, attr, attr77, cy = ma / xlimit, cx = 0, new_cx = cursor_x, new_cy = cursor_y;
     uint8_t sgr_started = 0, sgr_blackout = 1, sgr_ul, sgr_int, sgr_blink, sgr_reverse;
     uint8_t prev_sgr_ul = 0, prev_sgr_int = 0, prev_sgr_blink = 0, prev_sgr_reverse = 0;
 
@@ -680,7 +678,7 @@ text_render_mda(uint8_t xlimit,
 		sgr_blink = (attr & 0x80) && do_blink;
 		if (sgr_blink != prev_sgr_blink) {
 			APPEND_SGR();
-			p += sprintf(p, sgr_blink ? ((text_render_term_ctl & TERM_CTL_RAPIDBLINK) ? "6" : "5") : "25");
+			p += sprintf(p, sgr_blink ? ((term_ctl & TERM_CTL_RAPIDBLINK) ? "6" : "5") : "25");
 			prev_sgr_blink = sgr_blink;
 		}
 
@@ -712,19 +710,19 @@ text_render_mda(uint8_t xlimit,
 	cx++;
     }
 
-    if (memcmp(buf, text_render_line_buffer[cy], p - buf)) {
+    if (memcmp(buf, line_buffer[cy], p - buf)) {
 	fprintf(TEXT_RENDER_OUTPUT, buf);
-	text_render_cx = ~new_cx; /* force a cursor update, which also flushes the output */
-	memcpy(text_render_line_buffer[cy], buf, p - buf);
+	cursor_x = ~new_cx; /* force a cursor update, which also flushes the output */
+	memcpy(line_buffer[cy], buf, p - buf);
     }
 
     /* Update cursor if required. */
-    if ((new_cx != text_render_cx) || (new_cy != text_render_cy)) {
+    if ((new_cx != cursor_x) || (new_cy != cursor_y)) {
 	if (con) {
-		text_render_cx = new_cx;
-		text_render_cy = new_cy;
+		cursor_x = new_cx;
+		cursor_y = new_cy;
 	} else {
-		text_render_cx = -1;
+		cursor_x = -1;
 	}
 	text_render_updatecursor();
     }
@@ -742,7 +740,7 @@ text_render_cga(uint8_t cy,
     char buf[TEXT_RENDER_BUF_SIZE], *p;
     int x;
     uint32_t ma = fb_base;
-    uint8_t chr, attr, cx = 0, new_cx = text_render_cx, new_cy = text_render_cy;
+    uint8_t chr, attr, cx = 0, new_cx = cursor_x, new_cy = cursor_y;
     uint8_t sgr_started = 0, sgr_bg, sgr_fg, sgr_blink;
     uint8_t prev_sgr_bg = 0, prev_sgr_fg = 0, prev_sgr_blink = 0;
 
@@ -799,7 +797,7 @@ text_render_cga(uint8_t cy,
 	/* Set blink. */
 	if ((x == 0) || (sgr_blink != prev_sgr_blink)) {
 		APPEND_SGR();
-		p += sprintf(p, sgr_blink ? ((text_render_term_ctl & TERM_CTL_RAPIDBLINK) ? "6" : "5") : "25");
+		p += sprintf(p, sgr_blink ? ((term_ctl & TERM_CTL_RAPIDBLINK) ? "6" : "5") : "25");
 		prev_sgr_blink = sgr_blink;
 	}
 
@@ -822,19 +820,19 @@ text_render_cga(uint8_t cy,
 	cx++;
     }
 
-    if (memcmp(buf, text_render_line_buffer[cy], p - buf)) {
+    if (memcmp(buf, line_buffer[cy], p - buf)) {
 	fprintf(TEXT_RENDER_OUTPUT, buf);
-	text_render_cx = ~new_cx; /* force a cursor update, which also flushes the output */
-	memcpy(text_render_line_buffer[cy], buf, p - buf);
+	cursor_x = ~new_cx; /* force a cursor update, which also flushes the output */
+	memcpy(line_buffer[cy], buf, p - buf);
     }
 
     /* Update cursor if required. */
-    if ((new_cx != text_render_cx) || (new_cy != text_render_cy)) {
+    if ((new_cx != cursor_x) || (new_cy != cursor_y)) {
 	if (con) {
-		text_render_cx = new_cx;
-		text_render_cy = new_cy;
+		cursor_x = new_cx;
+		cursor_y = new_cy;
 	} else {
-		text_render_cx = -1;
+		cursor_x = -1;
 	}
 	text_render_updatecursor();
     }

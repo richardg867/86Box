@@ -33,7 +33,7 @@
 #include <86box/keyboard.h>
 #include <86box/vid_text_render.h>
 #include <86box/vnc.h>
-//#define KEYBOARD_CLI_DEBUG 1
+#define KEYBOARD_CLI_DEBUG 1
 
 /* Lookup tables for converting escape sequences to X11 keycodes. */
 static const uint16_t csi_seqs[] = {
@@ -106,9 +106,10 @@ static const uint16_t ss3_seqs[] = {
 
 
 static volatile thread_t *keyboard_cli_thread;
-static event_t	*ready_event, *decrqss_event;
-static int	in_escape = 0, escape_buf_pos = 0, quit_escape = 0;
-static char	escape_buf[256], decrqss_buf[256];
+static event_t	*ready_event, *decrqss_event, *decrqss_ack_event;
+static int	in_escape = 0, escape_buf_pos = 0, quit_escape = 0,
+		can_decrqss = 1, in_decrqss = 0;
+static char	escape_buf[256], *decrqss_buf;
 
 
 static void
@@ -172,7 +173,7 @@ keyboard_cli_process(void *priv)
 	/* Check if we're in an escape sequence instead of receiving an arbitrary character. */
 	if (in_escape) {
 		if (((c >= '0') && (c <= '?')) || /* number or delimiter */
-		    ((c != 0x1b) && !escape_buf_pos) || /* first character */
+		    (((c != 0x1b) && (c != '\\')) && !escape_buf_pos) || /* first character */
 		    ((escape_buf[0] == 'P') && ((escape_buf_pos == 2) || (escape_buf_pos == 3)))) { /* DECRQSS response */
 			/* Add character to escape sequence buffer. */
 			if (escape_buf_pos < (sizeof(escape_buf) - 2))
@@ -255,11 +256,18 @@ keyboard_cli_process(void *priv)
 							}
 						}
 					} else if ((escape_buf[0] == 'P') && (escape_buf[2] == '$')) { /* DECRQSS */
-						/* Copy to DECRQSS buffer. */
-						strcpy(decrqss_buf, escape_buf);
+						if (in_decrqss) {
+							/* Allocate and copy to DECRQSS buffer. */
+							decrqss_buf = malloc(strlen(escape_buf) + 1);
+							strcpy(decrqss_buf, escape_buf);
 
-						/* Tell the other thread that the DECRQSS is done. */
-						thread_set_event(decrqss_event);
+							/* Tell the other thread that the DECRQSS is done. */
+							thread_set_event(decrqss_event);
+
+							/* Wait for acknowledgement. */
+							thread_wait_event(decrqss_ack_event, -1);
+							thread_reset_event(decrqss_ack_event);
+						}
 					} else if ((escape_buf[0] == 'O') || (escape_buf[0] == '[')) { /* SS3 or non-numeric CSI */
 						/* Determine keycode. */
 						if (escape_buf[1] < (sizeof(ss3_seqs) / sizeof(ss3_seqs[0])))
@@ -314,21 +322,66 @@ keyboard_cli_process(void *priv)
 char *
 keyboard_cli_decrqss(char *query)
 {
+    /* Don't even try if the terminal doesn't respond to queries. (PuTTY) */
+    if (!can_decrqss || in_decrqss)
+	return NULL;
+
     /* Wait for the processing thread to be ready. */
     thread_wait_event(ready_event, -1);
 
-    /* Clear any previous query. */
-    decrqss_buf[0] = '\0';
-
     /* Send query. */
+    thread_reset_event(decrqss_event);
+    decrqss_buf = NULL;
+    in_decrqss = 1;
     fprintf(TEXT_RENDER_OUTPUT, "\033P%s\033\\", query);
     fflush(TEXT_RENDER_OUTPUT);
 
     /* Wait up to 500ms for a response. */
     thread_wait_event(decrqss_event, 500);
+    can_decrqss = decrqss_buf && (decrqss_buf[0] != '\0');
 
-    /* Return result. */
-    return decrqss_buf;
+    /* Acknowledge to the other thread. */
+    char *ret = decrqss_buf;
+    in_decrqss = 0;
+    thread_set_event(decrqss_ack_event);
+
+    /* Don't forget to free! */
+    return ret;
+}
+
+
+int
+keyboard_cli_decrqss_str(char *query, char *substring)
+{
+    /* Perform DECRQSS query. */
+    char *buf = keyboard_cli_decrqss(query);
+    if (!buf)
+	return -3;
+
+    /* Compare length. */
+    int len = strlen(buf), i;
+    if (len < strlen(substring)) {
+	i = -2;
+	goto end;
+    }
+
+    /* Convert all parameter delimiters to colon. */
+    for (i = 0; i < len; i++) {
+	if ((buf[i] > ':') && (buf[i] <= '?'))
+		buf[i] = ':';
+    }
+
+    /* Check substring. */
+    char *p = strstr(buf, substring);
+    if (p)
+	i = p - buf;
+    else
+	i = -1;
+
+end:
+    /* Clean up and return result. */
+    free(buf);
+    return i;
 }
 
 
@@ -380,5 +433,6 @@ keyboard_cli_init()
     /* Start input processing thread. */
     ready_event = thread_create_event();
     decrqss_event = thread_create_event();
+    decrqss_ack_event = thread_create_event();
     keyboard_cli_thread = thread_create(keyboard_cli_process, NULL);
 }

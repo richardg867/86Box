@@ -18,6 +18,7 @@
 # define EMU_KEYBOARD_CLI_H
 
 extern char	*keyboard_cli_decrqss(char *query);
+extern int	keyboard_cli_decrqss_str(char *query, char *substring);
 extern void	keyboard_cli_init();
 
 #endif
