@@ -376,7 +376,7 @@ text_render_init()
 				term_color = TERM_COLOR_8BIT;
 			} else {
 				fprintf(TEXT_RENDER_OUTPUT, "\033[97m");
-				if (keyboard_cli_decrqss_str("$qm", "97m") >= 0)
+				if (keyboard_cli_decrqss_str("$qm", "97") >= 0)
 					term_color = TERM_COLOR_4BIT;
 			}
 		}

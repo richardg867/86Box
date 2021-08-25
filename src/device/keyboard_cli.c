@@ -33,7 +33,7 @@
 #include <86box/keyboard.h>
 #include <86box/vid_text_render.h>
 #include <86box/vnc.h>
-#define KEYBOARD_CLI_DEBUG 1
+
 
 /* Lookup tables for converting escape sequences to X11 keycodes. */
 static const uint16_t csi_seqs[] = {
@@ -188,9 +188,9 @@ keyboard_cli_process(void *priv)
 				if ((escape_buf[i] < 0x21) || (escape_buf[i] > 0x7e))
 					fprintf(TEXT_RENDER_OUTPUT, "[%02X]", escape_buf[i]);
 				else
-					fprintf(TEXT_RENDER_OUTPUT, "%c", escape_buf[i]);
+					fputc(escape_buf[i], TEXT_RENDER_OUTPUT);
 			}
-			fprintf(TEXT_RENDER_OUTPUT, "\a");
+			fputc('\a', TEXT_RENDER_OUTPUT);
 			fflush(TEXT_RENDER_OUTPUT);
 #endif
 
@@ -295,6 +295,10 @@ keyboard_cli_process(void *priv)
 
 	/* Receive arbitrary character. */
 	switch (c) {
+		case 0x09: /* Tab */
+			keyboard_cli_send(0xff00 | c);
+			break;
+
 		case 0x0a: /* Enter */
 			keyboard_cli_send(0xff0d);
 			break;

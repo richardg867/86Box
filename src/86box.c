@@ -19,7 +19,6 @@
  *		Copyright 2017-2020 Fred N. van Kempen.
  */
 #include <inttypes.h>
-#include <io.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -27,6 +26,11 @@
 #include <string.h>
 #include <time.h>
 #include <wchar.h>
+#ifdef _WIN32
+# include <io.h>
+#else
+# include <unistd.h>
+#endif
 
 #define HAVE_STDARG_H
 #include <86box/86box.h>
@@ -80,6 +84,9 @@
 #include <86box/plat.h>
 #include <86box/plat_midi.h>
 #include <86box/version.h>
+#ifdef USE_CLI
+# include <86box/vid_text_render.h>
+#endif
 
 
 /* Stuff that used to be globally declared in plat.h but is now extern there
@@ -211,40 +218,37 @@ pclog_ex(const char *fmt, va_list ap)
 #ifndef RELEASE_BUILD
     char temp[1024];
 
-		return;
-
-	if (stdlog == NULL) {
-		if (log_path[0] != '\0') {
-			stdlog = plat_fopen(log_path, "w");
-			if (stdlog == NULL)
-				stdlog = stdout;
-		} else {
-# ifdef USE_CLI
-			/* Don't output to stdout unless it is redirected. */
-#  ifdef _WIN32
-			if (_isatty(_fileno(stdout)))
-#  else
-			if (isatty(fileno(stdout)))
-#  endif
-				return;
-# endif
+    if (stdlog == NULL) {
+	if (log_path[0] != '\0') {
+		stdlog = plat_fopen(log_path, "w");
+		if (stdlog == NULL)
 			stdlog = stdout;
-		}
-	}
-
-	vsprintf(temp, fmt, ap);
-	if (suppr_seen && ! strcmp(buff, temp)) {
-		seen++;
 	} else {
-		if (suppr_seen && seen) {
-			fprintf(stdlog, "*** %d repeats ***\n", seen);
-		}
-		seen = 0;
-		strcpy(buff, temp);
-		fprintf(stdlog, temp, ap);
+# ifdef USE_CLI
+		/* Don't output to stdout unless it is redirected. */
+#  ifdef _WIN32
+		if (_isatty(_fileno(stdout)))
+#  else
+		if (isatty(fileno(stdout)))
+#  endif
+			return;
+# endif
+		stdlog = stdout;
 	}
+    }
 
-	fflush(stdlog);
+    vsprintf(temp, fmt, ap);
+    if (suppr_seen && ! strcmp(buff, temp)) {
+	seen++;
+    } else {
+	if (suppr_seen && seen) {
+		fprintf(stdlog, "*** %d repeats ***\n", seen);
+	}
+	seen = 0;
+	strcpy(buff, temp);
+	fprintf(stdlog, temp, ap);
+    }
+
     fflush(stdlog);
 #endif
 }
@@ -1014,6 +1018,15 @@ pc_run(void)
 	if (title_update) {
 		swprintf(temp, sizeof_w(temp), mouse_msg[!!mouse_capture], fps);
 		ui_window_title(temp);
+#ifdef USE_CLI
+		fprintf(TEXT_RENDER_OUTPUT, "\033]0;");
+		for (int i = 0; i < wcslen(temp); i++) {
+			if ((temp[i] >= 0x20) && (temp[i] <= 0x7e))
+				fputc(temp[i], TEXT_RENDER_OUTPUT);
+		}
+		fputc('\a', TEXT_RENDER_OUTPUT);
+		fflush(TEXT_RENDER_OUTPUT);
+#endif
 		title_update = 0;
 	}
 }
