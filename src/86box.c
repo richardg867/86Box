@@ -931,6 +931,9 @@ pc_close(thread_t *ptr)
 
 	/* Claim the video blitter. */
 	startblit();
+#ifdef USE_CLI
+
+#endif
 
 	/* Terminate the UI thread. */
 	is_quit = 1;
@@ -989,6 +992,8 @@ void
 pc_run(void)
 {
 	wchar_t temp[200];
+	char *s, *p;
+	int len;
 
 	/* Trigger a hard reset if one is pending. */
 	if (hard_reset_pending) {
@@ -1015,13 +1020,16 @@ pc_run(void)
 		swprintf(temp, sizeof_w(temp), mouse_msg[!!mouse_capture], fps);
 		ui_window_title(temp);
 #ifdef USE_CLI
-		fprintf(TEXT_RENDER_OUTPUT, "\033]0;");
-		for (int i = 0; i < wcslen(temp); i++) {
+		len = wcslen(temp);
+		s = p = malloc(len + 6);
+		p += sprintf(p, "\033]0;");
+		for (int i = 0; i < len; i++) {
 			if ((temp[i] >= 0x20) && (temp[i] <= 0x7e))
-				fputc(temp[i], TEXT_RENDER_OUTPUT);
+				*p++ = temp[i];
 		}
-		fputc('\a', TEXT_RENDER_OUTPUT);
-		fflush(TEXT_RENDER_OUTPUT);
+		*p++ = '\a';
+		*p++ = '\0';
+		cli_render_write(s);
 #endif
 		title_update = 0;
 	}

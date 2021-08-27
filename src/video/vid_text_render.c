@@ -29,8 +29,10 @@
 #include <86box/86box.h>
 #include <86box/device.h>
 #include <86box/mem.h>
+#include <86box/plat.h>
 #include <86box/timer.h>
 #include <86box/keyboard_cli.h>
+#include <86box/version.h>
 #include <86box/video.h>
 #include <86box/vid_mda.h>
 #include <86box/vid_cga.h>
@@ -39,6 +41,7 @@
 
 
 #define TEXT_RENDER_BUF_LINES	60
+#define TEXT_RENDER_BUF_SIZE_FB	150 * 2
 #define TEXT_RENDER_BUF_SIZE	4096	/* good for a fully packed SVGA 150-column row with some margin */
 
 #define CHECK_INIT()	if (!cli_initialized) \
@@ -46,8 +49,9 @@
 #define APPEND_SGR()	if (!sgr_started) { \
 				sgr_started = 1; \
 				p += sprintf(p, "\033["); \
-			} else \
-				p += sprintf(p, ";");
+			} else { \
+				p += sprintf(p, ";"); \
+			}
 
 
 enum {
@@ -132,20 +136,46 @@ static const struct {
     {NULL, 0, 0, 0} /* assume TERM_COLOR_3BIT and no control/graphics capability for other terminals */
 };
 
+/* Entries for the CLI menu. */
+static const char *menu_entries[] = {
+    "[Enter] Go back to machine",
+    "[R] Hard reset",
+    "[Del] Send Ctrl+Alt+Del",
+    "[E] Send Ctrl+Alt+Esc",
+    "[S] Take screenshot",
+    "[P] Pause",
+    "[Q] Exit"
+};
 
-static uint8_t	cli_initialized = 0,
-		term_color = TERM_COLOR_3BIT, term_ctl = 0, term_gfx = 0,
-		cursor_x, cursor_y;
+
+struct {
+    thread_t	*thread;
+    event_t	*wake_render_thread, *render_complete;
+    char	*output;
+    uint8_t	*fb, color, y, do_render, do_blink, con;
+    uint16_t	ca;
+    uint32_t	fb_base, fb_mask, fb_step;
+    int		xlimit, xinc;
+} render_data;
+
+uint8_t		cli_initialized = 0, cli_menu = 0;
+static uint8_t	term_color = TERM_COLOR_3BIT, term_ctl = 0, term_gfx = 0,
+		term_sx = 80, term_sy = 24, /* terminals are 24 by default, not 25 */
+		cursor_x, cursor_y,
+		menu_max_width = 0;
+static uint16_t	line_framebuffer[TEXT_RENDER_BUF_LINES][TEXT_RENDER_BUF_SIZE_FB];
 static uint32_t	color_palette[16], *color_palette_8bit;
 static char	line_buffer[TEXT_RENDER_BUF_LINES][TEXT_RENDER_BUF_SIZE],
 		gfx_str[32] = "\0";
 static int	gfx_w = -1, gfx_h = -1;
 static time_t	gfx_last = 0;
 
-
 /* Callbacks specific to each color capability level. */
 int (*text_render_setcolor)(char *p, uint8_t idx, uint8_t bg);
 void (*text_render_setpal)(uint8_t index, uint32_t color) = text_render_setpal_init;
+
+
+static void	cli_render_process();
 
 
 int
@@ -255,30 +285,59 @@ text_render_setpal_init(uint8_t index, uint32_t color)
 
 
 static void
-text_render_updatecursor()
+text_render_updateline(char *buf, uint8_t y, uint8_t new_cx, uint8_t new_cy)
 {
-    if ((cursor_x == ((uint8_t) -1)) || (cursor_y == ((uint8_t) -1))) /* cursor disabled */
-	fprintf(TEXT_RENDER_OUTPUT, "\033[?25l");
-    else /* cursor enabled */
-	fprintf(TEXT_RENDER_OUTPUT, "\033[%d;%dH\033[?25h", cursor_y + 1, cursor_x + 1);
+    /* Update line if required and within the terminal's limit. */
+    if ((!buf || strcmp(buf, line_buffer[y])) && (y < term_sy)) {
+	/* Move to line and reset formatting. */
+	fprintf(TEXT_RENDER_OUTPUT, "\033[%d;1H", y + 1);
+	if (text_render_setcolor != text_render_setcolor_noop) {
+		char sgr[256] = "\033[0;";
+		if (!text_render_setcolor(&sgr[4], 0, 1))
+			sgr[3] = '\0';
+		fprintf(TEXT_RENDER_OUTPUT, "%sm", sgr);
+	}
+	fprintf(TEXT_RENDER_OUTPUT, "\033[2K");
+
+	if (buf) {
+		/* Copy line to buffer. */
+		strcpy(line_buffer[y], buf);
+	}
+
+	/* Print line. */
+	fprintf(TEXT_RENDER_OUTPUT, line_buffer[y]);
+
+	/* Force cursor update. */
+	cursor_x = ~new_cx;
+    }
+
+    /* Update cursor if required. */
+    if ((new_cx != cursor_x) || (new_cy != cursor_y)) {
+	cursor_x = new_cx;
+	cursor_y = new_cy;
+
+	if ((cursor_x == ((uint8_t) -1)) || (cursor_x >= term_sx) ||
+	    (cursor_y == ((uint8_t) -1)) || (cursor_y >= term_sy)) { /* cursor disabled */
+		pclog("cursor disabled\n"); fprintf(TEXT_RENDER_OUTPUT, "\033[?25l"); }
+	else /* cursor enabled */ {
+		pclog("cursor enabled at %d:%d\n", cursor_x, cursor_y);
+		fprintf(TEXT_RENDER_OUTPUT, "\033[%d;%dH\033[?25h", cursor_y + 1, cursor_x + 1);
+	}
+    }
+
+    /* Flush output. */
     fflush(TEXT_RENDER_OUTPUT);
 }
 
-#ifdef SIGWINCH
+
 static void
 text_render_updatescreen(int sig)
 {
-    /* Invalidate the entire text buffer to force a redraw. */
+    /* Force a redraw on each line. */
     for (int i = 0; i < TEXT_RENDER_BUF_LINES; i++)
-	line_buffer[i][0] = '\x00';
-
-    /* Clear screen. */
-    text_render_blank();
-
-    /* Update cursor and flush output. */
-    text_render_updatecursor();
+	text_render_updateline(NULL, i, cursor_x, cursor_y);
 }
-#endif
+
 
 static int
 text_render_detectterm(char *env) {
@@ -292,6 +351,7 @@ text_render_detectterm(char *env) {
 
     return -1;
 }
+
 
 static void
 text_render_fillcolortable(uint32_t *table, uint16_t count)
@@ -323,7 +383,7 @@ text_render_fillcolortable(uint32_t *table, uint16_t count)
 	} else { /* grayscale ramp */
 		color  = (uint8_t) (i * 10 - 2312);
 		color |= color << 8;
-		color |= (color & 0xff) << 16;
+		color |= color << 8;
 	}
 	table[i] = color;
     }
@@ -333,7 +393,7 @@ void
 text_render_init()
 {
     char *env;
-    int i;
+    int i, j;
 
     cli_initialized = 1;
 
@@ -429,14 +489,23 @@ text_render_init()
     /* Override the default color for dark yellow, as CGA typically renders that as brown. */
     text_render_setpal(3, 0xaa5500);
 
-    /* Start with the cursor disabled. */
-    cursor_x = -1;
-    text_render_updatecursor();
+    /* Start render thread. */
+    render_data.thread = thread_create(cli_render_process, NULL);
+    render_data.wake_render_thread = thread_create_event();
+    render_data.render_complete = thread_create_event();
+    thread_set_event(render_data.render_complete);
 
 #ifdef SIGWINCH
     /* Redraw screen on terminal resize. */
     signal(SIGWINCH, text_render_updatescreen);
 #endif
+
+    /* Determine the longest menu entry. */
+    for (i = 0; i < (sizeof(menu_entries) / sizeof(menu_entries[0])); i++) {
+	j = strlen(menu_entries[i]);
+	if (j > menu_max_width)
+		menu_max_width = j;
+    }
 }
 
 
@@ -444,7 +513,7 @@ void
 text_render_blank()
 {
     CHECK_INIT();
-
+#if 0
     char *buf, *p;
 
     /* Clear screen if we're not rendering the graphics mode box. */
@@ -458,8 +527,11 @@ text_render_blank()
 
     /* Disable cursor and flush output. */
     cursor_x = -1;
-    text_render_updatecursor();
+    for (int i = 0; i < term_sy; i++)
+	text_render_updateline("\0", i, cursor_x, cursor_y);
+#endif
 }
+
 
 void
 text_render_gfx(char *str)
@@ -472,8 +544,9 @@ text_render_gfx(char *str)
     }
 
     /* Render infobox otherwise. */
-    text_render_gfx_box(str);
+    //text_render_gfx_box(str);
 }
+
 
 void
 text_render_gfx_box(char *str)
@@ -528,9 +601,12 @@ text_render_gfx_box(char *str)
 
 	/* Disable cursor and flush output. */
 	cursor_x = -1;
-	text_render_updatecursor();
     }
+
+    for (int i = 0; i < term_sy; i++)
+	text_render_updateline("", i, cursor_x, cursor_y);
 }
+
 
 static void
 base64_encode_tri(uint8_t *buf, uint8_t len)
@@ -547,6 +623,7 @@ base64_encode_tri(uint8_t *buf, uint8_t len)
 	    (len == 1) ? '=' : base64[(tri >> 6) & 0x3f],
 	    (len <= 2) ? '=' : base64[tri & 0x3f]);
 }
+
 
 void
 text_render_gfx_image(char *fn)
@@ -571,6 +648,7 @@ text_render_gfx_image(char *fn)
 
     /* Output image according to the terminal's capabilities. */
     uint8_t buf[3], read;
+    int i;
     if (term_gfx & TERM_GFX_PNG) {
 	/* Output header. */
 	fprintf(TEXT_RENDER_OUTPUT, "\033]1337;File=name=cy5wbmc=;size=%d:", size);
@@ -593,7 +671,7 @@ text_render_gfx_image(char *fn)
 		fprintf(TEXT_RENDER_OUTPUT, "m=%d;", size > 3072);
 
 		/* Output up to 3072 bytes (4096 after base64 encoding) per chunk. */
-		for (int i = 0; i < 1024; i++) {
+		for (i = 0; i < 1024; i++) {
 			size -= 3;
 			if ((read = fread(buf, 1, 3, f)))
 				base64_encode_tri(buf, read);
@@ -615,126 +693,210 @@ end:
     gfx_last = time(NULL);
 }
 
+
+static void
+cli_render_process(void *priv)
+{
+    char buf[TEXT_RENDER_BUF_SIZE], *p;
+    uint8_t has_changed,
+	    chr, attr, attr77,
+	    sgr_started, sgr_blackout,
+	    sgr_ul, sgr_int, sgr_reverse,
+	    sgr_blink, sgr_bg, sgr_fg,
+	    prev_sgr_ul, prev_sgr_int, prev_sgr_reverse,
+	    prev_sgr_blink, prev_sgr_bg, prev_sgr_fg,
+	    new_cx, new_cy;
+    uint16_t chr_attr, *line_fb_row;
+    int xc, x;
+
+    while (1) {
+	thread_wait_event(render_data.wake_render_thread, -1);
+	thread_reset_event(render_data.wake_render_thread);
+
+	/* Output any requested arbitrary text. */
+	if (render_data.output) {
+		fprintf(TEXT_RENDER_OUTPUT, render_data.output);
+		free(render_data.output);
+		render_data.output = NULL;
+	}
+
+	/* Don't render if the wanted row overflows the buffers.
+	   This also works as a "don't render now" flag (y = -1). */
+	p = NULL;
+	new_cx = cursor_x;
+	new_cy = cursor_y;
+	if (render_data.y >= TEXT_RENDER_BUF_LINES)
+		goto next;
+
+	/* Copy framebuffer while determining whether or not
+	   it has changed, as well as the cursor position. */
+	line_fb_row = line_framebuffer[render_data.y];
+	has_changed = 0;
+	for (xc = x = 0; xc < render_data.xlimit; xc += render_data.xinc, x++) {
+		/* Compare and copy 16-bit character+attribute value. */
+		chr_attr = *((uint16_t *) &render_data.fb[(render_data.fb_base << 1) & render_data.fb_mask]);
+		if (chr_attr != line_fb_row[x]) {
+			has_changed = 1;
+			line_fb_row[x] = chr_attr;
+		}
+
+		/* If the cursor is on this location, set it as the new cursor position. */
+		if ((render_data.fb_base == render_data.ca) && render_data.con) {
+			new_cx = x;
+			new_cy = render_data.y;
+		}
+
+		render_data.fb_base += render_data.fb_step;
+	}
+
+	/* Don't render if the framebuffer hasn't changed. */
+	if (!has_changed)
+		goto next;
+
+	/* Start with a fresh state. */
+	p = buf;
+	sgr_started = prev_sgr_blink = prev_sgr_bg = prev_sgr_fg = prev_sgr_ul = prev_sgr_int = prev_sgr_reverse = 0;
+	sgr_blackout = -1;
+
+	/* Render each character. */
+	for (xc = x = 0; xc < render_data.xlimit; xc += render_data.xinc, x++) {
+		if (render_data.do_render) {
+			chr_attr = line_fb_row[x];
+			chr = chr_attr & 0xff;
+			attr = chr_attr >> 8;
+		} else {
+			chr = attr = 0;
+		}
+
+		if (render_data.color) {
+			/* Set foreground color. */
+			sgr_fg = ansi_palette[attr & 15];
+			if ((x == 0) || (sgr_fg != prev_sgr_fg)) {
+				APPEND_SGR();
+				p += text_render_setcolor(p, sgr_fg, 0);
+				prev_sgr_fg = sgr_fg;
+			}
+
+			/* If blinking is enabled, use the top bit for that instead of bright background. */
+			if (render_data.do_blink) {
+				sgr_blink = attr & 0x80;
+				attr &= 0x7f;
+			} else
+				sgr_blink = 0;
+
+			/* Set background color. */
+			sgr_bg = ansi_palette[attr >> 4];
+			if ((x == 0) || (sgr_bg != prev_sgr_bg)) {
+				APPEND_SGR();
+				p += text_render_setcolor(p, sgr_bg, 1);
+				prev_sgr_bg = sgr_bg;
+			}
+
+			/* Set blink. */
+			if ((x == 0) || (sgr_blink != prev_sgr_blink)) {
+				APPEND_SGR();
+				p += sprintf(p, sgr_blink ? ((term_ctl & TERM_CTL_RAPIDBLINK) ? "6" : "5") : "25");
+				prev_sgr_blink = sgr_blink;
+			}
+		} else {
+			attr77 = attr & 0x77;
+			if (!attr77) {
+				/* Create a blank space by discarding all attributes then printing a space. */
+				if (!sgr_blackout) {
+					APPEND_SGR();
+					p += sprintf(p, "0");
+					sgr_blackout = 1;
+					prev_sgr_ul = prev_sgr_int = prev_sgr_blink = prev_sgr_reverse = 0;
+				}
+				chr = 0;
+			} else {
+				sgr_blackout = 0;
+
+				/* Set reverse. */
+				sgr_reverse = (attr77 == 0x70);
+				if (sgr_reverse != prev_sgr_reverse) {
+					APPEND_SGR();
+					p += sprintf(p, sgr_reverse ? "7" : "27");
+					prev_sgr_reverse = sgr_reverse;
+				}
+
+				/* Set underline. Cannot co-exist with reverse. */
+				sgr_ul = ((attr & 0x07) == 1) && !sgr_reverse;
+				if (sgr_ul != prev_sgr_ul) {
+					APPEND_SGR();
+					p += sprintf(p, sgr_ul ? "4" : "24");
+					prev_sgr_ul = sgr_ul;
+				}
+
+				/* Set blink, if enabled. */
+				sgr_blink = (attr & 0x80) && render_data.do_blink;
+				if (sgr_blink != prev_sgr_blink) {
+					APPEND_SGR();
+					p += sprintf(p, sgr_blink ? ((term_ctl & TERM_CTL_RAPIDBLINK) ? "6" : "5") : "25");
+					prev_sgr_blink = sgr_blink;
+				}
+
+				/* Set intense. Cannot co-exist with both reverse and blink simultaneously. */
+				sgr_int = (attr & 0x08) && !(sgr_reverse && sgr_blink);
+				if (sgr_int != prev_sgr_int) {
+					APPEND_SGR();
+					p += sprintf(p, sgr_int ? "1" : "22");
+					prev_sgr_int = sgr_int;
+				}
+			}
+		}
+
+		/* Finish any SGRs we may have started. */
+		if (sgr_started) {
+			sgr_started = 0;
+			p += sprintf(p, "m");
+		}
+
+		/* Add character. */
+		p += sprintf(p, cp437[chr]);
+	}
+
+	/* Output rendered line. */
+	p = buf;
+next:
+	text_render_updateline(p, render_data.y, new_cx, new_cy);
+	render_data.y = -1;
+
+	thread_set_event(render_data.render_complete);
+    }
+}
+
+
 void
-text_render_mda(uint8_t xlimit,
+text_render_mda(int xlimit,
 		uint8_t *fb, uint16_t fb_base,
 		uint8_t do_render, uint8_t do_blink,
 		uint16_t ca, uint8_t con)
 {
     CHECK_INIT();
 
-    char buf[TEXT_RENDER_BUF_SIZE], *p;
-    int x;
-    uint32_t ma = fb_base;
-    uint8_t chr, attr, attr77, cy = ma / xlimit, cx = 0, new_cx = cursor_x, new_cy = cursor_y;
-    uint8_t sgr_started = 0, sgr_blackout = 1, sgr_ul, sgr_int, sgr_blink, sgr_reverse;
-    uint8_t prev_sgr_ul = 0, prev_sgr_int = 0, prev_sgr_blink = 0, prev_sgr_reverse = 0;
+    thread_wait_event(render_data.render_complete, -1);
+    thread_reset_event(render_data.render_complete);
 
-    /* Don't overflow the framebuffer. */
-    if (cy >= TEXT_RENDER_BUF_LINES)
-	return;
+    render_data.color = 0;
+    render_data.y = fb_base / xlimit;
+    render_data.xlimit = xlimit;
+    render_data.xinc = 1;
+    render_data.fb = fb;
+    render_data.fb_base = fb_base;
+    render_data.fb_mask = 0xfff;
+    render_data.fb_step = 1;
+    render_data.do_render = do_render;
+    render_data.do_blink = do_blink;
+    render_data.ca = ca;
+    render_data.con = con;
 
-    p = buf;
-    p += sprintf(p, "\033[%d;1H", cy + 1);
-    if (text_render_setcolor != text_render_setcolor_noop) {
-	p += sprintf(p, "\033[0;");
-	p += text_render_setcolor(p, 0, 1);
-	p += sprintf(p, "m");
-    }
-    p += sprintf(p, "\033[2K");
-
-    for (x = 0; x < xlimit; x++) {
-	if (do_render) {
-		chr  = fb[(ma << 1) & 0xfff];
-		attr = fb[((ma << 1) + 1) & 0xfff];
-	} else
-		chr = attr = 0;
-
-	attr77 = attr & 0x77;
-	if (!attr77) {
-		/* Create a blank space by discarding all attributes then printing a space. */
-		if (!sgr_blackout) {
-			APPEND_SGR();
-			p += sprintf(p, "0");
-			sgr_blackout = 1;
-			prev_sgr_ul = prev_sgr_int = prev_sgr_blink = prev_sgr_reverse = 0;
-		}
-		chr = 0;
-	} else {
-		sgr_blackout = 0;
-
-		/* Set reverse. */
-		sgr_reverse = (attr77 == 0x70);
-		if (sgr_reverse != prev_sgr_reverse) {
-			APPEND_SGR();
-			p += sprintf(p, sgr_reverse ? "7" : "27");
-			prev_sgr_reverse = sgr_reverse;
-		}
-
-		/* Set underline. Cannot co-exist with reverse. */
-		sgr_ul = ((attr & 0x07) == 1) && !sgr_reverse;
-		if (sgr_ul != prev_sgr_ul) {
-			APPEND_SGR();
-			p += sprintf(p, sgr_ul ? "4" : "24");
-			prev_sgr_ul = sgr_ul;
-		}
-
-		/* Set blink, if enabled. */
-		sgr_blink = (attr & 0x80) && do_blink;
-		if (sgr_blink != prev_sgr_blink) {
-			APPEND_SGR();
-			p += sprintf(p, sgr_blink ? ((term_ctl & TERM_CTL_RAPIDBLINK) ? "6" : "5") : "25");
-			prev_sgr_blink = sgr_blink;
-		}
-
-		/* Set intense. Cannot co-exist with both reverse and blink simultaneously. */
-		sgr_int = (attr & 0x08) && !(sgr_reverse && sgr_blink);
-		if (sgr_int != prev_sgr_int) {
-			APPEND_SGR();
-			p += sprintf(p, sgr_int ? "1" : "22");
-			prev_sgr_int = sgr_int;
-		}
-	}
-
-	/* If the cursor is on this location, set it as the new cursor position. */
-	if ((ma == ca) && con) {
-		new_cx = cx;
-		new_cy = cy;
-	}
-
-	/* Finish any SGRs we may have started. */
-	if (sgr_started) {
-		sgr_started = 0;
-		p += sprintf(p, "m");
-	}
-
-	/* Output the character. */
-	p += sprintf(p, cp437[chr]);
-
-	ma++;
-	cx++;
-    }
-
-    if (memcmp(buf, line_buffer[cy], p - buf)) {
-	fprintf(TEXT_RENDER_OUTPUT, buf);
-	cursor_x = ~new_cx; /* force a cursor update, which also flushes the output */
-	memcpy(line_buffer[cy], buf, p - buf);
-    }
-
-    /* Update cursor if required. */
-    if ((new_cx != cursor_x) || (new_cy != cursor_y)) {
-	if (con) {
-		cursor_x = new_cx;
-		cursor_y = new_cy;
-	} else {
-		cursor_x = -1;
-	}
-	text_render_updatecursor();
-    }
+    thread_set_event(render_data.wake_render_thread);
 }
 
+
 void
-text_render_cga(uint8_t cy,
+text_render_cga(uint8_t y,
 		int xlimit, int xinc,
 		uint8_t *fb, uint32_t fb_base, uint32_t fb_mask, uint8_t fb_step,
 		uint8_t do_render, uint8_t do_blink,
@@ -742,103 +904,63 @@ text_render_cga(uint8_t cy,
 {
     CHECK_INIT();
 
-    char buf[TEXT_RENDER_BUF_SIZE], *p;
-    int x;
-    uint32_t ma = fb_base;
-    uint8_t chr, attr, cx = 0, new_cx = cursor_x, new_cy = cursor_y;
-    uint8_t sgr_started = 0, sgr_bg, sgr_fg, sgr_blink;
-    uint8_t prev_sgr_bg = 0, prev_sgr_fg = 0, prev_sgr_blink = 0;
+    thread_wait_event(render_data.render_complete, -1);
+    thread_reset_event(render_data.render_complete);
 
-    /* Don't overflow the framebuffer. */
-    if (cy >= TEXT_RENDER_BUF_LINES)
-	return;
+    render_data.color = 1;
+    render_data.y = y;
+    render_data.xlimit = xlimit;
+    render_data.xinc = xinc;
+    render_data.fb = fb;
+    render_data.fb_base = fb_base;
+    render_data.fb_mask = fb_mask;
+    render_data.fb_step = fb_step;
+    render_data.do_render = do_render;
+    render_data.do_blink = do_blink;
+    render_data.ca = ca;
+    render_data.con = con;
 
-    p = buf;
-    p += sprintf(p, "\033[%d;1H", cy + 1);
-    if (text_render_setcolor != text_render_setcolor_noop) {
-	p += sprintf(p, "\033[0;");
-	p += text_render_setcolor(p, 0, 1);
-	p += sprintf(p, "m");
+    thread_set_event(render_data.wake_render_thread);
+}
+
+
+void
+cli_render_write(char *s)
+{
+    CHECK_INIT();
+
+    thread_wait_event(render_data.render_complete, -1);
+    thread_reset_event(render_data.render_complete);
+
+    render_data.output = s;
+
+    thread_set_event(render_data.wake_render_thread);
+}
+
+
+void
+text_render_menu(uint8_t y)
+{
+    /* Move to the specified line. */
+    fprintf(TEXT_RENDER_OUTPUT, "\033[%d;1H", y + 1);
+
+    /* Render line. */
+    int entry_count = sizeof(menu_entries) / sizeof(menu_entries[0]), i;
+    if (y == 0) {
+	i = 30 - fprintf(TEXT_RENDER_OUTPUT, "\033[30;47m%s%s[ " EMU_NAME " CLI Menu ]", cp437[0xd5], cp437[0xcd]);
+	for (i = 0; i < 28; i++)
+		fprintf(TEXT_RENDER_OUTPUT, cp437[0xc4]);
+    } else if (y <= entry_count) {
+	fprintf(TEXT_RENDER_OUTPUT, "%s ", cp437[0xb3]);
+	for (i = fprintf(TEXT_RENDER_OUTPUT, menu_entries[y - 1]);
+	     i < menu_max_width; i++)
+		fprintf(TEXT_RENDER_OUTPUT, " ");
+	fprintf(TEXT_RENDER_OUTPUT, " %s", cp437[0xb3]);
+    } else if (y == (entry_count + 1)) {
+	fprintf(TEXT_RENDER_OUTPUT, cp437[0xc0]);
+	for (i = 0; i < 28; i++)
+		fprintf(TEXT_RENDER_OUTPUT, cp437[0xc4]);
+	fprintf(TEXT_RENDER_OUTPUT, cp437[0xd9]);
     }
-    p += sprintf(p, "\033[2K");
-
-#if 0
-    fb[((ma << 1) + (fb_step * 0)) & fb_mask] = '0' + (cy / 10);
-    fb[((ma << 1) + (fb_step * 1)) & fb_mask] = 0x0f;
-    fb[((ma << 1) + (fb_step * 2)) & fb_mask] = '0' + (cy % 10);
-    fb[((ma << 1) + (fb_step * 3)) & fb_mask] = 0x0f;
-#endif
-
-    for (x = 0; x < xlimit; x += xinc) {
-	if (do_render) {
-		chr  = fb[(ma << 1) & fb_mask];
-		attr = fb[((ma << 1) + 1) & fb_mask];
-	} else
-		chr = attr = 0;
-
-	/* Set foreground color. */
-	sgr_fg = ansi_palette[attr & 15];
-	if ((x == 0) || (sgr_fg != prev_sgr_fg)) {
-		APPEND_SGR();
-		p += text_render_setcolor(p, sgr_fg, 0);
-		prev_sgr_fg = sgr_fg;
-	}
-
-	/* If blinking is enabled, use the top bit for that instead of bright background. */
-	if (do_blink) {
-		sgr_blink = attr & 0x80;
-		attr &= 0x7f;
-	} else
-		sgr_blink = 0;
-
-	/* Set background color. */
-	sgr_bg = ansi_palette[attr >> 4];
-	if ((x == 0) || (sgr_bg != prev_sgr_bg)) {
-		APPEND_SGR();
-		p += text_render_setcolor(p, sgr_bg, 1);
-		prev_sgr_bg = sgr_bg;
-	}
-
-	/* Set blink. */
-	if ((x == 0) || (sgr_blink != prev_sgr_blink)) {
-		APPEND_SGR();
-		p += sprintf(p, sgr_blink ? ((term_ctl & TERM_CTL_RAPIDBLINK) ? "6" : "5") : "25");
-		prev_sgr_blink = sgr_blink;
-	}
-
-	/* If the cursor is on this location, set it as the new cursor position. */
-	if ((ma == ca) && con) {
-		new_cx = cx;
-		new_cy = cy;
-	}
-
-	/* Finish any SGRs we may have started. */
-	if (sgr_started) {
-		sgr_started = 0;
-		p += sprintf(p, "m");
-	}
-
-	/* Output the character. */
-	p += sprintf(p, cp437[chr]);
-
-	ma += fb_step;
-	cx++;
-    }
-
-    if (memcmp(buf, line_buffer[cy], p - buf)) {
-	fprintf(TEXT_RENDER_OUTPUT, buf);
-	cursor_x = ~new_cx; /* force a cursor update, which also flushes the output */
-	memcpy(line_buffer[cy], buf, p - buf);
-    }
-
-    /* Update cursor if required. */
-    if ((new_cx != cursor_x) || (new_cy != cursor_y)) {
-	if (con) {
-		cursor_x = new_cx;
-		cursor_y = new_cy;
-	} else {
-		cursor_x = -1;
-	}
-	text_render_updatecursor();
-    }
+    fflush(TEXT_RENDER_OUTPUT);
 }

@@ -131,6 +131,7 @@ keyboard_input(int down, uint16_t scan)
 {
     /* Translate E0 xx scan codes to 01xx because we use 512-byte arrays for states
        and scan code sets. */
+    /* TODO: handle E1 1D for PauseBreak on CLI renderer code. */
     if ((scan >> 8) == 0xe0) {
 	scan &= 0x00ff;
 	scan |= 0x0100;		/* extended key code */

@@ -22,6 +22,9 @@
 
 extern const uint8_t	ansi_palette[];
 
+extern uint8_t	cli_initialized;
+extern uint8_t	cli_menu;
+
 
 void	text_render_init();
 void	text_render_setpal_init(uint8_t index, uint32_t color);
@@ -30,7 +33,7 @@ void	text_render_gfx(char *str);
 void	text_render_gfx_box(char *str);
 void	text_render_gfx_image(char *fn);
 
-void	text_render_mda(uint8_t xlimit,
+void	text_render_mda(int xlimit,
 			uint8_t *fb, uint16_t fb_base,
 			uint8_t do_render, uint8_t do_blink,
 			uint16_t ca, uint8_t con);
@@ -39,6 +42,9 @@ void	text_render_cga(uint8_t cy,
 			uint8_t *fb, uint32_t fb_base, uint32_t fb_mask, uint8_t fb_step,
 			uint8_t do_render, uint8_t do_blink,
 			uint32_t ca, uint8_t con);
+
+void	cli_render_write(char *s);
+void	text_render_menu(uint8_t cy);
 
 
 extern void	(*text_render_setpal)(uint8_t index, uint32_t color);
