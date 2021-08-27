@@ -161,7 +161,7 @@ struct {
 uint8_t		cli_initialized = 0, cli_menu = 0;
 static uint8_t	term_color = TERM_COLOR_3BIT, term_ctl = 0, term_gfx = 0,
 		term_sx = 80, term_sy = 24, /* terminals are 24 by default, not 25 */
-		cursor_x, cursor_y,
+		cursor_x, cursor_y, prev_do_render = 0, prev_do_blink = 0,
 		menu_max_width = 0;
 static uint16_t	line_framebuffer[TEXT_RENDER_BUF_LINES][TEXT_RENDER_BUF_SIZE_FB];
 static uint32_t	color_palette[16], *color_palette_8bit;
@@ -288,7 +288,7 @@ static void
 text_render_updateline(char *buf, uint8_t y, uint8_t new_cx, uint8_t new_cy)
 {
     /* Update line if required and within the terminal's limit. */
-    if ((!buf || strcmp(buf, line_buffer[y])) && (y < term_sy)) {
+    if ((y < term_sy) && buf && strcmp(buf, line_buffer[y])) {
 	/* Move to line and reset formatting. */
 	fprintf(TEXT_RENDER_OUTPUT, "\033[%d;1H", y + 1);
 	if (text_render_setcolor != text_render_setcolor_noop) {
@@ -317,12 +317,10 @@ text_render_updateline(char *buf, uint8_t y, uint8_t new_cx, uint8_t new_cy)
 	cursor_y = new_cy;
 
 	if ((cursor_x == ((uint8_t) -1)) || (cursor_x >= term_sx) ||
-	    (cursor_y == ((uint8_t) -1)) || (cursor_y >= term_sy)) { /* cursor disabled */
-		pclog("cursor disabled\n"); fprintf(TEXT_RENDER_OUTPUT, "\033[?25l"); }
-	else /* cursor enabled */ {
-		pclog("cursor enabled at %d:%d\n", cursor_x, cursor_y);
+	    (cursor_y == ((uint8_t) -1)) || (cursor_y >= term_sy)) /* cursor disabled */
+		fprintf(TEXT_RENDER_OUTPUT, "\033[?25l");
+	else /* cursor enabled */
 		fprintf(TEXT_RENDER_OUTPUT, "\033[%d;%dH\033[?25h", cursor_y + 1, cursor_x + 1);
-	}
     }
 
     /* Flush output. */
@@ -399,6 +397,13 @@ text_render_init()
 
     /* Initialize keyboard input. */
     keyboard_cli_init();
+
+    /* Start render thread. */
+    text_render_setcolor = text_render_setcolor_noop; /* TEMPORARY while async decrqss is not implemented */
+    render_data.thread = thread_create(cli_render_process, NULL);
+    render_data.wake_render_thread = thread_create_event();
+    render_data.render_complete = thread_create_event();
+    thread_set_event(render_data.render_complete);
 
     /* Detect this terminal's capabilities. */
     i = text_render_detectterm(getenv("TERM_PROGRAM"));
@@ -488,12 +493,6 @@ text_render_init()
 
     /* Override the default color for dark yellow, as CGA typically renders that as brown. */
     text_render_setpal(3, 0xaa5500);
-
-    /* Start render thread. */
-    render_data.thread = thread_create(cli_render_process, NULL);
-    render_data.wake_render_thread = thread_create_event();
-    render_data.render_complete = thread_create_event();
-    thread_set_event(render_data.render_complete);
 
 #ifdef SIGWINCH
     /* Redraw screen on terminal resize. */
@@ -715,7 +714,7 @@ cli_render_process(void *priv)
 
 	/* Output any requested arbitrary text. */
 	if (render_data.output) {
-		fprintf(TEXT_RENDER_OUTPUT, render_data.output);
+		fprintf(TEXT_RENDER_OUTPUT, "%s", render_data.output);
 		free(render_data.output);
 		render_data.output = NULL;
 	}
@@ -723,7 +722,7 @@ cli_render_process(void *priv)
 	/* Don't render if the wanted row overflows the buffers.
 	   This also works as a "don't render now" flag (y = -1). */
 	p = NULL;
-	new_cx = cursor_x;
+	new_cx = render_data.con ? cursor_x : -1;
 	new_cy = cursor_y;
 	if (render_data.y >= TEXT_RENDER_BUF_LINES)
 		goto next;
@@ -732,7 +731,7 @@ cli_render_process(void *priv)
 	   it has changed, as well as the cursor position. */
 	line_fb_row = line_framebuffer[render_data.y];
 	has_changed = 0;
-	for (xc = x = 0; xc < render_data.xlimit; xc += render_data.xinc, x++) {
+	for (xc = x = 0; (xc < render_data.xlimit) && (x < term_sx); xc += render_data.xinc, x++) {
 		/* Compare and copy 16-bit character+attribute value. */
 		chr_attr = *((uint16_t *) &render_data.fb[(render_data.fb_base << 1) & render_data.fb_mask]);
 		if (chr_attr != line_fb_row[x]) {
@@ -750,8 +749,12 @@ cli_render_process(void *priv)
 	}
 
 	/* Don't render if the framebuffer hasn't changed. */
-	if (!has_changed)
+	if (!has_changed &&
+	    (render_data.do_render == prev_do_render) &&
+	    (render_data.do_blink == prev_do_blink))
 		goto next;
+	prev_do_render = render_data.do_render;
+	prev_do_blink = render_data.do_blink;
 
 	/* Start with a fresh state. */
 	p = buf;
@@ -759,7 +762,7 @@ cli_render_process(void *priv)
 	sgr_blackout = -1;
 
 	/* Render each character. */
-	for (xc = x = 0; xc < render_data.xlimit; xc += render_data.xinc, x++) {
+	for (xc = x = 0; (xc < render_data.xlimit) && (x < term_sx); xc += render_data.xinc, x++) {
 		if (render_data.do_render) {
 			chr_attr = line_fb_row[x];
 			chr = chr_attr & 0xff;

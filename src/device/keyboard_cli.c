@@ -889,12 +889,15 @@ keyboard_cli_decrqss(char *query)
     /* Wait for the processing thread to be ready. */
     thread_wait_event(ready_event, -1);
 
-    /* Send query. */
+    /* Flag that we're in a query. */
     thread_reset_event(decrqss_event);
     decrqss_buf = NULL;
     in_decrqss = 1;
-    fprintf(TEXT_RENDER_OUTPUT, "\033P%s\033\\", query);
-    fflush(TEXT_RENDER_OUTPUT);
+
+    /* Send query. */
+    char *full_query = malloc(strlen(query) + 5);
+    sprintf(full_query, "\033P%s\033\\", query);
+    cli_render_write(full_query);
 
     /* Wait up to 500ms for a response. */
     thread_wait_event(decrqss_event, 500);
