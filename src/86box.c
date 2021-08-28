@@ -85,7 +85,7 @@
 #include <86box/plat_midi.h>
 #include <86box/version.h>
 #ifdef USE_CLI
-# include <86box/vid_text_render.h>
+# include <86box/cli.h>
 #endif
 
 
@@ -684,6 +684,10 @@ pc_init_modules(void)
 
 	atfullspeed = 0;
 
+#ifdef USE_CLI
+	cli_init();
+#endif
+
 	random_init();
 
 	mem_init();
@@ -932,7 +936,7 @@ pc_close(thread_t *ptr)
 	/* Claim the video blitter. */
 	startblit();
 #ifdef USE_CLI
-
+	cli_close();
 #endif
 
 	/* Terminate the UI thread. */
@@ -992,8 +996,7 @@ void
 pc_run(void)
 {
 	wchar_t temp[200];
-	char *s, *p;
-	int len;
+	char buf[200];
 
 	/* Trigger a hard reset if one is pending. */
 	if (hard_reset_pending) {
@@ -1020,16 +1023,11 @@ pc_run(void)
 		swprintf(temp, sizeof_w(temp), mouse_msg[!!mouse_capture], fps);
 		ui_window_title(temp);
 #ifdef USE_CLI
-		len = wcslen(temp);
-		s = p = malloc(len + 6);
-		p += sprintf(p, "\033]0;");
-		for (int i = 0; i < len; i++) {
-			if ((temp[i] >= 0x20) && (temp[i] <= 0x7e))
-				*p++ = temp[i];
-		}
-		*p++ = '\a';
-		*p++ = '\0';
-		cli_render_write(s);
+		int len = MIN(wcslen(temp), sizeof(buf) - 5), off = sprintf(buf, "\033]0;");
+		for (int i = 0; i < len; i++, off++)
+			buf[off] = ((temp[i] >= 0x20) && (temp[i] <= 0x7e)) ? temp[i] : ' ';
+		strcpy(buf + off, "\a");
+		cli_render_write(buf);
 #endif
 		title_update = 0;
 	}

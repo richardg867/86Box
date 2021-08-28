@@ -285,7 +285,7 @@ endif
 #		Nothing should need changing from here on..		#
 #########################################################################
 VPATH		:= $(EXPATH) . $(CODEGEN) minitrace cpu \
-		   cdrom chipset device disk disk/minivhd floppy \
+		   cli cdrom chipset device disk disk/minivhd floppy \
 		   game machine mem printer \
 		   sio sound \
 		    sound/munt sound/munt/c_interface sound/munt/sha1 \
@@ -490,10 +490,7 @@ endif
 
 ifeq ($(CLI), y)
 OPTS		+= -DUSE_CLI
-CLIOBJ		:= keyboard_cli.o vid_text_render.o
- ifneq ($(VNC), y)
-  CLIOBJ		+= vnc_keymap.o
- endif
+CLIOBJ		:= cli.o cli_input.o cli_render.o
 endif
 
 # Options for the DEV branch.
@@ -808,8 +805,11 @@ ifdef EXOBJ
 OBJ		+= $(EXOBJ)
 endif
 
-LIBS		:= -mwindows -lcomctl32 \
-		   -lopenal -lole32
+LIBS		:=
+ifeq ($(CLI), y)
+ LIBS		+= -mconsole
+endif
+LIBS		+= -mwindows -lcomctl32 -lopenal -lole32
 
 ifeq ($(VNC), y)
 LIBS		+= $(VNCLIB) -lws2_32

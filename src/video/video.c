@@ -70,14 +70,14 @@
 #include <86box/video.h>
 #include <86box/vid_svga.h>
 #ifdef USE_CLI
-# include <86box/vid_text_render.h>
+# include <86box/cli.h>
 #endif
 
 #include <minitrace/minitrace.h>
 
 volatile int	screenshots = 0;
 #ifdef USE_CLI
-volatile int	text_render_png = 0;
+volatile int	cli_render_png = 0;
 #endif
 bitmap_t	*buffer32 = NULL;
 bitmap_t	*render_buffer = NULL;
@@ -461,12 +461,12 @@ void blit_thread(void *param)
     }
 
 #ifdef USE_CLI
-    if (text_render_png) {
+    if (cli_render_png) {
 	if (render_buffer != NULL) {
 		video_take_screenshot("cli_temp.png", blit_data.x, blit_data.y, blit_data.y1, blit_data.y2, blit_data.w, blit_data.h);
-		text_render_gfx_image("cli_temp.png");
+		cli_render_gfx_image("cli_temp.png");
 	}
-	text_render_png = 0;
+	cli_render_png = 0;
     }
 #endif
 

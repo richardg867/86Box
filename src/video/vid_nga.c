@@ -39,7 +39,7 @@
 #include <86box/vid_nga.h>
 #include <86box/vid_cga_comp.h>
 #ifdef USE_CLI
-# include <86box/vid_text_render.h>
+# include <86box/cli.h>
 #endif
 
 
@@ -189,7 +189,7 @@ nga_poll(void *priv)
 				if ((nga->cga.cgamode & 1) && !(nga->cga.cgamode & 2)) {
 #ifdef USE_CLI
 					if ((nga->cga.displine % 8) == 0)
-						text_render_cga(nga->cga.ma / nga->cga.crtc[1],
+						cli_render_cga(nga->cga.ma / nga->cga.crtc[1],
 								nga->cga.crtc[1], 1,
 								nga->cga.charbuffer, 0, sizeof(nga->cga.charbuffer) - 1, 1,
 								nga->cga.cgamode & 0x08, nga->cga.cgamode & 0x20,
@@ -236,7 +236,7 @@ nga_poll(void *priv)
 				else if (!(nga->cga.cgamode & 2)) {
 #ifdef USE_CLI
 					if ((nga->cga.displine % 8) == 0)
-						text_render_cga(nga->cga.ma / nga->cga.crtc[1],
+						cli_render_cga(nga->cga.ma / nga->cga.crtc[1],
 								nga->cga.crtc[1], 1,
 								nga->cga.vram, nga->cga.ma << 1, 0x3fff, 1,
 								nga->cga.cgamode & 0x08, nga->cga.cgamode & 0x20,
@@ -280,7 +280,7 @@ nga_poll(void *priv)
 					}
 				} else {
 #ifdef USE_CLI
-					text_render_gfx("NGA %dx%d");
+					cli_render_gfx("NGA %dx%d");
 #endif
 					/* high res modes */
 					if (nga->cga.cgamode & 0x40) {

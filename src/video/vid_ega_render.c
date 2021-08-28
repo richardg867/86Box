@@ -28,7 +28,7 @@
 #include <86box/video.h>
 #include <86box/vid_ega.h>
 #ifdef USE_CLI
-# include <86box/vid_text_render.h>
+# include <86box/cli.h>
 #endif
 
 
@@ -73,7 +73,7 @@ ega_render_blank(ega_t *ega)
     }
 
 #ifdef USE_CLI
-    text_render_gfx("EGA %dx%d");
+    cli_render_gfx("EGA %dx%d");
 #endif
 }
 
@@ -134,7 +134,7 @@ ega_render_text_40(ega_t *ega)
 
 #ifdef USE_CLI
 	if (ega->sc == 0)
-		text_render_cga((ega->ma >> 2) / 40,
+		cli_render_cga((ega->ma >> 2) / 40,
 				ega->hdisp + ega->scrollcache, xinc,
 				ega->vram, ega->ma, ega->vrammask, 4,
 				ega->crtc[0x17] & 0x80, ega->attrregs[0x10] & 0x08,
@@ -210,7 +210,7 @@ ega_render_text_80(ega_t *ega)
 
 #ifdef USE_CLI
 	if (ega->sc == 0)
-		text_render_cga((ega->ma >> 2) / 80,
+		cli_render_cga((ega->ma >> 2) / 80,
 				ega->hdisp + ega->scrollcache, xinc,
 				ega->vram, ega->ma, ega->vrammask, 4,
 				ega->crtc[0x17] & 0x80, ega->attrregs[0x10] & 0x08,
@@ -279,7 +279,7 @@ ega_render_2bpp_lowres(ega_t *ega)
     ega->lastline_draw = ega->displine;
 
 #ifdef USE_CLI
-    text_render_gfx("EGA %dx%d");
+    cli_render_gfx("EGA %dx%d");
 #endif
 
     for (x = 0; x <= (ega->hdisp + ega->scrollcache); x += 16) {
@@ -345,7 +345,7 @@ ega_render_2bpp_highres(ega_t *ega)
     ega->lastline_draw = ega->displine;
 
 #ifdef USE_CLI
-    text_render_gfx("EGA %dx%d");
+    cli_render_gfx("EGA %dx%d");
 #endif
 
     for (x = 0; x <= (ega->hdisp + ega->scrollcache); x += 8) {
@@ -411,7 +411,7 @@ ega_render_4bpp_lowres(ega_t *ega)
     ega->lastline_draw = ega->displine;
 
 #ifdef USE_CLI
-    text_render_gfx("EGA %dx%d");
+    cli_render_gfx("EGA %dx%d");
 #endif
 
     for (x = 0; x <= (ega->hdisp + ega->scrollcache); x += 16) {
@@ -491,7 +491,7 @@ ega_render_4bpp_highres(ega_t *ega)
     ega->lastline_draw = ega->displine;
 
 #ifdef USE_CLI
-    text_render_gfx("EGA %dx%d");
+    cli_render_gfx("EGA %dx%d");
 #endif
 
     for (x = 0; x <= (ega->hdisp + ega->scrollcache); x += 8) {

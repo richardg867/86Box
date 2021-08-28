@@ -30,7 +30,7 @@
 #include <86box/device.h>
 #include <86box/video.h>
 #ifdef USE_CLI
-# include <86box/vid_text_render.h>
+# include <86box/cli.h>
 #endif
 
 
@@ -430,7 +430,7 @@ static void sigma_text80(sigma_t *sigma)
     ca &= 0x3fff;
 
 #ifdef USE_CLI
-    text_render_gfx("Sigma Color 80-column");
+    cli_render_gfx("Sigma Color 80-column");
 #endif
 
     /* The Sigma 400 seems to use screen widths stated in words
@@ -490,7 +490,7 @@ sigma_text40(sigma_t *sigma)
     ca &= 0x3fff;
 
 #ifdef USE_CLI
-    text_render_gfx("Sigma Color 40-column");
+    cli_render_gfx("Sigma Color 40-column");
 #endif
 
     /* The Sigma 400 seems to use screen widths stated in words
@@ -539,7 +539,7 @@ sigma_gfx400(sigma_t *sigma)
     uint8_t mask, col, c;
 
 #ifdef USE_CLI
-    text_render_gfx("Sigma Color %dx%d");
+    cli_render_gfx("Sigma Color %dx%d");
 #endif
 
     for (x = 0; x < (sigma->crtc[1] << 1); x++) {
@@ -576,7 +576,7 @@ sigma_gfx200(sigma_t *sigma)
     uint8_t mask, col, c;
 
 #ifdef USE_CLI
-    text_render_gfx("Sigma Color %dx%d");
+    cli_render_gfx("Sigma Color %dx%d");
 #endif
 
     for (x = 0; x < (sigma->crtc[1] << 1); x++) {
@@ -611,7 +611,7 @@ sigma_gfx4col(sigma_t *sigma)
     uint8_t mask, col, c;
 
 #ifdef USE_CLI
-    text_render_gfx("Sigma Color %dx%d");
+    cli_render_gfx("Sigma Color %dx%d");
 #endif
 
     for (x = 0; x < (sigma->crtc[1] << 1); x++) {

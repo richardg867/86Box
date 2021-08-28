@@ -32,7 +32,7 @@
 #include <86box/device.h>
 #include <86box/video.h>
 #ifdef USE_CLI
-# include <86box/vid_text_render.h>
+# include <86box/cli.h>
 #endif
 
 
@@ -308,7 +308,7 @@ hercules_poll(void *priv)
 
 		if (dev->ctrl & 0x02) {
 #ifdef USE_CLI
-			text_render_gfx("Hercules %dx%d");
+			cli_render_gfx("Hercules %dx%d");
 #endif
 			ca = (dev->sc & 3) * 0x2000;
 			if (dev->ctrl & 0x80)
@@ -328,7 +328,7 @@ hercules_poll(void *priv)
 		} else {
 #ifdef USE_CLI
 			if ((dev->displine % 8) == 0)
-				text_render_mda(dev->crtc[1],
+				cli_render_mda(dev->crtc[1],
 						dev->vram, dev->ma,
 						dev->ctrl & 8, dev->ctrl & 0x20,
 						ca, !(dev->crtc[0x0a] & 0x20) && ((dev->crtc[0x0b] & 0x1f) >= (dev->crtc[0x0a] & 0x1f)));

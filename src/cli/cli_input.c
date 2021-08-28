@@ -6,7 +6,7 @@
  *
  *		This file is part of the 86Box distribution.
  *
- *		Keyboard input for CLI mode.
+ *		ANSI input module for the command line interface.
  *
  *		Escape code parsing state machine based on:
  *		Williams, Paul Flo. "A parser for DEC's ANSI-compatible video
@@ -23,8 +23,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <wchar.h>
-#include <signal.h>
 #ifdef _WIN32
 # include <windows.h>
 # include <fcntl.h>
@@ -37,7 +35,7 @@
 #include <86box/device.h>
 #include <86box/plat.h>
 #include <86box/keyboard.h>
-#include <86box/vid_text_render.h>
+#include <86box/cli.h>
 
 
 /* Escape sequence parser states. */
@@ -61,11 +59,13 @@ enum {
 
 /* Modifier flags. */
 enum {
-    VT_SHIFT	= 0x01,
-    VT_ALT	= 0x02,
-    VT_CTRL	= 0x04,
-    VT_META	= 0x08
+    VT_SHIFT	  = 0x01,
+    VT_ALT	  = 0x02,
+    VT_CTRL	  = 0x04,
+    VT_META	  = 0x08,
+    VT_SHIFT_FAKE = 0x10
 };
+
 
 /* Lookup tables for converting keys and escape sequences to keyboard scan codes. */
 static const uint16_t ascii_seqs[] = {
@@ -232,23 +232,20 @@ static const uint8_t csi_modifiers[] = {
 };
 
 
-static volatile thread_t *keyboard_cli_thread;
-static event_t	*ready_event, *decrqss_event, *decrqss_ack_event;
-static int	param_buf_pos = 0, collect_buf_pos = 0, dcs_buf_pos = 0, osc_buf_pos = 0,
-		can_decrqss = 1, in_decrqss = 0;
-static char	param_buf[32], collect_buf[32], dcs_buf[32], osc_buf[32],
-		*decrqss_buf;
+static event_t	*ready_event;
+static int	param_buf_pos = 0, collect_buf_pos = 0, dcs_buf_pos = 0, osc_buf_pos = 0;
+static char	param_buf[32], collect_buf[32], dcs_buf[32], osc_buf[32];
 
-#define ENABLE_CLI_KEYBOARD_LOG 1
-#ifdef ENABLE_CLI_KEYBOARD_LOG
-int cli_keyboard_do_log = ENABLE_CLI_KEYBOARD_LOG;
+#define ENABLE_CLI_INPUT_LOG 1
+#ifdef ENABLE_CLI_INPUT_LOG
+int cli_input_do_log = ENABLE_CLI_INPUT_LOG;
 
 static void
-cli_keyboard_log(const char *fmt, ...)
+cli_input_log(const char *fmt, ...)
 {
     va_list ap;
 
-    if (cli_keyboard_do_log) {
+    if (cli_input_do_log) {
 	va_start(ap, fmt);
 	pclog_ex(fmt, ap);
 	va_end(ap);
@@ -256,25 +253,25 @@ cli_keyboard_log(const char *fmt, ...)
 }
 
 static void
-cli_keyboard_log_key(const char *func, int c)
+cli_input_log_key(const char *func, int c)
 {
     if ((c >= 0x20) && (c <= 0x7e))
-	cli_keyboard_log("CLI Keyboard: %s(%c)\n", func, c);
+	cli_input_log("CLI Input: %s(%c)\n", func, c);
     else
-	cli_keyboard_log("CLI Keyboard: %s(%02X)\n", func, c);
+	cli_input_log("CLI Input: %s(%02X)\n", func, c);
 }
 #else
-#define cli_keyboard_log(fmt, ...)
-#define cli_keyboard_log_key(func, c)
+#define cli_input_log(fmt, ...)
+#define cli_input_log_key(func, c)
 #endif
 
 
 static void
-keyboard_cli_send(uint16_t code, uint8_t modifier)
+cli_input_send(uint16_t code, uint8_t modifier)
 {
-    cli_keyboard_log("CLI Keyboard: send(%04X, %d)\n", code, modifier);
+    cli_input_log("CLI Input: send(%04X, %d)\n", code, modifier);
 
-    /* Determine modifier scancodes to be pressed as well. */
+    /* Determine modifiers set by the modifier argument. */
     if (modifier < sizeof(csi_modifiers))
 	modifier = csi_modifiers[modifier];
     else
@@ -308,16 +305,9 @@ keyboard_cli_send(uint16_t code, uint8_t modifier)
 			modifier &= ~VT_ALT;
 			code = 0x0054;
 		} else {
-			if (modifier & VT_META)
-				keyboard_input(1, 0xe05b);
-			keyboard_input(1, 0xe02a);
-			keyboard_input(1, 0xe037);
-			keyboard_input(0, 0xe037);
-			keyboard_input(0, 0xe02a);
-			if (modifier & VT_META)
-				keyboard_input(0, 0xe05b);
+			modifier |= VT_SHIFT_FAKE;
 		}
-		return;
+		break;
 
 	case 0xe11d: /* Pause */
 		if (modifier & VT_CTRL) {
@@ -336,6 +326,8 @@ keyboard_cli_send(uint16_t code, uint8_t modifier)
 	keyboard_input(1, 0x0038);
     if (modifier & VT_SHIFT)
 	keyboard_input(1, 0x002a);
+    if (modifier & VT_SHIFT_FAKE)
+	keyboard_input(1, 0xe02a);
 
     /* Press and release key. */
     if (code) {
@@ -344,6 +336,8 @@ keyboard_cli_send(uint16_t code, uint8_t modifier)
     }
 
     /* Release modifier keys. */
+    if (modifier & VT_SHIFT_FAKE)
+	keyboard_input(0, 0xe02a);
     if (modifier & VT_SHIFT)
 	keyboard_input(0, 0x002a);
     if (modifier & VT_ALT)
@@ -356,9 +350,9 @@ keyboard_cli_send(uint16_t code, uint8_t modifier)
 
 
 static void
-keyboard_cli_clear(int c)
+cli_input_clear(int c)
 {
-    cli_keyboard_log_key("clear", c);
+    cli_input_log_key("clear", c);
 
     collect_buf_pos = param_buf_pos = 0;
     collect_buf[0] = param_buf[0] = '\0';
@@ -366,9 +360,9 @@ keyboard_cli_clear(int c)
 
 
 static void
-keyboard_cli_collect(int c)
+cli_input_collect(int c)
 {
-    cli_keyboard_log_key("collect", c);
+    cli_input_log_key("collect", c);
 
     if (collect_buf_pos < (sizeof(collect_buf) - 1)) {
 	collect_buf[collect_buf_pos++] = c;
@@ -378,9 +372,9 @@ keyboard_cli_collect(int c)
 
 
 static void
-keyboard_cli_csi_dispatch(int c)
+cli_input_csi_dispatch(int c)
 {
-    cli_keyboard_log_key("csi_dispatch", c);
+    cli_input_log_key("csi_dispatch", c);
 
     /* Discard an invalid sequence with no letter or numeric code. */
     if ((c == '~') && (param_buf_pos < 1))
@@ -400,6 +394,12 @@ keyboard_cli_csi_dispatch(int c)
 		break;
     }
 
+    /* Determine if this is actually a terminal size query response. */
+    if ((c == 'R') && (code > 1) && (modifier > 1)) {
+	cli_term_setsize(modifier, code, "CPR");
+	return;
+    }
+
     /* Determine keycode. */
     if (c == '~')
 	code = csi_num_seqs[code];
@@ -407,52 +407,66 @@ keyboard_cli_csi_dispatch(int c)
 	code = csi_letter_seqs[c];
 
     /* Press key with modifier. */
-    keyboard_cli_send(code, modifier);
+    cli_input_send(code, modifier);
 }
 
 
 static void
-keyboard_cli_esc_dispatch(int c)
+cli_input_esc_dispatch(int c)
 {
-    cli_keyboard_log_key("esc_dispatch", c);
+    cli_input_log_key("esc_dispatch", c);
 
     switch (collect_buf[0]) {
+    	case '\0': /* no parameter */
+    		switch (c) {
+			case 0x20 ... 0x7f: /* Alt+Space to Alt+Backspace (Windows) */
+				cli_input_send(ascii_seqs[c], 3);
+				break;
+		}
+		break;
+
 	case 'M': /* special: menu */
-		cli_menu = 1;
+		/* TODO */
 		break;
 
 	case 'O': /* SS3 */
 		/* Handle as a CSI with no parameters. */
-		keyboard_cli_csi_dispatch(c);
+		cli_input_csi_dispatch(c);
 		break;
     }
 }
 
 
 static void
-keyboard_cli_execute(int c)
+cli_input_execute(int c)
 {
-    cli_keyboard_log_key("execute", c);
+    cli_input_log_key("execute", c);
 
     switch (c) {
 	case 0x01 ... 0x08: /* Ctrl+A to Ctrl+H */
 	/* skip Ctrl+I (Tab), Ctrl+J (Enter) */
-	case 0x0b ... 0x1a: /* Ctrl+K to Ctrl+Z */
-		keyboard_cli_send(ascii_seqs['`' + c], 5);
+	case 0x0b ... 0x0c: /* Ctrl+K to Ctrl+L */
+	/* skip Ctrl+M (Windows Enter) */
+	case 0x0e ... 0x1a: /* Ctrl+N to Ctrl+Z */
+		cli_input_send(ascii_seqs['`' + c], 5);
 		break;
 
 	case 0x09: /* Tab */
 	case 0x0a: /* Enter */
-		keyboard_cli_send(ascii_seqs[c], 0);
+		cli_input_send(ascii_seqs[c], 0);
+		break;
+
+	case 0x0d: /* Enter (Windows) */
+		cli_input_send(ascii_seqs['\n'], 0);
 		break;
     }
 }
 
 
 static void
-keyboard_cli_hook(int c)
+cli_input_hook(int c)
 {
-    cli_keyboard_log_key("hook", c);
+    cli_input_log_key("hook", c);
 
     /* Initialize DCS buffer. */
     dcs_buf_pos = 0;
@@ -462,9 +476,9 @@ keyboard_cli_hook(int c)
 
 
 static void
-keyboard_cli_put(int c)
+cli_input_put(int c)
 {
-    cli_keyboard_log_key("put", c);
+    cli_input_log_key("put", c);
 
     /* Append character to DCS buffer. */
     if (dcs_buf_pos < (sizeof(dcs_buf) - 1)) {
@@ -475,32 +489,74 @@ keyboard_cli_put(int c)
 
 
 static void
-keyboard_cli_unhook(int c)
+cli_input_unhook(int c)
 {
-    cli_keyboard_log_key("unhook", c);
+    cli_input_log_key("unhook", c);
 
     /* Process DECRQSS. */
-    if ((collect_buf[0] == '$') && (dcs_buf[0] == 'r') && in_decrqss) {
-	/* Allocate and copy to DECRQSS buffer. */
-	char *p = decrqss_buf = malloc(strlen(dcs_buf) + 1);
-	if (param_buf[0] != '\0')
-		p += sprintf(p, "%c", param_buf[0]);
-	sprintf(p, "%c%s", collect_buf[0], dcs_buf);
+    if ((collect_buf[0] == '$') && (dcs_buf[0] == 'r')) {
+	/* Convert all delimiter characters to colon. */
+	for (int i = 0; i < dcs_buf_pos; i++) {
+		if ((dcs_buf[i] > ':') && (dcs_buf[i] <= '?'))
+			dcs_buf[i] = ':';
+	}
 
-	/* Tell the other thread that this DECRQSS is done. */
-	thread_set_event(decrqss_event);
+	/* Interpret color-related responses. */
+	if (cli_term.decrqss_color) {
+		/* Add or replace last character with a colon to ease detection. */
+		if ((dcs_buf[dcs_buf_pos - 1] >= '0') && (dcs_buf[dcs_buf_pos - 1] <= '9'))
+			strcat(dcs_buf, ":");
+		else
+			dcs_buf[dcs_buf_pos - 1] = ':';
 
-	/* Wait for acknowledgement. */
-	thread_wait_event(decrqss_ack_event, -1);
-	thread_reset_event(decrqss_ack_event);
+		/* Interpret response according to the color level currently being queried. */
+		switch (cli_term.decrqss_color) {
+			case TERM_COLOR_24BIT:
+				cli_input_log("CLI Input: DECRQSS response for 24-bit color: %s\n", dcs_buf);
+				if (strstr(dcs_buf, ":2:1:2:3:")) {
+					/* 24-bit color supported. */
+					cli_term_setcolor(TERM_COLOR_24BIT);
+				} else if (cli_term.color_level < TERM_COLOR_8BIT) {
+					/* Try 8-bit color if needed. */
+					cli_term.decrqss_color = TERM_COLOR_8BIT;
+					cli_render_write("\033[38;5;255m\033P$qm\033\\\033[0m");
+					break;
+				}
+				cli_term.decrqss_color = TERM_COLOR_NONE;
+				break;
+
+			case TERM_COLOR_8BIT:
+				cli_input_log("CLI Input: DECRQSS response for 8-bit color: %s\n", dcs_buf);
+				if (strstr(dcs_buf, ":5:255:")) {
+					/* 8-bit color supported. */
+					cli_term_setcolor(TERM_COLOR_8BIT);
+				} else if (cli_term.color_level < TERM_COLOR_4BIT) {
+					/* Try 4-bit color if needed. */
+					cli_term.decrqss_color = TERM_COLOR_4BIT;
+					cli_render_write("\033[97m\033P$qm\033\\\033[0m");
+					break;
+				}
+				cli_term.decrqss_color = TERM_COLOR_NONE;
+				break;
+
+			case TERM_COLOR_4BIT:
+				cli_input_log("CLI Input: DECRQSS response for 4-bit color: %s\n", dcs_buf);
+				if (strstr(dcs_buf, ":97:")) {
+					/* 4-bit color supported. */
+					cli_term_setcolor(TERM_COLOR_4BIT);
+				}
+				cli_term.decrqss_color = TERM_COLOR_NONE;
+				break;
+		}
+	}
     }
 }
 
 
 static void
-keyboard_cli_osc_start(int c)
+cli_input_osc_start(int c)
 {
-    cli_keyboard_log_key("osc_start", c);
+    cli_input_log_key("osc_start", c);
 
     /* Initialize OSC buffer. */
     osc_buf_pos = 0;
@@ -509,9 +565,9 @@ keyboard_cli_osc_start(int c)
 
 
 static void
-keyboard_cli_osc_put(int c)
+cli_input_osc_put(int c)
 {
-    cli_keyboard_log_key("osc_put", c);
+    cli_input_log_key("osc_put", c);
 
     /* Append character to OSC buffer. */
     if (osc_buf_pos < (sizeof(osc_buf) - 1)) {
@@ -522,16 +578,16 @@ keyboard_cli_osc_put(int c)
 
 
 static void
-keyboard_cli_osc_end(int c)
+cli_input_osc_end(int c)
 {
-    cli_keyboard_log_key("osc_end", c);
+    cli_input_log_key("osc_end", c);
 }
 
 
 static void
-keyboard_cli_param(int c)
+cli_input_param(int c)
 {
-    cli_keyboard_log_key("param", c);
+    cli_input_log_key("param", c);
 
     if (param_buf_pos < (sizeof(param_buf) - 1)) {
 	param_buf[param_buf_pos++] = c;
@@ -541,7 +597,7 @@ keyboard_cli_param(int c)
 
 
 void
-keyboard_cli_process(void *priv)
+cli_input_process(void *priv)
 {
     int c = 0, state = VT_GROUND, prev_state = VT_GROUND;
 
@@ -552,13 +608,14 @@ keyboard_cli_process(void *priv)
     while (1) {
 	/* Handle state exits. */
 	if ((prev_state == VT_DCS_PASSTHROUGH) && (state != VT_DCS_PASSTHROUGH))
-		keyboard_cli_unhook(c);
+		cli_input_unhook(c);
 	else if ((prev_state == VT_OSC_STRING) && (state != VT_OSC_STRING))
-		keyboard_cli_osc_end(c);
+		cli_input_osc_end(c);
 	prev_state = state;
 
 	/* Read character. */
 	c = getchar();
+	cli_input_log_key("process", c);
 
 	/* Interpret conditions for any state. */
 	switch (c) {
@@ -567,7 +624,7 @@ keyboard_cli_process(void *priv)
 			   may emit extended codes prefixed with ESC ESC, but there's
 			   not much we can do to parse those. */
 			if (state == VT_ESCAPE) {
-				keyboard_cli_send(0x0001, 0);
+				cli_input_send(0x0001, 0);
 				state = VT_GROUND;
 			} else {
 				state = VT_ESCAPE;
@@ -580,6 +637,11 @@ keyboard_cli_process(void *priv)
 				break;
 			else
 				continue;
+
+		case EOF:
+			/* Something went wrong. */
+			cli_input_log("CLI Input: stdin read error\n");
+			return;
 	}
 
 	/* Interpret conditions for specific states. */
@@ -587,36 +649,32 @@ keyboard_cli_process(void *priv)
 		case VT_GROUND:
 			switch (c) {
 				case 0x00 ... 0x1f:
-					keyboard_cli_execute(c);
+					cli_input_execute(c);
 					continue;
 
 				case 0x20 ... 0x7e: /* ASCII */
-					keyboard_cli_send(ascii_seqs[c], 0);
+					cli_input_send(ascii_seqs[c], 0);
 					break;
 
 				case 0x7f: /* Backspace */
-					keyboard_cli_send(ascii_seqs['\b'], 0);
+					cli_input_send(ascii_seqs['\b'], 0);
 					break;
 
 				case 0xc3:
 					state = VT_C3;
 					break;
-
-				case EOF: /* EOF (Ctrl+Z) */
-					keyboard_cli_send(ascii_seqs['z'], 5);
-					break;
 			}
 			break;
 
-		case VT_C3:
+		case VT_C3: /* this is actually UTF-8, fix later */
 			switch (c) {
 				case 0x81 ... 0x9a: /* Alt+Shift+A to Alt+Shift+Z (xterm) */
 				case 0xa1 ... 0xba: /* Alt+A to Alt+Z (xterm) */
-					keyboard_cli_send(ascii_seqs['`' + (c & 0x1f)], (c >= 0xa1) ? 3 : 4);
+					cli_input_send(ascii_seqs['`' + (c & 0x1f)], (c >= 0xa1) ? 3 : 4);
 					break;
 
 				case 0xa0: /* Alt+Space (xterm) */
-					keyboard_cli_send(ascii_seqs[' '], 3);
+					cli_input_send(ascii_seqs[' '], 3);
 					break;
 			}
 			state = VT_GROUND;
@@ -625,28 +683,31 @@ keyboard_cli_process(void *priv)
 		case VT_ESCAPE:
 			switch (c) {
 				case 0x00 ... 0x1f:
-					keyboard_cli_execute(c);
-					continue;
+					cli_input_execute(c);
+					break;
 
-				case 0x20 ... 0x2f:
+				case 0x21 ... 0x2f:
 				case 0x4f:
-					keyboard_cli_clear(c);
-					keyboard_cli_collect(c);
+					cli_input_clear(c);
+					cli_input_collect(c);
 					state = VT_ESCAPE_INTERMEDIATE;
 					break;
 
+				case 0x20:
 				case 0x30 ... 0x4e:
 				case 0x51 ... 0x57:
 				case 0x59:
 				case 0x5a:
 				case 0x5c:
-					keyboard_cli_esc_dispatch(c);
+				case 0x60 ... 0x7f:
+					cli_input_clear(c);
+					cli_input_esc_dispatch(c);
 					state = VT_GROUND;
 					break;
 
 				case 0x50:
 					state = VT_DCS_ENTRY;
-					keyboard_cli_clear(c);
+					cli_input_clear(c);
 					break;
 
 				case 0x58:
@@ -657,12 +718,12 @@ keyboard_cli_process(void *priv)
 
 				case 0x5b:
 					state = VT_CSI_ENTRY;
-					keyboard_cli_clear(c);
+					cli_input_clear(c);
 					break;
 
 				case 0x5d:
 					state = VT_OSC_STRING;
-					keyboard_cli_osc_start(c);
+					cli_input_osc_start(c);
 					break;
 			}
 			break;
@@ -671,15 +732,15 @@ keyboard_cli_process(void *priv)
 			switch (c) {
 				case 0x00 ... 0x1a:
 				case 0x1c ... 0x1f:
-					keyboard_cli_execute(c);
+					cli_input_execute(c);
 					continue;
 
 				case 0x20 ... 0x2f:
-					keyboard_cli_collect(c);
+					cli_input_collect(c);
 					break;
 
 				case 0x30 ... 0x7e:
-					keyboard_cli_esc_dispatch(c);
+					cli_input_esc_dispatch(c);
 					state = VT_GROUND;
 					break;
 			}
@@ -689,17 +750,17 @@ keyboard_cli_process(void *priv)
 			switch (c) {
 				case 0x00 ... 0x1a:
 				case 0x1c ... 0x1f:
-					keyboard_cli_execute(c);
+					cli_input_execute(c);
 					continue;
 
 				case 0x20 ... 0x2f:
-					keyboard_cli_collect(c);
+					cli_input_collect(c);
 					state = VT_ESCAPE_INTERMEDIATE;
 					break;
 
 				case 0x30 ... 0x39:
 				case 0x3b:
-					keyboard_cli_param(c);
+					cli_input_param(c);
 					state = VT_CSI_PARAM;
 					break;
 
@@ -708,12 +769,12 @@ keyboard_cli_process(void *priv)
 					break;
 
 				case 0x3c ... 0x3f:
-					keyboard_cli_collect(c);
+					cli_input_collect(c);
 					state = VT_CSI_PARAM;
 					break;
 
 				case 0x40 ... 0x7e:
-					keyboard_cli_csi_dispatch(c);
+					cli_input_csi_dispatch(c);
 					state = VT_GROUND;
 					break;
 			}
@@ -723,7 +784,7 @@ keyboard_cli_process(void *priv)
 			switch (c) {
 				case 0x00 ... 0x1a:
 				case 0x1c ... 0x1f:
-					keyboard_cli_execute(c);
+					cli_input_execute(c);
 					continue;
 
 				case 0x40 ... 0x7e:
@@ -736,17 +797,17 @@ keyboard_cli_process(void *priv)
 			switch (c) {
 				case 0x00 ... 0x1a:
 				case 0x1c ... 0x1f:
-					keyboard_cli_execute(c);
+					cli_input_execute(c);
 					continue;
 
 				case 0x20 ... 0x2f:
-					keyboard_cli_collect(c);
+					cli_input_collect(c);
 					state = VT_CSI_INTERMEDIATE;
 					break;
 
 				case 0x30 ... 0x39:
 				case 0x3b:
-					keyboard_cli_param(c);
+					cli_input_param(c);
 					break;
 
 				case 0x3a:
@@ -755,7 +816,7 @@ keyboard_cli_process(void *priv)
 					break;
 
 				case 0x40 ... 0x7e:
-					keyboard_cli_csi_dispatch(c);
+					cli_input_csi_dispatch(c);
 					state = VT_GROUND;
 					break;
 			}
@@ -765,11 +826,11 @@ keyboard_cli_process(void *priv)
 			switch (c) {
 				case 0x00 ... 0x1a:
 				case 0x1c ... 0x1f:
-					keyboard_cli_execute(c);
+					cli_input_execute(c);
 					continue;
 
 				case 0x20 ... 0x2f:
-					keyboard_cli_collect(c);
+					cli_input_collect(c);
 					break;
 
 				case 0x30 ... 0x3f:
@@ -777,7 +838,7 @@ keyboard_cli_process(void *priv)
 					break;
 
 				case 0x40 ... 0x7e:
-					keyboard_cli_csi_dispatch(c);
+					cli_input_csi_dispatch(c);
 					state = VT_GROUND;
 					break;
 			}
@@ -785,16 +846,16 @@ keyboard_cli_process(void *priv)
 
 		case VT_DCS_ENTRY:
 			if (prev_state != VT_DCS_ENTRY)
-				keyboard_cli_clear(c);
+				cli_input_clear(c);
 			switch (c) {
 				case 0x20 ... 0x2f:
-					keyboard_cli_collect(c);
+					cli_input_collect(c);
 					state = VT_DCS_INTERMEDIATE;
 					break;
 
 				case 0x30 ... 0x39:
 				case 0x3b:
-					keyboard_cli_param(c);
+					cli_input_param(c);
 					state = VT_DCS_PARAM;
 					break;
 
@@ -803,13 +864,13 @@ keyboard_cli_process(void *priv)
 					break;
 
 				case 0x3c ... 0x3f:
-					keyboard_cli_collect(c);
+					cli_input_collect(c);
 					state = VT_DCS_PARAM;
 					break;
 
 				case 0x40 ... 0x7e:
 					state = VT_DCS_PASSTHROUGH;
-					keyboard_cli_hook(c);
+					cli_input_hook(c);
 					break;
 			}
 			break;
@@ -817,7 +878,7 @@ keyboard_cli_process(void *priv)
 		case VT_DCS_INTERMEDIATE:
 			switch (c) {
 				case 0x20 ... 0x2f:
-					keyboard_cli_collect(c);
+					cli_input_collect(c);
 					break;
 
 				case 0x30 ... 0x3f:
@@ -826,7 +887,7 @@ keyboard_cli_process(void *priv)
 
 				case 0x40 ... 0x7e:
 					state = VT_DCS_PASSTHROUGH;
-					keyboard_cli_hook(c);
+					cli_input_hook(c);
 					break;
 			}
 			break;
@@ -834,13 +895,13 @@ keyboard_cli_process(void *priv)
 		case VT_DCS_PARAM:
 			switch (c) {
 				case 0x20 ... 0x2f:
-					keyboard_cli_collect(c);
+					cli_input_collect(c);
 					state = VT_DCS_INTERMEDIATE;
 					break;
 
 				case 0x30 ... 0x39:
 				case 0x3b:
-					keyboard_cli_param(c);
+					cli_input_param(c);
 					break;
 
 				case 0x3a:
@@ -850,7 +911,7 @@ keyboard_cli_process(void *priv)
 
 				case 0x40 ... 0x7e:
 					state = VT_DCS_PASSTHROUGH;
-					keyboard_cli_hook(c);
+					cli_input_hook(c);
 					break;
 			}
 			break;
@@ -858,7 +919,7 @@ keyboard_cli_process(void *priv)
 		case VT_DCS_PASSTHROUGH:
 			switch (c) {
 				case 0x00 ... 0x7e:
-					keyboard_cli_put(c);
+					cli_input_put(c);
 					break;
 			}
 			break;
@@ -866,7 +927,7 @@ keyboard_cli_process(void *priv)
 		case VT_OSC_STRING:
 			switch (c) {
 				case 0x20 ... 0x7e:
-					keyboard_cli_osc_put(c);
+					cli_input_osc_put(c);
 					break;
 			}
 			break;
@@ -875,110 +936,20 @@ keyboard_cli_process(void *priv)
 }
 
 
-char *
-keyboard_cli_decrqss(char *query)
-{
-    /* Don't query if DECRQSS queries are disabled,
-       or we're in the middle of another query. */
-    if (!can_decrqss || in_decrqss) {
-	cli_keyboard_log("CLI Keyboard: decrqss(%s) ignored\n", query);
-	return NULL;
-    }
-    cli_keyboard_log("CLI Keyboard: decrqss(%s)\n", query);
-
-    /* Wait for the processing thread to be ready. */
-    thread_wait_event(ready_event, -1);
-
-    /* Flag that we're in a query. */
-    thread_reset_event(decrqss_event);
-    decrqss_buf = NULL;
-    in_decrqss = 1;
-
-    /* Send query. */
-    char *full_query = malloc(strlen(query) + 5);
-    sprintf(full_query, "\033P%s\033\\", query);
-    cli_render_write(full_query);
-
-    /* Wait up to 500ms for a response. */
-    thread_wait_event(decrqss_event, 500);
-
-    /* Determine if the terminal responded. If that's not the case and this
-       is the first query, disable DECRQSS queries altogether, to prevent
-       constant timeouts on terminals that never respond (PuTTY and others). */
-    if (can_decrqss == 1)
-	can_decrqss = (decrqss_buf && (decrqss_buf[0] != '\0')) << 1;
-
-    /* Acknowledge to the other thread. */
-    char *ret = decrqss_buf;
-    in_decrqss = 0;
-    thread_set_event(decrqss_ack_event);
-    cli_keyboard_log("CLI Keyboard: decrqss(%s) = %s\n", query, ret);
-
-    /* Don't forget to free! */
-    return ret;
-}
-
-
-int
-keyboard_cli_decrqss_str(char *query, char *substring)
-{
-    /* Perform DECRQSS query. */
-    char *buf = keyboard_cli_decrqss(query);
-    if (!buf)
-	return -3;
-
-    /* Compare length. */
-    int len = strlen(buf), i;
-    if (len < strlen(substring)) {
-	i = -2;
-	goto end;
-    }
-
-    /* Convert all parameter delimiters to colon. */
-    for (i = 0; i < len; i++) {
-	if ((buf[i] > ':') && (buf[i] <= '?'))
-		buf[i] = ':';
-    }
-
-    /* Check substring. */
-    char *p = strstr(buf, substring);
-    if (p)
-	i = p - buf;
-    else
-	i = -1;
-
-end:
-    /* Clean up and return result. */
-    free(buf);
-    return i;
-}
-
-
 void
-keyboard_cli_init()
+cli_input_init()
 {
-    /* Enable raw input. */
 #ifdef _WIN32
-    HANDLE h;
-    FILE *fp = NULL;
-    int i;
-    if ((h = GetStdHandle(STD_INPUT_HANDLE)) != NULL) {
-	/* We got the handle, now open a file descriptor. */
-	SetConsoleMode(h, 0);
-	if ((i = _open_osfhandle((intptr_t)h, _O_TEXT)) != -1) {
-		/* We got a file descriptor, now allocate a new stream. */
-		if ((fp = _fdopen(i, "r")) != NULL) {
-			/* Got the stream, re-initialize stdin without it. */
-			(void)freopen("CONIN$", "r", stdin);
-			setvbuf(stdin, NULL, _IONBF, 0);
-		}
-	}
-    }
-    if (fp != NULL) {
-	fclose(fp);
-	fp = NULL;
+    /* Enable ANSI. */
+    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+    if (h) {
+	if (!SetConsoleMode(h, ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_EXTENDED_FLAGS))
+		cli_input_log("CLI Input: SetConsoleMode failed (%08X)\n", GetLastError());
+    } else {
+    	cli_input_log("CLI Input: GetStdHandle failed (%08X)\n", GetLastError());
     }
 #else
+    /* Enable raw input. */
     struct termios ios;
     tcgetattr(STDIN_FILENO, &ios);
     ios.c_lflag &= ~(ECHO | ICANON | ISIG);
@@ -988,7 +959,6 @@ keyboard_cli_init()
 
     /* Start input processing thread. */
     ready_event = thread_create_event();
-    decrqss_event = thread_create_event();
-    decrqss_ack_event = thread_create_event();
-    keyboard_cli_thread = thread_create(keyboard_cli_process, NULL);
+    thread_create(cli_input_process, NULL);
+    thread_wait_event(ready_event, -1);
 }

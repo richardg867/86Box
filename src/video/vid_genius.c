@@ -32,7 +32,7 @@
 #include <86box/plat.h>
 #include <86box/video.h>
 #ifdef USE_CLI
-# include <86box/vid_text_render.h>
+# include <86box/cli.h>
 #endif
 
 
@@ -435,7 +435,7 @@ genius_textline(genius_t *genius, uint8_t background, int mda, int cols80)
 
 #ifdef USE_CLI
 	if ((dl % 8) == 0)
-		text_render_mda(w,
+		cli_render_mda(w,
 				framebuf, ma,
 				1, ctrl & 0x20,
 				ca, ctrl & 8);

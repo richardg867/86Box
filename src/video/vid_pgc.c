@@ -91,7 +91,7 @@
 #include <86box/vid_cga.h>
 #include <86box/vid_pgc.h>
 #ifdef USE_CLI
-# include <86box/vid_text_render.h>
+# include <86box/cli.h>
 #endif
 
 
@@ -2340,7 +2340,7 @@ pgc_cga_text(pgc_t *dev, int w)
 
 #ifdef USE_CLI
     if ((dev->displine % 8) == 0)
-	text_render_cga(dev->displine / pitch,
+	cli_render_cga(dev->displine / pitch,
 			w, 1,
 			dev->cga_vram, ma, 0x3fff, 1,
 			dev->mapram[0x3d8] & 0x08, dev->mapram[0x3d8] & 0x20,
@@ -2394,7 +2394,7 @@ pgc_cga_gfx40(pgc_t *dev)
     uint16_t dat;
 
 #ifdef USE_CLI
-    text_render_gfx("PGC %dx%d");
+    cli_render_gfx("PGC %dx%d");
 #endif
 
     cols[0] = (dev->mapram[0x3d9] & 15) + 16;
@@ -2443,7 +2443,7 @@ pgc_cga_gfx80(pgc_t *dev)
     uint16_t dat;
 
 #ifdef USE_CLI
-    text_render_gfx("PGC %dx%d");
+    cli_render_gfx("PGC %dx%d");
 #endif
 
     cols[0] = 16;

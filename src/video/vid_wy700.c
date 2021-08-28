@@ -29,7 +29,7 @@
 #include <86box/device.h>
 #include <86box/video.h>
 #ifdef USE_CLI
-# include <86box/vid_text_render.h>
+# include <86box/cli.h>
 #endif
 
 
@@ -565,12 +565,12 @@ void wy700_textline(wy700_t *wy700)
 
 #ifdef USE_CLI
 	if (mda)
-		text_render_mda(w,
+		cli_render_mda(w,
 				wy700->vram, ma,
 				1, wy700->cga_ctrl & 0x20,
 				ca, !(wy700->real_crtc[0x0a] & 0x20) && ((wy700->real_crtc[0x0b] & 0x1f) >= (wy700->real_crtc[0x0a] & 0x1f)));
 	else
-		text_render_cga(w,
+		cli_render_cga(w,
 				w, 1,
 				wy700->vram, ma, 0x3fff, 1,
 				1, wy700->cga_ctrl & 0x20,
@@ -640,7 +640,7 @@ void wy700_cgaline(wy700_t *wy700)
 	       ((ma & ~1) << 1);
 
 #ifdef USE_CLI
-	text_render_gfx("Wyse 700 %dx%d");
+	cli_render_gfx("Wyse 700 %dx%d");
 #endif
 
 	/* The fixed mode setting here programs the real CRTC with a screen 
@@ -701,7 +701,7 @@ void wy700_medresline(wy700_t *wy700)
 	addr = (wy700->displine >> 1) * 80 + 4 * wy700->wy700_base;
 
 #ifdef USE_CLI
-	text_render_gfx("Wyse 700 %dx%d");
+	cli_render_gfx("Wyse 700 %dx%d");
 #endif
 
 	for (x = 0; x < 20; x++)
@@ -768,7 +768,7 @@ void wy700_hiresline(wy700_t *wy700)
 	}
 
 #ifdef USE_CLI
-	text_render_gfx("Wyse 700 %dx%d");
+	cli_render_gfx("Wyse 700 %dx%d");
 #endif
 
 	for (x = 0; x < 40; x++)

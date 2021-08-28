@@ -40,7 +40,7 @@
 #include <86box/vid_ogc.h>
 #include <86box/vid_cga_comp.h>
 #ifdef USE_CLI
-# include <86box/vid_text_render.h>
+# include <86box/cli.h>
 #endif
 
 
@@ -232,7 +232,7 @@ ogc_poll(void *priv)
 				if (ogc->cga.cgamode & 1) {
 #ifdef USE_CLI
 					if ((ogc->cga.displine % 8) == 0)
-						text_render_cga(ogc->cga.ma / ogc->cga.crtc[1],
+						cli_render_cga(ogc->cga.ma / ogc->cga.crtc[1],
 								ogc->cga.crtc[1], 1,
 								ogc->cga.charbuffer, 0, sizeof(ogc->cga.charbuffer) - 1, 1,
 								ogc->cga.cgamode & 0x08, ogc->cga.cgamode & 0x20,
@@ -293,7 +293,7 @@ ogc_poll(void *priv)
 				else if (!(ogc->cga.cgamode & 2)) {
 #ifdef USE_CLI
 					if ((ogc->cga.displine % 8) == 0)
-						text_render_cga(ogc->cga.ma / ogc->cga.crtc[1],
+						cli_render_cga(ogc->cga.ma / ogc->cga.crtc[1],
 								ogc->cga.crtc[1], 1,
 								ogc->cga.charbuffer, 0, sizeof(ogc->cga.charbuffer) - 1, 1,
 								ogc->cga.cgamode & 0x08, ogc->cga.cgamode & 0x20,
@@ -352,7 +352,7 @@ ogc_poll(void *priv)
 					}
 				} else {
 #ifdef USE_CLI
-					text_render_gfx("OGC %dx%d");
+					cli_render_gfx("OGC %dx%d");
 #endif
 					/* 640x400 mode */
 					if (ogc->ctrl_3de & 1 ) {

@@ -31,7 +31,7 @@
 #include <86box/device.h>
 #include <86box/video.h>
 #ifdef USE_CLI
-# include <86box/vid_text_render.h>
+# include <86box/cli.h>
 #endif
 
 
@@ -425,12 +425,12 @@ text_line(herculesplus_t *dev, uint16_t ca)
 	if ((dev->displine % 8) == 0) {
 		c = dev->crtc[HERCULESPLUS_CRTC_XMODE] & 5;
 		if ((c == 0) || (c == 4))
-			text_render_mda(dev->crtc[1],
+			cli_render_mda(dev->crtc[1],
 					dev->vram, dev->ma,
 					dev->ctrl & 8, dev->ctrl & 0x20,
 					ca, !(dev->crtc[0x0a] & 0x20) && ((dev->crtc[0x0b] & 0x1f) >= (dev->crtc[0x0a] & 0x1f)));
 		else
-			text_render_gfx("Hercules Plus RAMfont");
+			cli_render_gfx("Hercules Plus RAMfont");
 	}
 #endif
 
@@ -478,7 +478,7 @@ graphics_line(herculesplus_t *dev)
     uint16_t val;
 
 #ifdef USE_CLI
-    text_render_gfx("Hercules Plus %dx%d");
+    cli_render_gfx("Hercules Plus %dx%d");
 #endif
 
     /* Graphics mode. */
