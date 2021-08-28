@@ -71,7 +71,7 @@ extern cli_term_t cli_term;
 extern const uint8_t cga_ansi_palette[];
 
 /* video.c */
-extern volatile int cli_render_png;
+extern volatile int cli_blit;
 
 
 /* cli.c */
@@ -88,7 +88,7 @@ extern void	cli_input_init();
 extern void	cli_render_blank();
 extern void	cli_render_gfx(char *str);
 extern void	cli_render_gfx_box(char *str);
-extern void	cli_render_gfx_image(char *fn);
+extern void	cli_render_gfx_blit(uint32_t *buf, int w, int h);
 extern void	cli_render_cga(uint8_t cy,
 			       int xlimit, int xinc,
 			       uint8_t *fb, uint32_t fb_base, uint32_t fb_mask, uint8_t fb_step,

@@ -77,7 +77,7 @@
 
 volatile int	screenshots = 0;
 #ifdef USE_CLI
-volatile int	cli_render_png = 0;
+volatile int	cli_blit = 0;
 #endif
 bitmap_t	*buffer32 = NULL;
 bitmap_t	*render_buffer = NULL;
@@ -461,12 +461,10 @@ void blit_thread(void *param)
     }
 
 #ifdef USE_CLI
-    if (cli_render_png) {
-	if (render_buffer != NULL) {
-		video_take_screenshot("cli_temp.png", blit_data.x, blit_data.y, blit_data.y1, blit_data.y2, blit_data.w, blit_data.h);
-		cli_render_gfx_image("cli_temp.png");
-	}
-	cli_render_png = 0;
+    if (cli_blit) {
+	if (render_buffer != NULL)
+		cli_render_gfx_blit(render_buffer->dat, blit_data.w, blit_data.h);
+	cli_blit = 0;
     }
 #endif
 
