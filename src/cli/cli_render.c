@@ -16,6 +16,7 @@
  */
 #include <math.h>
 #define PNG_DEBUG 0
+
 #include <png.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -55,6 +56,12 @@ typedef struct {
     uint8_t	invalidate, do_render, do_blink;
 } cli_render_line_t;
 
+typedef struct _cli_render_png_ {
+    uint8_t	buffer[3072];
+    uint16_t	size;
+    struct _cli_render_png_ *next;
+} cli_render_png_t;
+
 
 /* Lookup table for converting CGA colors to the ANSI palette. */
 const uint8_t cga_ansi_palette[] = {
@@ -91,7 +98,9 @@ static char	infobox[256];
 static uint8_t	palette_4bit[16], palette_8bit[16],
 		cursor_x = -1, cursor_y = -1;
 static uint32_t	palette_24bit[16];
-static time_t	gfx_last;
+static time_t	gfx_last = 0;
+static int	png_size = 0;
+static cli_render_png_t *png_first, *png_current;
 static cli_render_line_t *lines[CLI_RENDER_MAX_LINES];
 static struct {
     thread_t	*thread;
@@ -101,10 +110,10 @@ static struct {
     uint16_t	ca;
     uint32_t	fb_base, fb_mask, fb_step;
     union {
-    	int	xlimit, blit_sx;
+	int	xlimit, blit_sx;
     };
     union {
-    	int	xinc, blit_sy;
+	int	xinc, blit_sy;
     };
     int		infobox_sx, infobox_sy;
 } render_data = { .prev_mode = -1, .y = CLI_RENDER_MAX_LINES + 1 };
@@ -181,13 +190,13 @@ cli_render_gfx_blit(uint32_t *buf, int w, int h)
     png_byte *p;
     uint32_t temp;
     for (int y = 0; y < h; y++) {
-    	local_buf[y] = p = malloc(3 * w);
-    	for (int x = 0; x < w; x++) {
-    		temp = *buf++;
+	local_buf[y] = p = malloc(3 * w);
+	for (int x = 0; x < w; x++) {
+		temp = *buf++;
 		*p++ = (temp >> 16) & 0xff;
 		*p++ = (temp >> 8) & 0xff;
 		*p++ = temp & 0xff;
-    	}
+	}
     }
 
     /* Initiate a render on the local buffer. */
@@ -214,7 +223,6 @@ cli_render_cga(uint8_t y,
     thread_reset_event(render_data.render_complete);
 
     render_data.mode = CLI_RENDER_CGA;
-    render_data.y = y;
     render_data.xlimit = xlimit;
     render_data.xinc = xinc;
     render_data.fb = fb;
@@ -225,6 +233,7 @@ cli_render_cga(uint8_t y,
     render_data.do_blink = do_blink;
     render_data.ca = ca;
     render_data.con = con;
+    render_data.y = y;
 
     thread_set_event(render_data.wake_render_thread);
 }
@@ -240,7 +249,6 @@ cli_render_mda(int xlimit,
     thread_reset_event(render_data.render_complete);
 
     render_data.mode = CLI_RENDER_MDA;
-    render_data.y = fb_base / xlimit;
     render_data.xlimit = xlimit;
     render_data.xinc = 1;
     render_data.fb = fb;
@@ -251,6 +259,7 @@ cli_render_mda(int xlimit,
     render_data.do_blink = do_blink;
     render_data.ca = ca;
     render_data.con = con;
+    render_data.y = fb_base / xlimit;
 
     thread_set_event(render_data.wake_render_thread);
 }
@@ -343,12 +352,15 @@ cli_render_setcolor_4bit(char *p, uint8_t index, uint8_t is_background) {
 	    pre_attr = 0, sgr = (is_background ? 40 : 30) + (approx & 7);
 
     if (approx & 8) {
-	if (is_background)
+	if (is_background) {
+		pre_attr = sgr;
 		sgr += 60; /* bright background: use non-standard SGR */
-	else
+	} else {
 		pre_attr = 1; /* bright foreground: increase intensity */
-    } else if (!is_background)
+	}
+    } else if (!is_background) {
 	pre_attr = 22; /* regular foreground: decrease intensity */
+    }
 
     if (pre_attr)
 	return sprintf(p, "%d;%d", pre_attr, sgr);
@@ -525,68 +537,60 @@ cli_render_updateline(char *buf, uint8_t y, uint8_t new_cx, uint8_t new_cy)
 
 
 static void
-cli_render_process_base64(uint8_t *buf, uint8_t len)
+cli_render_process_base64(uint8_t *buf, int len)
 {
-    uint32_t tri = buf[0] << 16;
-    if (len >= 2) {
-	tri |= buf[1] << 8;
-	if (len == 3)
-		tri |= buf[2];
-    }
-    fprintf(CLI_RENDER_OUTPUT, "%c%c%c%c",
-	    base64[tri >> 18],
-	    base64[(tri >> 12) & 0x3f],
-	    (len == 1) ? '=' : base64[(tri >> 6) & 0x3f],
-	    (len <= 2) ? '=' : base64[tri & 0x3f]);
-}
-
-
-static void
-cli_render_process_png(png_structp png_ptr, png_bytep data, size_t length)
-{
-    /* Output data as base64. */
-    while (length > 3) {
-    	cli_render_process_base64(data, 3);
-    	data += 3;
-    	length -= 3;
-    }
-    if (length > 0)
-	cli_render_process_base64(data, length);
-}
-
-
-static void
-cli_render_process_png_kitty(png_structp png_ptr, png_bytep data, size_t length)
-{
-    int *format_sent_p = png_get_io_ptr(png_ptr),
-	format_sent = *format_sent_p,
-	chunk_len;
-
-    /* Output data in chunks of up to 3072 bytes,
-       which result in 4096 base64-encoded bytes. */
-    while (length > 0) {
-    	/* Output header. */
-    	fputs("\033_G", CLI_RENDER_OUTPUT);
-    	if (!format_sent) {
-		*format_sent_p = format_sent = 0;
-		fputs("f=100,q=1,", CLI_RENDER_OUTPUT);
+    uint32_t tri;
+    while (len > 0) {
+	tri = buf[0] << 16;
+	if (len >= 2) {
+		tri |= buf[1] << 8;
+		if (len >= 3)
+			tri |= buf[2];
 	}
-	fputs("m=1;", CLI_RENDER_OUTPUT);
-
-	/* Output data as base64. */
-	chunk_len = MIN(length, 3072);
-    	cli_render_process_png(png_ptr, data, chunk_len);
-    	data += chunk_len;
-    	length -= chunk_len;
-
-    	/* Output terminator. */
-    	fputs("\033\\", CLI_RENDER_OUTPUT);
+	fprintf(CLI_RENDER_OUTPUT, "%c%c%c%c",
+		base64[tri >> 18],
+		base64[(tri >> 12) & 0x3f],
+		(len == 1) ? '=' : base64[(tri >> 6) & 0x3f],
+		(len <= 2) ? '=' : base64[tri & 0x3f]);
+	len -= 3;
+	buf += 3;
     }
 }
 
 
 static void
-cli_render_process_png_flush(png_structp png_ptr)
+cli_render_process_pngwrite(png_structp png_ptr, png_bytep data, size_t length)
+{
+    png_size += length;
+
+    /* Append data to current buffer if there's room. */
+    int chunk_len = sizeof(png_current->buffer) - png_current->size;
+    if (chunk_len) {
+	if (length < chunk_len)
+		chunk_len = length;
+	memcpy(png_current->buffer + png_current->size, data, chunk_len);
+	png_current->size += chunk_len;
+	data += chunk_len;
+	length -= chunk_len;
+    }
+
+    /* Output any outstanding data to new buffer(s). */
+    while (length > 0) {
+	png_current->next = malloc(sizeof(cli_render_png_t));
+	png_current = png_current->next;
+	png_current->next = NULL;
+
+        chunk_len = MIN(length, sizeof(png_current->buffer));
+        memcpy(png_current->buffer, data, chunk_len);
+        png_current->size = chunk_len;
+	data += chunk_len;
+	length -= chunk_len;
+    }
+}
+
+
+static void
+cli_render_process_pngflush(png_structp png_ptr)
 {
 }
 
@@ -604,7 +608,7 @@ cli_render_process(void *priv)
 	    prev_sgr_blink, prev_sgr_bg, prev_sgr_fg,
 	    new_cx, new_cy;
     uint16_t chr_attr;
-    int xc, x, w;
+    int i, x, w;
     cli_render_line_t *line;
     png_structp png_ptr;
     png_infop info_ptr;
@@ -632,10 +636,10 @@ cli_render_process(void *priv)
 		strcpy(&buf[strlen(buf)], "m\033[2J\033[3J");
 		fputs(buf, CLI_RENDER_OUTPUT);
 
-		for (xc = 0; xc < CLI_RENDER_MAX_LINES; xc++) {
-			if (lines[xc]) {
+		for (i = 0; i < CLI_RENDER_MAX_LINES; i++) {
+			if (lines[i]) {
 				/* TODO: redraw everything! (msdos edit exit) */
-				lines[xc]->invalidate = 1;
+				lines[i]->invalidate = 1;
 			}
 		}
 	}
@@ -655,7 +659,7 @@ cli_render_process(void *priv)
 				/* Render top line. */
 				p = buf;
 				p += sprintf(p, "\033[30;47m%s", cp437[0xc9]);
-				for (xc = 0; xc < w; xc++)
+				for (i = 0; i < w; i++)
 					p += sprintf(p, "%s", cp437[0xcd]);
 				sprintf(p, "%s", cp437[0xbb]);
 				cli_render_updateline(buf, 0, -1, -1);
@@ -663,15 +667,15 @@ cli_render_process(void *priv)
 				/* Render bottom line. */
 				p = buf;
 				p += sprintf(p, "\033[30;47m%s", cp437[0xc8]);
-				for (xc = 0; xc < w; xc++)
+				for (i = 0; i < w; i++)
 					p += sprintf(p, "%s", cp437[0xcd]);
 				sprintf(p, "%s", cp437[0xbc]);
 				cli_render_updateline(buf, 2, -1, -1);
 			} else {
 				/* Render blank lines where the infobox should have been. */
 				buf[0] = '\0';
-				for (xc = 0; xc < 3; xc++)
-					cli_render_updateline(buf, xc, -1, -1);
+				for (i = 0; i < 3; i++)
+					cli_render_updateline(buf, i, -1, -1);
 			}
 			break;
 
@@ -704,7 +708,7 @@ cli_render_process(void *priv)
 
 			/* Copy framebuffer while determining whether or not
 			   it has changed, as well as the cursor position. */
-			for (xc = x = 0; (xc < render_data.xlimit) && (x < cli_term.size_x); xc += render_data.xinc, x++) {
+			for (i = x = 0; (i < render_data.xlimit) && (x < cli_term.size_x); i += render_data.xinc, x++) {
 				/* Compare and copy 16-bit character+attribute value. */
 				chr_attr = *((uint16_t *) &render_data.fb[(render_data.fb_base << 1) & render_data.fb_mask]);
 				if (chr_attr != line->framebuffer[x]) {
@@ -731,7 +735,7 @@ cli_render_process(void *priv)
 			sgr_blackout = -1;
 
 			/* Render each character. */
-			for (xc = x = 0; (xc < render_data.xlimit) && (x < cli_term.size_x); xc += render_data.xinc, x++) {
+			for (i = x = 0; (i < render_data.xlimit) && (x < cli_term.size_x); i += render_data.xinc, x++) {
 				if (render_data.do_render) {
 					chr_attr = line->framebuffer[x];
 					chr = chr_attr & 0xff;
@@ -839,26 +843,17 @@ next:
 			break;
 
 		case CLI_RENDER_GFX:
-			/* Initialize PNG encoder. */
+			/* Initialize PNG data. */
 			png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+			png_size = 0;
+			png_first = png_current = malloc(sizeof(cli_render_png_t));
+			png_first->size = 0;
+			png_first->next = NULL;
 
-			/* Move to the top left corner. */
-			fputs("\033[1;1H", CLI_RENDER_OUTPUT);
+			/* Set write function. */
+			png_set_write_fn(png_ptr, NULL, cli_render_process_pngwrite, cli_render_process_pngflush);
 
-			/* Output image according to the terminal's capabilities. */
-			if (cli_term.gfx_level & TERM_GFX_PNG) {
-				/* Output header. */
-				/* TODO: this requires size beforehand, i am dumb */
-				fprintf(CLI_RENDER_OUTPUT, "\033]1337;File=name=aS5wbmc=;size=%d:", 1048576); /* i.png */
-
-				/* Set write function. */
-				png_set_write_fn(png_ptr, NULL, cli_render_process_png, cli_render_process_png_flush);
-			} else if (cli_term.gfx_level & TERM_GFX_PNG_KITTY) {
-				/* Set write function, which handles chunking. */
-				png_set_write_fn(png_ptr, &xc, cli_render_process_png_kitty, cli_render_process_png_flush);
-			}
-
-			/* Output PNG image. */
+			/* Output PNG to data buffer. */
 			info_ptr = png_create_info_struct(png_ptr);
 			png_set_IHDR(png_ptr, info_ptr, render_data.blit_sx, render_data.blit_sy,
 				     8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
@@ -867,11 +862,52 @@ next:
 			png_write_image(png_ptr, (png_bytep *) render_data.fb);
 			png_write_end(png_ptr, NULL);
 
-			/* Output terminator. */
-			if (cli_term.gfx_level & TERM_GFX_PNG)
+			/* Move to the top left corner. */
+			fputs("\033[1;1H", CLI_RENDER_OUTPUT);
+
+			/* Output PNG from data buffer according to the terminal's capabilities. */
+			if (cli_term.gfx_level & TERM_GFX_PNG) {
+				/* Output header. */
+				fprintf(CLI_RENDER_OUTPUT, "\033]1337;File=name=aS5wbmc=;size=%d:", png_size); /* i.png */
+
+				/* Output image. */
+				while (png_first) {
+					/* Output chunk data as base64. */
+					cli_render_process_base64(png_first->buffer, png_first->size);
+
+					/* Move on to the next chunk. */
+					png_current = png_first;
+					png_first = png_first->next;
+					free(png_current);
+				}
+
+				/* Output terminator. */
 				fputc('\a', CLI_RENDER_OUTPUT);
-			else if (cli_term.gfx_level & TERM_GFX_PNG_KITTY)
-				fputs("\033_Gm=0;\033\\", CLI_RENDER_OUTPUT);
+			} else if (cli_term.gfx_level & TERM_GFX_PNG_KITTY) {
+				/* Output image in chunks of up to 4096
+				   base64-encoded bytes (3072 real bytes). */
+				i = 1;
+				while (png_first) {
+					/* Output header. */
+					fputs("\033_G", CLI_RENDER_OUTPUT);
+					if (i) {
+						i = 0;
+						fputs("f=100,q=1,", CLI_RENDER_OUTPUT);
+					}
+					fprintf(CLI_RENDER_OUTPUT, "m=%d;", !!png_first->next);
+
+					/* Output chunk data as base64. */
+					cli_render_process_base64(png_first->buffer, png_first->size);
+
+					/* Output terminator. */
+					fputs("\033\\", CLI_RENDER_OUTPUT);
+
+					/* Move on to the next chunk. */
+					png_current = png_first;
+					png_first = png_first->next;
+					free(png_current);
+				}
+			}
 
 			/* Flush output. */
 			fflush(CLI_RENDER_OUTPUT);

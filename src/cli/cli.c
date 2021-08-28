@@ -177,18 +177,17 @@ cli_term_updatesize(int runtime)
 {
     int sx = 0, sy = 0;
 
-    /* Get terminal size through the OS.
-       TODO: migrate this method to a plat function. */
+    /* Get terminal size through the OS. */
 #ifdef _WIN32
     HANDLE h = GetStdHandle(STD_ERROR_HANDLE);
     if (h) {
-    	CONSOLE_SCREEN_BUFFER_INFO info;
-    	if (GetConsoleScreenBufferInfo(h, &info)) {
+	CONSOLE_SCREEN_BUFFER_INFO info;
+	if (GetConsoleScreenBufferInfo(h, &info)) {
 		sx = info.srWindow.Right - info.srWindow.Left + 1;
 		sy = info.srWindow.Bottom - info.srWindow.Top + 1;
 	}
 
-	/* While we're here on startup, enable ANSI. */
+	/* While we're here on startup, enable ANSI output. */
 	if (!runtime) {
 		DWORD mode;
 		if (GetConsoleMode(h, &mode)) {
@@ -207,18 +206,20 @@ cli_term_updatesize(int runtime)
 #endif
     if ((sx > 1) && (sy > 1)) {
 	cli_term_setsize(sx, sy, "OS");
-    } else {
-	/* Get terminal size through bash environment variables on startup. */
-	char *env_x, *env_y;
-	if (!runtime &&
-	    (env_x = getenv("COLUMNS")) && (sscanf(env_x, "%d", &sx) == 1) && (sx > 1) &&
-	    (env_y = getenv("LINES")) && (sscanf(env_y, "%d", &sy) == 1) && (sy > 1)) {
-		cli_term_setsize(sx, sy, "environment");
-	} else {
-		/* Get terminal size through a CPR query. */
-		cli_render_write("\033[999;999H\033[6n\033[1;1H");
-	}
+	return;
     }
+
+    /* Get terminal size through bash environment variables on startup. */
+    char *env;
+    if (!runtime &&
+	(env = getenv("COLUMNS")) && (sscanf(env, "%d", &sx) == 1) && (sx > 1) &&
+	(env = getenv("LINES")) && (sscanf(env, "%d", &sy) == 1) && (sy > 1))
+	cli_term_setsize(sx, sy, "environment");
+
+    /* Get terminal size through a CPR query, even if we already have
+       bash environment variable data, since that may be inaccurate. */
+    cli_term.cpr = 1;
+    cli_render_write("\033[999;999H\033[6n\033[1;1H");
 }
 
 

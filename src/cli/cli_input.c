@@ -395,7 +395,8 @@ cli_input_csi_dispatch(int c)
     }
 
     /* Determine if this is actually a terminal size query response. */
-    if ((c == 'R') && (code > 1) && (modifier > 1)) {
+    if (cli_term.cpr && (c == 'R') && (code > 1) && (modifier > 1)) {
+	cli_term.cpr = 0;
 	cli_term_setsize(modifier, code, "CPR");
 	return;
     }
@@ -417,8 +418,8 @@ cli_input_esc_dispatch(int c)
     cli_input_log_key("esc_dispatch", c);
 
     switch (collect_buf[0]) {
-    	case '\0': /* no parameter */
-    		switch (c) {
+	case '\0': /* no parameter */
+		switch (c) {
 			case 0x20 ... 0x7f: /* Alt+Space to Alt+Backspace (Windows) */
 				cli_input_send(ascii_seqs[c], 3);
 				break;
@@ -940,13 +941,13 @@ void
 cli_input_init()
 {
 #ifdef _WIN32
-    /* Enable ANSI. */
+    /* Enable ANSI input. */
     HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
     if (h) {
-	if (!SetConsoleMode(h, ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_EXTENDED_FLAGS))
+	if (!SetConsoleMode(h, ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_EXTENDED_FLAGS)) /* ENABLE_EXTENDED_FLAGS disables quickedit */
 		cli_input_log("CLI Input: SetConsoleMode failed (%08X)\n", GetLastError());
     } else {
-    	cli_input_log("CLI Input: GetStdHandle failed (%08X)\n", GetLastError());
+	cli_input_log("CLI Input: GetStdHandle failed (%08X)\n", GetLastError());
     }
 #else
     /* Enable raw input. */

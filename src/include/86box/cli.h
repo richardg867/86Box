@@ -57,7 +57,7 @@ enum {
 
 typedef struct {
     uint8_t	color_level, ctl_level, gfx_level,
-		decrqss_color,
+		cpr, decrqss_color,
 		size_x, size_y;
 
     int		(*setcolor)(char *p, uint8_t index, uint8_t is_background);
