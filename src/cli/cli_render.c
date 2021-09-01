@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <wchar.h>
 #ifdef _WIN32
 # include <windows.h>
 #endif
@@ -105,8 +106,10 @@ static cli_render_line_t *lines[CLI_RENDER_MAX_LINES];
 static struct {
     thread_t	*thread;
     event_t	*wake_render_thread, *render_complete;
-    char	*output, *infobox;
-    uint8_t	*fb, mode, prev_mode, y, do_render, do_blink, con;
+
+    uint8_t	mode, invalidate_all;
+
+    uint8_t	*fb, prev_mode, y, do_render, do_blink, con;
     uint16_t	ca;
     uint32_t	fb_base, fb_mask, fb_step;
     union {
@@ -115,6 +118,11 @@ static struct {
     union {
 	int	xinc, blit_sy;
     };
+
+    char	sideband_slots[RENDER_SIDEBAND_MAX][32];
+    wchar_t	title[200];
+
+    char	*infobox;
     int		infobox_sx, infobox_sy;
 } render_data = { .prev_mode = -1, .y = CLI_RENDER_MAX_LINES + 1 };
 
@@ -155,8 +163,8 @@ cli_render_gfx(char *str)
 {
     /* Let video.c trigger an image render if this terminal supports graphics. */
     if (cli_term.gfx_level & (TERM_GFX_PNG | TERM_GFX_PNG_KITTY)) {
-	if (time(NULL) - gfx_last) /* render at 1 FPS */
-		cli_blit = 1;
+	//if (time(NULL) - gfx_last) /* render at 1 FPS */
+		cli_blit |= 1;
 	return;
     }
 
@@ -185,6 +193,8 @@ cli_render_gfx_box(char *str)
 void
 cli_render_gfx_blit(uint32_t *buf, int w, int h)
 {
+    cli_blit |= 2;
+
     /* Blit to a local RGB buffer. */
     png_bytep *local_buf = malloc(sizeof(png_bytep) * h);
     png_byte *p;
@@ -296,15 +306,24 @@ cli_render_menu(uint8_t y)
 
 
 void
-cli_render_write(char *s)
+cli_render_write(int slot, char *s)
 {
-    char *buf = malloc(strlen(s) + 1);
-    strcpy(buf, s);
+    /* Copy string to the specified slot. */
+    int len = MIN(strlen(s), sizeof(render_data.sideband_slots[slot]) - 1);
+    render_data.sideband_slots[slot][len] = '\0'; /* avoid potential race conditions leading to unbounded strings */
+    strncpy(render_data.sideband_slots[slot], s, len);
 
-    thread_wait_event(render_data.render_complete, -1);
-    thread_reset_event(render_data.render_complete);
-    
-    render_data.output = buf;
+    thread_set_event(render_data.wake_render_thread);
+}
+
+
+void
+cli_render_write_title(wchar_t *s)
+{
+    /* Copy title. */
+    int len = MIN(wcslen(s), sizeof(render_data.title) - 1);
+    render_data.title[len] = '\0'; /* avoid potential race conditions leading to unbounded strings */
+    wcsncpy(render_data.title, s, len);
 
     thread_set_event(render_data.wake_render_thread);
 }
@@ -425,7 +444,7 @@ cli_render_setcolorlevel()
 void
 cli_render_setpal(uint8_t index, uint32_t color)
 {
-    /* Don't re-calculate palettes if the color hasn't changed. */
+    /* Don't re-calculate if the color hasn't changed. */
     if (palette_24bit[index] == color)
 	return;
 
@@ -499,16 +518,16 @@ cli_render_updateline(char *buf, uint8_t y, uint8_t new_cx, uint8_t new_cy)
     cli_render_line_t *line = cli_render_getline(y);
 
     /* Update line if required and within the terminal's limit. */
-    if ((y < cli_term.size_y) && buf && strcmp(buf, line->buffer)) {
+    if ((y < cli_term.size_y) && buf && ((buf == line->buffer) || strcmp(buf, line->buffer))) {
 	/* Copy line to buffer. */
-	if (buf)
+	if (buf && (buf != line->buffer))
 		strcpy(line->buffer, buf);
 
 	/* Move to line and reset formatting. */
-	fprintf(CLI_RENDER_OUTPUT, "\033[%d;1H", y + 1);
-	char sgr[256] = "\033[0;";
-	if (!cli_term.setcolor(&sgr[4], 0, 1))
-		sgr[3] = '\0';
+	char sgr[256], *p = sgr;
+	p += sprintf(p, "\033[%d;1H\033[0;", y + 1);
+	if (!cli_term.setcolor(p, 0, 1))
+		*p = '\0';
 	fputs(sgr, CLI_RENDER_OUTPUT);
 
 	/* Print line. */
@@ -533,6 +552,14 @@ cli_render_updateline(char *buf, uint8_t y, uint8_t new_cx, uint8_t new_cy)
 
     /* Flush output. */
     fflush(CLI_RENDER_OUTPUT);
+}
+
+
+void
+cli_render_updatescreen()
+{
+    /* Invalidate all lines. */
+    render_data.invalidate_all = 1;
 }
 
 
@@ -619,27 +646,51 @@ cli_render_process(void *priv)
 	thread_wait_event(render_data.wake_render_thread, -1);
 	thread_reset_event(render_data.wake_render_thread);
 
-	/* Output any requested arbitrary text. */
-	if (render_data.output) {
-		fputs(render_data.output, CLI_RENDER_OUTPUT);
-		free(render_data.output);
-		render_data.output = NULL;
+	/* Output any requested side-band messages. */
+	for (i = 0; i < RENDER_SIDEBAND_MAX; i++) {
+		if (render_data.sideband_slots[i][0]) {
+			fputs(render_data.sideband_slots[i], CLI_RENDER_OUTPUT);
+			render_data.sideband_slots[i][0] = '\0';
+		}
 	}
 
-	/* Clear screen and invalidate all lines on a mode switch. */
-	if (render_data.mode != render_data.prev_mode) {
-		render_data.prev_mode = render_data.mode;
+	/* Output any requested title changes. */
+	if (render_data.title[0]) {
+		p = buf;
+		p += sprintf(p, "\033]0;");
+		for (i = 0; render_data.title[i]; i++) /* really hacky wchar->ASCII conversion */
+			*p++ = ((render_data.title[i] >= 0x20) && (render_data.title[i] <= 0x7e)) ? render_data.title[i] : ' ';
+		sprintf(p, "\a");
+		fputs(buf, CLI_RENDER_OUTPUT);
+		render_data.title[0] = '\0';
+	}
 
-		strcpy(buf, "\033[0;");
-		if (!cli_term.setcolor(&buf[4], 0, 1))
-			buf[3] = '\0';
-		strcpy(&buf[strlen(buf)], "m\033[2J\033[3J");
+	/* Trigger invalidation on a mode transition. */
+	if (render_data.mode != render_data.prev_mode) {
+		if (render_data.prev_mode == CLI_RENDER_GFX)
+			cli_blit = 0;
+		render_data.prev_mode = render_data.mode;
+		render_data.invalidate_all = 1;
+	}
+
+	/* Invalidate all lines if requested. */
+	if (render_data.invalidate_all) {
+		render_data.invalidate_all = 0;
+
+		/* Clear screen. */
+		p = buf;
+		p += sprintf(buf, "\033[0;");
+		i = cli_term.setcolor(p, 0, 1);
+		if (!i) /* end SGR sequence after 0 if none were output */
+			p--;
+		strcpy(p + i, "m\033[2J\033[3J");
 		fputs(buf, CLI_RENDER_OUTPUT);
 
+		/* Invalidate and redraw each line. */
 		for (i = 0; i < CLI_RENDER_MAX_LINES; i++) {
 			if (lines[i]) {
-				/* TODO: redraw everything! (msdos edit exit) */
 				lines[i]->invalidate = 1;
+				cli_render_updateline(lines[i]->buffer, i, cursor_x, cursor_y);
 			}
 		}
 	}
@@ -829,7 +880,7 @@ cli_render_process(void *priv)
 				}
 
 				/* Add character. */
-				p += sprintf(p, cp437[chr]);
+				p += sprintf(p, "%s", cp437[chr]);
 			}
 
 			/* Output rendered line. */
@@ -843,6 +894,10 @@ next:
 			break;
 
 		case CLI_RENDER_GFX:
+			/* Make sure we have an image. */
+			if (!render_data.fb)
+				break;
+
 			/* Initialize PNG data. */
 			png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
 			png_size = 0;
@@ -909,11 +964,16 @@ next:
 				}
 			}
 
-			/* Flush output. */
+			/* Clean up. */
 			fflush(CLI_RENDER_OUTPUT);
+			for (i = 0; i < render_data.blit_sy; i++)
+				free(((png_bytep *) render_data.fb)[i]);
+			free(render_data.fb);
+			render_data.fb = NULL;
 
 			/* Set last render time to keep track of framerate. */
 			gfx_last = time(NULL);
+			cli_blit &= 1;
 			break;
 	}
 
@@ -933,7 +993,8 @@ cli_render_init()
 #endif
 
     /* Load standard CGA palette. */
-    uint32_t palette_color;
+    uint32_t palette_color = 0x000001;
+    palette_24bit[0] = palette_color; /* force re-processing of black */
     for (int i = 0; i < 16; i++) {
 	palette_color = (i & 8) ? 0x555555 : 0x000000;
 	if (i & 1)

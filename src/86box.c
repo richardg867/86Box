@@ -996,7 +996,6 @@ void
 pc_run(void)
 {
 	wchar_t temp[200];
-	char buf[200];
 
 	/* Trigger a hard reset if one is pending. */
 	if (hard_reset_pending) {
@@ -1023,11 +1022,7 @@ pc_run(void)
 		swprintf(temp, sizeof_w(temp), mouse_msg[!!mouse_capture], fps);
 		ui_window_title(temp);
 #ifdef USE_CLI
-		int len = MIN(wcslen(temp), sizeof(buf) - 5), off = sprintf(buf, "\033]0;");
-		for (int i = 0; i < len; i++, off++)
-			buf[off] = ((temp[i] >= 0x20) && (temp[i] <= 0x7e)) ? temp[i] : ' ';
-		strcpy(buf + off, "\a");
-		cli_render_write(buf);
+		cli_render_write_title(temp);
 #endif
 		title_update = 0;
 	}

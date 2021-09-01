@@ -14,6 +14,7 @@
  *
  *		Copyright 2021 RichardG.
  */
+#include <signal.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -23,7 +24,7 @@
 # include <windows.h>
 # include <VersionHelpers.h>
 #else
-# include <ioctl.h>
+# include <sys/ioctl.h>
 #endif
 #define HAVE_STDARG_H
 #include <86box/86box.h>
@@ -38,8 +39,8 @@ static const struct {
     const uint8_t gfx;
 } term_types[] = {
 #ifdef _WIN32
-    {"\0cmd-nt6",	TERM_COLOR_4BIT,  0, 0}, /* prefix with NUL as these are invalid values */
-    {"\0cmd-nt10",	TERM_COLOR_24BIT, 0, 0}, /* for TERM (not listed in terminfo database)  */
+    {"cmd-nt6",		TERM_COLOR_4BIT,  0, 0},
+    {"cmd-nt10",	TERM_COLOR_24BIT, 0, 0},
 #endif
     {"iterm",		TERM_COLOR_24BIT, 0, 0},
     {"iterm2",		TERM_COLOR_24BIT, 0, TERM_GFX_PNG},
@@ -110,7 +111,13 @@ cli_term_gettypeid(char *name) {
 	return -1;
 
     /* Compare name with table entries. */
-    for (int i = 0; term_types[i].name; i++) {
+    for (int i =
+#ifdef _WIN32
+	 2
+#else
+	 0
+#endif
+	 ; term_types[i].name; i++) {
 	if (!strcasecmp(name, term_types[i].name))
 		return i;
     }
@@ -154,6 +161,9 @@ cli_term_setsize(int size_x, int size_y, char *source)
      if ((new_size_x != cli_term.size_x) || (new_size_y != cli_term.size_y)) {
  	cli_term.size_x = new_size_x;
  	cli_term.size_y = new_size_y;
+
+ 	/* Tell the renderer to accomodate to the new size. */
+ 	cli_render_updatescreen();
      }
 }
 
@@ -177,14 +187,18 @@ cli_term_updatesize(int runtime)
 {
     int sx = 0, sy = 0;
 
+    cli_log("CLI: term_updatesize(%d)\n", runtime);
+
     /* Get terminal size through the OS. */
-#ifdef _WIN32
-    HANDLE h = GetStdHandle(STD_ERROR_HANDLE);
+#if defined(_WIN32)
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
     if (h) {
 	CONSOLE_SCREEN_BUFFER_INFO info;
 	if (GetConsoleScreenBufferInfo(h, &info)) {
 		sx = info.srWindow.Right - info.srWindow.Left + 1;
 		sy = info.srWindow.Bottom - info.srWindow.Top + 1;
+	} else {
+		cli_log("CLI: GetConsoleScreenBufferInfo failed (%08X)\n", GetLastError());
 	}
 
 	/* While we're here on startup, enable ANSI output. */
@@ -193,11 +207,19 @@ cli_term_updatesize(int runtime)
 		if (GetConsoleMode(h, &mode)) {
 			mode &= ~ENABLE_WRAP_AT_EOL_OUTPUT;
 			mode |= ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-			SetConsoleMode(h, mode);
+			if (!SetConsoleMode(h, mode))
+				cli_log("CLI: SetConsoleMode failed (%08X)\n", GetLastError());
+		} else {
+			cli_log("CLI: GetConsoleMode failed (%08X)\n", GetLastError());
 		}
 	}
+    } else {
+    	cli_log("CLI: GetStdHandle failed (%08X)\n", GetLastError());
     }
-#else
+#elif defined(__ANDROID__)
+    /* TIOCGWINSZ is buggy on Android/Termux, blocking until some input is applied.
+       Fall back to CPR, which at least the Termux built-in terminal emulator supports. */
+#elif defined(TIOCGWINSZ)
     struct winsize sz;
     if (!ioctl(fileno(stdin), TIOCGWINSZ, &sz)) {
 	sx = sz.ws_col;
@@ -219,7 +241,7 @@ cli_term_updatesize(int runtime)
     /* Get terminal size through a CPR query, even if we already have
        bash environment variable data, since that may be inaccurate. */
     cli_term.cpr = 1;
-    cli_render_write("\033[999;999H\033[6n\033[1;1H");
+    cli_render_write(RENDER_SIDEBAND_CPR, "\033[999;999H\033[6n\033[1;1H");
 }
 
 
@@ -253,29 +275,20 @@ cli_init()
 #endif
     }
 
-#ifdef ENABLE_CLI_LOG
-    if (id == -1) {
-	cli_log("CLI: Unknown terminal type\n");
-    } else {
-	const char *term_name = term_types[id].name;
-	if (!term_name[0])
-		term_name++;
-	cli_log("CLI: Detected terminal type: %s\n", term_name);
-    }
-#endif
+    cli_log("CLI: Detected terminal type: %s\n", (id < 0) ? "[unknown]" : term_types[id].name);
 
     /* Set feature levels for this terminal. */
     cli_term_settype(id);
 
     /* Detect COLORTERM environment variable set by some 24-bit terminals. */
     if (cli_term.color_level < TERM_COLOR_24BIT) {
-	char *value;
-	if ((value = getenv("COLORTERM")) && (strcasecmp(value, "truecolor") || strcasecmp(value, "24bit"))) {
+	char *value = getenv("COLORTERM");
+	if (value && (strcasecmp(value, "truecolor") || strcasecmp(value, "24bit"))) {
 		cli_term_setcolor(TERM_COLOR_24BIT);
 	} else {
 		/* Start detecting the terminal's color capabilities through DECRQSS queries. */
 		cli_term.decrqss_color = TERM_COLOR_24BIT;
-		cli_render_write("\033[38;2;1;2;3m\033P$qm\033\\\033[0m");
+		cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR, "\033[38;2;1;2;3m\033P$qm\033\\\033[0m");
 	}
     }
 

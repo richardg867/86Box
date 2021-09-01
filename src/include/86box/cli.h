@@ -55,6 +55,12 @@ enum {
     TERM_GFX_PNG_KITTY	= 0x04
 };
 
+enum {
+    RENDER_SIDEBAND_CPR = 0,
+    RENDER_SIDEBAND_DECRQSS_COLOR,
+    RENDER_SIDEBAND_MAX
+};
+
 typedef struct {
     uint8_t	color_level, ctl_level, gfx_level,
 		cpr, decrqss_color,
@@ -98,12 +104,14 @@ extern void	cli_render_mda(int xlimit,
 			       uint8_t *fb, uint16_t fb_base,
 			       uint8_t do_render, uint8_t do_blink,
 			       uint16_t ca, uint8_t con);
-extern void	cli_render_write(char *s);
+
+extern void	cli_render_write(int slot, char *s);
+extern void	cli_render_write_title(wchar_t *s);
 
 extern int	cli_render_setcolor_noop(char *p, uint8_t index, uint8_t is_background);
 extern void	cli_render_setcolorlevel();
 extern void	cli_render_setpal(uint8_t index, uint32_t color);
-extern void	cli_render_updatescreen(int sig);
+extern void	cli_render_updatescreen();
 
 extern void	cli_render_init();
 extern void	cli_render_close();

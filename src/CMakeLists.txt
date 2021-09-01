@@ -49,7 +49,6 @@ endif()
 
 if(CLI)
 	add_compile_definitions(USE_CLI)
-	add_subdirectory(cli)
 endif()
 
 target_link_libraries(86Box cpu chipset mch dev mem fdd game cdrom zip mo hdd
@@ -90,6 +89,10 @@ endif()
 
 add_subdirectory(cdrom)
 add_subdirectory(chipset)
+
+if(CLI)
+	add_subdirectory(cli)
+endif()
 
 add_subdirectory(cpu)
 if(NEW_DYNAREC)

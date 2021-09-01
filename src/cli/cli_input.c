@@ -232,7 +232,6 @@ static const uint8_t csi_modifiers[] = {
 };
 
 
-static event_t	*ready_event;
 static int	param_buf_pos = 0, collect_buf_pos = 0, dcs_buf_pos = 0, osc_buf_pos = 0;
 static char	param_buf[32], collect_buf[32], dcs_buf[32], osc_buf[32];
 
@@ -420,7 +419,7 @@ cli_input_esc_dispatch(int c)
     switch (collect_buf[0]) {
 	case '\0': /* no parameter */
 		switch (c) {
-			case 0x20 ... 0x7f: /* Alt+Space to Alt+Backspace (Windows) */
+			case 0x20 ... 0x7f: /* Alt+Space to Alt+Backspace (Windows, PuTTY) */
 				cli_input_send(ascii_seqs[c], 3);
 				break;
 		}
@@ -520,7 +519,7 @@ cli_input_unhook(int c)
 				} else if (cli_term.color_level < TERM_COLOR_8BIT) {
 					/* Try 8-bit color if needed. */
 					cli_term.decrqss_color = TERM_COLOR_8BIT;
-					cli_render_write("\033[38;5;255m\033P$qm\033\\\033[0m");
+					cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR, "\033[38;5;255m\033P$qm\033\\\033[0m");
 					break;
 				}
 				cli_term.decrqss_color = TERM_COLOR_NONE;
@@ -534,7 +533,7 @@ cli_input_unhook(int c)
 				} else if (cli_term.color_level < TERM_COLOR_4BIT) {
 					/* Try 4-bit color if needed. */
 					cli_term.decrqss_color = TERM_COLOR_4BIT;
-					cli_render_write("\033[97m\033P$qm\033\\\033[0m");
+					cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR, "\033[97m\033P$qm\033\\\033[0m");
 					break;
 				}
 				cli_term.decrqss_color = TERM_COLOR_NONE;
@@ -602,9 +601,6 @@ cli_input_process(void *priv)
 {
     int c = 0, state = VT_GROUND, prev_state = VT_GROUND;
 
-    /* Flag thread as ready. */
-    thread_set_event(ready_event);
-
     /* Run state machine loop. */
     while (1) {
 	/* Handle state exits. */
@@ -634,7 +630,7 @@ cli_input_process(void *priv)
 
 		case 0x7f:
 			/* Ignore, unless this is an user-initiated Backspace. */
-			if (state == VT_GROUND)
+			if ((state == VT_GROUND) || (state == VT_ESCAPE))
 				break;
 			else
 				continue;
@@ -959,7 +955,5 @@ cli_input_init()
 #endif
 
     /* Start input processing thread. */
-    ready_event = thread_create_event();
     thread_create(cli_input_process, NULL);
-    thread_wait_event(ready_event, -1);
 }
