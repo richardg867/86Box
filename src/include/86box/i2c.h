@@ -55,6 +55,7 @@ extern void	i2c_stop(void *bus_handle, uint8_t addr);
 
 /* i2c_eeprom.c */
 extern uint8_t	log2i(uint32_t i);
+extern uint32_t	ceilpow2(uint32_t i);
 extern void	*i2c_eeprom_init(void *i2c, uint8_t addr, uint8_t *data, uint32_t size, uint8_t writable);
 extern void	i2c_eeprom_close(void *dev_handle);
 

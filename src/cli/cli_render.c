@@ -183,7 +183,8 @@ cli_render_gfx_box(char *str)
 
     render_data.infobox_sx = get_actual_size_x();
     render_data.infobox_sy = get_actual_size_y();
-    strncpy(infobox, str, sizeof(infobox) - 1);
+    strncpy(infobox, str, sizeof(infobox));
+    infobox[sizeof(infobox) - 1] = '\0';
     render_data.infobox = infobox;
 
     thread_set_event(render_data.wake_render_thread);

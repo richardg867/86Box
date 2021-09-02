@@ -79,6 +79,7 @@
 #include <86box/sound.h>
 #include <86box/midi.h>
 #include <86box/snd_speaker.h>
+#include <86box/vfio.h>
 #include <86box/video.h>
 #include <86box/ui.h>
 #include <86box/plat.h>
@@ -781,6 +782,8 @@ pc_reset_hard_close(void)
 
 	video_reset_close();
 
+	vfio_close();
+
 	cpu_close();
 }
 
@@ -871,6 +874,8 @@ pc_reset_hard_init(void)
 
 	if (joystick_type)
 	gameport_update_joystick_type();
+
+	vfio_init();
 
 	ui_sb_update_panes();
 
@@ -989,6 +994,8 @@ pc_close(thread_t *ptr)
 	mo_close();
 
 	scsi_disk_close();
+
+	vfio_close();
 }
 
 
