@@ -1158,21 +1158,21 @@ vfio_dev_prereset(vfio_device_t *dev)
 
     /* Extra steps for devices with power management capability. */
     if (dev->pm_cap) {
-    	/* Make sure the device is in D0 state. */
-    	uint8_t pm_ctrl = vfio_config_readb(0, dev->pm_cap + 0x04, dev),
-    		state = pm_ctrl & 0x03;
-    	if (state) {
-    		pm_ctrl &= ~0x03;
-    		vfio_config_writeb(0, dev->pm_cap + 0x04, pm_ctrl, dev);
+	/* Make sure the device is in D0 state. */
+	uint8_t pm_ctrl = vfio_config_readb(0, dev->pm_cap + 0x04, dev),
+		state = pm_ctrl & 0x03;
+	if (state) {
+		pm_ctrl &= ~0x03;
+		vfio_config_writeb(0, dev->pm_cap + 0x04, pm_ctrl, dev);
 
-    		pm_ctrl = vfio_config_readb(0, dev->pm_cap + 0x04, dev);
-    		state = pm_ctrl & 0x03;
-    		if (state)
-    			vfio_log("VFIO %s: Device stuck in D%d state\n", dev->name, state);
-    	}
+		pm_ctrl = vfio_config_readb(0, dev->pm_cap + 0x04, dev);
+		state = pm_ctrl & 0x03;
+		if (state)
+			vfio_log("VFIO %s: Device stuck in D%d state\n", dev->name, state);
+	}
 
-    	/* Opt-in to DEVICE_RESET if the device supports it. */
-    	dev->can_pm_reset = !(pm_ctrl & 0x08);
+	/* Enable PM reset if the device supports it. */
+	dev->can_pm_reset = !(pm_ctrl & 0x08);
     }
 
     /* Disable bus master, BARs, expansion ROM and VGA. */
@@ -1190,7 +1190,7 @@ vfio_dev_postreset(vfio_device_t *dev)
 
     /* Enable interrupts. */
     if (!dev->closing)
-    	vfio_irq_enable(dev);
+	vfio_irq_enable(dev);
 
     /* Reset BARs, whatever this does. */
     uint32_t val = 0;
@@ -1224,7 +1224,7 @@ vfio_dev_reset(void *priv)
     /* Get hot reset information a second time, now
        with enough room for the dependent device list. */
     int count = hot_reset_info->count,
-    	size = sizeof(struct vfio_pci_hot_reset_info) + (sizeof(struct vfio_pci_dependent_device) * count);
+	size = sizeof(struct vfio_pci_hot_reset_info) + (sizeof(struct vfio_pci_dependent_device) * count);
     free(hot_reset_info);
     hot_reset_info = (struct vfio_pci_hot_reset_info *) malloc(size);
     memset(hot_reset_info, 0, size);
@@ -1249,6 +1249,14 @@ vfio_dev_reset(void *priv)
 	if (!(group = vfio_get_group(devices[i].group_id, 0))) {
 		vfio_log("VFIO %s: Cannot hot reset; we don't own group %d for dependent device %s\n",
 			 dev->name, devices[i].group_id, name);
+
+		/* Remove hot reset flag from all groups. */
+		group = first_group;
+		while (group) {
+			group->hot_reset = 0;
+			group = group->next;
+		}
+
 		goto free_hot_reset_info;
 	}
 
@@ -1263,8 +1271,10 @@ vfio_dev_reset(void *priv)
 	/* Find this device's structure within the group and pre-reset it. */
 	dep_dev = group->first_device;
 	while (dep_dev) {
-		if (!strcasecmp(name, dep_dev->name))
+		if (!strcasecmp(name, dep_dev->name)) {
 			vfio_dev_prereset(dep_dev);
+			break;
+		}
 		dep_dev = dep_dev->next;
 	}
     }
@@ -1273,9 +1283,9 @@ vfio_dev_reset(void *priv)
     count = 0;
     group = first_group;
     while (group) {
-    	if (group->hot_reset)
+	if (group->hot_reset)
 		count++;
-    	group = group->next;
+	group = group->next;
     }
 
     /* Allocate hot reset structure. */
@@ -1289,18 +1299,18 @@ vfio_dev_reset(void *priv)
     /* Add group fds. */
     group = first_group;
     while (group) {
-    	if (group->hot_reset) {
-    		fds[hot_reset->count++] = group->fd;
-    		group->hot_reset = 0;
-    	}
-    	group = group->next;
+	if (group->hot_reset) {
+		fds[hot_reset->count++] = group->fd;
+		group->hot_reset = 0;
+	}
+	group = group->next;
     }
 
     /* Trigger reset. */
     if (ioctl(dev->fd, VFIO_DEVICE_PCI_HOT_RESET, hot_reset)) {
-    	vfio_log("VFIO %s: PCI_HOT_RESET failed (%d)\n", dev->name, errno);
+	vfio_log("VFIO %s: PCI_HOT_RESET failed (%d)\n", dev->name, errno);
     } else {
-    	vfio_log("VFIO %s: Hot reset successful\n", dev->name);
+	vfio_log("VFIO %s: Hot reset successful\n", dev->name);
 
 	/* Don't PM reset this device. */
 	dev->can_pm_reset = 0;
@@ -1324,8 +1334,10 @@ vfio_dev_reset(void *priv)
 	/* Find this device within the group and post-reset it. */
 	dep_dev = group->first_device;
 	while (dep_dev) {
-		if (!strcasecmp(name, dep_dev->name))
+		if (!strcasecmp(name, dep_dev->name)) {
 			vfio_dev_postreset(dep_dev);
+			break;
+		}
 		dep_dev = dep_dev->next;
 	}
     }
@@ -1333,9 +1345,9 @@ vfio_dev_reset(void *priv)
 free_hot_reset_info:
     free(hot_reset_info);
 
-    /* Reset device if supported and required. */
+    /* PM reset device if supported and required. */
     if (dev->can_pm_reset) {
-    	if (ioctl(dev->fd, VFIO_DEVICE_RESET))
+	if (ioctl(dev->fd, VFIO_DEVICE_RESET))
 		vfio_log("VFIO %s: DEVICE_RESET failed (%d)\n", dev->name, errno);
 	else
 		vfio_log("VFIO %s: PM reset successful\n", dev->name);
@@ -1443,7 +1455,7 @@ vfio_dev_init(const device_t *info)
 
     /* Identify PCI capabilities we care about, storing the offsets for them. */
     if (vfio_config_readb(0, 0x06, dev) & 0x10) {
-    	/* Read pointer to the first capability. */
+	/* Read pointer to the first capability. */
 	uint8_t cap_ptr = vfio_config_readb(0, 0x34, dev), cap_id;
 	while (cap_ptr && (cap_ptr != 0xff)) {
 		cap_id = vfio_config_readb(0, cap_ptr, dev);
