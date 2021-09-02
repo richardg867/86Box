@@ -111,7 +111,7 @@ static int	container_fd = 0, irq_pending = 0,
 static vfio_group_t *first_group = NULL, *current_group;
 
 
-#define ENABLE_VFIO_LOG 2
+#define ENABLE_VFIO_LOG 1
 #ifdef ENABLE_VFIO_LOG
 int vfio_do_log = ENABLE_VFIO_LOG;
 
@@ -505,7 +505,9 @@ vfio_bar_gettype(vfio_device_t *dev, vfio_region_t *bar)
     /* Read and store BAR type from device if unknown. */
     if (bar->type == 0xff) {
 	if (pread(dev->config.fd, &bar->type, sizeof(bar->type),
-		  dev->config.offset + 0x10 + (bar->bar_id << 2)) != sizeof(bar->type))
+		  dev->config.offset + 0x10 + (bar->bar_id << 2)) == sizeof(bar->type))
+		bar->type &= 0x01;
+	else
 		bar->type = 0xff;
     }
 
