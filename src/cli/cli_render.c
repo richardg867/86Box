@@ -567,6 +567,9 @@ cli_render_updatescreen()
 static void
 cli_render_process_base64(uint8_t *buf, int len)
 {
+    char output_buf[257], *p = output_buf,
+	 *limit = output_buf + (sizeof(output_buf) - 1);
+    uint8_t output_buf_pos;
     uint32_t tri;
     while (len > 0) {
 	tri = buf[0] << 16;
@@ -575,14 +578,20 @@ cli_render_process_base64(uint8_t *buf, int len)
 		if (len >= 3)
 			tri |= buf[2];
 	}
-	fprintf(CLI_RENDER_OUTPUT, "%c%c%c%c",
-		base64[tri >> 18],
-		base64[(tri >> 12) & 0x3f],
-		(len == 1) ? '=' : base64[(tri >> 6) & 0x3f],
-		(len <= 2) ? '=' : base64[tri & 0x3f]);
+	*p++ = base64[tri >> 18];
+	*p++ = base64[(tri >> 12) & 0x3f];
+	*p++ = (len == 1) ? '=' : base64[(tri >> 6) & 0x3f],
+	*p++ = (len <= 2) ? '=' : base64[tri & 0x3f];
+	if (p == limit) {
+		*p = '\0';
+		fputs(output_buf, CLI_RENDER_OUTPUT);
+		p = output_buf;
+	}
 	len -= 3;
 	buf += 3;
     }
+    *p = '\0';
+    fputs(output_buf, CLI_RENDER_OUTPUT);
 }
 
 
@@ -948,7 +957,7 @@ next:
 					fputs("\033_G", CLI_RENDER_OUTPUT);
 					if (i) {
 						i = 0;
-						fputs("f=100,q=1,", CLI_RENDER_OUTPUT);
+						fputs("a=T,f=100,q=1,", CLI_RENDER_OUTPUT);
 					}
 					fprintf(CLI_RENDER_OUTPUT, "m=%d;", !!png_first->next);
 

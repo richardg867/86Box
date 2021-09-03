@@ -45,6 +45,7 @@ static const struct {
     {"iterm",		TERM_COLOR_24BIT, 0, 0},
     {"iterm2",		TERM_COLOR_24BIT, 0, TERM_GFX_PNG},
     {"kitty",		TERM_COLOR_24BIT, 0, TERM_GFX_PNG_KITTY}, /* not to be confused with the PuTTY fork */
+    {"xterm-kitty",	TERM_COLOR_24BIT, 0, TERM_GFX_PNG_KITTY}, /* same as above */
     {"konsole",		TERM_COLOR_24BIT, 0, 0},
     {"linux",		TERM_COLOR_24BIT, 0, 0},
     {"mintty",		TERM_COLOR_24BIT, TERM_CTL_RAPIDBLINK | TERM_CTL_PRINT,	TERM_GFX_SIXEL | TERM_GFX_PNG},
@@ -190,7 +191,7 @@ cli_term_updatesize(int runtime)
     cli_log("CLI: term_updatesize(%d)\n", runtime);
 
     /* Get terminal size through the OS. */
-#if defined(_WIN32)
+#ifdef _WIN32
     HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
     if (h) {
 	CONSOLE_SCREEN_BUFFER_INFO info;
