@@ -847,8 +847,6 @@ vfio_irq_thread(void *priv)
 		if (!irq) {
 			/* Do nothing if this is the wake eventfd, which has no data. */
 			read(irq_thread_wake_fd, &buf, sizeof(buf));
-			thread_wait_event(irq_event, -1);
-			thread_reset_event(irq_event);
 			continue;
 		}
 
@@ -1002,7 +1000,7 @@ vfio_irq_intx_disable(vfio_device_t *dev)
 	pci_clear_irq(dev->slot, dev->irq_pin);
 
     /* Disable IRQs altogether. */
-    dev->irq_type = IRQ_NONE;
+    dev->irq_type = VFIO_PCI_NUM_IRQS;
 }
 
 
@@ -1045,6 +1043,9 @@ vfio_irq_msix_disable(vfio_device_t *dev)
 static void
 vfio_irq_disable(vfio_device_t *dev)
 {
+    /* Do nothing if IRQs are already disabled. */
+    if (dev->irq_type == VFIO_PCI_NUM_IRQS)
+	return;
     vfio_log("VFIO %s: irq_disable(%d)\n", dev->name, dev->irq_type);
 
     /* Pause IRQ thread. */
