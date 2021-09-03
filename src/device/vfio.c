@@ -25,6 +25,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <linux/vfio.h>
+#include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -66,23 +67,29 @@ typedef struct {
     mem_mapping_t mem_mapping, mem_mapping_add[2];
     char	name[20];
 
-    int		*irq_active;
+    int		*intx_irq_high;
 } vfio_region_t;
+
+typedef struct {
+    struct _vfio_device_ *dev;
+    int		fd, type, vector;
+} vfio_irq_t;
 
 typedef struct _vfio_device_ {
     int		fd, slot, irq_pin;
-    uint8_t	mem_enabled: 1, io_enabled: 1, rom_enabled: 1,
-		can_reset: 1, can_pm_reset: 1, closing: 1,
-		pm_cap;
+    uint8_t	initialized: 1, closing: 1,
+    		mem_enabled: 1, io_enabled: 1, rom_enabled: 1,
+		can_reset: 1, can_pm_reset: 1,
+		irq_type, pm_cap, msi_cap, msix_cap;
     char	name[13], *rom_fn;
 
     vfio_region_t bars[6], rom, config, vga_io_lo, vga_io_hi, vga_mem;
 
-    int		irq_eventfd, in_irq, prev_in_irq, irq_active,
+    int		irq_vector_count, intx_irq_raised, intx_irq_high,
 		irq_thread_stop;
-    thread_t	*irq_thread;
-    event_t	*irq_event, *irq_thread_ready, *irq_thread_stopped;
-    pc_timer_t	irq_timer;
+    vfio_irq_t	*irq_vectors;
+    uint8_t	*irq_msix_vectors, *irq_msix_pending;
+    uint32_t	irq_msi_address;
 
     struct {
 	struct {
@@ -105,10 +112,14 @@ typedef struct _vfio_group_ {
 
 
 static video_timings_t timing_default = {VIDEO_PCI, 8, 16, 32,   8, 16, 32};
-static int	container_fd = 0, irq_pending = 0,
+static int	container_fd = -1, epoll_fd = -1, irq_thread_wake_fd = -1,
 		timing_readb = 0, timing_readw = 0, timing_readl = 0,
 		timing_writeb = 0, timing_writew = 0, timing_writel = 0;
 static vfio_group_t *first_group = NULL, *current_group;
+static thread_t	*irq_thread;
+static event_t	*irq_event, *irq_thread_resume, *irq_thread_resume_ack;
+static pc_timer_t irq_timer;
+static vfio_irq_t *current_irq = NULL;
 
 
 #define ENABLE_VFIO_LOG 1
@@ -140,6 +151,8 @@ vfio_log(const char *fmt, ...)
 
 static uint8_t	vfio_config_readb(int func, int addr, void *priv);
 static void	vfio_config_writeb(int func, int addr, uint8_t val, void *priv);
+static void	vfio_irq_intx_setpin(vfio_device_t *dev);
+static void	vfio_irq_enable(vfio_device_t *dev, int type);
 
 
 #define VFIO_RW(space, length_char, addr_type, addr_slength, val_type, val_slength) \
@@ -152,7 +165,7 @@ vfio_ ## space ## _read ## length_char ## _fd(addr_type addr, void *priv) \
 	ret = -1; \
     vfio_log_op("[%08X:%04X] VFIO: " #space "_read" #length_char "_fd(%0" #addr_slength "X) = %0" #val_slength "X\n", CS, cpu_state.pc, addr, ret); \
     cycles -= timing_read ## length_char; \
-    *(region->irq_active) = 0; \
+    *(region->intx_irq_high) = 0; \
     return ret; \
 } \
 \
@@ -163,7 +176,7 @@ vfio_ ## space ## _write ## length_char ## _fd(addr_type addr, val_type val, voi
     vfio_log_op("[%08X:%04X] VFIO: " #space "_write" #length_char "_fd(%0" #addr_slength "X, %0" #val_slength "X)\n", CS, cpu_state.pc, addr, val); \
     pwrite(region->fd, &val, sizeof(val), region->precalc_offset + addr); \
     cycles -= timing_write ## length_char; \
-    *(region->irq_active) = 0; \
+    *(region->intx_irq_high) = 0; \
 } \
 \
 static val_type \
@@ -173,7 +186,7 @@ vfio_ ## space ## _read ## length_char ## _mm(addr_type addr, void *priv) \
     register val_type ret = *((val_type *) &region->mmap_precalc[addr]); \
     vfio_log_op("[%08X:%04X] VFIO: " #space "_read" #length_char "_mm(%0" #addr_slength "X) = %0" #val_slength "X\n", CS, cpu_state.pc, addr, ret); \
     cycles -= timing_read ## length_char; \
-    *(region->irq_active) = 0; \
+    *(region->intx_irq_high) = 0; \
     return ret; \
 } \
 \
@@ -184,7 +197,7 @@ vfio_ ## space ## _write ## length_char ## _mm(addr_type addr, val_type val, voi
     vfio_log_op("[%08X:%04X] VFIO: " #space "_write" #length_char "_mm(%0" #addr_slength "X, %0" #val_slength "X)\n", CS, cpu_state.pc, addr, val); \
     *((val_type *) &region->mmap_precalc[addr]) = val; \
     cycles -= timing_write ## length_char; \
-    *(region->irq_active) = 0; \
+    *(region->intx_irq_high) = 0; \
 }
 
 VFIO_RW(mem, b, uint32_t, 8, uint8_t, 2)
@@ -618,7 +631,7 @@ vfio_config_readb(int func, int addr, void *priv)
     if (func)
 	return 0xff;
 
-    dev->irq_active = 0;
+    dev->intx_irq_high = 0;
 
     /* Read register from device. */
     uint8_t ret;
@@ -678,12 +691,21 @@ vfio_config_readb(int func, int addr, void *priv)
 }
 
 
-static void
-vfio_irq_remap(vfio_device_t *dev)
+static uint16_t
+vfio_config_readw(int func, int addr, void *priv)
 {
-    /* Read IRQ pin. */
-    dev->irq_pin = vfio_config_readb(0, 0x3d, dev);
-    vfio_log("VFIO %s: IRQ pin is INT%c\n", dev->name, '@' + dev->irq_pin);
+    return  vfio_config_readb(func, addr, priv) |
+	   (vfio_config_readb(func | 1, addr, priv) << 8);
+}
+
+
+static uint32_t
+vfio_config_readl(int func, int addr, void *priv)
+{
+    return  vfio_config_readb(func, addr, priv) |
+	   (vfio_config_readb(func | 1, addr, priv) << 8)  |
+	   (vfio_config_readb(func | 2, addr, priv) << 16) |
+	   (vfio_config_readb(func | 3, addr, priv) << 24);
 }
 
 
@@ -696,7 +718,7 @@ vfio_config_writeb(int func, int addr, uint8_t val, void *priv)
 
     vfio_log("VFIO %s: config_write(%02X, %02X)\n", dev->name, addr, val);
 
-    dev->irq_active = 0;
+    dev->intx_irq_high = 0;
 
     /* VFIO should block anything we shouldn't write to, such as BARs. */
     pwrite(dev->config.fd, &val, 1, dev->config.offset + addr);
@@ -772,179 +794,365 @@ vfio_config_writeb(int func, int addr, uint8_t val, void *priv)
 		vfio_bar_remap(dev, &dev->rom, new_offset);
 		break;
 
-	case 0x3d: /* IRQ pin */
-		/* Update IRQ pin. */
-		vfio_irq_remap(dev);
+	case 0x3d: /* Interrupt Pin */
+		if (val != dev->irq_pin)
+			vfio_irq_intx_setpin(dev);
 		break;
     }
 }
 
 
 static void
+vfio_config_writel(int func, int addr, uint32_t val, void *priv)
+{
+    vfio_config_writeb(func, addr,     val,       priv);
+    vfio_config_writeb(func, addr | 1, val >> 8,  priv);
+    vfio_config_writeb(func, addr | 2, val >> 16, priv);
+    vfio_config_writeb(func, addr | 3, val >> 24, priv);
+}
+
+
+static void
 vfio_irq_thread(void *priv)
 {
-    vfio_device_t *dev = (vfio_device_t *) priv;
+    int nfds, i;
     uint64_t buf;
+    struct epoll_event events[16];
     struct vfio_irq_set irq_set = {
 	.argsz = sizeof(irq_set),
-	.flags = 0,
 	.index = VFIO_PCI_INTX_IRQ_INDEX,
 	.start = 0,
 	.count = 1
     };
-    int device = dev->config.fd;
+    vfio_irq_t *irq;
 
-    vfio_log("VFIO %s: IRQ thread started\n", dev->name);
+    vfio_log("VFIO: IRQ thread started\n");
 
-    while (!dev->irq_thread_stop) {
-	/* Unmask host IRQ. */
-	irq_set.flags = VFIO_IRQ_SET_DATA_NONE | VFIO_IRQ_SET_ACTION_UNMASK;
-	ioctl(device, VFIO_DEVICE_SET_IRQS, &irq_set);
+    while (1) {
+    	/* Wait for an interrupt to come in. */
+    	nfds = epoll_wait(epoll_fd, events, sizeof(events) / sizeof(events[0]), -1);
+    	if (nfds < 0) {
+    		vfio_log("VFIO %s: epoll_wait failed (%d)\n", errno);
+    		break;
+    	}
 
-	/* Wait for an interrupt to come in. */
-	vfio_log_op("VFIO %s: Waiting for IRQ...\n", dev->name);
-	read(dev->irq_eventfd, &buf, sizeof(buf));
-	vfio_log_op("VFIO %s: IRQ has arrived: %08lX\n", dev->name, buf);
+    	/* Process all interrupts which came in. */
+	for (i = 0; i < nfds; i++) {
+		/* Only handle read events. */
+		if (!(events[i].events & EPOLLIN))
+			continue;
 
-	/* Mask host IRQ. */
-	irq_set.flags = VFIO_IRQ_SET_DATA_NONE | VFIO_IRQ_SET_ACTION_MASK;
-	ioctl(device, VFIO_DEVICE_SET_IRQS, &irq_set);
+		/* Get the IRQ structure for this interrupt. */
+		irq = (vfio_irq_t *) events[i].data.ptr;
+		if (!irq) {
+			/* Do nothing if this is the wake eventfd, which has no data. */
+			read(irq_thread_wake_fd, &buf, sizeof(buf));
+			thread_wait_event(irq_event, -1);
+			thread_reset_event(irq_event);
+			continue;
+		}
 
-	/* Tell the timer to raise the IRQ. */
-	dev->in_irq = 1;
+		/* Reset eventfd counter. */
+		read(irq->fd, &buf, sizeof(buf));
 
-	/* Wait for a BAR read/write to lower the IRQ. */
-	thread_wait_event(dev->irq_event, -1);
-	thread_reset_event(dev->irq_event);
+		/* Determine VFIO IRQ type. */
+		vfio_log_op("VFIO %s: %s IRQ on vector %d\n", irq->dev->name,
+			    ((irq->type == VFIO_PCI_INTX_IRQ_INDEX) ? "INTx" : (((irq->type == VFIO_PCI_MSI_IRQ_INDEX) ? "MSI" : ((irq->type == VFIO_PCI_MSIX_IRQ_INDEX) ? "MSI-X" : NULL))));
+			    irq->vector);
+		
+		/* Mask host IRQ if this is INTx. */
+		if (irq->type == VFIO_PCI_INTX_IRQ_INDEX) {
+			irq_set.flags = VFIO_IRQ_SET_DATA_NONE | VFIO_IRQ_SET_ACTION_MASK;
+			ioctl(irq->dev->fd, VFIO_DEVICE_SET_IRQS, &irq_set);
+		}
+
+		/* Tell the timer to service this interrupt. */
+		current_irq = irq;
+
+		/* Wait for the timer to do its job. */
+		thread_wait_event(irq_event, -1);
+		thread_reset_event(irq_event);
+		vfio_log_op("VFIO %s: IRQ serviced\n", irq->dev->name);
+
+		/* Unmask host IRQ if this is INTx. */
+		if (irq->type == VFIO_PCI_INTX_IRQ_INDEX) {
+			irq_set.flags = VFIO_IRQ_SET_DATA_NONE | VFIO_IRQ_SET_ACTION_UNMASK;
+			ioctl(irq->dev->fd, VFIO_DEVICE_SET_IRQS, &irq_set);
+		}
+	}
+
+	/* Pause if we were asked to. */
+	thread_wait_event(irq_thread_resume, -1);
+	thread_set_event(irq_thread_resume_ack);
     }
 
     /* We're done here. */
-    thread_set_event(dev->irq_thread_stopped);
-    vfio_log("VFIO %s: IRQ thread finished\n", dev->name);
+    vfio_log("VFIO: IRQ thread finished\n");
 }
 
 
 static void
 vfio_irq_timer(void *priv)
 {
-    vfio_device_t *dev = (vfio_device_t *) priv;
-
     /* Schedule next run. */
-    timer_on_auto(&dev->irq_timer, 100.0);
+    timer_on_auto(&irq_timer, 100.0);
 
-    /* Stop if we're not in an IRQ at the moment. */
-    if (!dev->in_irq)
+    /* Stop if we're not servicing an IRQ at the moment. */
+    if (!current_irq)
 	return;
+    vfio_device_t *dev = current_irq->dev;
 
-    /* Process an IRQ status change. */
-    if (!dev->prev_in_irq) { /* rising edge */
-	vfio_log_op("VFIO %s: Raising IRQ on pin INT%c\n", dev->name,
-		    '@' + dev->irq_pin);
+    /* Act according to the IRQ type. */
+    uint16_t val;
+    uint8_t offset;
+    switch (current_irq->type) {
+    	case VFIO_PCI_INTX_IRQ_INDEX:
+    		if (!dev->intx_irq_raised) { /* rising edge */
+			vfio_log_op("VFIO %s: Raising IRQ on pin INT%c\n", dev->name,
+				    '@' + dev->irq_pin);
 
-	/* Raise IRQ. */
-	pci_set_irq(dev->slot, dev->irq_pin);
+			/* Raise IRQ. */
+			pci_set_irq(dev->slot, dev->irq_pin);
 
-	/* Mark the IRQ as active, so that a BAR read/write can lower it. */
-	dev->prev_in_irq = dev->irq_active = 1;
-    } else if (!dev->irq_active) { /* falling edge */
-	vfio_log_op("VFIO %s: Lowering IRQ on pin INT%c\n", dev->name,
-		    '@' + dev->irq_pin);
+			/* Mark the IRQ as active, so that a BAR read/write can lower it. */
+			dev->intx_irq_raised = dev->intx_irq_high = 1;
 
-	/* Lower IRQ. */
-	pci_clear_irq(dev->slot, dev->irq_pin);
+			/* Don't unblock the IRQ thread. */
+			return;
+		} else if (!dev->intx_irq_high) { /* falling edge */
+			vfio_log_op("VFIO %s: Lowering IRQ on pin INT%c\n", dev->name,
+				    '@' + dev->irq_pin);
 
-	/* Mark the IRQ as no longer active. */
-	dev->prev_in_irq = dev->irq_active = dev->in_irq = 0;
+			/* Lower IRQ. */
+			pci_clear_irq(dev->slot, dev->irq_pin);
 
-	/* Unblock the IRQ thread. */
-	thread_set_event(dev->irq_event);
+			/* Mark the IRQ as no longer high. */
+			dev->intx_irq_raised = dev->intx_irq_high = 0;
+
+			/* Allow the IRQ thread to be unblocked. */
+			break;
+		}
+
+    		/* Don't unblock the IRQ thread, unless otherwise stated. */
+		return;
+
+	case VFIO_PCI_MSI_IRQ_INDEX:
+		/* Read control register. */
+		offset = dev->msi_cap + 2;
+		val = vfio_config_readw(0, dev->msi_cap + 2, dev);
+
+		/* Handle 64-bit addressing if supported. */
+		offset += 6;
+		if (val & 0x0080) {
+			/* Ignore MSI if the upper 32 bits are non-zero. */
+			if (vfio_config_readl(0, offset, dev))
+				break;
+			offset += 4;
+		}
+
+		/* Handle per-vector masking if supported. */
+		if (val & 0x0100) {
+			//unmask should write if pending set
+			/* Mark vector as pending if masked. */
+			if (vfio_config_readl(0, offset + 4, dev) & (1 << current_irq->vector)) {
+				offset += 8;
+				vfio_config_writel(0, offset,
+						   vfio_config_readl(0, offset, dev) | (1 << current_irq->vector),
+						   dev);
+				break;
+			}
+		}
+
+		/* Write value to desired location. */
+		mem_writew_phys(dev->irq_msi_address, vfio_config_readw(0, dev->msi_cap + offset, dev));
+		break;
+
+	case VFIO_PCI_MSIX_IRQ_INDEX:
+		break;
     }
+
+    /* Unblock the IRQ thread. */
+    thread_set_event(irq_event);    
 }
 
 
 static void
-vfio_irq_enable(vfio_device_t *dev)
+vfio_irq_disabletype(vfio_device_t *dev, int type)
 {
-    vfio_log("VFIO %s: irq_enable()\n", dev->name);
-
-    /* Create eventfd for receiving INTx interrupts. */
-    dev->irq_eventfd = eventfd(0, 0);
-    if (dev->irq_eventfd == -1) {
-	pclog("VFIO %s: eventfd failed (%d)\n", dev->name, errno);
-	return;
-    }
-
-    /* Mask any existing interrupt. */
     struct vfio_irq_set irq_set = {
 	.argsz = sizeof(irq_set),
-	.flags = VFIO_IRQ_SET_DATA_NONE | VFIO_IRQ_SET_ACTION_MASK,
-	.index = VFIO_PCI_INTX_IRQ_INDEX,
+	.flags = VFIO_IRQ_SET_DATA_NONE | VFIO_IRQ_SET_ACTION_TRIGGER,
+	.index = type,
 	.start = 0,
-	.count = 1
+	.count = 0,
     };
-    /*if (ioctl(dev->fd, VFIO_DEVICE_SET_IRQS, &irq_set)) {
-	pclog("VFIO %s: IRQ initial mask failed (%d)\n", dev->name, errno);
-	goto no_irq;
-    }*/
+    ioctl(dev->fd, VFIO_DEVICE_SET_IRQS, &irq_set);
+}
 
-    /* Add eventfd as an interrupt handler. */
-    int32_t *eventfd_ptr;
-    irq_set.argsz += sizeof(*eventfd_ptr);
-    irq_set.flags = VFIO_IRQ_SET_DATA_EVENTFD | VFIO_IRQ_SET_ACTION_TRIGGER;
-    eventfd_ptr = (int32_t *) &irq_set.data;
-    *eventfd_ptr = dev->irq_eventfd;
-    if (ioctl(dev->fd, VFIO_DEVICE_SET_IRQS, &irq_set)) {
-	pclog("VFIO %s: IRQ eventfd set failed (%d)\n", dev->name, errno);
-	return;
-    }
 
-    /* Read IRQ pin. */
-    vfio_irq_remap(dev);
+static void
+vfio_irq_intx_disable(vfio_device_t *dev)
+{
+    /* Disable INTx on VFIO. */
+    vfio_irq_disabletype(dev, VFIO_PCI_INTX_IRQ_INDEX);
 
-    /* Start IRQ thread. */
-    dev->irq_thread = thread_create(vfio_irq_thread, dev);
+    /* Clear any pending INTx IRQs. */
+    dev->intx_irq_raised = dev->intx_irq_high = 0;
+    if (dev->irq_pin)
+	pci_clear_irq(dev->slot, dev->irq_pin);
 
-    /* Start IRQ timer. */
-    vfio_irq_timer(dev);
+    /* Disable IRQs altogether. */
+    dev->irq_type = IRQ_NONE;
+}
 
-#if 0
-    irq_set.argsz = sizeof(irq_set);
-    irq_set.flags = VFIO_IRQ_SET_DATA_NONE | VFIO_IRQ_SET_ACTION_TRIGGER;
-    if (ioctl(dev->fd, VFIO_DEVICE_SET_IRQS, &irq_set)) {
-	pclog("VFIO %s: IRQ loopback trigger failed (%d)\n", dev->name, errno);
-	dev->irq_thread_stop = 1;
-	goto no_irq;
-    }
-#endif
+
+static void
+vfio_irq_intx_setpin(vfio_device_t *dev)
+{
+    dev->irq_pin = vfio_config_readb(0, 0x3d, dev) & 7;
+    vfio_log("VFIO %s: IRQ pin is INT%c\n", dev->name, '@' + dev->irq_pin);
+}
+
+
+static void
+vfio_irq_msi_disable(vfio_device_t *dev)
+{
+    /* Disable MSI on VFIO. */
+    vfio_irq_disabletype(dev, VFIO_PCI_MSI_IRQ_INDEX);
+
+    /* Re-enable INTx. */
+    vfio_irq_enable(dev, VFIO_PCI_INTX_IRQ_INDEX);
+}
+
+
+static void
+vfio_irq_msix_disable(vfio_device_t *dev)
+{
+    /* DON'T DO THIS!!! KEEP THEM SO PENDING CAN BE RESET!!! Free tables. */
+    if (dev->irq_msix_vectors)
+	free(dev->irq_msix_vectors);
+    if (dev->irq_msix_pending)
+	free(dev->irq_msix_pending);
+
+    /* Disable MSI-X on VFIO. */
+    vfio_irq_disabletype(dev, VFIO_PCI_MSIX_IRQ_INDEX);
+
+    /* Re-enable INTx. */
+    vfio_irq_enable(dev, VFIO_PCI_INTX_IRQ_INDEX);
 }
 
 
 static void
 vfio_irq_disable(vfio_device_t *dev)
 {
-    vfio_log("VFIO %s: irq_disable()\n", dev->name);
+    vfio_log("VFIO %s: irq_disable(%d)\n", dev->name, dev->irq_type);
 
-    /* Stop IRQ timer. */
-    timer_on_auto(&dev->irq_timer, 0.0);
+    /* Pause IRQ thread. */
+    thread_reset_event(irq_thread_resume);
+    uint64_t val = 1;
+    write(irq_thread_wake_fd, &val, sizeof(val));
 
-    /* Stop IRQ thread. */
-    if (dev->irq_thread) {
-	dev->irq_thread_stop = 1;
-	uint64_t count = 1;
-	write(dev->irq_eventfd, &count, sizeof(count));
-	thread_set_event(dev->irq_event);
-	thread_wait_event(dev->irq_thread_stopped, -1);
-	dev->irq_thread = NULL;
+    /* Always disable INTx after disabling MSI/MSIX. */
+    if (dev->irq_type == VFIO_PCI_MSIX_IRQ_INDEX)
+    	vfio_irq_msix_disable(dev);
+    else if (dev->irq_type == VFIO_PCI_MSI_IRQ_INDEX)
+    	vfio_irq_msi_disable(dev);
+    if (dev->irq_type == VFIO_PCI_INTX_IRQ_INDEX)
+    	vfio_irq_intx_disable(dev);
+
+    /* Invalidate all IRQ vectors. */
+    if (dev->irq_vectors) {
+	for (int i = 0; i < dev->irq_vector_count; i++) {
+		if (dev->irq_vectors[i].fd >= 0) {
+			/* Remove eventfd from epoll. */
+			epoll_ctl(epoll_fd, EPOLL_CTL_DEL, dev->irq_vectors[i].fd, NULL);
+			close(dev->irq_vectors[i].fd);
+		}
+	}
+	free(dev->irq_vectors);
+	dev->irq_vectors = NULL;
+	dev->irq_vector_count = 0;
     }
 
-    /* Clear any pending IRQs. */
-    dev->in_irq = dev->prev_in_irq = dev->irq_active = 0;
+    /* Resume IRQ thread. */
+    thread_reset_event(irq_thread_resume_ack);
+    thread_set_event(irq_thread_resume);
+    thread_wait_event(irq_thread_resume_ack, -1);
+}
 
-    /* Close eventfd. */
-    if (dev->irq_eventfd >= 0) {
-	close(dev->irq_eventfd);
-	dev->irq_eventfd = -1;
+
+static void
+vfio_irq_enable(vfio_device_t *dev, int type)
+{
+    vfio_log("VFIO %s: irq_enable(%d)\n", dev->name, type);
+
+    int vfio_type;
+    uint16_t val;
+    switch (type) {
+	case VFIO_PCI_INTX_IRQ_INDEX:
+		vfio_type = VFIO_PCI_INTX_IRQ_INDEX;
+
+		/* Only one fd needed. */
+		dev->irq_vector_count = 1;
+
+		/* Read IRQ pin. */
+		vfio_irq_intx_setpin(dev);
+		break;
+
+	case VFIO_PCI_MSI_IRQ_INDEX:
+		vfio_type = VFIO_PCI_MSI_IRQ_INDEX;
+
+		/* Read control register. */
+		val =  vfio_config_readb(0, dev->msi_cap + 2, dev) |
+		      (vfio_config_readb(0, dev->msi_cap + 3, dev) << 8);
+
+		/* Set vector count. */
+		dev->irq_vector_count = 1 << ((val >> 1) & 3);
+		break;
+
+	case VFIO_PCI_MSIX_IRQ_INDEX:
+		vfio_type = VFIO_PCI_MSIX_IRQ_INDEX;
+
+		/* Read control register. */
+		val =  vfio_config_readb(0, dev->msix_cap + 2, dev) |
+		      (vfio_config_readb(0, dev->msix_cap + 3, dev) << 8);
+
+		/* Set vector count. */
+		dev->irq_vector_count = (val & 0x03ff) + 1;
+		break;
     }
+
+    /* Prepare structure for enabling the interrupt type. */
+    struct vfio_irq_set irq_set = {
+	.argsz = sizeof(irq_set) + (sizeof(int32_t) * dev->irq_vector_count),
+	.flags = VFIO_IRQ_SET_DATA_EVENTFD | VFIO_IRQ_SET_ACTION_TRIGGER,
+	.index = vfio_type,
+	.start = 0,
+	.count = dev->irq_vector_count
+    };
+    int32_t *fd_list = (int32_t *) &irq_set.data;
+    struct epoll_event event = { .events = EPOLLIN };
+
+    /* Create interrupt vectors with their respective eventfds. */
+    dev->irq_vectors = (vfio_irq_t *) malloc(sizeof(vfio_irq_t) * dev->irq_vector_count);
+    for (int i = 0; i < dev->irq_vector_count; i++) {
+    	dev->irq_vectors[i].dev = dev;
+    	dev->irq_vectors[i].type = type;
+    	fd_list[i] = dev->irq_vectors[i].fd = eventfd(0, 0);
+    	if (fd_list[i] < 0) {
+    		pclog("VFIO %s: IRQ eventfd %d failed (%d)\n", dev->name, i, errno);
+    	} else {
+    		/* Add eventfd to epoll. */
+    		event.data.ptr = &dev->irq_vectors[i];
+    		epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd_list[i], &event);
+    	}
+    }
+
+    /* Enable interrupt type on VFIO. */
+    if (ioctl(dev->fd, VFIO_DEVICE_SET_IRQS, &irq_set))
+	pclog("VFIO %s: SET_IRQS(%d, %d) failed (%d)\n", dev->name,
+	      vfio_type, dev->irq_vector_count, errno);
+    dev->irq_type = type;
 }
 
 
@@ -975,7 +1183,7 @@ vfio_prepare_region(vfio_device_t *dev, struct vfio_region_info *reg, vfio_regio
     }
     region->read = !!(reg->flags & VFIO_REGION_INFO_FLAG_READ);
     region->write = !!(reg->flags & VFIO_REGION_INFO_FLAG_WRITE);
-    region->irq_active = &dev->irq_active;
+    region->intx_irq_high = &dev->intx_irq_high;
 
     /* Use special memory mapping for expansion ROMs. */
     if (reg->index == VFIO_PCI_ROM_REGION_INDEX) {
@@ -985,6 +1193,7 @@ vfio_prepare_region(vfio_device_t *dev, struct vfio_region_info *reg, vfio_regio
 	/* Open ROM file if one was given. */
 	FILE *f = NULL;
 	if (dev->rom_fn) {
+		pclog("VFIO %s: Loading ROM from file: %s\n", dev->name, dev->rom_fn);
 		f = fopen(dev->rom_fn, "rb");
 		if (f) {
 			/* Determine region size if the device has no ROM region. */
@@ -997,12 +1206,12 @@ vfio_prepare_region(vfio_device_t *dev, struct vfio_region_info *reg, vfio_regio
 			}
 		} else {
 			/* Fall back to the device's ROM if it has one. */
-			pclog("VFIO %s: Could not read ROM file: %s\n", dev->name, dev->rom_fn);
+			pclog("VFIO %s: Could not read ROM file, ", dev->name);
 			if (region->size) {
-				pclog("VFIO %s: Falling back to device ROM\n", dev->name);
+				pclog("falling back to device ROM\n");
 			} else {
 				/* Disable ROM. */
-				pclog("VFIO %s: Not enabling ROM\n", dev->name);
+				pclog("not enabling ROM\n");
 				region->read = region->write = 0;
 				goto end;
 			}
@@ -1016,7 +1225,6 @@ vfio_prepare_region(vfio_device_t *dev, struct vfio_region_info *reg, vfio_regio
 	/* Allocate ROM shadow area. */
 	region->mmap_base = region->mmap_precalc = (uint8_t *) malloc(region->size);
 	if (!region->mmap_base) {
-		vfio_log("\n");
 		pclog("VFIO %s: ROM malloc(%d) failed\n", dev->name, region->size);
 		goto end;
 	}
@@ -1041,6 +1249,63 @@ vfio_prepare_region(vfio_device_t *dev, struct vfio_region_info *reg, vfio_regio
 			j += i;
 		}
 	}
+
+	/* Perform a few sanity checks on the ROM, starting with the signature. */
+	j = 0;
+	if (*((uint16_t *) &region->mmap_base[0x00]) == 0xaa55) {
+		/* Check ROM length. */
+		uint32_t rom_len = region->mmap_base[0x02] << 9; /* 512-byte blocks */
+		if (rom_len > region->size) {
+			pclog("VFIO %s: Warning: ROM length (%d bytes) is larger than ROM region (%d bytes)\n",
+			      dev->name, rom_len, region->size);
+			j = 1;
+		}
+
+		/* Check PCI pointer. */
+		uint16_t pci_ptr = *((uint16_t *) &region->mmap_base[0x18]);
+		if (pci_ptr && (pci_ptr != 0xffff)) {
+			/* Check PCI pointer bounds. */
+			if (pci_ptr <= (region->size - 0x12)) {
+				/* Check PCI header ROM length only if <= 130048 bytes, as the
+				   ROM length is 8 bits in the main header and 16 bits in here. */
+				uint32_t pci_len = *((uint16_t *) &region->mmap_base[pci_ptr + 0x18]) << 9; /* 512-byte blocks */
+				if ((pci_len <= (254 << 9)) && (pci_len != rom_len)) {
+					pclog("VFIO %s: Warning: ROM length in main header (%d bytes) is "
+					      "different from PCI header (%d bytes)\n",
+					      dev->name, rom_len, pci_len);
+					j = 1;
+				}
+			} else {
+				pclog("VFIO %s: Warning: ROM has invalid PCI header pointer: %04X\n",
+				      dev->name, pci_ptr);
+				j = 1;
+			}
+		} else {
+			pclog("VFIO %s: Warning: ROM has no PCI header pointer\n",
+			      dev->name, pci_ptr);
+			j = 1;
+		}
+
+		/* Compare checksum. */
+		uint8_t checksum = 0;
+		if (rom_len > region->size) /* don't go out of bounds */
+			rom_len = region->size;
+		rom_len -= 1;
+		for (i = 0; i < rom_len; i++)
+			checksum -= region->mmap_base[i];
+		if (checksum != region->mmap_base[i]) {
+			pclog("VFIO %s: Warning: ROM has bad checksum; expected %02X, got %02X\n",
+			      dev->name, checksum, region->mmap_base[i]);
+			j = 1;
+		}
+	} else {
+		pclog("VFIO %s: Warning: ROM has no 55 AA signature\n", dev->name);
+		j = 1;
+	}
+
+	/* Add a helpful reminder if a sanity check warning was printed. */
+	if (j)
+		pclog("VFIO %s: A custom ROM can be loaded with the _rom_fn directive.", dev->name);
     } else {
 	/* Attempt to mmap the region. */
 	region->mmap_base = mmap(NULL, region->size,
@@ -1188,9 +1453,9 @@ vfio_dev_postreset(vfio_device_t *dev)
 {
     vfio_log("VFIO %s: postreset()\n", dev->name);
 
-    /* Enable interrupts. */
+    /* Enable INTx interrupts. MSI(-X) can be enabled by the OS later. */
     if (!dev->closing)
-	vfio_irq_enable(dev);
+	vfio_irq_enable(dev, VFIO_PCI_INTX_IRQ_INDEX);
 
     /* Reset BARs, whatever this does. */
     uint32_t val = 0;
@@ -1250,7 +1515,7 @@ vfio_dev_reset(void *priv)
 		vfio_log("VFIO %s: Cannot hot reset; we don't own group %d for dependent device %s\n",
 			 dev->name, devices[i].group_id, name);
 
-		/* Remove hot reset flag from all groups. */
+		/* Clear hot reset flag from all groups. */
 		group = first_group;
 		while (group) {
 			group->hot_reset = 0;
@@ -1272,7 +1537,8 @@ vfio_dev_reset(void *priv)
 	dep_dev = group->first_device;
 	while (dep_dev) {
 		if (!strcasecmp(name, dep_dev->name)) {
-			vfio_dev_prereset(dep_dev);
+			if (dep_dev->initialized)
+				vfio_dev_prereset(dep_dev);
 			break;
 		}
 		dep_dev = dep_dev->next;
@@ -1335,7 +1601,8 @@ vfio_dev_reset(void *priv)
 	dep_dev = group->first_device;
 	while (dep_dev) {
 		if (!strcasecmp(name, dep_dev->name)) {
-			vfio_dev_postreset(dep_dev);
+			if (dep_dev->initialized)
+				vfio_dev_postreset(dep_dev);
 			break;
 		}
 		dep_dev = dep_dev->next;
@@ -1479,13 +1746,9 @@ vfio_dev_init(const device_t *info)
     /* Add PCI card while mapping the configuration space. */
     dev->slot = pci_add_card(PCI_ADD_NORMAL, vfio_config_readb, vfio_config_writeb, dev);
 
-    /* Initialize IRQ stuff. */
-    dev->irq_event = thread_create_event();
-    dev->irq_thread_stopped = thread_create_event();
-    timer_add(&dev->irq_timer, vfio_irq_timer, dev, 0);
-
     /* Reset device. This should also enable IRQs. */
     vfio_log("VFIO %s: Performing initial reset\n", dev->name);
+    dev->initialized = 1;
     vfio_dev_reset(dev);
 
     return dev;
@@ -1586,7 +1849,7 @@ vfio_map_dma(uint8_t *ptr, uint32_t offset, uint32_t size)
 		return;
     }
 
-    /*fatal*/pclog("VFIO: map_dma(%lX, %08X, %d) failed (%d)\n", ptr, offset, size, errno);
+    pclog("VFIO: map_dma(%lX, %08X, %d) failed (%d)\n", ptr, offset, size, errno);
 }
 
 
@@ -1680,12 +1943,11 @@ vfio_init()
 	dev = current_group->current_device = (vfio_device_t *) malloc(sizeof(vfio_device_t));
 	memset(dev, 0, sizeof(vfio_device_t));
 	strncpy(dev->name, dev_name, sizeof(dev->name) - 1);
+	dev->irq_type = VFIO_PCI_NUM_IRQS;
 
 	/* Read device-specific settings. */
 	sprintf(config_key, "%s_rom_fn", token);
 	dev->rom_fn = config_get_string(category, config_key, NULL);
-	if (dev->rom_fn)
-		pclog("VFIO %s: Loading ROM from file: %s\n", dev_name, dev->rom_fn);
 
 	/* Add to linked device list. */
 	if (prev_dev)
@@ -1711,25 +1973,59 @@ next:
     if (ram2)
 	vfio_map_dma(ram2, 1024UL * 1048576, 1024UL * (mem_size - 1048576));
 
+    /* Initialize epoll. */
+    epoll_fd = epoll_create1(0);
+    if (epoll_fd < 0) {
+    	pclog("VFIO: epoll_create1 failed (%d)\n", errno);
+    	goto close_container;
+    }
+
+    /* Initialize IRQ thread wake eventfd. */
+    irq_thread_wake_fd = eventfd(0, 0);
+    if (irq_thread_wake_fd <= 0) {
+    	pclog("VFIO: eventfd failed (%d)\n", errno);
+    	goto close_container;
+    }
+    struct epoll_event event = { .events = EPOLLIN };
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, irq_thread_wake_fd, &event) < 0) {
+    	pclog("VFIO: EPOLL_CTL_ADD failed (%d)\n", errno);
+    	goto close_container;
+    }
+
+    /* Initialize and start IRQ thread. */
+    irq_event = thread_create_event();
+    irq_thread_resume = thread_create_event();
+    thread_set_event(irq_thread_resume);
+    irq_thread_resume_ack = thread_create_event();
+    irq_thread = thread_create(vfio_irq_thread, NULL);
+
+    /* Start IRQ timer. */
+    timer_add(&irq_timer, vfio_irq_timer, NULL, 0);
+    vfio_irq_timer(NULL);
+
     /* Initialize all devices. */
     int inst = 0;
     current_group = first_group;
     while (current_group) {
+    	prev_dev = NULL;
 	dev = current_group->first_device;
 	while (dev) {
-		if (device_add_inst(&vfio_device, inst++) == dev) {
-			/* Add to linked device list. */
-			if (prev_dev)
-				prev_dev->next = dev;
-			else
-				current_group->first_device = dev;
-		} else {
-			current_group->current_device = prev_dev;
+		current_group->current_device = dev;
+		if (device_add_inst(&vfio_device, inst++) != dev) {
 			inst--;
-			pclog("VFIO %s: device_add_inst(%d) failed\n", dev_name, inst);
-			free(dev);
+			pclog("VFIO %s: device_add_inst(%d) failed\n", dev->name, inst);
+
+			if (prev_dev)
+				prev_dev->next = dev->next;
+			else
+				current_group->first_device = dev->next;
+			dev = dev->next;
+			free(current_group->current_device);
+			continue;
 		}
+		prev_dev = dev;
 		dev = dev->next;
+		
 	}
 	current_group = current_group->next;
     }
@@ -1746,6 +2042,19 @@ void
 vfio_close()
 {
     vfio_log("VFIO: close()\n");
+
+#if 0 /* clean shutdown */
+    /* Pause IRQ thread. */
+    thread_reset_event(irq_thread_resume);
+    uint64_t val = 1;
+    write(irq_thread_wake_fd, &val, sizeof(val));
+#endif
+
+    /* Stop IRQ timer. */
+    timer_on_auto(&irq_timer, 0.0);
+
+    /* Close epoll fd. */
+    close(epoll_fd);
 
     /* Free all groups. */
     while (first_group) {
@@ -1772,6 +2081,12 @@ vfio_close()
     /* Close container. */
     if (container_fd >= 0) {
 	close(container_fd);
-	container_fd = 0;
+	container_fd = -1;
+    }
+
+    /* Close epoll. */
+    if (epoll_fd >= 0) {
+    	close(epoll_fd);
+    	epoll_fd = -1;
     }
 }
