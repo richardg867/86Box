@@ -155,9 +155,25 @@ image_is_track_audio(cdrom_t *dev, uint32_t pos, int ismsf)
     if (track == -1)
 	return 0;
     else {
-	cdi_get_audio_track_info(img, 0, cdi_get_track(img, pos), &number, &tmsf, &attr);
+	cdi_get_audio_track_info(img, 0, track, &number, &tmsf, &attr);
 	return attr == AUDIO_TRACK;
     }
+}
+
+
+static int
+image_is_track_pre(cdrom_t *dev, uint32_t lba)
+{
+    cd_img_t *img = (cd_img_t *)dev->image;
+    int track;
+
+    /* GetTrack requires LBA. */
+    track = cdi_get_track(img, lba);
+
+    if (track != -1)
+	return cdi_get_audio_track_pre(img, track);
+
+    return 0;
 }
 
 
@@ -231,6 +247,7 @@ static const cdrom_ops_t cdrom_image_ops = {
     image_get_tracks,
     image_get_track_info,
     image_get_subchannel,
+    image_is_track_pre,
     image_sector_size,
     image_read_sector,
     image_track_type,
@@ -253,7 +270,10 @@ cdrom_image_open(cdrom_t *dev, const char *fn)
 {
     cd_img_t *img;
 
-    strcpy(dev->image_path, fn);
+    /* Make sure to not STRCPY if the two are pointing
+       at the same place. */
+    if (fn != dev->image_path)
+	strcpy(dev->image_path, fn);
 
     /* Create new instance of the CDROM_Image class. */
     img = (cd_img_t *) malloc(sizeof(cd_img_t));

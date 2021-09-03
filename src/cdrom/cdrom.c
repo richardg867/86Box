@@ -12,7 +12,7 @@
  *
  * Author:	Miran Grca, <mgrca8@gmail.com>
  *
- *		Copyright 2018,2019 Miran Grca.
+ *		Copyright 2018-2021 Miran Grca.
  */
 #include <inttypes.h>
 #include <stdarg.h>
@@ -235,6 +235,16 @@ cdrom_seek(cdrom_t *dev, uint32_t pos)
 
     dev->seek_pos   = pos;
     cdrom_stop(dev);
+}
+
+
+int
+cdrom_is_pre(cdrom_t *dev, uint32_t lba)
+{
+    if (dev->ops && dev->ops->is_track_pre)
+	return dev->ops->is_track_pre(dev, lba);
+
+    return 0;
 }
 
 

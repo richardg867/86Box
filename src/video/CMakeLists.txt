@@ -24,7 +24,7 @@ add_library(vid OBJECT video.c vid_table.c vid_cga.c vid_cga_comp.c
 	vid_stg_ramdac.c vid_ht216.c vid_oak_oti.c vid_paradise.c vid_rtg310x.c
 	vid_ti_cf62011.c vid_tvga.c vid_tgui9440.c vid_tkd8001_ramdac.c
 	vid_att20c49x_ramdac.c vid_s3.c vid_s3_virge.c vid_ibm_rgb528_ramdac.c
-	vid_sdac_ramdac.c vid_ogc.c vid_nga.c)
+	vid_sdac_ramdac.c vid_ogc.c vid_nga.c vid_tvp3026_ramdac.c)
 
 if(MGA)
 	target_compile_definitions(vid PRIVATE USE_MGA)
@@ -48,7 +48,7 @@ add_library(voodoo OBJECT vid_voodoo.c vid_voodoo_banshee.c
 	vid_voodoo_fb.c vid_voodoo_fifo.c vid_voodoo_reg.c vid_voodoo_render.c
 	vid_voodoo_setup.c vid_voodoo_texture.c)
 
-if(NOT MSVC)
+if(NOT MSVC AND (ARCH STREQUAL "i386" OR ARCH STREQUAL "x86_64"))
 	target_compile_options(voodoo PRIVATE "-msse2")
 endif()
 
