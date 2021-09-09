@@ -19,10 +19,8 @@
 
 #ifdef __linux__
 extern void	vfio_init();
-extern void	vfio_close();
 #else
 # define vfio_init()
-# define vfio_close()
 #endif
 
 #endif

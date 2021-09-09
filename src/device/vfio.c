@@ -66,30 +66,45 @@ typedef struct {
 		read: 1, write: 1;
     mem_mapping_t mem_mapping, mem_mapping_add[2];
     char	name[20];
-
-    int		*intx_irq_high;
 } vfio_region_t;
 
 typedef struct {
     struct _vfio_device_ *dev;
     int		fd, type, vector;
+    uint16_t	msix_offset;
 } vfio_irq_t;
 
 typedef struct _vfio_device_ {
-    int		fd, slot, irq_pin;
-    uint8_t	initialized: 1, closing: 1,
-    		mem_enabled: 1, io_enabled: 1, rom_enabled: 1,
-		can_reset: 1, can_pm_reset: 1,
-		irq_type, pm_cap, msi_cap, msix_cap;
-    char	name[13], *rom_fn;
+    int		fd, slot;
+    uint8_t	mem_enabled: 1, io_enabled: 1, rom_enabled: 1,
+		can_reset: 1, can_flr_reset: 1, can_pm_reset: 1, can_hot_reset: 1,
+		pm_cap, msi_cap, msix_cap, pcie_cap, af_cap;
+    char	*name, *rom_fn;
 
     vfio_region_t bars[6], rom, config, vga_io_lo, vga_io_hi, vga_mem;
 
-    int		irq_vector_count, intx_irq_raised, intx_irq_high,
-		irq_thread_stop;
-    vfio_irq_t	*irq_vectors;
-    uint8_t	*irq_msix_vectors, *irq_msix_pending;
-    uint32_t	irq_msi_address;
+    struct {
+	uint8_t type;
+	int	vector_count;
+	vfio_irq_t *vectors;
+
+	struct {
+		int	raised;
+		uint8_t	pin;
+	} intx;
+	struct {
+		uint32_t address, address_upper, pending, mask;
+		uint16_t ctl, data, vector_enable_mask;
+		uint8_t	vector_count, vector_enable_count;
+	} msi;
+	struct {
+		mem_mapping_t table_mapping, pba_mapping;
+		uint32_t table_offset, pba_offset,
+			 table_offset_precalc, pba_offset_precalc;
+		uint16_t ctl, vector_count, table_size, pba_size;
+		uint8_t	table_bar, pba_bar, *table, *pba;
+	} msix;
+    } irq;
 
     struct {
 	struct {
@@ -103,7 +118,6 @@ typedef struct _vfio_device_ {
 
 typedef struct _vfio_group_ {
     int		id, fd;
-    uint8_t	hot_reset: 1;
 
     vfio_device_t *first_device, *current_device;
 
@@ -113,6 +127,7 @@ typedef struct _vfio_group_ {
 
 static video_timings_t timing_default = {VIDEO_PCI, 8, 16, 32,   8, 16, 32};
 static int	container_fd = -1, epoll_fd = -1, irq_thread_wake_fd = -1,
+		closing = 0, intx_high = 0,
 		timing_readb = 0, timing_readw = 0, timing_readl = 0,
 		timing_writeb = 0, timing_writew = 0, timing_writel = 0;
 static vfio_group_t *first_group = NULL, *current_group;
@@ -122,7 +137,6 @@ static pc_timer_t irq_timer;
 static vfio_irq_t *current_irq = NULL;
 
 
-#define ENABLE_VFIO_LOG 1
 #ifdef ENABLE_VFIO_LOG
 int vfio_do_log = ENABLE_VFIO_LOG;
 
@@ -152,6 +166,9 @@ vfio_log(const char *fmt, ...)
 static uint8_t	vfio_config_readb(int func, int addr, void *priv);
 static void	vfio_config_writeb(int func, int addr, uint8_t val, void *priv);
 static void	vfio_irq_intx_setpin(vfio_device_t *dev);
+static void	vfio_irq_msi_disable(vfio_device_t *dev);
+static void	vfio_irq_msix_disable(vfio_device_t *dev);
+static void	vfio_irq_msix_updatemask(vfio_device_t *dev, uint16_t offset);
 static void	vfio_irq_enable(vfio_device_t *dev, int type);
 
 
@@ -165,7 +182,7 @@ vfio_ ## space ## _read ## length_char ## _fd(addr_type addr, void *priv) \
 	ret = -1; \
     vfio_log_op("[%08X:%04X] VFIO: " #space "_read" #length_char "_fd(%0" #addr_slength "X) = %0" #val_slength "X\n", CS, cpu_state.pc, addr, ret); \
     cycles -= timing_read ## length_char; \
-    *(region->intx_irq_high) = 0; \
+    intx_high = 0; \
     return ret; \
 } \
 \
@@ -176,28 +193,26 @@ vfio_ ## space ## _write ## length_char ## _fd(addr_type addr, val_type val, voi
     vfio_log_op("[%08X:%04X] VFIO: " #space "_write" #length_char "_fd(%0" #addr_slength "X, %0" #val_slength "X)\n", CS, cpu_state.pc, addr, val); \
     pwrite(region->fd, &val, sizeof(val), region->precalc_offset + addr); \
     cycles -= timing_write ## length_char; \
-    *(region->intx_irq_high) = 0; \
+    intx_high = 0; \
 } \
 \
 static val_type \
 vfio_ ## space ## _read ## length_char ## _mm(addr_type addr, void *priv) \
 { \
-    register vfio_region_t *region = (vfio_region_t *) priv; \
-    register val_type ret = *((val_type *) &region->mmap_precalc[addr]); \
+    register val_type ret = *((val_type *) &((uint8_t *) priv)[addr]); \
     vfio_log_op("[%08X:%04X] VFIO: " #space "_read" #length_char "_mm(%0" #addr_slength "X) = %0" #val_slength "X\n", CS, cpu_state.pc, addr, ret); \
     cycles -= timing_read ## length_char; \
-    *(region->intx_irq_high) = 0; \
+    intx_high = 0; \
     return ret; \
 } \
 \
 static void \
 vfio_ ## space ## _write ## length_char ## _mm(addr_type addr, val_type val, void *priv) \
 { \
-    register vfio_region_t *region = (vfio_region_t *) priv; \
     vfio_log_op("[%08X:%04X] VFIO: " #space "_write" #length_char "_mm(%0" #addr_slength "X, %0" #val_slength "X)\n", CS, cpu_state.pc, addr, val); \
-    *((val_type *) &region->mmap_precalc[addr]) = val; \
+    *((val_type *) &((uint8_t *) priv)[addr]) = val; \
     cycles -= timing_write ## length_char; \
-    *(region->intx_irq_high) = 0; \
+    intx_high = 0; \
 }
 
 VFIO_RW(mem, b, uint32_t, 8, uint8_t, 2)
@@ -420,12 +435,12 @@ vfio_quirk_configmirror(vfio_device_t *dev, vfio_region_t *bar, uint32_t offset,
     mem_mapping_t *mapping = &bar->mem_mapping_add[mapping_slot];
 
     vfio_log("VFIO %s: %sapping configuration space mirror for %s @ %08X\n",
-	     dev->name, enable ? "M" : "Unm", bar->name, offset);
+	     dev->name, enable ? "M" : "Unm", bar->name, bar->emulated_offset + offset);
 
     /* Add mapping if it wasn't already added.
-       Being added afterwards, it should override the main mapping. */
+       Being added after region setup, it should override the main BAR mapping. */
     if (!mapping->base)
-	mem_mapping_add(mapping, offset, 0,
+	mem_mapping_add(mapping, bar->emulated_offset + offset, 0,
 			vfio_quirk_configmirror_readb,
 			vfio_quirk_configmirror_readw,
 			vfio_quirk_configmirror_readl,
@@ -436,7 +451,7 @@ vfio_quirk_configmirror(vfio_device_t *dev, vfio_region_t *bar, uint32_t offset,
 
     /* Enable or disable mapping. */
     if (enable)
-	mem_mapping_set_addr(mapping, offset, 256);
+	mem_mapping_set_addr(mapping, bar->emulated_offset + offset, 256);
     else
 	mem_mapping_disable(mapping);
 }
@@ -486,7 +501,7 @@ vfio_quirk_remap(vfio_device_t *dev, vfio_region_t *bar, uint8_t enable)
 						 bar->write ? vfio_io_writeb_mm : NULL,
 						 bar->write ? vfio_io_writew_mm : NULL,
 						 bar->write ? vfio_io_writel_mm : NULL,
-						 bar);
+						 bar->mmap_precalc);
 			else /* mmap not available */
 				io_removehandler(0x3d0, 8,
 						 bar->read ? vfio_io_readb_fd : NULL,
@@ -547,17 +562,41 @@ vfio_bar_remap(vfio_device_t *dev, vfio_region_t *bar, uint32_t new_offset)
 
 		/* Disable memory mapping. */
 		mem_mapping_disable(&bar->mem_mapping);
+
+		/* Disable MSI-X table and PBA mappings if applicable to this BAR. */
+		if (dev->irq.msix.table_bar == bar->bar_id)
+			mem_mapping_disable(&dev->irq.msix.table_mapping);
+		if (dev->irq.msix.pba_bar == bar->bar_id)
+			mem_mapping_disable(&dev->irq.msix.pba_mapping);
 	}
+
+	bar->mmap_precalc = bar->mmap_base - new_offset;
 	/* Expansion ROM requires both ROM enable and memory enable. */
 	if (((bar->bar_id != 0xff) || dev->rom_enabled) && dev->mem_enabled && new_offset) {
 		vfio_log("VFIO %s: Mapping %s memory @ %08X-%08X\n", dev->name,
 			 bar->name, new_offset, new_offset + bar->size - 1);
 
 		/* Enable memory mapping. */
+		if (bar->mmap_base) /* mmap available */
+			mem_mapping_set_p(&bar->mem_mapping, bar->mmap_precalc);
 		mem_mapping_set_addr(&bar->mem_mapping, new_offset, bar->size);
 
 		/* Map any quirks. */
 		vfio_quirk_remap(dev, bar, 1);
+
+		/* Enable MSI-X table and PBA mappings if applicable to this BAR. */
+		if (dev->irq.msix.table_bar == bar->bar_id) {
+			dev->irq.msix.table_offset_precalc = new_offset + dev->irq.msix.table_offset;
+			mem_mapping_set_addr(&dev->irq.msix.table_mapping,
+					     dev->irq.msix.table_offset_precalc,
+					     dev->irq.msix.table_size);
+		}
+		if (dev->irq.msix.pba_bar == bar->bar_id) {
+			dev->irq.msix.pba_offset_precalc = new_offset + dev->irq.msix.pba_offset;
+			mem_mapping_set_addr(&dev->irq.msix.pba_mapping,
+					     dev->irq.msix.pba_offset_precalc,
+					     dev->irq.msix.pba_size);
+		}
 	}
     } else if (bar_type == 0x01) { /* I/O BAR */
 	if (bar->emulated_offset) {
@@ -576,7 +615,7 @@ vfio_bar_remap(vfio_device_t *dev, vfio_region_t *bar, uint32_t new_offset)
 					 bar->write ? vfio_io_writeb_mm : NULL,
 					 bar->write ? vfio_io_writew_mm : NULL,
 					 bar->write ? vfio_io_writel_mm : NULL,
-					 bar);
+					 bar->mmap_precalc);
 		else /* mmap not available */
 			io_removehandler(bar->emulated_offset, bar->size,
 					 bar->read ? vfio_io_readb_fd : NULL,
@@ -587,6 +626,8 @@ vfio_bar_remap(vfio_device_t *dev, vfio_region_t *bar, uint32_t new_offset)
 					 bar->write ? vfio_io_writel_fd : NULL,
 					 bar);
 	}
+
+	bar->mmap_precalc = bar->mmap_base - new_offset;
 	if (dev->io_enabled && new_offset) {
 		vfio_log("VFIO %s: Mapping %s I/O @ %04X-%04X\n", dev->name,
 			 bar->name, new_offset, new_offset + bar->size - 1);
@@ -600,7 +641,7 @@ vfio_bar_remap(vfio_device_t *dev, vfio_region_t *bar, uint32_t new_offset)
 				      bar->write ? vfio_io_writeb_mm : NULL,
 				      bar->write ? vfio_io_writew_mm : NULL,
 				      bar->write ? vfio_io_writel_mm : NULL,
-				      bar);
+				      bar->mmap_precalc);
 		else /* mmap not available */
 			io_sethandler(new_offset, bar->size,
 				      bar->read ? vfio_io_readb_fd : NULL,
@@ -620,7 +661,6 @@ vfio_bar_remap(vfio_device_t *dev, vfio_region_t *bar, uint32_t new_offset)
        The precalculated offsets speed up read/write operations. */
     bar->emulated_offset = new_offset;
     bar->precalc_offset = bar->offset - new_offset;
-    bar->mmap_precalc = bar->mmap_base - new_offset;
 }
 
 
@@ -631,7 +671,7 @@ vfio_config_readb(int func, int addr, void *priv)
     if (func)
 	return 0xff;
 
-    dev->intx_irq_high = 0;
+    intx_high = 0;
 
     /* Read register from device. */
     uint8_t ret;
@@ -682,6 +722,61 @@ vfio_config_readb(int func, int addr, void *priv)
 		if (!offset)
 			ret = (ret & ~0x01) | dev->rom_enabled;
 		break;
+
+	default: /* other (capabilities) */
+		if (dev->msi_cap && (addr >= dev->msi_cap)) { /* MSI */
+			/* Adjust register offset to account for different structure levels. */
+			offset = addr - dev->msi_cap;
+			if (!(dev->irq.msi.ctl & 0x0080) && (offset >= 0x08))
+				offset += 4;
+			switch (offset) {
+				case 0x02 ... 0x03: /* Message Control */
+					offset = (offset - 0x02) << 3;
+					ret = dev->irq.msi.ctl >> offset;
+					goto end;
+
+				case 0x04 ... 0x07: /* Message Address */
+					offset = (offset - 0x04) << 3;
+					ret = dev->irq.msi.address >> offset;
+					goto end;
+
+				case 0x08 ... 0x0b: /* Message Upper Address */
+					offset = (offset - 0x08) << 3;
+					ret = dev->irq.msi.address_upper >> offset;
+					goto end;
+
+				case 0x0c ... 0x0d: /* Message Data */
+					offset = (offset - 0x0c) << 3;
+					ret = dev->irq.msi.data >> offset;
+					goto end;
+
+				case 0x10 ... 0x13: /* Mask Bits */
+					if (dev->irq.msi.ctl & 0x0100) {
+						offset = (offset - 0x10) << 3;
+						ret = dev->irq.msi.mask >> offset;
+						goto end;
+					}
+					break;
+
+				case 0x14 ... 0x17: /* Pending Bits */
+					if (dev->irq.msi.ctl & 0x0100) {
+						offset = (offset - 0x14) << 3;
+						ret = dev->irq.msi.pending >> offset;
+						goto end;
+					}
+					break;
+			}
+		}
+		if (dev->msix_cap && (addr >= dev->msix_cap)) { /* MSI-X */
+			offset = addr - dev->msix_cap;
+			switch (offset) {
+				case 0x02 ... 0x03: /* Message Control */
+					offset = (offset - 0x02) << 3;
+					ret = dev->irq.msix.ctl >> offset;
+					goto end;
+			}
+		}
+end:		break;
     }
 
     vfio_log("VFIO %s: config_read(%02X) = %02X\n", dev->name,
@@ -718,33 +813,59 @@ vfio_config_writeb(int func, int addr, uint8_t val, void *priv)
 
     vfio_log("VFIO %s: config_write(%02X, %02X)\n", dev->name, addr, val);
 
-    dev->intx_irq_high = 0;
+    intx_high = 0;
 
     /* VFIO should block anything we shouldn't write to, such as BARs. */
     pwrite(dev->config.fd, &val, 1, dev->config.offset + addr);
 
     /* Act on some written values. */
-    uint8_t bar_id, offset;
-    uint32_t new_offset;
+    uint8_t new_mem_enabled, new_io_enabled, bar_id, offset;
+    uint32_t new_value;
+    uint64_t val64;
     int i;
     switch (addr) {
 	case 0x04: /* Command */
-		/* Set Memory and I/O flags. */
-		dev->mem_enabled = !!(val & PCI_COMMAND_MEM);
-		dev->io_enabled = !!(val & PCI_COMMAND_IO);
+		/* Determine new memory and I/O enable states. */
+		new_mem_enabled = !!(val & PCI_COMMAND_MEM);
+		new_io_enabled = !!(val & PCI_COMMAND_IO);
 
 		vfio_log("VFIO %s: Command Memory[%d] I/O[%d]\n", dev->name,
-			 dev->mem_enabled, dev->io_enabled);
+			 new_mem_enabled, new_io_enabled);
 
-		/* Remap all BARs. */
-		for (i = 0; i < 6; i++)
-			vfio_bar_remap(dev, &dev->bars[i], dev->bars[i].emulated_offset);
+		/* Remap regions only if their respective enable bits have changed. */
+		if (dev->mem_enabled ^ new_mem_enabled) {
+			/* Set new memory enable state. */
+			dev->mem_enabled = new_mem_enabled;
 
-		/* Remap VGA region if that is enabled. */
-		if (dev->vga_mem.bar_id) {
-			vfio_bar_remap(dev, &dev->vga_io_lo, 0x3b0);
-			vfio_bar_remap(dev, &dev->vga_io_hi, 0x3c0);
-			vfio_bar_remap(dev, &dev->vga_mem, 0xa0000);
+			/* Remap memory BARs. */
+			for (i = 0; i < 6; i++) {
+				if (vfio_bar_gettype(dev, &dev->bars[i]) == 0x00)
+					vfio_bar_remap(dev, &dev->bars[i], dev->bars[i].emulated_offset);
+			}
+
+			/* Remap ROM if present. */
+			if (dev->rom.read)
+				vfio_bar_remap(dev, &dev->rom, dev->rom.emulated_offset);
+
+			/* Remap VGA framebuffer region if present. */
+			if (dev->vga_mem.bar_id)
+				vfio_bar_remap(dev, &dev->vga_mem, 0xa0000);
+		}
+		if (dev->io_enabled ^ new_io_enabled) {
+			/* Set new I/O enable state. */
+			dev->io_enabled = new_io_enabled;
+
+			/* Remap I/O BARs. */
+			for (i = 0; i < 6; i++) {
+				if (vfio_bar_gettype(dev, &dev->bars[i]) == 0x01)
+					vfio_bar_remap(dev, &dev->bars[i], dev->bars[i].emulated_offset);
+			}
+
+			/* Remap VGA I/O regions if present. */
+			if (dev->vga_io_lo.bar_id) {
+				vfio_bar_remap(dev, &dev->vga_io_lo, 0x3b0);
+				vfio_bar_remap(dev, &dev->vga_io_hi, 0x3c0);
+			}
 		}
 		break;
 
@@ -769,10 +890,10 @@ vfio_config_writeb(int func, int addr, uint8_t val, void *priv)
 		}
 
 		/* Remap BAR. */
-		new_offset = dev->bars[bar_id].emulated_offset & ~(0x000000ff << offset);
-		new_offset |= val << offset;
-		new_offset &= ~(ceilpow2(dev->bars[bar_id].size) - 1);
-		vfio_bar_remap(dev, &dev->bars[bar_id], new_offset);
+		new_value = dev->bars[bar_id].emulated_offset & ~(0x000000ff << offset);
+		new_value |= val << offset;
+		new_value &= ~(ceilpow2(dev->bars[bar_id].size) - 1);
+		vfio_bar_remap(dev, &dev->bars[bar_id], new_value);
 		break;
 
 	case 0x30 ... 0x33: /* Expansion ROM */
@@ -788,17 +909,138 @@ vfio_config_writeb(int func, int addr, uint8_t val, void *priv)
 		}
 
 		/* Remap ROM. */
-		new_offset = (dev->rom.emulated_offset & ~(0x000000ff << offset));
-		new_offset |= (val << offset);
-		new_offset &= ~(ceilpow2(dev->rom.size) - 1);
-		vfio_bar_remap(dev, &dev->rom, new_offset);
+		new_value  = (dev->rom.emulated_offset & ~(0x000000ff << offset));
+		new_value |= val << offset;
+		new_value &= ~(ceilpow2(dev->rom.size) - 1);
+		vfio_bar_remap(dev, &dev->rom, new_value);
 		break;
 
 	case 0x3d: /* Interrupt Pin */
-		if (val != dev->irq_pin)
+		if (val != dev->irq.intx.pin)
 			vfio_irq_intx_setpin(dev);
 		break;
+
+	default: /* other (capabilities) */
+		if (dev->msi_cap && (addr >= dev->msi_cap)) { /* MSI */
+			/* Adjust register offset to account for different structure levels. */
+			offset = addr - dev->msi_cap;
+			if (!(dev->irq.msi.ctl & 0x0080) && (offset >= 0x08))
+				offset += 4;
+			switch (offset) {
+				case 0x00 ... 0x01: /* Capability */
+					goto end;
+
+				case 0x02 ... 0x03: /* Message Control */
+					offset = (offset - 0x02) << 3;
+					new_value  = dev->irq.msi.ctl & ~(0x00ff << offset);
+					new_value |= val << offset;
+
+					/* Enable or disable MSI if requested and not conflicting with MSI-X. */
+					if (dev->irq.type != VFIO_PCI_MSIX_IRQ_INDEX) {
+						if (!(dev->irq.msi.ctl & 0x0001) && (new_value & 0x0001))
+							vfio_irq_enable(dev, VFIO_PCI_MSI_IRQ_INDEX);
+						else if ((dev->irq.msi.ctl & 0x0001) && !(new_value & 0x0001))
+							vfio_irq_msi_disable(dev);
+					}
+
+					/* Update control register. */
+					dev->irq.msi.ctl = (new_value & 0x0071) | (dev->irq.msi.ctl & 0xff8e);
+
+					/* Update enabled vector count and mask. */
+					dev->irq.msi.vector_enable_count = MIN(1 << ((dev->irq.msi.ctl >> 1) & 3), dev->irq.msi.vector_count);
+					dev->irq.msi.vector_enable_mask = dev->irq.msi.vector_enable_count - 1;
+					goto end;
+
+				case 0x04 ... 0x07: /* Message Address */
+					offset = (offset - 0x04) << 3;
+					new_value  = dev->irq.msi.address & ~(0x000000ff << offset);
+					new_value |= val << offset;
+					dev->irq.msi.address = new_value & 0xfffffffc;
+					goto end;
+
+				case 0x08 ... 0x0b: /* Message Upper Address */
+					offset = (offset - 0x08) << 3;
+					new_value  = dev->irq.msi.address_upper & ~(0x000000ff << offset);
+					new_value |= val << offset;
+					dev->irq.msi.address_upper = new_value;
+					goto end;
+
+				case 0x0c ... 0x0d: /* Message Data */
+					offset = (offset - 0x0c) << 3;
+					new_value  = dev->irq.msi.data & ~(0x00ff << offset);
+					new_value |= val << offset;
+					dev->irq.msi.data = new_value;
+					goto end;
+
+				case 0x0e ... 0x0f: /* Reserved */
+				case 0x14 ... 0x17: /* Pending Bits */
+					if (dev->irq.msi.ctl & 0x0100)
+						goto end;
+					break;
+
+				case 0x10 ... 0x13: /* Mask Bits */
+					if (dev->irq.msi.ctl & 0x0100) {
+						offset = (offset - 0x10) << 3;
+						new_value  = dev->irq.msi.mask & ~(0x000000ff << offset);
+						new_value |= val << offset;
+						dev->irq.msi.mask = new_value;
+
+						/* Service any unmasked pending interrupts if MSI is enabled. */
+						if (dev->irq.msi.ctl & 0x0001) {
+							new_value = ~new_value;
+							val64 = 1;
+							for (i = 0; i < dev->irq.msi.vector_enable_count; i++) {
+								if (dev->irq.msi.pending & ((1 << i) & new_value))
+									write(dev->irq.vectors[i].fd, &val64, sizeof(val64));
+							}
+							dev->irq.msi.pending &= new_value;
+						}
+
+						goto end;
+					}
+					break;
+			}
+		}
+		if (dev->msix_cap && (addr >= dev->msix_cap)) { /* MSI-X */
+			offset = addr - dev->msix_cap;
+			switch (offset) {
+				case 0x00 ... 0x01: /* Capability */
+				case 0x04 ... 0x0b: /* Table/PBA Offset */
+					goto end;
+
+				case 0x02 ... 0x03: /* Message Control */
+					offset = (offset - 0x02) << 3;
+					new_value  = dev->irq.msix.ctl & ~(0x00ff << offset);
+					new_value |= val << offset;
+
+					/* Enable or disable MSI-X if requested. */
+					if (!(dev->irq.msix.ctl & 0x8000) && (new_value & 0x8000))
+						vfio_irq_enable(dev, VFIO_PCI_MSIX_IRQ_INDEX);
+					else if ((dev->irq.msix.ctl & 0x8000) && !(new_value & 0x8000))
+						vfio_irq_msix_disable(dev);
+
+					/* Update control register. */
+					dev->irq.msix.ctl = (new_value & 0xc000) | (dev->irq.msix.ctl & 0x3fff);
+
+					/* Service any unmasked pending interrupts if MSI-X
+					   is enabled and the global mask bit was cleared. */
+					if ((dev->irq.msix.ctl & 0xc000) == 0x8000) {
+						for (i = 0x000c; i < dev->irq.msix.table_size; i += 0x0010)
+							vfio_irq_msix_updatemask(dev, i);
+					}
+					goto end;
+			}
+		}
+end:		break;
     }
+}
+
+
+static void
+vfio_config_writew(int func, int addr, uint16_t val, void *priv)
+{
+    vfio_config_writeb(func, addr,     val,       priv);
+    vfio_config_writeb(func, addr | 1, val >> 8,  priv);
 }
 
 
@@ -815,7 +1057,7 @@ vfio_config_writel(int func, int addr, uint32_t val, void *priv)
 static void
 vfio_irq_thread(void *priv)
 {
-    int nfds, i;
+    int nfds, i, offset;
     uint64_t buf;
     struct epoll_event events[16];
     struct vfio_irq_set irq_set = {
@@ -824,44 +1066,88 @@ vfio_irq_thread(void *priv)
 	.start = 0,
 	.count = 1
     };
+    vfio_device_t *dev;
     vfio_irq_t *irq;
 
     vfio_log("VFIO: IRQ thread started\n");
 
-    while (1) {
-    	/* Wait for an interrupt to come in. */
-    	nfds = epoll_wait(epoll_fd, events, sizeof(events) / sizeof(events[0]), -1);
-    	if (nfds < 0) {
-    		vfio_log("VFIO %s: epoll_wait failed (%d)\n", errno);
-    		break;
-    	}
+    while (epoll_fd >= 0) {
+	/* Wait for an interrupt to come in. */
+	nfds = epoll_wait(epoll_fd, events, sizeof(events) / sizeof(events[0]), -1);
+	if (nfds < 0) {
+		vfio_log("VFIO %s: epoll_wait failed (%d)\n", errno);
+		break;
+	}
 
-    	/* Process all interrupts which came in. */
+	/* Process all interrupts which came in. */
 	for (i = 0; i < nfds; i++) {
 		/* Only handle read events. */
 		if (!(events[i].events & EPOLLIN))
 			continue;
 
-		/* Get the IRQ structure for this interrupt. */
+		/* Get the IRQ and device structures for this interrupt. */
 		irq = (vfio_irq_t *) events[i].data.ptr;
 		if (!irq) {
 			/* Do nothing if this is the wake eventfd, which has no data. */
 			read(irq_thread_wake_fd, &buf, sizeof(buf));
 			continue;
 		}
+		dev = irq->dev;
 
 		/* Reset eventfd counter. */
 		read(irq->fd, &buf, sizeof(buf));
 
-		/* Determine VFIO IRQ type. */
-		vfio_log_op("VFIO %s: %s IRQ on vector %d\n", irq->dev->name,
-			    ((irq->type == VFIO_PCI_INTX_IRQ_INDEX) ? "INTx" : (((irq->type == VFIO_PCI_MSI_IRQ_INDEX) ? "MSI" : ((irq->type == VFIO_PCI_MSIX_IRQ_INDEX) ? "MSI-X" : NULL))));
+		/* Log VFIO IRQ type and vector. */
+		vfio_log_op("VFIO %s: %s IRQ on vector %d\n", dev->name,
+			    ((irq->type == VFIO_PCI_INTX_IRQ_INDEX) ? "INTx" : (((irq->type == VFIO_PCI_MSI_IRQ_INDEX) ? "MSI" : ((irq->type == VFIO_PCI_MSIX_IRQ_INDEX) ? "MSI-X" : NULL)))),
 			    irq->vector);
-		
-		/* Mask host IRQ if this is INTx. */
-		if (irq->type == VFIO_PCI_INTX_IRQ_INDEX) {
-			irq_set.flags = VFIO_IRQ_SET_DATA_NONE | VFIO_IRQ_SET_ACTION_MASK;
-			ioctl(irq->dev->fd, VFIO_DEVICE_SET_IRQS, &irq_set);
+
+		/* Perform pre-checks for specific IRQ types. */
+		switch (irq->type) {
+			case VFIO_PCI_INTX_IRQ_INDEX:
+				/* Mask host IRQ. */
+				irq_set.flags = VFIO_IRQ_SET_DATA_NONE | VFIO_IRQ_SET_ACTION_MASK;
+				ioctl(dev->fd, VFIO_DEVICE_SET_IRQS, &irq_set);
+				break;
+
+			case VFIO_PCI_MSI_IRQ_INDEX:
+				/* Ignore MSI if this vector is not enabled. */
+				if (irq->vector >= dev->irq.msi.vector_enable_count) {
+					vfio_log_op("VFIO %s: MSI vector not enabled (%d >= %d)\n", dev->name,
+						    irq->vector, dev->irq.msi.vector_enable_count);
+					continue;
+				}
+
+				/* Ignore MSI if the upper 32 bits of a 64-bit address are non-zero. */
+				if (dev->irq.msi.address_upper) {
+					vfio_log_op("VFIO %s: MSI 64-bit address %08X%08X\n", dev->name,
+						    dev->irq.msi.address_upper, dev->irq.msi.address);
+					continue;
+				}
+
+				/* Mark MSI as pending if this vector is masked through per-vector masking. */
+				if (dev->irq.msi.mask & (1 << irq->vector)) {
+					vfio_log_op("VFIO %s: MSI masked\n", dev->name);
+					dev->irq.msi.pending |= 1 << irq->vector;
+					continue;
+				}
+				break;
+
+			case VFIO_PCI_MSIX_IRQ_INDEX:
+				/* Ignore MSI-X if the upper 32 bits of a 64-bit address are non-zero. */
+				if (*((uint32_t *) &dev->irq.msix.table[irq->msix_offset | 0x4])) {
+					vfio_log_op("VFIO %s: MSI-X 64-bit address %016X\n", dev->name,
+						    *((uint64_t *) &dev->irq.msix.table[irq->msix_offset]));
+					continue;
+				}
+
+				/* Mark MSI-X as pending if this vector or all vectors are masked. */
+				if ((dev->irq.msix.ctl & 0x4000) || (dev->irq.msix.table[irq->msix_offset | 0xc] & 0x01)) {
+					vfio_log_op("VFIO %s: MSI-X masked\n", dev->name);
+					dev->irq.msix.pba[irq->vector >> 3] |= 1 << (irq->vector & 0x07);
+					continue;
+				}
+				break;
 		}
 
 		/* Tell the timer to service this interrupt. */
@@ -870,12 +1156,12 @@ vfio_irq_thread(void *priv)
 		/* Wait for the timer to do its job. */
 		thread_wait_event(irq_event, -1);
 		thread_reset_event(irq_event);
-		vfio_log_op("VFIO %s: IRQ serviced\n", irq->dev->name);
+		vfio_log_op("VFIO %s: IRQ serviced\n", dev->name);
 
 		/* Unmask host IRQ if this is INTx. */
 		if (irq->type == VFIO_PCI_INTX_IRQ_INDEX) {
 			irq_set.flags = VFIO_IRQ_SET_DATA_NONE | VFIO_IRQ_SET_ACTION_UNMASK;
-			ioctl(irq->dev->fd, VFIO_DEVICE_SET_IRQS, &irq_set);
+			ioctl(dev->fd, VFIO_DEVICE_SET_IRQS, &irq_set);
 		}
 	}
 
@@ -902,75 +1188,57 @@ vfio_irq_timer(void *priv)
 
     /* Act according to the IRQ type. */
     uint16_t val;
-    uint8_t offset;
+    int offset;
     switch (current_irq->type) {
-    	case VFIO_PCI_INTX_IRQ_INDEX:
-    		if (!dev->intx_irq_raised) { /* rising edge */
+	case VFIO_PCI_INTX_IRQ_INDEX:
+		if (!dev->irq.intx.raised) { /* rising edge */
 			vfio_log_op("VFIO %s: Raising IRQ on pin INT%c\n", dev->name,
-				    '@' + dev->irq_pin);
+				    '@' + dev->irq.intx.pin);
 
 			/* Raise IRQ. */
-			pci_set_irq(dev->slot, dev->irq_pin);
+			pci_set_irq(dev->slot, dev->irq.intx.pin);
 
 			/* Mark the IRQ as active, so that a BAR read/write can lower it. */
-			dev->intx_irq_raised = dev->intx_irq_high = 1;
-
-			/* Don't unblock the IRQ thread. */
-			return;
-		} else if (!dev->intx_irq_high) { /* falling edge */
+			dev->irq.intx.raised = intx_high = 1;
+		} else if (!intx_high) { /* falling edge */
 			vfio_log_op("VFIO %s: Lowering IRQ on pin INT%c\n", dev->name,
-				    '@' + dev->irq_pin);
+				    '@' + dev->irq.intx.pin);
 
 			/* Lower IRQ. */
-			pci_clear_irq(dev->slot, dev->irq_pin);
+			pci_clear_irq(dev->slot, dev->irq.intx.pin);
 
 			/* Mark the IRQ as no longer high. */
-			dev->intx_irq_raised = dev->intx_irq_high = 0;
+			dev->irq.intx.raised = intx_high = 0;
 
 			/* Allow the IRQ thread to be unblocked. */
 			break;
 		}
 
-    		/* Don't unblock the IRQ thread, unless otherwise stated. */
+		/* Don't unblock the IRQ thread unless otherwise stated. */
 		return;
 
 	case VFIO_PCI_MSI_IRQ_INDEX:
-		/* Read control register. */
-		offset = dev->msi_cap + 2;
-		val = vfio_config_readw(0, dev->msi_cap + 2, dev);
+		/* Insert the vector number into the value's lower bits. */
+		val = (dev->irq.msi.data & ~dev->irq.msi.vector_enable_mask) | (current_irq->vector & dev->irq.msi.vector_enable_mask);
 
-		/* Handle 64-bit addressing if supported. */
-		offset += 6;
-		if (val & 0x0080) {
-			/* Ignore MSI if the upper 32 bits are non-zero. */
-			if (vfio_config_readl(0, offset, dev))
-				break;
-			offset += 4;
-		}
-
-		/* Handle per-vector masking if supported. */
-		if (val & 0x0100) {
-			//unmask should write if pending set
-			/* Mark vector as pending if masked. */
-			if (vfio_config_readl(0, offset + 4, dev) & (1 << current_irq->vector)) {
-				offset += 8;
-				vfio_config_writel(0, offset,
-						   vfio_config_readl(0, offset, dev) | (1 << current_irq->vector),
-						   dev);
-				break;
-			}
-		}
-
-		/* Write value to desired location. */
-		mem_writew_phys(dev->irq_msi_address, vfio_config_readw(0, dev->msi_cap + offset, dev));
+		/* Write value. */
+		vfio_log_op("VFIO %s: Writing MSI value %04X to %04X\n", dev->name, val, dev->irq.msi.address);
+		mem_writew_phys(dev->irq.msi.address, val);
 		break;
 
 	case VFIO_PCI_MSIX_IRQ_INDEX:
+		/* Write value. */
+		vfio_log_op("VFIO %s: Writing MSI-X value %08X to %08X\n", dev->name,
+			    *((uint32_t *) &dev->irq.msix.table[current_irq->msix_offset | 0x8]),
+			    *((uint32_t *) &dev->irq.msix.table[current_irq->msix_offset]));
+		mem_writel_phys(*((uint32_t *) &dev->irq.msix.table[current_irq->msix_offset]),
+				*((uint32_t *) &dev->irq.msix.table[current_irq->msix_offset | 0x8]));
 		break;
     }
 
     /* Unblock the IRQ thread. */
-    thread_set_event(irq_event);    
+    current_irq = NULL;
+    thread_set_event(irq_event);
 }
 
 
@@ -994,31 +1262,36 @@ vfio_irq_intx_disable(vfio_device_t *dev)
     /* Disable INTx on VFIO. */
     vfio_irq_disabletype(dev, VFIO_PCI_INTX_IRQ_INDEX);
 
-    /* Clear any pending INTx IRQs. */
-    dev->intx_irq_raised = dev->intx_irq_high = 0;
-    if (dev->irq_pin)
-	pci_clear_irq(dev->slot, dev->irq_pin);
+    /* Clear pending interrupts. */
+    dev->irq.intx.raised = intx_high = 0;
+    if (dev->irq.intx.pin)
+	pci_clear_irq(dev->slot, dev->irq.intx.pin);
 
-    /* Disable IRQs altogether. */
-    dev->irq_type = VFIO_PCI_NUM_IRQS;
+    /* Disable interrupts altogether. */
+    dev->irq.type = VFIO_PCI_NUM_IRQS;
 }
 
 
 static void
 vfio_irq_intx_setpin(vfio_device_t *dev)
 {
-    dev->irq_pin = vfio_config_readb(0, 0x3d, dev) & 7;
-    vfio_log("VFIO %s: IRQ pin is INT%c\n", dev->name, '@' + dev->irq_pin);
+    uint8_t val;
+    if (pread(dev->config.fd, &val, sizeof(val), dev->config.offset + 0x3d) == sizeof(val))
+	dev->irq.intx.pin = val;
+    vfio_log("VFIO %s: IRQ pin is INT%c\n", dev->name, '@' + MIN(dev->irq.intx.pin, 'Z'));
 }
 
 
 static void
 vfio_irq_msi_disable(vfio_device_t *dev)
 {
+    /* Clear pending interrupts. */
+    dev->irq.msi.pending = 0;
+
     /* Disable MSI on VFIO. */
     vfio_irq_disabletype(dev, VFIO_PCI_MSI_IRQ_INDEX);
 
-    /* Re-enable INTx. */
+    /* Re-enable INTx interrupts. */
     vfio_irq_enable(dev, VFIO_PCI_INTX_IRQ_INDEX);
 }
 
@@ -1026,53 +1299,105 @@ vfio_irq_msi_disable(vfio_device_t *dev)
 static void
 vfio_irq_msix_disable(vfio_device_t *dev)
 {
-    /* DON'T DO THIS!!! KEEP THEM SO PENDING CAN BE RESET!!! Free tables. */
-    if (dev->irq_msix_vectors)
-	free(dev->irq_msix_vectors);
-    if (dev->irq_msix_pending)
-	free(dev->irq_msix_pending);
+    /* Clear pending interrupts. */
+    memset(dev->irq.msix.pba, 0, dev->irq.vector_count);
 
     /* Disable MSI-X on VFIO. */
     vfio_irq_disabletype(dev, VFIO_PCI_MSIX_IRQ_INDEX);
 
-    /* Re-enable INTx. */
+    /* Re-enable INTx interrupts. */
     vfio_irq_enable(dev, VFIO_PCI_INTX_IRQ_INDEX);
 }
+
+
+static void
+vfio_irq_msix_updatemask(vfio_device_t *dev, uint16_t offset)
+{
+    /* Service any unmasked pending interrupts. */
+    if (((dev->irq.msix.ctl & 0xc000) == 0x8000) && !(dev->irq.msix.table[offset] & 0x01) &&
+	(dev->irq.msix.pba[offset >> 7] & (1 << (offset & 0x07)))) {
+	uint64_t val = 1;
+	write(dev->irq.vectors[offset >> 4].fd, &val, sizeof(val));
+	dev->irq.msix.pba[offset >> 7] &= ~(1 << (offset & 0x07));
+    }
+}
+
+
+#define VFIO_RW_MSIX(length_char, val_type, val_slength) \
+static val_type \
+vfio_irq_msix_table_read ## length_char(uint32_t addr, void *priv) \
+{ \
+    vfio_device_t *dev = (vfio_device_t *) priv; \
+    val_type ret = dev->irq.msix.table[addr - dev->irq.msix.table_offset_precalc]; \
+    vfio_log_op("[%08X:%04X] VFIO %s: msix_table_read" #length_char "(%08X) = %0" #val_slength "X\n", CS, cpu_state.pc, dev->name, addr, ret); \
+    return ret; \
+} \
+\
+static void \
+vfio_irq_msix_table_write ## length_char(uint32_t addr, val_type val, void *priv) \
+{ \
+    vfio_device_t *dev = (vfio_device_t *) priv; \
+    vfio_log_op("[%08X:%04X] VFIO %s: msix_table_write" #length_char "(%08X, %0" #val_slength "X)\n", CS, cpu_state.pc, dev->name, addr, val); \
+    uint16_t offset = addr - dev->irq.msix.table_offset_precalc; \
+    dev->irq.msix.table[offset] = val; \
+    if ((offset & 0x000f) == 0x000c) \
+	vfio_irq_msix_updatemask(dev, offset); \
+} \
+\
+static val_type \
+vfio_irq_msix_pba_read ## length_char(uint32_t addr, void *priv) \
+{ \
+    vfio_device_t *dev = (vfio_device_t *) priv; \
+    val_type ret = dev->irq.msix.table[addr - dev->irq.msix.pba_offset_precalc]; \
+    vfio_log_op("[%08X:%04X] VFIO %s: msix_pba_read" #length_char "(%08X) = %0" #val_slength "X\n", CS, cpu_state.pc, dev->name, addr, ret); \
+    return ret; \
+} \
+\
+static void \
+vfio_irq_msix_pba_write ## length_char(uint32_t addr, val_type val, void *priv) \
+{ \
+    vfio_device_t *dev = (vfio_device_t *) priv; \
+    vfio_log_op("[%08X:%04X] VFIO %s: msix_pba_write" #length_char "(%08X, %0" #val_slength "X)\n", CS, cpu_state.pc, dev->name, addr, val); \
+}
+
+VFIO_RW_MSIX(b, uint8_t, 2)
+VFIO_RW_MSIX(w, uint16_t, 4)
+VFIO_RW_MSIX(l, uint32_t, 8)
 
 
 static void
 vfio_irq_disable(vfio_device_t *dev)
 {
     /* Do nothing if IRQs are already disabled. */
-    if (dev->irq_type == VFIO_PCI_NUM_IRQS)
+    if (dev->irq.type == VFIO_PCI_NUM_IRQS)
 	return;
-    vfio_log("VFIO %s: irq_disable(%d)\n", dev->name, dev->irq_type);
+    vfio_log("VFIO %s: irq_disable(%d)\n", dev->name, dev->irq.type);
 
     /* Pause IRQ thread. */
     thread_reset_event(irq_thread_resume);
     uint64_t val = 1;
     write(irq_thread_wake_fd, &val, sizeof(val));
 
-    /* Always disable INTx after disabling MSI/MSIX. */
-    if (dev->irq_type == VFIO_PCI_MSIX_IRQ_INDEX)
-    	vfio_irq_msix_disable(dev);
-    else if (dev->irq_type == VFIO_PCI_MSI_IRQ_INDEX)
-    	vfio_irq_msi_disable(dev);
-    if (dev->irq_type == VFIO_PCI_INTX_IRQ_INDEX)
-    	vfio_irq_intx_disable(dev);
+    /* Always disable INTx after disabling MSI/MSI-X. */
+    if (dev->irq.type == VFIO_PCI_MSIX_IRQ_INDEX)
+	vfio_irq_msix_disable(dev);
+    else if (dev->irq.type == VFIO_PCI_MSI_IRQ_INDEX)
+	vfio_irq_msi_disable(dev);
+    if (dev->irq.type == VFIO_PCI_INTX_IRQ_INDEX)
+	vfio_irq_intx_disable(dev);
 
     /* Invalidate all IRQ vectors. */
-    if (dev->irq_vectors) {
-	for (int i = 0; i < dev->irq_vector_count; i++) {
-		if (dev->irq_vectors[i].fd >= 0) {
+    if (dev->irq.vectors) {
+	for (int i = 0; i < dev->irq.vector_count; i++) {
+		if (dev->irq.vectors[i].fd >= 0) {
 			/* Remove eventfd from epoll. */
-			epoll_ctl(epoll_fd, EPOLL_CTL_DEL, dev->irq_vectors[i].fd, NULL);
-			close(dev->irq_vectors[i].fd);
+			epoll_ctl(epoll_fd, EPOLL_CTL_DEL, dev->irq.vectors[i].fd, NULL);
+			close(dev->irq.vectors[i].fd);
 		}
 	}
-	free(dev->irq_vectors);
-	dev->irq_vectors = NULL;
-	dev->irq_vector_count = 0;
+	free(dev->irq.vectors);
+	dev->irq.vectors = NULL;
+	dev->irq.vector_count = 0;
     }
 
     /* Resume IRQ thread. */
@@ -1085,75 +1410,62 @@ vfio_irq_disable(vfio_device_t *dev)
 static void
 vfio_irq_enable(vfio_device_t *dev, int type)
 {
+    /* Disable any existing IRQs. */
+    vfio_irq_disable(dev);
+
     vfio_log("VFIO %s: irq_enable(%d)\n", dev->name, type);
 
-    int vfio_type;
-    uint16_t val;
+    /* Determine the amount of vectors needed. */
     switch (type) {
 	case VFIO_PCI_INTX_IRQ_INDEX:
-		vfio_type = VFIO_PCI_INTX_IRQ_INDEX;
-
-		/* Only one fd needed. */
-		dev->irq_vector_count = 1;
-
-		/* Read IRQ pin. */
-		vfio_irq_intx_setpin(dev);
+		/* Only one vector needed. */
+		dev->irq.vector_count = 1;
 		break;
 
 	case VFIO_PCI_MSI_IRQ_INDEX:
-		vfio_type = VFIO_PCI_MSI_IRQ_INDEX;
-
-		/* Read control register. */
-		val =  vfio_config_readb(0, dev->msi_cap + 2, dev) |
-		      (vfio_config_readb(0, dev->msi_cap + 3, dev) << 8);
-
-		/* Set vector count. */
-		dev->irq_vector_count = 1 << ((val >> 1) & 3);
+		/* Up to the amount of vectors read during init is needed. */
+		dev->irq.vector_count = dev->irq.msi.vector_count;
 		break;
 
 	case VFIO_PCI_MSIX_IRQ_INDEX:
-		vfio_type = VFIO_PCI_MSIX_IRQ_INDEX;
-
-		/* Read control register. */
-		val =  vfio_config_readb(0, dev->msix_cap + 2, dev) |
-		      (vfio_config_readb(0, dev->msix_cap + 3, dev) << 8);
-
-		/* Set vector count. */
-		dev->irq_vector_count = (val & 0x03ff) + 1;
+		/* The amount of vectors read during init is needed. */
+		dev->irq.vector_count = dev->irq.msix.vector_count;
 		break;
     }
 
     /* Prepare structure for enabling the interrupt type. */
     struct vfio_irq_set irq_set = {
-	.argsz = sizeof(irq_set) + (sizeof(int32_t) * dev->irq_vector_count),
+	.argsz = sizeof(irq_set) + (sizeof(int32_t) * dev->irq.vector_count),
 	.flags = VFIO_IRQ_SET_DATA_EVENTFD | VFIO_IRQ_SET_ACTION_TRIGGER,
-	.index = vfio_type,
+	.index = type,
 	.start = 0,
-	.count = dev->irq_vector_count
+	.count = dev->irq.vector_count
     };
     int32_t *fd_list = (int32_t *) &irq_set.data;
     struct epoll_event event = { .events = EPOLLIN };
 
     /* Create interrupt vectors with their respective eventfds. */
-    dev->irq_vectors = (vfio_irq_t *) malloc(sizeof(vfio_irq_t) * dev->irq_vector_count);
-    for (int i = 0; i < dev->irq_vector_count; i++) {
-    	dev->irq_vectors[i].dev = dev;
-    	dev->irq_vectors[i].type = type;
-    	fd_list[i] = dev->irq_vectors[i].fd = eventfd(0, 0);
-    	if (fd_list[i] < 0) {
-    		pclog("VFIO %s: IRQ eventfd %d failed (%d)\n", dev->name, i, errno);
-    	} else {
-    		/* Add eventfd to epoll. */
-    		event.data.ptr = &dev->irq_vectors[i];
-    		epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd_list[i], &event);
-    	}
+    dev->irq.vectors = (vfio_irq_t *) malloc(sizeof(vfio_irq_t) * dev->irq.vector_count);
+    for (int i = 0; i < dev->irq.vector_count; i++) {
+	dev->irq.vectors[i].dev = dev;
+	dev->irq.vectors[i].type = type;
+	dev->irq.vectors[i].vector = i;
+	fd_list[i] = dev->irq.vectors[i].fd = eventfd(0, 0);
+	if (fd_list[i] < 0) {
+		pclog("VFIO %s: IRQ eventfd %d failed (%d)\n", dev->name, i, errno);
+	} else {
+		/* Add eventfd to epoll. */
+		event.data.ptr = &dev->irq.vectors[i];
+		epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd_list[i], &event);
+	}
+	dev->irq.vectors[i].msix_offset = i << 4; /* pre-calculated value to save operations on MSI-X processing */
     }
 
     /* Enable interrupt type on VFIO. */
     if (ioctl(dev->fd, VFIO_DEVICE_SET_IRQS, &irq_set))
 	pclog("VFIO %s: SET_IRQS(%d, %d) failed (%d)\n", dev->name,
-	      vfio_type, dev->irq_vector_count, errno);
-    dev->irq_type = type;
+	      type, dev->irq.vector_count, errno);
+    dev->irq.type = type;
 }
 
 
@@ -1184,7 +1496,6 @@ vfio_prepare_region(vfio_device_t *dev, struct vfio_region_info *reg, vfio_regio
     }
     region->read = !!(reg->flags & VFIO_REGION_INFO_FLAG_READ);
     region->write = !!(reg->flags & VFIO_REGION_INFO_FLAG_WRITE);
-    region->intx_irq_high = &dev->intx_irq_high;
 
     /* Use special memory mapping for expansion ROMs. */
     if (reg->index == VFIO_PCI_ROM_REGION_INDEX) {
@@ -1201,7 +1512,7 @@ vfio_prepare_region(vfio_device_t *dev, struct vfio_region_info *reg, vfio_regio
 			if (!region->size) {
 				fseek(f, 0, SEEK_END);
 				region->size = ceilpow2(ftell(f));
-				if (region->size < 2048)
+				if (region->size < 2048) /* minimum size for an expansion ROM */
 					region->size = 2048;
 				fseek(f, 0, SEEK_SET);
 			}
@@ -1272,7 +1583,7 @@ vfio_prepare_region(vfio_device_t *dev, struct vfio_region_info *reg, vfio_regio
 				uint32_t pci_len = *((uint16_t *) &region->mmap_base[pci_ptr + 0x18]) << 9; /* 512-byte blocks */
 				if ((pci_len <= (254 << 9)) && (pci_len != rom_len)) {
 					pclog("VFIO %s: Warning: ROM length in main header (%d bytes) is "
-					      "different from PCI header (%d bytes)\n",
+					      "different from length in PCI header (%d bytes)\n",
 					      dev->name, rom_len, pci_len);
 					j = 1;
 				}
@@ -1304,8 +1615,9 @@ vfio_prepare_region(vfio_device_t *dev, struct vfio_region_info *reg, vfio_regio
 		j = 1;
 	}
 
-	/* Add a helpful reminder if a sanity check warning was printed. */
-	if (j)
+	/* Add a helpful reminder if a sanity check warning was printed
+	   and no ROM file was specified in this device's configuration. */
+	if (j && !dev->rom_fn)
 		pclog("VFIO %s: A custom ROM can be loaded with the _rom_fn directive.", dev->name);
     } else {
 	/* Attempt to mmap the region. */
@@ -1332,7 +1644,7 @@ end:
 			region->write ? vfio_mem_writeb_mm : NULL,
 			region->write ? vfio_mem_writew_mm : NULL,
 			region->write ? vfio_mem_writel_mm : NULL,
-			NULL, MEM_MAPPING_EXTERNAL, region);
+			NULL, MEM_MAPPING_EXTERNAL, region->mmap_precalc);
     } else if (region->fd >= 0) { /* mmap not available, but fd is */
 	vfio_log("(FD)");
 	mem_mapping_add(&region->mem_mapping, 0, 0,
@@ -1425,13 +1737,13 @@ vfio_dev_prereset(vfio_device_t *dev)
     /* Extra steps for devices with power management capability. */
     if (dev->pm_cap) {
 	/* Make sure the device is in D0 state. */
-	uint8_t pm_ctrl = vfio_config_readb(0, dev->pm_cap + 0x04, dev),
+	uint8_t pm_ctrl = vfio_config_readb(0, dev->pm_cap + 4, dev),
 		state = pm_ctrl & 0x03;
 	if (state) {
 		pm_ctrl &= ~0x03;
-		vfio_config_writeb(0, dev->pm_cap + 0x04, pm_ctrl, dev);
+		vfio_config_writeb(0, dev->pm_cap + 4, pm_ctrl, dev);
 
-		pm_ctrl = vfio_config_readb(0, dev->pm_cap + 0x04, dev);
+		pm_ctrl = vfio_config_readb(0, dev->pm_cap + 4, dev);
 		state = pm_ctrl & 0x03;
 		if (state)
 			vfio_log("VFIO %s: Device stuck in D%d state\n", dev->name, state);
@@ -1441,11 +1753,12 @@ vfio_dev_prereset(vfio_device_t *dev)
 	dev->can_pm_reset = !(pm_ctrl & 0x08);
     }
 
-    /* Disable bus master, BARs, expansion ROM and VGA. */
-    vfio_config_writeb(0, 0x04, vfio_config_readb(0, 0x04, dev) & ~0x07, dev);
+    /* Enable function-level reset if supported. */
+    dev->can_flr_reset = (dev->pcie_cap && (vfio_config_readb(0, dev->pcie_cap + 7, dev) & 0x10)) || 
+			 (dev->af_cap   && (vfio_config_readb(0, dev->af_cap   + 3, dev) & 0x02));
 
-    /* Enable INTx. */
-    vfio_config_writeb(0, 0x05, vfio_config_readb(0, 0x05, dev) & ~0x04, dev);
+    /* Disable bus master, BARs, expansion ROM and VGA regions; also enable INTx. */
+    vfio_config_writew(0, 0x04, vfio_config_readw(0, 0x04, dev) & ~0x0407, dev);
 }
 
 
@@ -1455,7 +1768,7 @@ vfio_dev_postreset(vfio_device_t *dev)
     vfio_log("VFIO %s: postreset()\n", dev->name);
 
     /* Enable INTx interrupts. MSI(-X) can be enabled by the OS later. */
-    if (!dev->closing)
+    if (!closing)
 	vfio_irq_enable(dev, VFIO_PCI_INTX_IRQ_INDEX);
 
     /* Reset BARs, whatever this does. */
@@ -1465,171 +1778,9 @@ vfio_dev_postreset(vfio_device_t *dev)
 }
 
 
-static void
-vfio_dev_reset(void *priv)
+static int
+vfio_dev_init(vfio_device_t *dev)
 {
-    vfio_device_t *dev = (vfio_device_t *) priv;
-    if (!dev)
-	return;
-    vfio_log("VFIO %s: reset()\n", dev->name);
-
-    /* Pre-reset ourselves. */
-    vfio_dev_prereset(dev);
-
-    /* Get hot reset information. */
-    struct vfio_pci_hot_reset_info *hot_reset_info;
-    hot_reset_info = (struct vfio_pci_hot_reset_info *) malloc(sizeof(struct vfio_pci_hot_reset_info));
-    memset(hot_reset_info, 0, sizeof(struct vfio_pci_hot_reset_info));
-    hot_reset_info->argsz = sizeof(struct vfio_pci_hot_reset_info);
-    if (ioctl(dev->fd, VFIO_DEVICE_GET_PCI_HOT_RESET_INFO, hot_reset_info) &&
-	(errno != ENOSPC)) {
-	vfio_log("VFIO %s: GET_PCI_HOT_RESET_INFO 1 failed (%d)\n", dev->name, errno);
-	goto free_hot_reset_info;
-    }
-
-    /* Get hot reset information a second time, now
-       with enough room for the dependent device list. */
-    int count = hot_reset_info->count,
-	size = sizeof(struct vfio_pci_hot_reset_info) + (sizeof(struct vfio_pci_dependent_device) * count);
-    free(hot_reset_info);
-    hot_reset_info = (struct vfio_pci_hot_reset_info *) malloc(size);
-    memset(hot_reset_info, 0, size);
-    hot_reset_info->argsz = size;
-    if (ioctl(dev->fd, VFIO_DEVICE_GET_PCI_HOT_RESET_INFO, hot_reset_info)) {
-	vfio_log("VFIO %s: GET_PCI_HOT_RESET_INFO 2 failed (%d)\n", dev->name, errno);
-	goto free_hot_reset_info;
-    }
-    struct vfio_pci_dependent_device *devices = &hot_reset_info->devices[0];
-
-    /* Pre-reset affected devices. */
-    char name[13];
-    int i;
-    vfio_group_t *group;
-    vfio_device_t *dep_dev;
-    for (i = 0; i < hot_reset_info->count; i++) {
-	/* Build this dependent device's name. */
-	snprintf(name, sizeof(name), "%04x:%02x:%02x.%1x",
-		 devices[i].segment, devices[i].bus, PCI_SLOT(devices[i].devfn), PCI_FUNC(devices[i].devfn));
-
-	/* Check if we own this device's group. */
-	if (!(group = vfio_get_group(devices[i].group_id, 0))) {
-		vfio_log("VFIO %s: Cannot hot reset; we don't own group %d for dependent device %s\n",
-			 dev->name, devices[i].group_id, name);
-
-		/* Clear hot reset flag from all groups. */
-		group = first_group;
-		while (group) {
-			group->hot_reset = 0;
-			group = group->next;
-		}
-
-		goto free_hot_reset_info;
-	}
-
-	/* Mark that this group should be hot reset. */
-	group->hot_reset = 1;
-
-	/* Don't pre-reset ourselves again. */
-	if (!strcasecmp(name, dev->name))
-		continue;
-	vfio_log("VFIO %s: Resetting dependent device %s\n", dev->name, name);
-
-	/* Find this device's structure within the group and pre-reset it. */
-	dep_dev = group->first_device;
-	while (dep_dev) {
-		if (!strcasecmp(name, dep_dev->name)) {
-			if (dep_dev->initialized)
-				vfio_dev_prereset(dep_dev);
-			break;
-		}
-		dep_dev = dep_dev->next;
-	}
-    }
-
-    /* Count the amount of group fds to reset. */
-    count = 0;
-    group = first_group;
-    while (group) {
-	if (group->hot_reset)
-		count++;
-	group = group->next;
-    }
-
-    /* Allocate hot reset structure. */
-    struct vfio_pci_hot_reset *hot_reset;
-    size = sizeof(struct vfio_pci_hot_reset) + (sizeof(int32_t) * count);
-    hot_reset = (struct vfio_pci_hot_reset *) malloc(size);
-    memset(hot_reset, 0, size);
-    hot_reset->argsz = size;
-    int32_t *fds = &hot_reset->group_fds[0];
-
-    /* Add group fds. */
-    group = first_group;
-    while (group) {
-	if (group->hot_reset) {
-		fds[hot_reset->count++] = group->fd;
-		group->hot_reset = 0;
-	}
-	group = group->next;
-    }
-
-    /* Trigger reset. */
-    if (ioctl(dev->fd, VFIO_DEVICE_PCI_HOT_RESET, hot_reset)) {
-	vfio_log("VFIO %s: PCI_HOT_RESET failed (%d)\n", dev->name, errno);
-    } else {
-	vfio_log("VFIO %s: Hot reset successful\n", dev->name);
-
-	/* Don't PM reset this device. */
-	dev->can_pm_reset = 0;
-    }
-    free(hot_reset);
-
-    /* Post-reset affected devices. */
-    for (i = 0; i < hot_reset_info->count; i++) {
-	/* Build this dependent device's name. */
-	snprintf(name, sizeof(name), "%04x:%02x:%02x.%1x",
-		 devices[i].segment, devices[i].bus, PCI_SLOT(devices[i].devfn), PCI_FUNC(devices[i].devfn));
-
-	/* Don't post-reset ourselves yet. */
-	if (!strcasecmp(name, dev->name))
-		continue;
-
-	/* Get this device's group. */
-	if (!(group = vfio_get_group(devices[i].group_id, 0)))
-		continue;
-
-	/* Find this device within the group and post-reset it. */
-	dep_dev = group->first_device;
-	while (dep_dev) {
-		if (!strcasecmp(name, dep_dev->name)) {
-			if (dep_dev->initialized)
-				vfio_dev_postreset(dep_dev);
-			break;
-		}
-		dep_dev = dep_dev->next;
-	}
-    }
-
-free_hot_reset_info:
-    free(hot_reset_info);
-
-    /* PM reset device if supported and required. */
-    if (dev->can_pm_reset) {
-	if (ioctl(dev->fd, VFIO_DEVICE_RESET))
-		vfio_log("VFIO %s: DEVICE_RESET failed (%d)\n", dev->name, errno);
-	else
-		vfio_log("VFIO %s: PM reset successful\n", dev->name);
-    }
-
-    /* Post-reset ourselves. */
-    vfio_dev_postreset(dev);
-}
-
-
-static void *
-vfio_dev_init(const device_t *info)
-{
-    vfio_device_t *dev = current_group->current_device;
     vfio_log("VFIO %s: init()\n", dev->name);
 
     /* Grab device. */
@@ -1652,7 +1803,7 @@ vfio_dev_init(const device_t *info)
 	goto end;
     }
 
-    /* Set reset flag. */
+    /* Set main reset flag. */
     dev->can_reset = !!(device_info.flags & VFIO_DEVICE_FLAGS_RESET);
 
     /* Establish region names. */
@@ -1661,12 +1812,13 @@ vfio_dev_init(const device_t *info)
 	sprintf(dev->bars[i].name, "BAR #%d", dev->bars[i].bar_id = i);
     strcpy(dev->rom.name, "Expansion ROM");
     strcpy(dev->config.name, "Configuration space");
-    strcpy(dev->vga_io_lo.name, "VGA 3B0");
-    strcpy(dev->vga_io_hi.name, "VGA 3C0");
+    strcpy(dev->vga_io_lo.name, "VGA MDA");
+    strcpy(dev->vga_io_hi.name, "VGA CGA/EGA");
     strcpy(dev->vga_mem.name, "VGA Framebuffer");
 
     /* Prepare all regions. */
     struct vfio_region_info reg = { .argsz = sizeof(reg) };
+    uint8_t cls;
     for (i = 0; i < device_info.num_regions; i++) {
 	/* Get region information. */
 	reg.index = i;
@@ -1691,25 +1843,25 @@ vfio_dev_init(const device_t *info)
 			break;
 
 		case VFIO_PCI_VGA_REGION_INDEX:
-			/* Don't claim VGA region if an emulated video card is present. */
-			if (gfxcard != VID_NONE) {
-				vfio_log("VFIO %s: Skipping VGA region due to emulated video card\n",
-					 dev->name);
+			/* Don't prepare the VGA region if this is not a video card. */
+			if (dev->config.fd &&
+			    (pread(dev->config.fd, &cls, sizeof(cls), dev->config.offset + 0x0b) == sizeof(cls)) &&
+			    (cls != 0x03))
 				break;
-			}
 
 			vfio_prepare_region(dev, &reg, &dev->vga_io_lo); /* I/O [3B0:3BB] */
 			vfio_prepare_region(dev, &reg, &dev->vga_io_hi); /* I/O [3C0:3DF] */
 			vfio_prepare_region(dev, &reg, &dev->vga_mem); /* memory [A0000:BFFFF] */
 
-			/* Inform that a PCI VGA video card is attached. */
-			video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_default);
+			/* Inform that a PCI VGA video card is attached if no video card is emulated. */
+			if (gfxcard == VID_NONE)
+				video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_default);
 			break;
 
 		default:
 			vfio_log("VFIO %s: Unknown region %d (offset %lX) (%d bytes) (%c%c)\n",
 				 dev->name, reg.index, reg.offset, reg.size,
-				 (reg.flags & VFIO_REGION_INFO_FLAG_READ) ? 'R' : '-',
+				 (reg.flags & VFIO_REGION_INFO_FLAG_READ)  ? 'R' : '-',
 				 (reg.flags & VFIO_REGION_INFO_FLAG_WRITE) ? 'W' : '-');
 			break;
 	}
@@ -1721,90 +1873,168 @@ vfio_dev_init(const device_t *info)
 	goto end;
     }
 
-    /* Identify PCI capabilities we care about, storing the offsets for them. */
-    if (vfio_config_readb(0, 0x06, dev) & 0x10) {
-	/* Read pointer to the first capability. */
-	uint8_t cap_ptr = vfio_config_readb(0, 0x34, dev), cap_id;
-	while (cap_ptr && (cap_ptr != 0xff)) {
-		cap_id = vfio_config_readb(0, cap_ptr, dev);
-		if (cap_id == 0x01)
-			dev->pm_cap = cap_ptr;
-
-		/* Move on to the next capability. */
-		cap_ptr = vfio_config_readb(0, cap_ptr + 1, dev);
-	}
-    }
-
-    /* Prepare a dummy region if the device has no
-       ROM region and we're loading a ROM from file. */
-    if (dev->rom_fn && !dev->rom.read) {
+    /* Prepare ROM region if the device doesn't have one and we're loading a ROM from file. */
+    if (dev->rom_fn && !dev->rom.fd) {
 	reg.index = VFIO_PCI_ROM_REGION_INDEX;
 	reg.offset = reg.size = 0;
 	reg.flags = VFIO_REGION_INFO_FLAG_READ;
 	vfio_prepare_region(dev, &reg, &dev->rom);
     }
 
+    /* Go through PCI capability list if the device declares one. */
+    dev->irq.msix.table_bar = dev->irq.msix.pba_bar = 0x07;
+    uint8_t cap_ptr, cap_id;
+    if ((pread(dev->config.fd, &cap_ptr, sizeof(cap_ptr), dev->config.offset + 0x06) == sizeof(cap_ptr)) &&
+	(cap_ptr & 0x10)) {
+	vfio_log("VFIO %s: Device capabilities:", dev->name);
+
+	/* Read pointer to the first capability. */
+	if (pread(dev->config.fd, &cap_ptr, sizeof(cap_ptr), dev->config.offset + 0x34) != sizeof(cap_ptr))
+		cap_ptr = 0;
+	while (cap_ptr && (cap_ptr != 0xff)) { /* check 0xff just in case */
+		/* Read capability ID, and store pointers to ones we care about. */
+		if (pread(dev->config.fd, &cap_id, sizeof(cap_id), dev->config.offset + cap_ptr) != sizeof(cap_id))
+			cap_id = 0;
+		switch (cap_id) {
+			case 0x01:
+				vfio_log(" PM");
+				dev->pm_cap = cap_ptr;
+				break;
+
+			case 0x05:
+				vfio_log(" MSI");
+				if (dev->msi_cap) /* multiple copies not permitted by spec */
+					break;
+				dev->msi_cap = cap_ptr;
+
+				/* Read control register. */
+				if (pread(dev->config.fd, &dev->irq.msi.ctl, sizeof(dev->irq.msi.ctl),
+					  dev->config.offset + dev->msi_cap + 2) != sizeof(dev->irq.msi.ctl))
+					dev->irq.msi.ctl = 0;
+
+				/* Set vector count. */
+				dev->irq.msi.vector_count = (dev->irq.msi.ctl >> 1) & 0x07;
+				break;
+
+			case 0x10:
+				vfio_log(" PCIe");
+				dev->pcie_cap = cap_ptr;
+				break;
+
+			case 0x11:
+				vfio_log(" MSI-X");
+				if (dev->msix_cap) /* multiple copies not permitted by spec */
+					break;
+				dev->msix_cap = cap_ptr;
+
+				/* Read control register. */
+				if (pread(dev->config.fd, &dev->irq.msix.ctl, sizeof(dev->irq.msix.ctl),
+					  dev->config.offset + dev->msix_cap + 2) != sizeof(dev->irq.msix.ctl))
+					dev->irq.msix.ctl = 0;
+
+				/* Set vector count. */
+				dev->irq.msix.vector_count = (dev->irq.msix.ctl & 0x07ff) + 1;
+
+				/* Read table and PBA BARs and offsets. */
+				if (pread(dev->config.fd, &dev->irq.msix.table_offset, sizeof(dev->irq.msix.table_offset),
+					  dev->config.offset + dev->msix_cap + 4) != sizeof(dev->irq.msix.table_offset))
+					dev->irq.msix.table_offset = 0x00000007;
+				dev->irq.msix.table_bar = dev->irq.msix.table_offset & 0x00000007;
+				dev->irq.msix.table_offset &= 0xfffffff8;
+
+				if (pread(dev->config.fd, &dev->irq.msix.pba_offset, sizeof(dev->irq.msix.pba_offset),
+					  dev->config.offset + dev->msix_cap + 8) != sizeof(dev->irq.msix.pba_offset))
+					dev->irq.msix.pba_offset = 0x00000007;
+				dev->irq.msix.pba_bar = dev->irq.msix.pba_offset & 0x00000007;
+				dev->irq.msix.pba_offset &= 0xfffffff8;
+
+				/* Allocate table and PBA structures. */
+				dev->irq.msix.table_size = dev->irq.msix.vector_count << 4;
+				dev->irq.msix.table = malloc(dev->irq.msix.table_size);
+				if (!dev->irq.msix.table) {
+					pclog("VFIO %s: MSI-X table malloc(%d) failed\n", dev->name, dev->irq.msix.table_size);
+					dev->irq.msix.table_size = dev->irq.msix.vector_count = 0;
+				}
+
+				dev->irq.msix.pba_size = ((dev->irq.msix.vector_count - 1) >> 3) + 1;
+				dev->irq.msix.pba = malloc(dev->irq.msix.pba_size);
+				if (!dev->irq.msix.pba) {
+					pclog("VFIO %s: MSI-X PBA malloc(%d) failed\n", dev->name, dev->irq.msix.pba_size);
+					dev->irq.msix.pba_size = dev->irq.msix.vector_count = 0;
+				}
+
+				/* Add table and PBA mappings.
+				   Being added after region setup, they should override the main BAR mapping. */
+				mem_mapping_add(&dev->irq.msix.table_mapping, 0, 0,
+						vfio_irq_msix_table_readb,
+						vfio_irq_msix_table_readw,
+						vfio_irq_msix_table_readl,
+						vfio_irq_msix_table_writeb,
+						vfio_irq_msix_table_writew,
+						vfio_irq_msix_table_writel,
+						NULL, MEM_MAPPING_EXTERNAL, dev);
+
+				mem_mapping_add(&dev->irq.msix.pba_mapping, 0, 0,
+						vfio_irq_msix_pba_readb,
+						vfio_irq_msix_pba_readw,
+						vfio_irq_msix_pba_readl,
+						vfio_irq_msix_pba_writeb,
+						vfio_irq_msix_pba_writew,
+						vfio_irq_msix_pba_writel,
+						NULL, MEM_MAPPING_EXTERNAL, dev);
+				break;
+
+			case 0x13:
+				vfio_log(" AF");
+				dev->af_cap = cap_ptr;
+				break;
+
+			default:
+				vfio_log(" [%02X]", cap_id);
+				break;
+		}
+
+		/* Read pointer to the next capability. */
+		if (pread(dev->config.fd, &cap_ptr, sizeof(cap_ptr), dev->config.offset + cap_ptr + 1) != sizeof(cap_ptr))
+			cap_ptr = 0;
+	}
+
+	vfio_log("\n");
+    }
+
+    /* Read INTx IRQ pin. */
+    vfio_irq_intx_setpin(dev);
+
     /* Add PCI card while mapping the configuration space. */
     dev->slot = pci_add_card(PCI_ADD_NORMAL, vfio_config_readb, vfio_config_writeb, dev);
 
-    /* Reset device. This should also enable IRQs. */
-    vfio_log("VFIO %s: Performing initial reset\n", dev->name);
-    dev->initialized = 1;
-    vfio_dev_reset(dev);
-
-    return dev;
+    return 0;
 
 end:
     if (dev->fd >= 0)
 	close(dev->fd);
-    return NULL;
+    return 1;
 }
 
 
 static void
-vfio_dev_close(void *priv)
+vfio_dev_close(vfio_device_t *dev)
 {
-    vfio_device_t *dev = (vfio_device_t *) priv;
-    if (!dev)
-	return;
     vfio_log("VFIO %s: close()\n", dev->name);
 
-    /* Reset device. */
-    dev->closing = 1;
-    vfio_dev_reset(dev);
-
-    /* Clean up. */
+    /* Close device fd. */
     if (dev->fd >= 0) {
 	close(dev->fd);
 	dev->fd = -1;
     }
+
+    /* Clean up. */
+    if (dev->irq.msix.table)
+	free(dev->irq.msix.table);
+    if (dev->irq.msix.pba)
+	free(dev->irq.msix.pba);
+    free(dev->name);
 }
-
-
-static void
-vfio_dev_speed_changed(void *priv)
-{
-    /* Set operation timings. */
-    timing_readb = (int)(pci_timing * timing_default.read_b);
-    timing_readw = (int)(pci_timing * timing_default.read_w);
-    timing_readl = (int)(pci_timing * timing_default.read_l);
-    timing_writeb = (int)(pci_timing * timing_default.write_b);
-    timing_writew = (int)(pci_timing * timing_default.write_w);
-    timing_writel = (int)(pci_timing * timing_default.write_l);
-}
-
-
-static const device_t vfio_device =
-{
-    "VFIO PCI Passthrough",
-    DEVICE_PCI,
-    0,
-    vfio_dev_init, vfio_dev_close, vfio_dev_reset,
-    { NULL },
-    vfio_dev_speed_changed,
-    NULL,
-    NULL
-};
 
 
 void
@@ -1854,6 +2084,170 @@ vfio_map_dma(uint8_t *ptr, uint32_t offset, uint32_t size)
 }
 
 
+static void
+vfio_reset()
+{
+    vfio_log("VFIO: reset()\n");
+
+    /* Pre-reset and figure out the reset type for all devices. */
+    int size, count, i;
+    struct vfio_pci_hot_reset_info *hot_reset_info;
+    struct vfio_pci_dependent_device *devices;
+    char name[13];
+    vfio_group_t *group = first_group, *dep_group;
+    vfio_device_t *dev;
+    while (group) {
+	dev = group->first_device;
+	while (dev) {
+		/* Pre-reset this device. */
+		vfio_dev_prereset(dev);
+
+		/* Clear hot reset capable flag for this device. */
+		dev->can_hot_reset = 0;
+
+		/* Get hot reset information for the first time to get the entry count. */
+		size = sizeof(struct vfio_pci_hot_reset_info);
+		hot_reset_info = (struct vfio_pci_hot_reset_info *) malloc(size);
+		if (!hot_reset_info) {
+			vfio_log("VFIO %s: malloc(hot_reset_info) 1 failed\n", dev->name);
+			goto next1;
+		}
+		memset(hot_reset_info, 0, size);
+		hot_reset_info->argsz = size;
+		if (ioctl(dev->fd, VFIO_DEVICE_GET_PCI_HOT_RESET_INFO, hot_reset_info) &&
+		    (errno != ENOSPC)) {
+			vfio_log("VFIO %s: GET_PCI_HOT_RESET_INFO 1 failed (%d)\n", dev->name, errno);
+			goto next1;
+		}
+		count = hot_reset_info->count;
+		free(hot_reset_info);
+
+		/* Get hot reset information for the second time to get the actual entries. */
+		size =  sizeof(struct vfio_pci_hot_reset) +
+		       (sizeof(struct vfio_pci_dependent_device) * count);
+		hot_reset_info = (struct vfio_pci_hot_reset_info *) malloc(size);
+		if (!hot_reset_info) {
+			vfio_log("VFIO %s: malloc(hot_reset_info) 2 failed\n", dev->name);
+			goto next1;
+		}
+		memset(hot_reset_info, 0, size);
+		hot_reset_info->argsz = size;
+		if (ioctl(dev->fd, VFIO_DEVICE_GET_PCI_HOT_RESET_INFO, hot_reset_info)) {
+			vfio_log("VFIO %s: GET_PCI_HOT_RESET_INFO 2 failed (%d)\n", dev->name, errno);
+			goto next1;
+		}
+		devices = &hot_reset_info->devices[0];
+
+		/* Go through the dependent device entries. */
+		for (i = 0; i < count; i++) {
+			/* Build this dependent device's name. */
+			snprintf(name, sizeof(name), "%04x:%02x:%02x.%1x",
+				 devices[i].segment, devices[i].bus,
+				 PCI_SLOT(devices[i].devfn), PCI_FUNC(devices[i].devfn));
+
+			/* Check if we own this device's group. */
+			dep_group = vfio_get_group(devices[i].group_id, 0);
+			if (!dep_group) {
+				vfio_log("VFIO %s: Cannot hot reset; we don't own"
+					 "group %d for dependent device %s\n",
+					 dev->name, devices[i].group_id, name);
+				goto next1;
+			}
+		}
+
+		/* Mark this device as hot reset capable. */
+		dev->can_hot_reset = 1;
+
+next1:		if (hot_reset_info)
+			free(hot_reset_info);
+		dev = dev->next;
+	}	
+	group = group->next;
+    }
+
+    /* Count the amount of groups we own. */
+    count = 0;
+    group = first_group;
+    while (group) {
+	count++;
+	group = group->next;
+    }
+
+    /* Allocate hot reset structure. */
+    struct vfio_pci_hot_reset *hot_reset;
+    size = sizeof(struct vfio_pci_hot_reset) + (sizeof(int32_t) * count);
+    hot_reset = (struct vfio_pci_hot_reset *) malloc(size);
+    memset(hot_reset, 0, size);
+    hot_reset->argsz = size;
+    int32_t *fds = &hot_reset->group_fds[0];
+
+    /* Add group fds. */
+    group = first_group;
+    while (group) {
+	fds[hot_reset->count++] = group->fd;
+	group = group->next;
+    }
+
+    /* Reset all devices. */
+    group = first_group;
+    while (group) {
+	dev = group->first_device;
+	while (dev) {
+		/* Try function-level reset.
+		   I don't really understand the !pm_reset check, but QEMU does it. */
+		if (dev->can_reset && (!dev->can_pm_reset || dev->can_flr_reset)) {
+			if (ioctl(dev->fd, VFIO_DEVICE_RESET)) {
+				vfio_log("VFIO %s: DEVICE_RESET 1 failed (%d)\n", dev->name, errno);
+			} else {
+				vfio_log("VFIO %s: FLR reset successful\n", dev->name);
+				goto next2;
+			}
+		}
+
+		/* Try hot reset. */
+		if (dev->can_hot_reset) {
+			if (ioctl(dev->fd, VFIO_DEVICE_PCI_HOT_RESET, hot_reset)) {
+				vfio_log("VFIO %s: PCI_HOT_RESET failed (%d)\n", dev->name, errno);
+			} else {
+				vfio_log("VFIO %s: Hot reset successful\n", dev->name);
+				goto next2;
+			}
+		}
+
+		/* Try PM reset. */
+		if (dev->can_reset && dev->can_pm_reset) {
+			if (ioctl(dev->fd, VFIO_DEVICE_RESET)) {
+				vfio_log("VFIO %s: DEVICE_RESET 2 failed (%d)\n", dev->name, errno);
+			} else {
+				vfio_log("VFIO %s: PM reset successful\n", dev->name);
+				goto next2;
+			}
+		}
+
+		/* Warn if no reset types were successful. */
+		pclog("VFIO %s: Device was not reset!\n", dev->name);
+
+next2:		dev = dev->next;
+	}	
+	group = group->next;
+    }
+
+    /* Clean up. */
+    free(hot_reset);
+
+    /* Post-reset all devices. */
+    group = first_group;
+    while (group) {
+	dev = group->first_device;
+	while (dev) {
+		vfio_dev_postreset(dev);
+		dev = dev->next;
+	}
+	group = group->next;
+    }
+}
+
+
 void
 vfio_init()
 {
@@ -1887,75 +2281,115 @@ vfio_init()
 
     /* Parse device list. */
     char *strtok_save, *token = strtok_r(devices, " ", &strtok_save),
-	 dev_name[13], sysfs_device[46], sysfs_group[256], *group_name,
-	 config_key[32];
-    int i;
+	 *p, *dev_name, *sysfs_device, *config_key;
+    int i, domain_id, bus_id, dev_id, func_id;
     vfio_device_t *dev = NULL, *prev_dev;
-
+    vfio_group_t *group;
     while (token) {
-	/* Prepend 0000: to device name if required. */
-	snprintf(dev_name, sizeof(dev_name),
-		 (strchr(token, ':') == strrchr(token, ':')) ? "0000:%s" : "%s",
-		 token);
-	pclog("VFIO %s: ", dev_name);
+	/* Determine if the device was specified by location or sysfs path. */
+	dev_name = NULL;
+	if (token[0] == '/') {
+		/* sysfs path: use basename as device name. */
+		i = strlen(token);
+		dev_name = malloc(i + 1);
+		strncpy(dev_name, plat_get_basename(token), i);
 
-	/* Read iommu_group sysfs symlink for this device. */
-	snprintf(sysfs_device, sizeof(sysfs_device),
-		 "/sys/bus/pci/devices/%s/iommu_group",
-		 dev_name);
-	if ((i = readlink(sysfs_device, sysfs_group, sizeof(sysfs_group) - 1)) > 0) {
-		/* Determine group ID. */
-		sysfs_group[i] = '\0';
-		group_name = sysfs_group;
-		do {
-			group_name = strrchr(sysfs_group, '/');
-			if (group_name) {
-				group_name[0] = '\0'; 
-				group_name++;
-			} else {
-				group_name = sysfs_group;
-				break;
+		/* Just append iommu_group to the path. */
+		sysfs_device = malloc(i + 13);
+		snprintf(sysfs_device, i + 13,
+			 "%s/iommu_group", token);
+	} else if (token[0]) {
+		/* Location: read domain/bus/device/function. */
+		i = sscanf(token, "%x:%x:%x.%x", &domain_id, &bus_id, &dev_id, &func_id);
+		if (i < 3) {
+			domain_id = 0;
+			i = sscanf(token, "%x:%x.%x", &bus_id, &dev_id, &func_id);
+			if (i < 2) {
+				bus_id = 0;
+				i = sscanf(token, "%x.%x", &dev_id, &func_id);
+				if (i < 1) {
+					pclog("VFIO: Invalid device location: %s\n", token);
+					goto next;
+				} else if (i == 1) {
+					func_id = 0;
+				}
+			} else if (i == 2) {
+				func_id = 0;
 			}
-		} while (group_name[0] == '\0');
+		} else if (i == 3) {
+			func_id = 0;
+		}
 
+		/* Use dddd:bb:dd.f as device name. */
+		dev_name = malloc(13);
+		snprintf(dev_name, 13,
+			 "%04x:%02x:%02x.%1x", domain_id, bus_id, dev_id, func_id);
+
+		/* Generate sysfs path. */
+		sysfs_device = malloc(46);
+		snprintf(sysfs_device, 46,
+			 "/sys/bus/pci/devices/%s/iommu_group", dev_name);
+	} else {
+		/* Skip blank token. */
+		goto next;
+	}
+
+	pclog("VFIO %s: IOMMU group ", dev_name);
+
+	p = realpath(sysfs_device, NULL);
+	free(sysfs_device);
+	if (p) {
 		/* Parse group ID. */
-		if (sscanf(group_name, "%d", &i) != 1) {
-			pclog("Could not parse IOMMU group ID: %s\n", group_name);
+		if (sscanf(plat_get_basename(p), "%d", &i) != 1) {
+			pclog("path could not be parsed: %s\n", p);
+			free(p);
 			goto next;
 		}
 
-		pclog("IOMMU group %d\n", i);
+		pclog("%d\n", i);
+		free(p);
 	} else {
 		/* No symlink found, move on to the next device. */
-		pclog("Device not found\n");
+		pclog("not found (%d)\n", errno);
 		goto next;
 	}
 
 	/* Get group by ID, and move on to the next device
 	   if the group failed to initialize. (Not viable, etc.) */
-	current_group = vfio_get_group(i, 1);
-	if (current_group->fd < 0) {
+	group = vfio_get_group(i, 1);
+	if (group->fd < 0) {
 		pclog("VFIO %s: Skipping because group failed to initialize\n", dev_name);
 		goto next;
 	}
 
 	/* Allocate device structure. */
-	prev_dev = current_group->current_device;
-	dev = current_group->current_device = (vfio_device_t *) malloc(sizeof(vfio_device_t));
+	prev_dev = group->current_device;
+	dev = group->current_device = (vfio_device_t *) malloc(sizeof(vfio_device_t));
 	memset(dev, 0, sizeof(vfio_device_t));
-	strncpy(dev->name, dev_name, sizeof(dev->name) - 1);
-	dev->irq_type = VFIO_PCI_NUM_IRQS;
+
+	/* Initialize device structure. */
+	dev->name = dev_name;
+	dev_name = NULL; /* don't free it further down */
+	dev->irq.type = VFIO_PCI_NUM_IRQS;
 
 	/* Read device-specific settings. */
-	sprintf(config_key, "%s_rom_fn", token);
+	i = strlen(token) + 8;
+	config_key = malloc(i);
+	snprintf(config_key, i, "%s_rom_fn", token);
 	dev->rom_fn = config_get_string(category, config_key, NULL);
+	free(config_key);
 
 	/* Add to linked device list. */
 	if (prev_dev)
 		prev_dev->next = dev;
 	else
-		current_group->first_device = dev;
-next:
+		group->first_device = dev;
+
+next:	/* Clean up. */
+	if (dev_name)
+		free(dev_name);
+
+	/* Read next device name. */
 	token = strtok_r(NULL, " ", &strtok_save);
     }
 
@@ -1977,20 +2411,20 @@ next:
     /* Initialize epoll. */
     epoll_fd = epoll_create1(0);
     if (epoll_fd < 0) {
-    	pclog("VFIO: epoll_create1 failed (%d)\n", errno);
-    	goto close_container;
+	pclog("VFIO: epoll_create1 failed (%d)\n", errno);
+	goto close_container;
     }
 
     /* Initialize IRQ thread wake eventfd. */
     irq_thread_wake_fd = eventfd(0, 0);
     if (irq_thread_wake_fd <= 0) {
-    	pclog("VFIO: eventfd failed (%d)\n", errno);
-    	goto close_container;
+	pclog("VFIO: eventfd failed (%d)\n", errno);
+	goto close_container;
     }
     struct epoll_event event = { .events = EPOLLIN };
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, irq_thread_wake_fd, &event) < 0) {
-    	pclog("VFIO: EPOLL_CTL_ADD failed (%d)\n", errno);
-    	goto close_container;
+	pclog("VFIO: EPOLL_CTL_ADD failed (%d)\n", errno);
+	goto close_container;
     }
 
     /* Initialize and start IRQ thread. */
@@ -2005,17 +2439,16 @@ next:
     vfio_irq_timer(NULL);
 
     /* Initialize all devices. */
-    int inst = 0;
     current_group = first_group;
     while (current_group) {
-    	prev_dev = NULL;
+	prev_dev = NULL;
 	dev = current_group->first_device;
 	while (dev) {
 		current_group->current_device = dev;
-		if (device_add_inst(&vfio_device, inst++) != dev) {
-			inst--;
-			pclog("VFIO %s: device_add_inst(%d) failed\n", dev->name, inst);
+		if (vfio_dev_init(dev)) {
+			pclog("VFIO %s: dev_init failed\n", dev->name);
 
+			/* Deallocate this device if initialization failed. */
 			if (prev_dev)
 				prev_dev->next = dev->next;
 			else
@@ -2031,7 +2464,10 @@ next:
 	current_group = current_group->next;
     }
 
-    return;
+    /* Reset all devices. */
+    vfio_log("VFIO: Performing initial reset\n");
+    closing = 0;
+    vfio_reset();
 
 close_container:
     close(container_fd);
@@ -2040,41 +2476,45 @@ close_container:
 
 
 void
-vfio_close()
+vfio_close(void *priv)
 {
     vfio_log("VFIO: close()\n");
 
-#if 0 /* clean shutdown */
-    /* Pause IRQ thread. */
-    thread_reset_event(irq_thread_resume);
-    uint64_t val = 1;
-    write(irq_thread_wake_fd, &val, sizeof(val));
-#endif
+    /* Reset all devices. */
+    closing = 1;
+    vfio_reset();
 
     /* Stop IRQ timer. */
     timer_on_auto(&irq_timer, 0.0);
 
-    /* Close epoll fd. */
-    close(epoll_fd);
+    /* Stop IRQ thread by closing the epoll fd. */
+    if (epoll_fd >= 0) {
+	close(epoll_fd);
+	epoll_fd = -1;
+    }
+    thread_set_event(irq_thread_resume);
 
-    /* Free all groups. */
+    /* Close all groups. */
     while (first_group) {
 	current_group = first_group;
 
-	/* Free all devices. */
+	/* Close all devices. */
 	while (current_group->first_device) {
 		current_group->current_device = current_group->first_device;
 
-		if (current_group->current_device->fd >= 0)
-			close(current_group->current_device->fd);
+		/* Close device. */
+		vfio_dev_close(current_group->current_device);
 
+		/* Deallocate device. */
 		current_group->first_device = current_group->current_device->next;
 		free(current_group->current_device);
 	}
 
+	/* Close group fd. */
 	if (current_group->fd >= 0)
 		close(current_group->fd);
 
+	/* Deallocate group. */
 	first_group = current_group->next;
 	free(current_group);
     }
@@ -2084,10 +2524,30 @@ vfio_close()
 	close(container_fd);
 	container_fd = -1;
     }
-
-    /* Close epoll. */
-    if (epoll_fd >= 0) {
-    	close(epoll_fd);
-    	epoll_fd = -1;
-    }
 }
+
+
+static void
+vfio_speed_changed(void *priv)
+{
+    /* Set operation timings. */
+    timing_readb = (int) (pci_timing * timing_default.read_b);
+    timing_readw = (int) (pci_timing * timing_default.read_w);
+    timing_readl = (int) (pci_timing * timing_default.read_l);
+    timing_writeb = (int) (pci_timing * timing_default.write_b);
+    timing_writew = (int) (pci_timing * timing_default.write_w);
+    timing_writel = (int) (pci_timing * timing_default.write_l);
+}
+
+
+static const device_t vfio_device =
+{
+    "VFIO PCI Passthrough",
+    DEVICE_PCI,
+    0,
+    NULL, vfio_close, vfio_reset,
+    { NULL },
+    vfio_speed_changed,
+    NULL,
+    NULL
+};

@@ -34,6 +34,7 @@
 #include <86box/config.h>
 #include <86box/io.h>
 #include <86box/mem.h>
+#include <86box/plat.h>
 #include <86box/rom.h>
 #ifdef USE_DYNAREC
 # include "codegen_public.h"
@@ -128,6 +129,7 @@ static uint8_t		*_mem_exec[MEM_MAPPINGS_NO];
 static uint8_t		ff_pccache[4] = { 0xff, 0xff, 0xff, 0xff };
 static mem_state_t	_mem_state[MEM_MAPPINGS_NO];
 static uint32_t		remap_start_addr;
+static size_t		ram_size = 0, ram2_size = 0;
 
 
 #ifdef ENABLE_MEM_LOG
@@ -2606,30 +2608,34 @@ mem_reset(void)
     }
 
     if (ram != NULL) {
-	free(ram);
+	plat_munmap(ram, ram_size);
 	ram = NULL;
+	ram_size = 0;
     }
 #if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
     if (ram2 != NULL) {
-	free(ram2);
+	plat_munmap(ram2, ram2_size);
 	ram2 = NULL;
+	ram2_size = 0;
     }
-#endif
 
     if (mem_size > 2097152)
 	fatal("Attempting to use more than 2 GB of emulated RAM\n");
+#endif
 
     m = 1024UL * mem_size;
 
 #if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
     if (mem_size > 1048576) {
-	ram = (uint8_t *)malloc(1 << 30);		/* allocate and clear the RAM block of the first 1 GB */
+    	ram_size = 1 << 30;
+	ram = (uint8_t *) plat_mmap(ram_size, 0);	/* allocate and clear the RAM block of the first 1 GB */
 	if (ram == NULL) {
 		fatal("Failed to allocate primary RAM block. Make sure you have enough RAM available.\n");
 		return;
 	}
-	memset(ram, 0x00, (1 << 30));
-	ram2 = (uint8_t *)malloc(m - (1 << 30));	/* allocate and clear the RAM block above 1 GB */
+	memset(ram, 0x00, ram_size);
+	ram2_size = m - (1 << 30);
+	ram2 = (uint8_t *) plat_mmap(ram2_size, 0);	/* allocate and clear the RAM block above 1 GB */
 	if (ram2 == NULL) {
 		if (config_changed == 2)
 			fatal(EMU_NAME " must be restarted for the memory amount change to be applied.\n");
@@ -2637,25 +2643,20 @@ mem_reset(void)
 			fatal("Failed to allocate secondary RAM block. Make sure you have enough RAM available.\n");
 		return;
 	}
-	memset(ram2, 0x00, m - (1 << 30));
-    } else {
-	ram = (uint8_t *)malloc(m);		/* allocate and clear the RAM block */
+	memset(ram2, 0x00, ram2_size);
+    } else
+#endif
+    {
+	ram_size = m;
+	ram = (uint8_t *) plat_mmap(ram_size, 0);	/* allocate and clear the RAM block */
 	if (ram == NULL) {
 		fatal("Failed to allocate RAM block. Make sure you have enough RAM available.\n");
 		return;
 	}
-	memset(ram, 0x00, m);
+	memset(ram, 0x00, ram_size);
+	if (mem_size > 1048576)
+		ram2 = &(ram[1 << 30]);
     }
-#else
-    ram = (uint8_t *)malloc(m);		/* allocate and clear the RAM block */
-    if (ram == NULL) {
-	fatal("Failed to allocate RAM block. Make sure you have enough RAM available.\n");
-	return;
-    }
-    memset(ram, 0x00, m);
-    if (mem_size > 1048576)
-    	ram2 = &(ram[1 << 30]);
-#endif
 
     /*
      * Allocate the page table based on how much RAM we have.

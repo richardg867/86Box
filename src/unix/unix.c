@@ -2,7 +2,7 @@
 #define _FILE_OFFSET_BITS 64
 #define _LARGEFILE64_SOURCE 1
 #endif
-#define _POSIX_C_SOURCE 200809L
+//#define _POSIX_C_SOURCE 200809L
 #ifdef __APPLE__
 #define _DARWIN_C_SOURCE 1
 #endif
@@ -12,6 +12,7 @@
 #include <string.h>
 #include <time.h>
 #include <sys/time.h>
+#include <sys/mman.h>
 #include <sys/param.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -294,7 +295,7 @@ plat_get_basename(const char *path)
 
     while (c > 0) {
 	if (path[c] == '/')
-	   return((char *)&path[c]);
+	   return((char *)&path[c + 1]);
        c--;
     }
 
@@ -356,6 +357,19 @@ int
 plat_dir_create(char *path)
 {
     return mkdir(path, S_IRWXU);
+}
+
+void *
+plat_mmap(size_t size, uint8_t executable)
+{
+    void *ret = mmap(0, size, PROT_READ | PROT_WRITE | (executable ? PROT_EXEC : 0), MAP_ANON | MAP_PRIVATE, 0, 0);
+    return (ret < 0) ? NULL : ret;
+}
+
+void
+plat_munmap(void *ptr, size_t size)
+{
+    munmap(ptr, size);
 }
 
 uint64_t

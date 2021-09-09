@@ -569,7 +569,6 @@ cli_render_process_base64(uint8_t *buf, int len)
 {
     char output_buf[257], *p = output_buf,
 	 *limit = output_buf + (sizeof(output_buf) - 1);
-    uint8_t output_buf_pos;
     uint32_t tri;
     while (len > 0) {
 	tri = buf[0] << 16;

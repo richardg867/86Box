@@ -885,8 +885,6 @@ pc_reset_hard_close(void)
 
 	video_reset_close();
 
-	vfio_close();
-
 	cpu_close();
 }
 
@@ -1097,8 +1095,6 @@ pc_close(thread_t *ptr)
 	mo_close();
 
 	scsi_disk_close();
-
-	vfio_close();
 }
 
 

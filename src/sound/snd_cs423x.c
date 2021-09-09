@@ -476,7 +476,7 @@ cs423x_ctxswitch_write(uint16_t addr, uint8_t val, void *priv)
 	    enable_opl = (dev->ad1848.xregs[4] & 0x10) && !(dev->indirect_regs[2] & 0x85);
 
     /* Check if a context switch (WSS=1 <-> SBPro=0) occurred through the address being written. */
-    if ((dev->regs[7] & 0x80) ? ((addr & 0xfff0) == dev->sb_base) : ((addr & 0xfffc) == dev->wss_base)) {
+    if (ctx ? ((addr & 0xfff0) == dev->sb_base) : ((addr & 0xfffc) == dev->wss_base)) {
 	/* Flip context bit. */
 	dev->regs[7] ^= 0x80;
 	ctx ^= 0x80;
