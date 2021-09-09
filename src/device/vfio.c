@@ -1470,7 +1470,7 @@ vfio_irq_enable(vfio_device_t *dev, int type)
 
 
 static void
-vfio_prepare_region(vfio_device_t *dev, struct vfio_region_info *reg, vfio_region_t *region)
+vfio_region_init(vfio_device_t *dev, struct vfio_region_info *reg, vfio_region_t *region)
 {
     /* Set region structure information. */
     region->fd = dev->fd;
@@ -1535,9 +1535,10 @@ vfio_prepare_region(vfio_device_t *dev, struct vfio_region_info *reg, vfio_regio
 	region->bar_id = 0xff;
 
 	/* Allocate ROM shadow area. */
-	region->mmap_base = region->mmap_precalc = (uint8_t *) malloc(region->size);
-	if (!region->mmap_base) {
-		pclog("VFIO %s: ROM malloc(%d) failed\n", dev->name, region->size);
+	region->mmap_base = region->mmap_precalc = plat_mmap(region->size, 0);
+	if (region->mmap_base == ((void *) -1)) {
+		pclog("VFIO %s: ROM mmap(%d) failed\n", dev->name, region->size);
+		region->mmap_base = NULL;
 		goto end;
 	}
 	memset(region->mmap_base, 0xff, region->size);
@@ -1663,8 +1664,21 @@ end:
 }
 
 
+static void
+vfio_region_close(vfio_device_t *dev, vfio_region_t *region)
+{
+    /* Stop if this region was not initialized. */
+    if (!region->size)
+	return;
+
+    /* Unmap memory if mmap was available. */
+    if (region->mmap_base)
+	plat_munmap(region->mmap_base, region->size);
+}
+
+
 static vfio_group_t *
-vfio_get_group(int id, uint8_t add)
+vfio_group_get(int id, uint8_t add)
 {
     /* Look for an existing group. */
     vfio_group_t *group = first_group;
@@ -1816,7 +1830,7 @@ vfio_dev_init(vfio_device_t *dev)
     strcpy(dev->vga_io_hi.name, "VGA CGA/EGA");
     strcpy(dev->vga_mem.name, "VGA Framebuffer");
 
-    /* Prepare all regions. */
+    /* Initialize all regions. */
     struct vfio_region_info reg = { .argsz = sizeof(reg) };
     uint8_t cls;
     for (i = 0; i < device_info.num_regions; i++) {
@@ -1828,18 +1842,18 @@ vfio_dev_init(vfio_device_t *dev)
 	if (!reg.size)
 		continue;
 
-	/* Prepare region according to its type. */
+	/* Initialize region according to its type. */
 	switch (reg.index) {
 		case VFIO_PCI_BAR0_REGION_INDEX ... VFIO_PCI_BAR5_REGION_INDEX:
-			vfio_prepare_region(dev, &reg, &dev->bars[reg.index - VFIO_PCI_BAR0_REGION_INDEX]);
+			vfio_region_init(dev, &reg, &dev->bars[reg.index - VFIO_PCI_BAR0_REGION_INDEX]);
 			break;
 
 		case VFIO_PCI_ROM_REGION_INDEX:
-			vfio_prepare_region(dev, &reg, &dev->rom);
+			vfio_region_init(dev, &reg, &dev->rom);
 			break;
 
 		case VFIO_PCI_CONFIG_REGION_INDEX:
-			vfio_prepare_region(dev, &reg, &dev->config);
+			vfio_region_init(dev, &reg, &dev->config);
 			break;
 
 		case VFIO_PCI_VGA_REGION_INDEX:
@@ -1849,9 +1863,9 @@ vfio_dev_init(vfio_device_t *dev)
 			    (cls != 0x03))
 				break;
 
-			vfio_prepare_region(dev, &reg, &dev->vga_io_lo); /* I/O [3B0:3BB] */
-			vfio_prepare_region(dev, &reg, &dev->vga_io_hi); /* I/O [3C0:3DF] */
-			vfio_prepare_region(dev, &reg, &dev->vga_mem); /* memory [A0000:BFFFF] */
+			vfio_region_init(dev, &reg, &dev->vga_io_lo); /* I/O [3B0:3BB] */
+			vfio_region_init(dev, &reg, &dev->vga_io_hi); /* I/O [3C0:3DF] */
+			vfio_region_init(dev, &reg, &dev->vga_mem); /* memory [A0000:BFFFF] */
 
 			/* Inform that a PCI VGA video card is attached if no video card is emulated. */
 			if (gfxcard == VID_NONE)
@@ -1873,12 +1887,12 @@ vfio_dev_init(vfio_device_t *dev)
 	goto end;
     }
 
-    /* Prepare ROM region if the device doesn't have one and we're loading a ROM from file. */
+    /* Initialize ROM region if the device doesn't have one and we're loading a ROM from file. */
     if (dev->rom_fn && !dev->rom.fd) {
 	reg.index = VFIO_PCI_ROM_REGION_INDEX;
 	reg.offset = reg.size = 0;
 	reg.flags = VFIO_REGION_INFO_FLAG_READ;
-	vfio_prepare_region(dev, &reg, &dev->rom);
+	vfio_region_init(dev, &reg, &dev->rom);
     }
 
     /* Go through PCI capability list if the device declares one. */
@@ -2022,6 +2036,15 @@ vfio_dev_close(vfio_device_t *dev)
 {
     vfio_log("VFIO %s: close()\n", dev->name);
 
+    /* Close all regions. */
+    for (int i = 0; i < 6; i++)
+	vfio_region_close(dev, &dev->bars[i]);
+    vfio_region_close(dev, &dev->rom);
+    vfio_region_close(dev, &dev->config);
+    vfio_region_close(dev, &dev->vga_io_lo);
+    vfio_region_close(dev, &dev->vga_io_hi);
+    vfio_region_close(dev, &dev->vga_mem);
+
     /* Close device fd. */
     if (dev->fd >= 0) {
 	close(dev->fd);
@@ -2073,7 +2096,7 @@ vfio_map_dma(uint8_t *ptr, uint32_t offset, uint32_t size)
     if (!ioctl(container_fd, VFIO_IOMMU_MAP_DMA, &dma_map))
 	return;
 
-    /* QEMU says the mapping should be retried in case of EBUSY. */
+    /* QEMU says mapping should be retried in case of EBUSY. */
     if (errno == EBUSY) {
 	vfio_unmap_dma(offset, size);
 	if (!ioctl(container_fd, VFIO_IOMMU_MAP_DMA, &dma_map))
@@ -2146,7 +2169,7 @@ vfio_reset()
 				 PCI_SLOT(devices[i].devfn), PCI_FUNC(devices[i].devfn));
 
 			/* Check if we own this device's group. */
-			dep_group = vfio_get_group(devices[i].group_id, 0);
+			dep_group = vfio_group_get(devices[i].group_id, 0);
 			if (!dep_group) {
 				vfio_log("VFIO %s: Cannot hot reset; we don't own"
 					 "group %d for dependent device %s\n",
@@ -2356,7 +2379,7 @@ vfio_init()
 
 	/* Get group by ID, and move on to the next device
 	   if the group failed to initialize. (Not viable, etc.) */
-	group = vfio_get_group(i, 1);
+	group = vfio_group_get(i, 1);
 	if (group->fd < 0) {
 		pclog("VFIO %s: Skipping because group failed to initialize\n", dev_name);
 		goto next;
