@@ -132,9 +132,10 @@ static int	container_fd = -1, epoll_fd = -1, irq_thread_wake_fd = -1,
 		timing_writeb = 0, timing_writew = 0, timing_writel = 0;
 static vfio_group_t *first_group = NULL, *current_group;
 static thread_t	*irq_thread;
-static event_t	*irq_event, *irq_thread_resume, *irq_thread_resume_ack;
+static event_t	*irq_event, *irq_thread_resume;
 static pc_timer_t irq_timer;
 static vfio_irq_t *current_irq = NULL;
+static const device_t vfio_device;
 
 
 #ifdef ENABLE_VFIO_LOG
@@ -1097,6 +1098,10 @@ vfio_irq_thread(void *priv)
 		/* Reset eventfd counter. */
 		read(irq->fd, &buf, sizeof(buf));
 
+		/* Don't hang waiting for the timer if we're closing. */
+		if (closing)
+			continue;
+
 		/* Log VFIO IRQ type and vector. */
 		vfio_log_op("VFIO %s: %s IRQ on vector %d\n", dev->name,
 			    ((irq->type == VFIO_PCI_INTX_IRQ_INDEX) ? "INTx" : (((irq->type == VFIO_PCI_MSI_IRQ_INDEX) ? "MSI" : ((irq->type == VFIO_PCI_MSIX_IRQ_INDEX) ? "MSI-X" : NULL)))),
@@ -1167,7 +1172,6 @@ vfio_irq_thread(void *priv)
 
 	/* Pause if we were asked to. */
 	thread_wait_event(irq_thread_resume, -1);
-	thread_set_event(irq_thread_resume_ack);
     }
 
     /* We're done here. */
@@ -1401,9 +1405,7 @@ vfio_irq_disable(vfio_device_t *dev)
     }
 
     /* Resume IRQ thread. */
-    thread_reset_event(irq_thread_resume_ack);
     thread_set_event(irq_thread_resume);
-    thread_wait_event(irq_thread_resume_ack, -1);
 }
 
 
@@ -1857,8 +1859,8 @@ vfio_dev_init(vfio_device_t *dev)
 			break;
 
 		case VFIO_PCI_VGA_REGION_INDEX:
-			/* Don't prepare the VGA region if this is not a video card. */
-			if (dev->config.fd &&
+			/* Don't initialize VGA region if this is not a video card. */
+			if ((dev->config.fd > 0) &&
 			    (pread(dev->config.fd, &cls, sizeof(cls), dev->config.offset + 0x0b) == sizeof(cls)) &&
 			    (cls != 0x03))
 				break;
@@ -2117,7 +2119,7 @@ vfio_reset()
     struct vfio_pci_hot_reset_info *hot_reset_info;
     struct vfio_pci_dependent_device *devices;
     char name[13];
-    vfio_group_t *group = first_group, *dep_group;
+    vfio_group_t *group = first_group;
     vfio_device_t *dev;
     while (group) {
 	dev = group->first_device;
@@ -2169,8 +2171,7 @@ vfio_reset()
 				 PCI_SLOT(devices[i].devfn), PCI_FUNC(devices[i].devfn));
 
 			/* Check if we own this device's group. */
-			dep_group = vfio_group_get(devices[i].group_id, 0);
-			if (!dep_group) {
+			if (!vfio_group_get(devices[i].group_id, 0)) {
 				vfio_log("VFIO %s: Cannot hot reset; we don't own"
 					 "group %d for dependent device %s\n",
 					 dev->name, devices[i].group_id, name);
@@ -2454,7 +2455,6 @@ next:	/* Clean up. */
     irq_event = thread_create_event();
     irq_thread_resume = thread_create_event();
     thread_set_event(irq_thread_resume);
-    irq_thread_resume_ack = thread_create_event();
     irq_thread = thread_create(vfio_irq_thread, NULL);
 
     /* Start IRQ timer. */
@@ -2491,6 +2491,9 @@ next:	/* Clean up. */
     vfio_log("VFIO: Performing initial reset\n");
     closing = 0;
     vfio_reset();
+
+    /* Add device_t to keep track of reset and close. */
+    device_add(&vfio_device);
 
 close_container:
     close(container_fd);
