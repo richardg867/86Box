@@ -17,10 +17,6 @@
 #ifndef EMU_VFIO_H
 # define EMU_VFIO_H
 
-#ifdef __linux__
 extern void	vfio_init();
-#else
-# define vfio_init()
-#endif
 
 #endif

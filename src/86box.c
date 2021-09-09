@@ -85,7 +85,6 @@
 #include <86box/sound.h>
 #include <86box/midi.h>
 #include <86box/snd_speaker.h>
-#include <86box/vfio.h>
 #include <86box/video.h>
 #include <86box/ui.h>
 #include <86box/plat.h>
@@ -93,6 +92,9 @@
 #include <86box/version.h>
 #ifdef USE_CLI
 # include <86box/cli.h>
+#endif
+#ifdef USE_VFIO
+# include <86box/vfio.h>
 #endif
 
 
@@ -988,7 +990,9 @@ pc_reset_hard_init(void)
 	if (joystick_type)
 	gameport_update_joystick_type();
 
+#ifdef USE_VFIO
 	vfio_init();
+#endif
 
 	ui_sb_update_panes();
 

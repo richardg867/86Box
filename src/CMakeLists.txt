@@ -51,6 +51,12 @@ if(CLI)
 	add_compile_definitions(USE_CLI)
 endif()
 
+include(CheckIncludeFile)
+check_include_file("linux/vfio.h" VFIO)
+if (VFIO)
+	add_compile_definitions(USE_VFIO)
+endif()
+
 target_link_libraries(86Box cpu chipset mch dev mem fdd game cdrom zip mo hdd
 	net print scsi sio snd vid voodoo plat ui)
 
