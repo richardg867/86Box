@@ -2,7 +2,7 @@
 #define _FILE_OFFSET_BITS 64
 #define _LARGEFILE64_SOURCE 1
 #endif
-//#define _POSIX_C_SOURCE 200809L
+#define _POSIX_C_SOURCE 200809L
 #ifdef __APPLE__
 #define _DARWIN_C_SOURCE 1
 #endif
@@ -155,7 +155,12 @@ static const uint16_t sdl_to_xt[0x200] =
     [SDL_SCANCODE_KP_2] = 0x50,
     [SDL_SCANCODE_KP_1] = 0x4F,
     [SDL_SCANCODE_KP_0] = 0x52,
-    [SDL_SCANCODE_KP_PERIOD] = 0x53
+    [SDL_SCANCODE_KP_PERIOD] = 0x53,
+
+    [SDL_SCANCODE_LGUI] = 0x15B,
+    [SDL_SCANCODE_RGUI] = 0x15C,
+    [SDL_SCANCODE_APPLICATION] = 0x15D,
+    [SDL_SCANCODE_PRINTSCREEN] = 0x137
 };
 
 typedef struct sdl_blit_params
@@ -769,11 +774,30 @@ void monitor_thread(void* param)
                     xargv[cmdargc++] = local_strsep(&linecpy, " ");
                     if (xargv[cmdargc - 1] == NULL || cmdargc >= 512) break;
                 }
-                if (strncasecmp(xargv[0], "exit", 4) == 0)
+                cmdargc--;
+                if (strncasecmp(xargv[0], "help", 4) == 0)
+                {
+                    printf(
+                        "fddload <id> <filename> <wp> - Load floppy disk image into drive <id>.\n"
+                        "cdload <id> <filename> - Load CD-ROM image into drive <id>.\n"
+                        "zipload <id> <filename> <wp> - Load ZIP image into ZIP drive <id>.\n"
+                        "cartload <id> <filename> <wp> - Load cartridge image into cartridge drive <id>.\n"
+                        "moload <id> <filename> <wp> - Load MO image into MO drive <id>.\n\n"
+                        "fddeject <id> - eject disk from floppy drive <id>.\n"
+                        "cdeject <id> - eject disc from CD-ROM drive <id>.\n"
+                        "zipeject <id> - eject ZIP image from ZIP drive <id>.\n"
+                        "carteject <id> - eject cartridge from drive <id>.\n"
+                        "moeject <id> - eject image from MO drive <id>.\n\n"
+                        "hardreset - hard reset the emulated system.\n"
+                        "pause - pause the the emulated system.\n"
+                        "fullscreen - toggle fullscreen.\n"
+                        "exit - exit 86Box.\n");
+                }
+                else if (strncasecmp(xargv[0], "exit", 4) == 0)
                 {
                     exit_event = 1;
                 }
-                else if (strncasecmp(xargv[0], "fullscreen", 1) == 0)
+                else if (strncasecmp(xargv[0], "fullscreen", 10) == 0)
                 {
                     video_fullscreen = 1;
                     fullscreen_pending = 1;

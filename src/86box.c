@@ -26,12 +26,18 @@
 #include <string.h>
 #include <time.h>
 #include <wchar.h>
+#ifdef __APPLE__
+#include <string.h>
+#include <dispatch/dispatch.h>
+#ifdef __aarch64__
+#include <pthread.h>
+#endif
+#endif
 #ifdef _WIN32
 # include <io.h>
 #else
 # include <unistd.h>
 #endif
-
 #define HAVE_STDARG_H
 #include <86box/86box.h>
 #include <86box/config.h>
@@ -797,7 +803,13 @@ pc_init_modules(void)
 	mem_init();
 
 #ifdef USE_DYNAREC
+#if defined(__APPLE__) && defined(__aarch64__)
+	pthread_jit_write_protect_np(0);
+#endif
 	codegen_init();
+#if defined(__APPLE__) && defined(__aarch64__)
+	pthread_jit_write_protect_np(1);
+#endif
 #endif
 
 	keyboard_init();
@@ -1098,6 +1110,15 @@ pc_close(thread_t *ptr)
 }
 
 
+#ifdef __APPLE__
+static void _ui_window_title(void *s)
+{
+    ui_window_title((const wchar_t *) s);
+    free(s);
+}
+#endif
+
+
 void
 pc_run(void)
 {
@@ -1126,7 +1147,12 @@ pc_run(void)
 
 	if (title_update) {
 		swprintf(temp, sizeof_w(temp), mouse_msg[!!mouse_capture], fps);
+#ifdef __APPLE__
+		/* Needed due to modifying the UI on the non-main thread is a big no-no. */
+		dispatch_async_f(dispatch_get_main_queue(), wcsdup((const wchar_t *) temp), _ui_window_title);
+#else
 		ui_window_title(temp);
+#endif
 #ifdef USE_CLI
 		cli_render_write_title(temp);
 #endif
