@@ -31,9 +31,7 @@
 #include <86box/pit.h>
 #include <86box/device.h>
 #include <86box/video.h>
-#ifdef USE_CLI
-# include <86box/cli.h>
-#endif
+#include <86box/cli.h>
 
 
 typedef struct {

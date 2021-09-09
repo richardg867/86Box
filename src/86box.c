@@ -90,12 +90,8 @@
 #include <86box/plat.h>
 #include <86box/plat_midi.h>
 #include <86box/version.h>
-#ifdef USE_CLI
-# include <86box/cli.h>
-#endif
-#ifdef USE_VFIO
-# include <86box/vfio.h>
-#endif
+#include <86box/cli.h>
+#include <86box/vfio.h>
 
 
 /* Stuff that used to be globally declared in plat.h but is now extern there

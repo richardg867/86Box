@@ -31,9 +31,7 @@
 #include <86box/device.h>
 #include <86box/video.h>
 #include <86box/vid_mda.h>
-#ifdef USE_CLI
-# include <86box/cli.h>
-#endif
+#include <86box/cli.h>
 
 static int mdacols[256][2][2];
 

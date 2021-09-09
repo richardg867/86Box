@@ -35,9 +35,7 @@
 #include <86box/video.h>
 #include <86box/vid_cga.h>
 #include <86box/vid_cga_comp.h>
-#ifdef USE_CLI
-# include <86box/cli.h>
-#endif
+#include <86box/cli.h>
 
 
 #define CGA_RGB 0

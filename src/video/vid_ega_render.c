@@ -27,9 +27,7 @@
 #include <86box/rom.h>
 #include <86box/video.h>
 #include <86box/vid_ega.h>
-#ifdef USE_CLI
-# include <86box/cli.h>
-#endif
+#include <86box/cli.h>
 
 
 int

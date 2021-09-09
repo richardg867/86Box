@@ -39,9 +39,7 @@
 #include <86box/vid_cga.h>
 #include <86box/vid_ogc.h>
 #include <86box/vid_cga_comp.h>
-#ifdef USE_CLI
-# include <86box/cli.h>
-#endif
+#include <86box/cli.h>
 
 
 /*

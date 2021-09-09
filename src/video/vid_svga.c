@@ -39,9 +39,7 @@
 #include <86box/video.h>
 #include <86box/vid_svga.h>
 #include <86box/vid_svga_render.h>
-#ifdef USE_CLI
-# include <86box/cli.h>
-#endif
+#include <86box/cli.h>
 
 
 void svga_doblit(int y1, int y2, int wx, int wy, svga_t *svga);

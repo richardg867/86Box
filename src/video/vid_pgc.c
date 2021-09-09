@@ -90,9 +90,7 @@
 #include <86box/video.h>
 #include <86box/vid_cga.h>
 #include <86box/vid_pgc.h>
-#ifdef USE_CLI
-# include <86box/cli.h>
-#endif
+#include <86box/cli.h>
 
 
 #define PGC_CGA_WIDTH	640

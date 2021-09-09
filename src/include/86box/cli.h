@@ -14,7 +14,7 @@
  *
  *		Copyright 2021 RichardG.
  */
-#ifndef EMU_CLI_H
+#if !defined(EMU_CLI_H) && defined(USE_CLI)
 # define EMU_CLI_H
 
 #define CLI_RENDER_OUTPUT	stderr

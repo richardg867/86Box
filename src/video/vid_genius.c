@@ -31,9 +31,7 @@
 #include <86box/device.h>
 #include <86box/plat.h>
 #include <86box/video.h>
-#ifdef USE_CLI
-# include <86box/cli.h>
-#endif
+#include <86box/cli.h>
 
 
 #define BIOS_ROM_PATH	"roms/video/genius/8x12.bin"

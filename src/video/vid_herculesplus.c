@@ -30,9 +30,7 @@
 #include <86box/rom.h>
 #include <86box/device.h>
 #include <86box/video.h>
-#ifdef USE_CLI
-# include <86box/cli.h>
-#endif
+#include <86box/cli.h>
 
 
 /* extended CRTC registers */
