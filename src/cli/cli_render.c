@@ -755,7 +755,7 @@ cli_render_process(void *priv)
 				/* Blank all lines beyond the new screen limits. */
 				x = MIN(cli_term.size_y, CLI_RENDER_MAX_LINES);
 				x = MIN(render_data.prev_rowcount, x);
-				for (i = w - 1; i <= x; i++) {
+				for (i = w; i <= x; i++) {
 					if (lines[i])
 						lines[i]->invalidate = 0;
 					fprintf(CLI_RENDER_OUTPUT, "\033[%d;1H\033[2K", i);
