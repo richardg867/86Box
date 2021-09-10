@@ -1025,8 +1025,7 @@ cli_render_init()
 #endif
 
     /* Load standard CGA palette. */
-    uint32_t palette_color = 0x000001;
-    palette_24bit[0] = palette_color; /* force re-processing of black */
+    uint32_t palette_color;
     for (int i = 0; i < 16; i++) {
 	palette_color = (i & 8) ? 0x555555 : 0x000000;
 	if (i & 1)
@@ -1035,6 +1034,7 @@ cli_render_init()
 		palette_color |= (i == 6) ? 0x005500 : 0x00aa00; /* account for brown */
 	if (i & 4)
 		palette_color |= 0xaa0000;
+	palette_24bit[i] = ~palette_color; /* force processing */
 	cli_render_setpal(i, palette_color);
     }
 
