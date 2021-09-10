@@ -53,7 +53,7 @@ endif()
 
 include(CheckIncludeFile)
 check_include_file("linux/vfio.h" VFIO)
-if (VFIO)
+if(VFIO)
 	add_compile_definitions(USE_VFIO)
 endif()
 

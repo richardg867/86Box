@@ -95,12 +95,12 @@ extern void	cli_render_blank();
 extern void	cli_render_gfx(char *str);
 extern void	cli_render_gfx_box(char *str);
 extern void	cli_render_gfx_blit(uint32_t *buf, int w, int h);
-extern void	cli_render_cga(uint8_t cy,
+extern void	cli_render_cga(uint8_t cy, uint8_t rowcount,
 			       int xlimit, int xinc,
 			       uint8_t *fb, uint32_t fb_base, uint32_t fb_mask, uint8_t fb_step,
 			       uint8_t do_render, uint8_t do_blink,
 			       uint32_t ca, uint8_t con);
-extern void	cli_render_mda(int xlimit,
+extern void	cli_render_mda(int xlimit, uint8_t rowcount,
 			       uint8_t *fb, uint16_t fb_base,
 			       uint8_t do_render, uint8_t do_blink,
 			       uint16_t ca, uint8_t con);

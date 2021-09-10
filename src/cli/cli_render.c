@@ -46,15 +46,15 @@
 
 enum {
     CLI_RENDER_BLANK	= 0x00,
-    CLI_RENDER_CGA	= 0x01,
-    CLI_RENDER_MDA	= 0x02,
-    CLI_RENDER_GFX	= 0x10
+    CLI_RENDER_GFX	= 0x01,
+    CLI_RENDER_CGA	= 0x10,
+    CLI_RENDER_MDA	= 0x11,
 };
 
 typedef struct {
     uint16_t	framebuffer[CLI_RENDER_FB_SIZE];
     char	buffer[CLI_RENDER_ANSIBUF_SIZE];
-    uint8_t	invalidate, do_render, do_blink;
+    uint8_t	invalidate, full_width, do_render, do_blink;
 } cli_render_line_t;
 
 typedef struct _cli_render_png_ {
@@ -109,7 +109,8 @@ static struct {
 
     uint8_t	mode, invalidate_all;
 
-    uint8_t	*fb, prev_mode, y, do_render, do_blink, con;
+    uint8_t	*fb, prev_mode, y, rowcount, prev_rowcount,
+		do_render, do_blink, con;
     uint16_t	ca;
     uint32_t	fb_base, fb_mask, fb_step;
     union {
@@ -224,7 +225,7 @@ cli_render_gfx_blit(uint32_t *buf, int w, int h)
 
 
 void
-cli_render_cga(uint8_t y,
+cli_render_cga(uint8_t y, uint8_t rowcount,
 	       int xlimit, int xinc,
 	       uint8_t *fb, uint32_t fb_base, uint32_t fb_mask, uint8_t fb_step,
 	       uint8_t do_render, uint8_t do_blink,
@@ -234,6 +235,7 @@ cli_render_cga(uint8_t y,
     thread_reset_event(render_data.render_complete);
 
     render_data.mode = CLI_RENDER_CGA;
+    render_data.rowcount = rowcount;
     render_data.xlimit = xlimit;
     render_data.xinc = xinc;
     render_data.fb = fb;
@@ -251,7 +253,7 @@ cli_render_cga(uint8_t y,
 
 
 void
-cli_render_mda(int xlimit,
+cli_render_mda(int xlimit, uint8_t rowcount,
 	       uint8_t *fb, uint16_t fb_base,
 	       uint8_t do_render, uint8_t do_blink,
 	       uint16_t ca, uint8_t con)
@@ -260,6 +262,7 @@ cli_render_mda(int xlimit,
     thread_reset_event(render_data.render_complete);
 
     render_data.mode = CLI_RENDER_MDA;
+    render_data.rowcount = rowcount;
     render_data.xlimit = xlimit;
     render_data.xinc = 1;
     render_data.fb = fb;
@@ -274,36 +277,6 @@ cli_render_mda(int xlimit,
 
     thread_set_event(render_data.wake_render_thread);
 }
-
-
-#if 0 /* just storing the old code here */
-void
-cli_render_menu(uint8_t y)
-{
-    /* Move to the specified line. */
-    fprintf(CLI_RENDER_OUTPUT, "\033[%d;1H", y + 1);
-
-    /* Render line. */
-    int entry_count = sizeof(menu_entries) / sizeof(menu_entries[0]), i;
-    if (y == 0) {
-	i = 30 - fprintf(CLI_RENDER_OUTPUT, "\033[30;47m%s%s[ " EMU_NAME " CLI Menu ]", cp437[0xd5], cp437[0xcd]);
-	for (i = 0; i < 28; i++)
-		fprintf(CLI_RENDER_OUTPUT, cp437[0xc4]);
-    } else if (y <= entry_count) {
-	fprintf(CLI_RENDER_OUTPUT, "%s ", cp437[0xb3]);
-	for (i = fprintf(CLI_RENDER_OUTPUT, menu_entries[y - 1]);
-	     i < menu_max_width; i++)
-		fprintf(CLI_RENDER_OUTPUT, " ");
-	fprintf(CLI_RENDER_OUTPUT, " %s", cp437[0xb3]);
-    } else if (y == (entry_count + 1)) {
-	fprintf(CLI_RENDER_OUTPUT, cp437[0xc0]);
-	for (i = 0; i < 28; i++)
-		fprintf(CLI_RENDER_OUTPUT, cp437[0xc4]);
-	fprintf(CLI_RENDER_OUTPUT, cp437[0xd9]);
-    }
-    fflush(CLI_RENDER_OUTPUT);
-}
-#endif
 
 
 void
@@ -512,8 +485,22 @@ cli_render_setpal(uint8_t index, uint32_t color)
 }
 
 
+static char *
+cli_render_clearbg(char *p)
+{
+    /* Use the black color for this terminal if applicable. */
+    p += sprintf(p, "\033[0;");
+    int i = 0;
+    if ((render_data.mode < 0x10) || !(i = cli_term.setcolor(p, 0, 1)))
+    	*p = '\0';
+    p += i;
+    p += sprintf(p, "m");
+    return p;
+}
+
+
 static void
-cli_render_updateline(char *buf, uint8_t y, uint8_t new_cx, uint8_t new_cy)
+cli_render_updateline(char *buf, uint8_t y, uint8_t full_width, uint8_t new_cx, uint8_t new_cy)
 {
     /* Get line. */
     cli_render_line_t *line = cli_render_getline(y);
@@ -524,15 +511,16 @@ cli_render_updateline(char *buf, uint8_t y, uint8_t new_cx, uint8_t new_cy)
 	if (buf && (buf != line->buffer))
 		strcpy(line->buffer, buf);
 
-	/* Move to line and reset formatting. */
+	/* Move to line, reset formatting and clear line if required. */
 	char sgr[256], *p = sgr;
-	p += sprintf(p, "\033[%d;1H\033[0;", y + 1);
-	if (!cli_term.setcolor(p, 0, 1))
-		*p = '\0';
+	p += sprintf(p, "\033[%d;1H", y + 1);
+	p = cli_render_clearbg(p);
+	line->full_width = full_width;
+	if (!full_width)
+		strcpy(p, "\033[2K");
 	fputs(sgr, CLI_RENDER_OUTPUT);
 
 	/* Print line. */
-	fputs("m\033[2K", CLI_RENDER_OUTPUT);
 	fputs(line->buffer, CLI_RENDER_OUTPUT);
 	fputs("\033[0m", CLI_RENDER_OUTPUT);
 
@@ -663,7 +651,7 @@ cli_render_process(void *priv)
 		}
 	}
 
-	/* Output any requested title changes. */
+	/* Output any requested title change. */
 	if (render_data.title[0]) {
 		p = buf;
 		p += sprintf(p, "\033]0;");
@@ -687,19 +675,14 @@ cli_render_process(void *priv)
 		render_data.invalidate_all = 0;
 
 		/* Clear screen. */
-		p = buf;
-		p += sprintf(buf, "\033[0;");
-		i = cli_term.setcolor(p, 0, 1);
-		if (!i) /* end SGR sequence after 0 if none were output */
-			p--;
-		strcpy(p + i, "m\033[2J\033[3J");
+		strcpy(cli_render_clearbg(buf), "\033[2J\033[3J");
 		fputs(buf, CLI_RENDER_OUTPUT);
 
 		/* Invalidate and redraw each line. */
 		for (i = 0; i < CLI_RENDER_MAX_LINES; i++) {
 			if (lines[i]) {
 				lines[i]->invalidate = 1;
-				cli_render_updateline(lines[i]->buffer, i, cursor_x, cursor_y);
+				cli_render_updateline(lines[i]->buffer, i, 1, cursor_x, cursor_y);
 			}
 		}
 	}
@@ -714,7 +697,7 @@ cli_render_process(void *priv)
 				p += sprintf(p, "\033[30;47m%s", cp437[0xba]);
 				w = sprintf(p, render_data.infobox, render_data.infobox_sx, render_data.infobox_sy);
 				sprintf(p + w, "%s", cp437[0xba]);
-				cli_render_updateline(buf, 1, -1, -1);
+				cli_render_updateline(buf, 1, 0, -1, -1);
 
 				/* Render top line. */
 				p = buf;
@@ -722,7 +705,7 @@ cli_render_process(void *priv)
 				for (i = 0; i < w; i++)
 					p += sprintf(p, "%s", cp437[0xcd]);
 				sprintf(p, "%s", cp437[0xbb]);
-				cli_render_updateline(buf, 0, -1, -1);
+				cli_render_updateline(buf, 0, 0, -1, -1);
 
 				/* Render bottom line. */
 				p = buf;
@@ -730,12 +713,19 @@ cli_render_process(void *priv)
 				for (i = 0; i < w; i++)
 					p += sprintf(p, "%s", cp437[0xcd]);
 				sprintf(p, "%s", cp437[0xbc]);
-				cli_render_updateline(buf, 2, -1, -1);
+				cli_render_updateline(buf, 2, 0, -1, -1);
+
+				i = 3;
 			} else {
-				/* Render blank lines where the infobox should have been. */
-				buf[0] = '\0';
-				for (i = 0; i < 3; i++)
-					cli_render_updateline(buf, i, -1, -1);
+				i = 0;
+			}
+
+			/* Render blank lines where the infobox is not needed. */
+			buf[0] = '\0';
+			x = MIN(cli_term.size_y, CLI_RENDER_MAX_LINES);
+			for (; i < x; i++) {
+				if (lines[i])
+					cli_render_updateline(buf, i, 0, -1, -1);
 			}
 			break;
 
@@ -750,6 +740,28 @@ cli_render_process(void *priv)
 			line = cli_render_getline(render_data.y);
 			if (!line)
 				goto next;
+
+			/* Handle changes in text line count. */
+			w = get_actual_size_y() / render_data.rowcount;
+			if (w < render_data.prev_rowcount) {
+				/* Reset background color. */
+				cli_render_clearbg(buf);
+				fputs(buf, CLI_RENDER_OUTPUT);
+
+				/* Blank all lines beyond the new screen limits. */
+				x = MIN(cli_term.size_y, CLI_RENDER_MAX_LINES);
+				x = MIN(render_data.prev_rowcount, x);
+				for (i = w - 1; i <= x; i++)
+					fprintf(CLI_RENDER_OUTPUT, "\033[%d;1H\033[2K", i);
+			} else if (w > render_data.prev_rowcount) {
+				/* Redraw all lines beyond the previous screen limits. */
+				x = MIN(w, CLI_RENDER_MAX_LINES);
+				for (i = render_data.prev_rowcount - 1; i <= x; i++) {
+					if (lines[i])
+						cli_render_updateline(lines[i]->buffer, i, 0, new_cx, new_cy);
+				}
+			}
+			render_data.prev_rowcount = w;
 
 			/* Determine if this line was invalidated and should be re-rendered. */
 			has_changed = 0;
@@ -791,6 +803,7 @@ cli_render_process(void *priv)
 
 			/* Start with a fresh state. */
 			p = buf;
+			*p = '\0';
 			sgr_started = prev_sgr_blink = prev_sgr_bg = prev_sgr_fg = prev_sgr_ul = prev_sgr_int = prev_sgr_reverse = 0;
 			sgr_blackout = -1;
 
@@ -895,7 +908,7 @@ cli_render_process(void *priv)
 			/* Output rendered line. */
 			p = buf;
 next:
-			cli_render_updateline(p, render_data.y, new_cx, new_cy);
+			cli_render_updateline(p, render_data.y, 1, new_cx, new_cy);
 
 			/* Don't re-render if the next thread call is
 			   just for text output with no rendering tasks. */
@@ -926,8 +939,9 @@ next:
 			png_write_image(png_ptr, (png_bytep *) render_data.fb);
 			png_write_end(png_ptr, NULL);
 
-			/* Move to the top left corner. */
-			fputs("\033[1;1H", CLI_RENDER_OUTPUT);
+			/* Reset formatting and move to the top left corner. */
+			sprintf(cli_render_clearbg(buf), "\033[1;1H");
+			fputs(buf, CLI_RENDER_OUTPUT);
 
 			/* Output PNG from data buffer according to the terminal's capabilities. */
 			if (cli_term.gfx_level & TERM_GFX_PNG) {

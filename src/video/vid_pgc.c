@@ -2338,7 +2338,7 @@ pgc_cga_text(pgc_t *dev, int w)
 
 #ifdef USE_CLI
     if ((dev->displine % 8) == 0)
-	cli_render_cga(dev->displine / pitch,
+	cli_render_cga(dev->displine / pitch, dev->mapram[0x3e9] & 0x1f,
 			w, 1,
 			dev->cga_vram, ma, 0x3fff, 1,
 			dev->mapram[0x3d8] & 0x08, dev->mapram[0x3d8] & 0x20,

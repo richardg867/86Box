@@ -239,7 +239,7 @@ cga_poll(void *p)
 		if (cga->cgamode & 1) {
 #ifdef USE_CLI
 			if ((cga->displine % 8) == 0)
-				cli_render_cga(cga->ma / cga->crtc[1],
+				cli_render_cga(cga->ma / cga->crtc[1], cga->crtc[9] & 0x1f,
 						cga->crtc[1], 1,
 						cga->charbuffer, 0, sizeof(cga->charbuffer) - 1, 1,
 						cga->cgamode & 0x08, cga->cgamode & 0x20,
@@ -277,7 +277,7 @@ cga_poll(void *p)
 		} else if (!(cga->cgamode & 2)) {
 #ifdef USE_CLI
 			if ((cga->displine % 8) == 0)
-				cli_render_cga(cga->ma / cga->crtc[1],
+				cli_render_cga(cga->ma / cga->crtc[1], cga->crtc[9] & 0x1f,
 						cga->crtc[1], 1,
 						cga->vram, cga->ma << 1, 0x3fff, 1,
 						cga->cgamode & 0x08, cga->cgamode & 0x20,

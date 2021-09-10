@@ -433,7 +433,7 @@ genius_textline(genius_t *genius, uint8_t background, int mda, int cols80)
 
 #ifdef USE_CLI
 	if ((dl % 8) == 0)
-		cli_render_mda(w,
+		cli_render_mda(w, crtc[9] & 0x1f,
 				framebuf, ma,
 				1, ctrl & 0x20,
 				ca, ctrl & 8);

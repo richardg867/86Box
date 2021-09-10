@@ -805,12 +805,12 @@ text_line(incolor_t *dev, uint16_t ca)
 		c = dev->crtc[INCOLOR_CRTC_XMODE] & 5;
 		if ((c == 0) || (c == 4)) {
 			if (dev->crtc[INCOLOR_CRTC_EXCEPT] & INCOLOR_EXCEPT_ALTATTR)
-				cli_render_mda(dev->crtc[1],
+				cli_render_mda(dev->crtc[1], dev->crtc[9] & 0x1f,
 						dev->vram, dev->ma,
 						dev->ctrl & 8, dev->ctrl & INCOLOR_CTRL_BLINK,
 						ca, !(dev->crtc[0x0a] & 0x20) && ((dev->crtc[0x0b] & 0x1f) >= (dev->crtc[0x0a] & 0x1f)));
 			else
-				cli_render_cga(dev->ma / dev->crtc[1],
+				cli_render_cga(dev->ma / dev->crtc[1], dev->crtc[9] & 0x1f,
 						dev->crtc[1], 1,
 						dev->vram, dev->ma, 0xfff, 1,
 						dev->ctrl & 8, dev->ctrl & INCOLOR_CTRL_BLINK,

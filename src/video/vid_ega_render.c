@@ -132,7 +132,7 @@ ega_render_text_40(ega_t *ega)
 
 #ifdef USE_CLI
 	if (ega->sc == 0)
-		cli_render_cga((ega->ma >> 2) / 40,
+		cli_render_cga((ega->ma >> 2) / 40, ega->rowcount,
 				ega->hdisp + ega->scrollcache, xinc,
 				ega->vram, ega->ma, ega->vrammask, 4,
 				ega->crtc[0x17] & 0x80, ega->attrregs[0x10] & 0x08,
@@ -208,7 +208,7 @@ ega_render_text_80(ega_t *ega)
 
 #ifdef USE_CLI
 	if (ega->sc == 0)
-		cli_render_cga((ega->ma >> 2) / 80,
+		cli_render_cga((ega->ma >> 2) / 80, ega->rowcount,
 				ega->hdisp + ega->scrollcache, xinc,
 				ega->vram, ega->ma, ega->vrammask, 4,
 				ega->crtc[0x17] & 0x80, ega->attrregs[0x10] & 0x08,

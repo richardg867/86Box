@@ -139,7 +139,7 @@ svga_render_text_40(svga_t *svga)
 
 #ifdef USE_CLI
 	if ((svga->sc == 0) && (svga->displine < get_actual_size_y()))
-		cli_render_cga((svga->ma >> 2) / 40,
+		cli_render_cga((svga->ma >> 2) / 40, svga->rowcount,
 				svga->hdisp + svga->scrollcache, xinc,
 				svga->vram, svga->ma, svga->vram_display_mask, 4,
 				svga->crtc[0x17] & 0x80, svga->attrregs[0x10] & 0x08,
@@ -217,7 +217,7 @@ svga_render_text_80(svga_t *svga)
 
 #ifdef USE_CLI
 	if ((svga->sc == 0) && (svga->displine < get_actual_size_y()))
-		cli_render_cga((svga->ma >> 2) / 80,
+		cli_render_cga((svga->ma >> 2) / 80, svga->rowcount,
 				svga->hdisp + svga->scrollcache, xinc,
 				svga->vram, svga->ma, svga->vram_display_mask, 4,
 				svga->crtc[0x17] & 0x80, svga->attrregs[0x10] & 0x08,

@@ -139,7 +139,7 @@ compaq_cga_poll(void *p)
 		if (self->cga.cgamode & 1) {
 #ifdef USE_CLI
 			if ((self->cga.displine % 8) == 0)
-				cli_render_cga(self->cga.ma / self->cga.crtc[1],
+				cli_render_cga(self->cga.ma / self->cga.crtc[1], self->cga.crtc[9] & 0x0f,
 						self->cga.crtc[1], 1,
 						self->cga.charbuffer, 0, sizeof(self->cga.charbuffer) - 1, 1,
 						self->cga.cgamode & 0x08, self->cga.cgamode & 0x20,
@@ -192,7 +192,7 @@ compaq_cga_poll(void *p)
 		} else {
 #ifdef USE_CLI
 			if ((self->cga.displine % 8) == 0)
-				cli_render_cga(self->cga.ma / self->cga.crtc[1],
+				cli_render_cga(self->cga.ma / self->cga.crtc[1], self->cga.crtc[9] & 0x0f,
 						self->cga.crtc[1], 1,
 						self->cga.vram, self->cga.ma << 1, 0x3fff, 1,
 						self->cga.cgamode & 0x08, self->cga.cgamode & 0x20,

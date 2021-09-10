@@ -230,7 +230,7 @@ ogc_poll(void *priv)
 				if (ogc->cga.cgamode & 1) {
 #ifdef USE_CLI
 					if ((ogc->cga.displine % 8) == 0)
-						cli_render_cga(ogc->cga.ma / ogc->cga.crtc[1],
+						cli_render_cga(ogc->cga.ma / ogc->cga.crtc[1], ogc->cga.crtc[9] & 0x1f,
 								ogc->cga.crtc[1], 1,
 								ogc->cga.charbuffer, 0, sizeof(ogc->cga.charbuffer) - 1, 1,
 								ogc->cga.cgamode & 0x08, ogc->cga.cgamode & 0x20,
@@ -291,7 +291,7 @@ ogc_poll(void *priv)
 				else if (!(ogc->cga.cgamode & 2)) {
 #ifdef USE_CLI
 					if ((ogc->cga.displine % 8) == 0)
-						cli_render_cga(ogc->cga.ma / ogc->cga.crtc[1],
+						cli_render_cga(ogc->cga.ma / ogc->cga.crtc[1], ogc->cga.crtc[9] & 0x1f,
 								ogc->cga.crtc[1], 1,
 								ogc->cga.charbuffer, 0, sizeof(ogc->cga.charbuffer) - 1, 1,
 								ogc->cga.cgamode & 0x08, ogc->cga.cgamode & 0x20,

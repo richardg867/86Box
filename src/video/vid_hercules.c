@@ -374,7 +374,7 @@ hercules_poll(void *priv)
 		} else {
 #ifdef USE_CLI
 			if ((dev->displine % 8) == 0)
-				cli_render_mda(dev->crtc[1],
+				cli_render_mda(dev->crtc[1], dev->crtc[9] & 0x1f,
 						dev->vram, dev->ma,
 						dev->ctrl & 8, dev->ctrl & 0x20,
 						ca, !(dev->crtc[0x0a] & 0x20) && ((dev->crtc[0x0b] & 0x1f) >= (dev->crtc[0x0a] & 0x1f)));

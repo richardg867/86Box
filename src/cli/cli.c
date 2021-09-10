@@ -65,25 +65,12 @@ static const struct {
     {NULL,		TERM_COLOR_3BIT,  0, 0} /* unknown terminal */
 };
 
-/* Entries for the CLI menu. */
-static const char *menu_entries[] = {
-    "[Enter] Go back to machine",
-    "[R] Hard reset",
-    "[Del] Send Ctrl+Alt+Del",
-    "[E] Send Ctrl+Alt+Esc",
-    "[S] Take screenshot",
-    "[P] Pause",
-    "[Q] Exit",
-    NULL
-};
-
 
 cli_term_t	cli_term = {
     .size_x = 80, .size_y = 24, /* terminals default to 80x24, not the IBM PC's 80x25 */
     .setcolor = cli_render_setcolor_noop
 };
 
-static int	menu_entry_count = 0, menu_max_width = 0;
 
 #define ENABLE_CLI_LOG 1
 #ifdef ENABLE_CLI_LOG
@@ -300,13 +287,6 @@ cli_init()
     /* Redraw screen on terminal resize. */
     signal(SIGWINCH, cli_term_updatesize);
 #endif
-
-    /* Determine the longest menu entry. */
-    for (menu_entry_count = 0; menu_entries[menu_entry_count]; menu_entry_count++) {
-	int i = strlen(menu_entries[menu_entry_count]);
-	if (i > menu_max_width)
-		menu_max_width = i;
-    }
 }
 
 

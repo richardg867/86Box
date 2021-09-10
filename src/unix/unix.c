@@ -736,7 +736,6 @@ uint32_t timer_onesec(uint32_t interval, void* param)
 
 void monitor_thread(void* param)
 {
-#ifndef USE_CLI
     if (isatty(fileno(stdin)) && isatty(fileno(stdout)))
     {
         char* line = NULL;
@@ -775,6 +774,9 @@ void monitor_thread(void* param)
                 if (strncasecmp(xargv[0], "help", 4) == 0)
                 {
                     printf(
+#ifdef USE_CLI
+                        "back - Return to the screen.\n"
+#endif
                         "fddload <id> <filename> <wp> - Load floppy disk image into drive <id>.\n"
                         "cdload <id> <filename> - Load CD-ROM image into drive <id>.\n"
                         "zipload <id> <filename> <wp> - Load ZIP image into ZIP drive <id>.\n"
@@ -790,6 +792,12 @@ void monitor_thread(void* param)
                         "fullscreen - toggle fullscreen.\n"
                         "exit - exit 86Box.\n");
                 }
+#ifdef USE_CLI
+                else if (strncasecmp(xargv[0], "back", 4) == 0)
+                {
+
+                }
+#endif
                 else if (strncasecmp(xargv[0], "exit", 4) == 0)
                 {
                     exit_event = 1;
@@ -976,7 +984,6 @@ void monitor_thread(void* param)
             }
         }
     }
-#endif
 }
 
 int main(int argc, char** argv)

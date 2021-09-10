@@ -563,12 +563,12 @@ void wy700_textline(wy700_t *wy700)
 
 #ifdef USE_CLI
 	if (mda)
-		cli_render_mda(w,
+		cli_render_mda(w, wy700->real_crtc[0x09] & 0x1f,
 				wy700->vram, ma,
 				1, wy700->cga_ctrl & 0x20,
 				ca, !(wy700->real_crtc[0x0a] & 0x20) && ((wy700->real_crtc[0x0b] & 0x1f) >= (wy700->real_crtc[0x0a] & 0x1f)));
 	else
-		cli_render_cga(w,
+		cli_render_cga(w, wy700->real_crtc[0x09] & 0x1f,
 				w, 1,
 				wy700->vram, ma, 0x3fff, 1,
 				1, wy700->cga_ctrl & 0x20,

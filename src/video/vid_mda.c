@@ -129,7 +129,7 @@ void mda_poll(void *p)
                         mda->lastline = mda->displine;
 #ifdef USE_CLI
                         if ((mda->displine % 8) == 0)
-                                cli_render_mda(mda->crtc[1],
+                                cli_render_mda(mda->crtc[1], mda->crtc[0x09] & 0x1f,
                                                 mda->vram, mda->ma,
                                                 1, mda->ctrl & 0x20,
                                                 ca, !(mda->crtc[0x0a] & 0x20) && ((mda->crtc[0x0b] & 0x1f) >= (mda->crtc[0x0a] & 0x1f)));
