@@ -283,7 +283,8 @@ void
 cli_render_write(int slot, char *s)
 {
     /* Copy string to the specified slot. */
-    int len = MIN(strlen(s), sizeof(render_data.sideband_slots[slot]) - 1);
+    int len = strlen(s);
+    len = MIN(len, sizeof(render_data.sideband_slots[slot]) - 1);
     render_data.sideband_slots[slot][len] = '\0'; /* avoid potential race conditions leading to unbounded strings */
     strncpy(render_data.sideband_slots[slot], s, len);
 
@@ -295,7 +296,8 @@ void
 cli_render_write_title(wchar_t *s)
 {
     /* Copy title. */
-    int len = MIN(wcslen(s), sizeof(render_data.title) - 1);
+    int len = wcslen(s);
+    len = MIN(len, sizeof(render_data.title) - 1);
     render_data.title[len] = '\0'; /* avoid potential race conditions leading to unbounded strings */
     wcsncpy(render_data.title, s, len);
 
@@ -1048,4 +1050,5 @@ cli_render_close()
 {
     /* Wait for the rendering thread to finish. */
     thread_wait_event(render_data.render_complete, -1);
+    thread_set_event(render_data.render_complete); /* prevents deadlocking of the blit thread with graphics rendering */
 }
