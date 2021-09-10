@@ -492,7 +492,7 @@ cli_render_clearbg(char *p)
     p += sprintf(p, "\033[0;");
     int i = 0;
     if ((render_data.mode < 0x10) || !(i = cli_term.setcolor(p, 0, 1)))
-    	*p = '\0';
+	*p = '\0';
     p += i;
     p += sprintf(p, "m");
     return p;
@@ -664,7 +664,9 @@ cli_render_process(void *priv)
 
 	/* Trigger invalidation on a mode transition. */
 	if (render_data.mode != render_data.prev_mode) {
-		if (render_data.prev_mode == CLI_RENDER_GFX)
+		if (render_data.prev_mode == CLI_RENDER_BLANK)
+			render_data.infobox = NULL;
+		else if (render_data.prev_mode == CLI_RENDER_GFX)
 			cli_blit = 0;
 		render_data.prev_mode = render_data.mode;
 		render_data.invalidate_all = 1;
@@ -751,14 +753,21 @@ cli_render_process(void *priv)
 				/* Blank all lines beyond the new screen limits. */
 				x = MIN(cli_term.size_y, CLI_RENDER_MAX_LINES);
 				x = MIN(render_data.prev_rowcount, x);
-				for (i = w - 1; i <= x; i++)
+				pclog("blanking lines %d to %d\n", w - 1, x);
+				for (i = w - 1; i <= x; i++) {
+					if (lines[i])
+						lines[i]->invalidate = 0;
 					fprintf(CLI_RENDER_OUTPUT, "\033[%d;1H\033[2K", i);
+				}
 			} else if (w > render_data.prev_rowcount) {
 				/* Redraw all lines beyond the previous screen limits. */
 				x = MIN(w, CLI_RENDER_MAX_LINES);
+				pclog("redrawing lines %d to %d\n", render_data.prev_rowcount - 1, x);
 				for (i = render_data.prev_rowcount - 1; i <= x; i++) {
-					if (lines[i])
+					if (lines[i]) {
+						lines[i]->invalidate = 1;
 						cli_render_updateline(lines[i]->buffer, i, 0, new_cx, new_cy);
+					}
 				}
 			}
 			render_data.prev_rowcount = w;

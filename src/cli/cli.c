@@ -202,7 +202,7 @@ cli_term_updatesize(int runtime)
 		}
 	}
     } else {
-    	cli_log("CLI: GetStdHandle failed (%08X)\n", GetLastError());
+	cli_log("CLI: GetStdHandle failed (%08X)\n", GetLastError());
     }
 #elif defined(__ANDROID__)
     /* TIOCGWINSZ is buggy on Android/Termux, blocking until some input is applied.
@@ -228,8 +228,10 @@ cli_term_updatesize(int runtime)
 
     /* Get terminal size through a CPR query, even if we already have
        bash environment variable data, since that may be inaccurate. */
-    cli_term.cpr = 1;
-    cli_render_write(RENDER_SIDEBAND_CPR, "\033[999;999H\033[6n\033[1;1H");
+    if (cli_term.can_input) {
+	cli_term.cpr = 1;
+	cli_render_write(RENDER_SIDEBAND_CPR, "\033[999;999H\033[6n\033[1;1H");
+    }
 }
 
 
@@ -273,7 +275,7 @@ cli_init()
 	char *value = getenv("COLORTERM");
 	if (value && (strcasecmp(value, "truecolor") || strcasecmp(value, "24bit"))) {
 		cli_term_setcolor(TERM_COLOR_24BIT);
-	} else {
+	} else if (cli_term.can_input) {
 		/* Start detecting the terminal's color capabilities through DECRQSS queries. */
 		cli_term.decrqss_color = TERM_COLOR_24BIT;
 		cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR, "\033[38;2;1;2;3m\033P$qm\033\\\033[0m");

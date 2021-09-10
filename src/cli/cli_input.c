@@ -27,6 +27,7 @@
 # include <windows.h>
 # include <fcntl.h>
 #else
+# include <errno.h>
 # include <termios.h>
 # include <unistd.h>
 #endif
@@ -401,10 +402,15 @@ cli_input_csi_dispatch(int c)
     }
 
     /* Determine keycode. */
-    if (c == '~')
+    if (c == '~') {
+	if (code >= (sizeof(csi_num_seqs) / sizeof(csi_num_seqs[0])))
+		return;
 	code = csi_num_seqs[code];
-    else
+    } else {
+	if (code >= (sizeof(csi_letter_seqs) / sizeof(csi_letter_seqs[0])))
+		return;
 	code = csi_letter_seqs[c];
+    }
 
     /* Press key with modifier. */
     cli_input_send(code, modifier);
@@ -936,6 +942,13 @@ cli_input_process(void *priv)
 void
 cli_input_init()
 {
+    /* Don't initialize input altogether if stdin is not a tty. */
+    if (!isatty(fileno(stdin))) {
+	cli_input_log("CLI Input: stdin is not a tty\n");
+	return;
+    }
+    cli_term.can_input = 1;
+
 #ifdef _WIN32
     /* Enable ANSI input. */
     HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
@@ -948,10 +961,14 @@ cli_input_init()
 #else
     /* Enable raw input. */
     struct termios ios;
-    tcgetattr(STDIN_FILENO, &ios);
-    ios.c_lflag &= ~(ECHO | ICANON | ISIG);
-    ios.c_iflag &= ~IXON;
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &ios);
+    if (tcgetattr(STDIN_FILENO, &ios)) {
+	cli_input_log("CLI Input: tcgetattr failed (%d)\n", errno);
+    } else {
+	ios.c_lflag &= ~(ECHO | ICANON | ISIG);
+	ios.c_iflag &= ~IXON;
+	if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &ios))
+		cli_input_log("CLI Input: tcsetattr failed (%d)\n", errno);
+    }
 #endif
 
     /* Start input processing thread. */
