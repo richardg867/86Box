@@ -753,7 +753,6 @@ cli_render_process(void *priv)
 				/* Blank all lines beyond the new screen limits. */
 				x = MIN(cli_term.size_y, CLI_RENDER_MAX_LINES);
 				x = MIN(render_data.prev_rowcount, x);
-				pclog("blanking lines %d to %d\n", w - 1, x);
 				for (i = w - 1; i <= x; i++) {
 					if (lines[i])
 						lines[i]->invalidate = 0;
@@ -762,7 +761,6 @@ cli_render_process(void *priv)
 			} else if (w > render_data.prev_rowcount) {
 				/* Redraw all lines beyond the previous screen limits. */
 				x = MIN(w, CLI_RENDER_MAX_LINES);
-				pclog("redrawing lines %d to %d\n", render_data.prev_rowcount - 1, x);
 				for (i = render_data.prev_rowcount - 1; i <= x; i++) {
 					if (lines[i]) {
 						lines[i]->invalidate = 1;
