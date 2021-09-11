@@ -275,9 +275,8 @@ plat_path_abs(char *path)
 void
 plat_path_slash(char *path)
 {
-    if ((path[strlen(path)-1] != '/')) {
+    if ((path[strlen(path)-1] != '/'))
 	strcat(path, "/");
-    }
 }
 
 void
@@ -297,7 +296,7 @@ plat_get_basename(const char *path)
 
     while (c > 0) {
 	if (path[c] == '/')
-	   return((char *)&path[c + 1]);
+		return((char *)&path[c + 1]);
        c--;
     }
 
@@ -310,7 +309,7 @@ plat_get_filename(char *s)
 
     while (c > 0) {
 	if (s[c] == '/' || s[c] == '\\')
-	   return(&s[c+1]);
+		return(&s[c+1]);
        c--;
     }
 
@@ -327,7 +326,7 @@ plat_get_extension(char *s)
 	return(s);
 
     while (c && s[c] != '.')
-		c--;
+	c--;
 
     if (!c)
 	return(&s[strlen(s)]);
