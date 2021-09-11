@@ -1056,9 +1056,6 @@ pc_close(thread_t *ptr)
 
 	/* Claim the video blitter. */
 	startblit();
-#ifdef USE_CLI
-	cli_close();
-#endif
 
 	/* Terminate the UI thread. */
 	is_quit = 1;
@@ -1092,6 +1089,10 @@ pc_close(thread_t *ptr)
 #endif
 
 	video_close();
+
+#ifdef USE_CLI
+	cli_close();
+#endif
 
 	device_close_all();
 

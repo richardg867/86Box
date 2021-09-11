@@ -113,12 +113,10 @@ static struct {
 		do_render, do_blink, con;
     uint16_t	ca;
     uint32_t	fb_base, fb_mask, fb_step;
-    union {
-	int	xlimit, blit_sx;
-    };
-    union {
-	int	xinc, blit_sy;
-    };
+    int		xlimit, xinc;
+
+    png_bytep	*blit_fb;
+    int		blit_sx, blit_sy;
 
     char	sideband_slots[RENDER_SIDEBAND_MAX][32];
     wchar_t	title[200];
@@ -162,15 +160,67 @@ cli_render_blank()
 void
 cli_render_gfx(char *str)
 {
-    /* Let video.c trigger an image render if this terminal supports graphics. */
+    /* Perform an image render if this terminal supports graphics. */
     if (cli_term.gfx_level & (TERM_GFX_PNG | TERM_GFX_PNG_KITTY)) {
-	//if (time(NULL) - gfx_last) /* render at 1 FPS */
-		cli_blit |= 1;
+    	/* Initialize stuff if this mode was just switched into. */
+    	if (!cli_blit) {
+    		/* Clear image rendering buffer. */
+    		for (int i = 0; i < CLI_RENDER_GFXBUF_H; i++)
+			memset(render_data.blit_fb[i], 0, 3 * CLI_RENDER_GFXBUF_W);
+
+    		/* Tell video.c to start blitting to the image rendering buffer. */
+		cli_blit = 1;
+	}
+
+	/* Render image if we have valid image data and it's time. */
+	if ((cli_blit == 2) && (time(NULL) - gfx_last)) { /* render at 1 fps */
+		thread_wait_event(render_data.render_complete, -1);
+		thread_reset_event(render_data.render_complete);
+
+		render_data.mode = CLI_RENDER_GFX;
+
+		thread_set_event(render_data.wake_render_thread);
+
+		/* Update last render time to keep track of framerate. */
+		gfx_last = time(NULL);
+	}
+
 	return;
     }
 
     /* Render infobox otherwise. */
     cli_render_gfx_box(str);
+}
+
+
+void
+cli_render_gfx_blit(uint32_t *buf, int w, int h)
+{
+    /* Don't overflow the image rendering buffer. */
+    if (w >= CLI_RENDER_GFXBUF_W)
+	w = CLI_RENDER_GFXBUF_W;
+    if (h >= CLI_RENDER_GFXBUF_H)
+	h = CLI_RENDER_GFXBUF_H;
+
+    /* Blit to the image rendering buffer. */
+    png_byte *p;
+    uint32_t temp;
+    for (int y = 0; y < h; y++) {
+	p = render_data.blit_fb[y];
+	for (int x = 0; x < w; x++) {
+		temp = *buf++;
+		*p++ = (temp >> 16) & 0xff;
+		*p++ = (temp >> 8) & 0xff;
+		*p++ = temp & 0xff;
+	}
+    }
+
+    /* Set image render parameters. */
+    render_data.blit_sx = w;
+    render_data.blit_sy = h;
+
+    /* Tell the main thread we have valid image data. */
+    cli_blit = 2;
 }
 
 
@@ -187,38 +237,6 @@ cli_render_gfx_box(char *str)
     strncpy(infobox, str, sizeof(infobox));
     infobox[sizeof(infobox) - 1] = '\0';
     render_data.infobox = infobox;
-
-    thread_set_event(render_data.wake_render_thread);
-}
-
-
-void
-cli_render_gfx_blit(uint32_t *buf, int w, int h)
-{
-    cli_blit |= 2;
-
-    /* Blit to a local RGB buffer. */
-    png_bytep *local_buf = malloc(sizeof(png_bytep) * h);
-    png_byte *p;
-    uint32_t temp;
-    for (int y = 0; y < h; y++) {
-	local_buf[y] = p = malloc(3 * w);
-	for (int x = 0; x < w; x++) {
-		temp = *buf++;
-		*p++ = (temp >> 16) & 0xff;
-		*p++ = (temp >> 8) & 0xff;
-		*p++ = temp & 0xff;
-	}
-    }
-
-    /* Initiate a render on the local buffer. */
-    thread_wait_event(render_data.render_complete, -1);
-    thread_reset_event(render_data.render_complete);
-
-    render_data.mode = CLI_RENDER_GFX;
-    render_data.fb = (uint8_t *) local_buf;
-    render_data.blit_sx = w;
-    render_data.blit_sy = h;
 
     thread_set_event(render_data.wake_render_thread);
 }
@@ -600,7 +618,7 @@ cli_render_process_pngwrite(png_structp png_ptr, png_bytep data, size_t length)
 	length -= chunk_len;
     }
 
-    /* Output any outstanding data to new buffer(s). */
+    /* Output any remaining data to new buffer(s). */
     while (length > 0) {
 	png_current->next = malloc(sizeof(cli_render_png_t));
 	png_current = png_current->next;
@@ -926,7 +944,7 @@ next:
 
 		case CLI_RENDER_GFX:
 			/* Make sure we have an image. */
-			if (!render_data.fb)
+			if (!render_data.blit_fb)
 				break;
 
 			/* Initialize PNG data. */
@@ -945,7 +963,7 @@ next:
 				     8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
 				     PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
 			png_write_info(png_ptr, info_ptr);
-			png_write_image(png_ptr, (png_bytep *) render_data.fb);
+			png_write_image(png_ptr, (png_bytep *) render_data.blit_fb);
 			png_write_end(png_ptr, NULL);
 
 			/* Reset formatting and move to the top left corner. */
@@ -996,16 +1014,8 @@ next:
 				}
 			}
 
-			/* Clean up. */
+			/* Flush output. */
 			fflush(CLI_RENDER_OUTPUT);
-			for (i = 0; i < render_data.blit_sy; i++)
-				free(((png_bytep *) render_data.fb)[i]);
-			free(render_data.fb);
-			render_data.fb = NULL;
-
-			/* Set last render time to keep track of framerate. */
-			gfx_last = time(NULL);
-			cli_blit &= 1;
 			break;
 	}
 
@@ -1025,8 +1035,9 @@ cli_render_init()
 #endif
 
     /* Load standard CGA palette. */
+    int i;
     uint32_t palette_color;
-    for (int i = 0; i < 16; i++) {
+    for (i = 0; i < 16; i++) {
 	palette_color = (i & 8) ? 0x555555 : 0x000000;
 	if (i & 1)
 		palette_color |= 0x0000aa;
@@ -1037,6 +1048,11 @@ cli_render_init()
 	palette_24bit[i] = ~palette_color; /* force processing */
 	cli_render_setpal(i, palette_color);
     }
+
+    /* Allocate image rendering buffer. */
+    render_data.blit_fb = malloc(sizeof(png_bytep) * CLI_RENDER_GFXBUF_H);
+    for (i = 0; i < CLI_RENDER_GFXBUF_H; i++)
+	render_data.blit_fb[i] = malloc(3 * CLI_RENDER_GFXBUF_W);
 
     /* Start rendering thread. */
     render_data.wake_render_thread = thread_create_event();
@@ -1050,5 +1066,11 @@ cli_render_close()
 {
     /* Wait for the rendering thread to finish. */
     thread_wait_event(render_data.render_complete, -1);
-    thread_set_event(render_data.render_complete); /* prevents deadlocking of the blit thread with graphics rendering */
+    thread_set_event(render_data.render_complete); /* to avoid deadlocks just in case */
+
+    /* Clean up. There shouldn't be any race conditions with
+       the blit thread, as this is called after video_close. */
+    for (int i = 0; i < CLI_RENDER_GFXBUF_H; i++)
+    	free(render_data.blit_fb[i]);
+    free(render_data.blit_fb);
 }

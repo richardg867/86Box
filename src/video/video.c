@@ -460,7 +460,7 @@ void blit_thread(void *param)
 
 #ifdef USE_CLI
     if (cli_blit) {
-	if ((render_buffer != NULL) && (cli_blit == 1))
+	if (render_buffer != NULL)
 		cli_render_gfx_blit(render_buffer->dat, blit_data.w, blit_data.h);
     }
 #endif
