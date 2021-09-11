@@ -107,7 +107,7 @@ static struct {
     thread_t	*thread;
     event_t	*wake_render_thread, *render_complete;
 
-    uint8_t	mode, invalidate_all;
+    uint8_t	mode, block, invalidate_all;
 
     uint8_t	*fb, prev_mode, y, rowcount, prev_rowcount,
 		do_render, do_blink, con;
@@ -678,10 +678,15 @@ cli_render_process(void *priv)
 		p += sprintf(p, "\033]0;");
 		for (i = 0; render_data.title[i]; i++) /* really hacky wchar->ASCII conversion */
 			*p++ = ((render_data.title[i] >= 0x20) && (render_data.title[i] <= 0x7e)) ? render_data.title[i] : ' ';
-		sprintf(p, "\a");
+		*p++ = '\a';
+		*p = '\0';
 		fputs(buf, CLI_RENDER_OUTPUT);
 		render_data.title[0] = '\0';
 	}
+
+	/* Don't render anything if rendering is blocked. */
+	if (render_data.block)
+		continue;
 
 	/* Trigger invalidation on a mode transition. */
 	if (render_data.mode != render_data.prev_mode) {
@@ -935,8 +940,7 @@ cli_render_process(void *priv)
 
 			/* Output rendered line. */
 			p = buf;
-next:
-			cli_render_updateline(p, render_data.y, 1, new_cx, new_cy);
+next:			cli_render_updateline(p, render_data.y, 1, new_cx, new_cy);
 
 			/* Don't re-render if the next thread call is
 			   just for text output with no rendering tasks. */
@@ -1019,8 +1023,6 @@ next:
 			fflush(CLI_RENDER_OUTPUT);
 			break;
 	}
-
-	thread_set_event(render_data.render_complete);
     }
 }
 
