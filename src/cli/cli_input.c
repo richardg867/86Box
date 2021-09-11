@@ -233,8 +233,13 @@ static const uint8_t csi_modifiers[] = {
 };
 
 
-static int	param_buf_pos = 0, collect_buf_pos = 0, dcs_buf_pos = 0, osc_buf_pos = 0;
+static int	have_state_restore = 0, param_buf_pos = 0, collect_buf_pos = 0, dcs_buf_pos = 0, osc_buf_pos = 0;
 static char	param_buf[32], collect_buf[32], dcs_buf[32], osc_buf[32];
+#ifdef _WIN32
+static DWORD	saved_console_mode = 0;
+#else
+static tcflag_t	saved_lflag = 0, saved_iflag = 0;
+#endif
 
 #define ENABLE_CLI_INPUT_LOG 1
 #ifdef ENABLE_CLI_INPUT_LOG
@@ -953,6 +958,13 @@ cli_input_init()
     /* Enable ANSI input. */
     HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
     if (h) {
+	/* Save existing mode for restoration purposes. */
+	if (GetConsoleMode(h, &saved_console_mode))
+		have_state_restore = 1;
+	else
+		cli_input_log("CLI Input: GetConsoleMode failed (%08X)\n", GetLastError());
+
+	/* Set new mode. */
 	if (!SetConsoleMode(h, ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_EXTENDED_FLAGS)) /* ENABLE_EXTENDED_FLAGS disables quickedit */
 		cli_input_log("CLI Input: SetConsoleMode failed (%08X)\n", GetLastError());
     } else {
@@ -964,6 +976,12 @@ cli_input_init()
     if (tcgetattr(STDIN_FILENO, &ios)) {
 	cli_input_log("CLI Input: tcgetattr failed (%d)\n", errno);
     } else {
+	/* Save existing flags for restoration purposes. */
+	have_state_restore = 1;
+	saved_lflag = ios.c_lflag;
+	saved_iflag = ios.c_iflag;
+
+	/* Set new flags. */
 	ios.c_lflag &= ~(ECHO | ICANON | ISIG);
 	ios.c_iflag &= ~IXON;
 	if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &ios))
@@ -973,4 +991,32 @@ cli_input_init()
 
     /* Start input processing thread. */
     thread_create(cli_input_process, NULL);
+}
+
+
+void
+cli_input_close()
+{
+    /* Restore terminal state if it was saved. */
+    if (have_state_restore) {
+#ifdef _WIN32
+	HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+	if (h) {
+		if (!SetConsoleMode(h, saved_console_mode))
+			cli_input_log("CLI Input: SetConsoleMode failed (%08X)\n", GetLastError());
+	} else {
+		cli_input_log("CLI Input: GetStdHandle failed (%08X)\n", GetLastError());
+	}
+#else
+	struct termios ios;
+	if (tcgetattr(STDIN_FILENO, &ios)) {
+		cli_input_log("CLI Input: tcgetattr failed (%d)\n", errno);
+	} else {
+		ios.c_lflag = saved_lflag;
+		ios.c_iflag = saved_iflag;
+		if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &ios))
+			cli_input_log("CLI Input: tcsetattr failed (%d)\n", errno);
+	}
+#endif
+    }
 }

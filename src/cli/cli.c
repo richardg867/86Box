@@ -70,6 +70,10 @@ cli_term_t	cli_term = {
     .size_x = 80, .size_y = 24, /* terminals default to 80x24, not the IBM PC's 80x25 */
     .setcolor = cli_render_setcolor_noop
 };
+#ifdef _WIN32
+static int	have_state_restore = 0;
+static DWORD	saved_console_mode = 0;
+#endif
 
 
 #define ENABLE_CLI_LOG 1
@@ -192,8 +196,9 @@ cli_term_updatesize(int runtime)
 	/* While we're here on startup, enable ANSI output. */
 	if (!runtime) {
 		DWORD mode;
-		if (GetConsoleMode(h, &mode)) {
-			mode &= ~ENABLE_WRAP_AT_EOL_OUTPUT;
+		if (GetConsoleMode(h, &saved_console_mode)) {
+			have_state_restore = 1;
+			mode  = saved_console_mode & ~ENABLE_WRAP_AT_EOL_OUTPUT;
 			mode |= ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
 			if (!SetConsoleMode(h, mode))
 				cli_log("CLI: SetConsoleMode failed (%08X)\n", GetLastError());
@@ -295,6 +300,22 @@ cli_init()
 void
 cli_close()
 {
-    /* Stop the renderer module. */
+    /* Stop input module. */
+    cli_input_close();
+
+    /* Stop renderer module. */
     cli_render_close();
+
+#ifdef _WIN32
+    /* Restore terminal state if it was saved. */
+    if (have_state_restore) {
+	HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (h) {
+		if (!SetConsoleMode(h, saved_console_mode))
+			cli_log("CLI Input: SetConsoleMode failed (%08X)\n", GetLastError());
+	} else {
+		cli_log("CLI Input: GetStdHandle failed (%08X)\n", GetLastError());
+	}
+    }
+#endif
 }

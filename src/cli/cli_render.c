@@ -162,13 +162,13 @@ cli_render_gfx(char *str)
 {
     /* Perform an image render if this terminal supports graphics. */
     if (cli_term.gfx_level & (TERM_GFX_PNG | TERM_GFX_PNG_KITTY)) {
-    	/* Initialize stuff if this mode was just switched into. */
-    	if (!cli_blit) {
-    		/* Clear image rendering buffer. */
-    		for (int i = 0; i < CLI_RENDER_GFXBUF_H; i++)
+	/* Initialize stuff if this mode was just switched into. */
+	if (!cli_blit) {
+		/* Clear image rendering buffer. */
+		for (int i = 0; i < CLI_RENDER_GFXBUF_H; i++)
 			memset(render_data.blit_fb[i], 0, 3 * CLI_RENDER_GFXBUF_W);
 
-    		/* Tell video.c to start blitting to the image rendering buffer. */
+		/* Tell video.c to start blitting to the image rendering buffer. */
 		cli_blit = 1;
 	}
 
@@ -1071,6 +1071,9 @@ cli_render_close()
     /* Clean up. There shouldn't be any race conditions with
        the blit thread, as this is called after video_close. */
     for (int i = 0; i < CLI_RENDER_GFXBUF_H; i++)
-    	free(render_data.blit_fb[i]);
+	free(render_data.blit_fb[i]);
     free(render_data.blit_fb);
+
+    /* Reset terminal. */
+    fputs("\033[0m\033[999;1H\033[?25h\033c", CLI_RENDER_OUTPUT);
 }

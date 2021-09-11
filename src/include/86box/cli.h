@@ -91,6 +91,7 @@ extern void	cli_close();
 
 /* cli_input.c */
 extern void	cli_input_init();
+extern void	cli_input_close();
 
 /* cli_render.c */
 extern void	cli_render_blank();
