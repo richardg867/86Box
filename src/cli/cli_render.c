@@ -343,10 +343,12 @@ cli_render_getline(uint8_t y)
 
 
 int
-cli_render_setcolor_noop(char *p, uint8_t index, uint8_t is_background)
+cli_render_setcolor_none(char *p, uint8_t index, uint8_t is_background)
 {
-    /* No color support. */
-    return 0;
+    /* No color support. Most we can do is increase the intensity on a bright foreground.
+       Use 75 (not sub/superscript) as a dummy SGR on background set operations to prevent a
+       blank SGR string (;;) from resetting the foreground, due to the way APPEND_SGR works. */
+    return sprintf(p, "%d", is_background ? 75 : ((index & 8) ? 1 : 22));
 }
 
 
@@ -429,7 +431,7 @@ cli_render_setcolorlevel()
 		break;
 
 	default:
-		cli_term.setcolor = cli_render_setcolor_noop;
+		cli_term.setcolor = cli_render_setcolor_none;
 		break;
     }
 }
@@ -449,8 +451,7 @@ cli_render_setpal(uint8_t index, uint32_t color)
 
     /* Look through 16- and 256-color palettes for the closest color to the desired one. */
     for (int i = 0; i < 256; i++) {
-	/* Get palette color.
-	   Algorithm based on Linux's vt.c */ 
+	/* Get palette color. Algorithm based on Linux's vt.c */
 	if (i < 16) { /* 16-color ANSI */
 		palette_color = (i & 8) ? 0x555555 : 0x000000;
 		if (i & 1)
@@ -685,9 +686,9 @@ cli_render_process(void *priv)
 	/* Trigger invalidation on a mode transition. */
 	if (render_data.mode != render_data.prev_mode) {
 		if (render_data.prev_mode == CLI_RENDER_BLANK)
-			render_data.infobox = NULL;
+			render_data.infobox = NULL; /* invalidate infobox when exiting BLANK */
 		else if (render_data.prev_mode == CLI_RENDER_GFX)
-			cli_blit = 0;
+			cli_blit = 0; /* stop blitting when exiting GFX */
 		render_data.prev_mode = render_data.mode;
 		render_data.invalidate_all = 1;
 	}

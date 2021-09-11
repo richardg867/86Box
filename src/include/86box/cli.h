@@ -111,7 +111,7 @@ extern void	cli_render_mda(int xlimit, uint8_t rowcount,
 extern void	cli_render_write(int slot, char *s);
 extern void	cli_render_write_title(wchar_t *s);
 
-extern int	cli_render_setcolor_noop(char *p, uint8_t index, uint8_t is_background);
+extern int	cli_render_setcolor_none(char *p, uint8_t index, uint8_t is_background);
 extern void	cli_render_setcolorlevel();
 extern void	cli_render_setpal(uint8_t index, uint32_t color);
 extern void	cli_render_updatescreen();

@@ -68,7 +68,7 @@ static const struct {
 
 cli_term_t	cli_term = {
     .size_x = 80, .size_y = 24, /* terminals default to 80x24, not the IBM PC's 80x25 */
-    .setcolor = cli_render_setcolor_noop
+    .setcolor = cli_render_setcolor_none
 };
 #ifdef _WIN32
 static int	have_state_restore = 0;
