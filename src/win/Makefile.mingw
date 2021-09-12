@@ -499,7 +499,7 @@ endif
 
 ifeq ($(CLI), y)
 OPTS		+= -DUSE_CLI
-CLIOBJ		:= cli.o cli_input.o cli_render.o
+CLIOBJ		:= cli.o cli_input.o cli_monitor.o cli_render.o
 endif
 
 # Options for the DEV branch.

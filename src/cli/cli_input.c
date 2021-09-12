@@ -233,7 +233,7 @@ static const uint8_t csi_modifiers[] = {
 };
 
 
-static int	have_state_restore = 0, param_buf_pos = 0, collect_buf_pos = 0, dcs_buf_pos = 0, osc_buf_pos = 0;
+static int	in_raw = 0, param_buf_pos = 0, collect_buf_pos = 0, dcs_buf_pos = 0, osc_buf_pos = 0;
 static char	param_buf[32], collect_buf[32], dcs_buf[32], osc_buf[32];
 #ifdef _WIN32
 static DWORD	saved_console_mode = 0;
@@ -355,6 +355,85 @@ cli_input_send(uint16_t code, uint8_t modifier)
 
 
 static void
+cli_input_raw()
+{
+    /* Don't do anything if raw input is already enabled. */
+    if (in_raw)
+	return;
+    in_raw = 1;
+
+#ifdef _WIN32
+    /* Enable ANSI input. */
+    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+    if (h) {
+	/* Save existing mode for restoration purposes. */
+	if (GetConsoleMode(h, &saved_console_mode))
+		in_raw = 2;
+	else
+		cli_input_log("CLI Input: GetConsoleMode failed (%08X)\n", GetLastError());
+
+	/* Set new mode. */
+	if (!SetConsoleMode(h, ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_EXTENDED_FLAGS)) /* ENABLE_EXTENDED_FLAGS disables quickedit */
+		cli_input_log("CLI Input: SetConsoleMode failed (%08X)\n", GetLastError());
+    } else {
+	cli_input_log("CLI Input: GetStdHandle failed (%08X)\n", GetLastError());
+    }
+#else
+    /* Enable raw input. */
+    struct termios ios;
+    if (tcgetattr(STDIN_FILENO, &ios)) {
+	cli_input_log("CLI Input: tcgetattr failed (%d)\n", errno);
+    } else {
+	/* Save existing flags for restoration purposes. */
+	in_raw = 2;
+	saved_lflag = ios.c_lflag;
+	saved_iflag = ios.c_iflag;
+
+	/* Set new flags. */
+	ios.c_lflag &= ~(ECHO | ICANON | ISIG);
+	ios.c_iflag &= ~IXON;
+	if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &ios))
+		cli_input_log("CLI Input: tcsetattr failed (%d)\n", errno);
+    }
+#endif
+}
+
+
+static void
+cli_input_unraw()
+{
+    /* Don't do anything if raw input is not enabled. */
+    if (!in_raw)
+	return;
+
+    /* Restore saved terminal state. */
+    if (in_raw == 2) {
+#ifdef _WIN32
+	HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+	if (h) {
+		if (!SetConsoleMode(h, saved_console_mode))
+			cli_input_log("CLI Input: SetConsoleMode failed (%08X)\n", GetLastError());
+	} else {
+		cli_input_log("CLI Input: GetStdHandle failed (%08X)\n", GetLastError());
+	}
+#else
+	struct termios ios;
+	if (tcgetattr(STDIN_FILENO, &ios)) {
+		cli_input_log("CLI Input: tcgetattr failed (%d)\n", errno);
+	} else {
+		ios.c_lflag = saved_lflag;
+		ios.c_iflag = saved_iflag;
+		if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &ios))
+			cli_input_log("CLI Input: tcsetattr failed (%d)\n", errno);
+	}
+#endif
+    }
+
+    in_raw = 0;
+}
+
+
+static void
 cli_input_clear(int c)
 {
     cli_input_log_key("clear", c);
@@ -434,10 +513,6 @@ cli_input_esc_dispatch(int c)
 				cli_input_send(ascii_seqs[c], 3);
 				break;
 		}
-		break;
-
-	case 'M': /* special: menu */
-		/* TODO */
 		break;
 
 	case 'O': /* SS3 */
@@ -690,8 +765,30 @@ cli_input_process(void *priv)
 
 		case VT_ESCAPE:
 			switch (c) {
-				case 0x00 ... 0x1f:
+				case 0x00 ... 0x09:
+				case 0x0b ... 0x0c:
+				case 0x0e ... 0x1f:
 					cli_input_execute(c);
+					break;
+
+				case 0x0a: /* Esc Enter */
+				case 0x0d: /* Esc Enter (Windows) */
+					/* Block render thread. */
+					cli_render_monitorenter();
+
+					/* Disable raw input. */
+					cli_input_unraw();
+
+					/* Enter monitor mode. */
+					cli_monitor_thread(NULL);
+
+					/* Re-enable raw input. */
+					cli_input_raw();
+
+					/* Resume render thread. */
+					cli_render_monitorexit();
+
+					state = VT_GROUND;
 					break;
 
 				case 0x21 ... 0x2f:
@@ -954,40 +1051,8 @@ cli_input_init()
     }
     cli_term.can_input = 1;
 
-#ifdef _WIN32
-    /* Enable ANSI input. */
-    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
-    if (h) {
-	/* Save existing mode for restoration purposes. */
-	if (GetConsoleMode(h, &saved_console_mode))
-		have_state_restore = 1;
-	else
-		cli_input_log("CLI Input: GetConsoleMode failed (%08X)\n", GetLastError());
-
-	/* Set new mode. */
-	if (!SetConsoleMode(h, ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_EXTENDED_FLAGS)) /* ENABLE_EXTENDED_FLAGS disables quickedit */
-		cli_input_log("CLI Input: SetConsoleMode failed (%08X)\n", GetLastError());
-    } else {
-	cli_input_log("CLI Input: GetStdHandle failed (%08X)\n", GetLastError());
-    }
-#else
     /* Enable raw input. */
-    struct termios ios;
-    if (tcgetattr(STDIN_FILENO, &ios)) {
-	cli_input_log("CLI Input: tcgetattr failed (%d)\n", errno);
-    } else {
-	/* Save existing flags for restoration purposes. */
-	have_state_restore = 1;
-	saved_lflag = ios.c_lflag;
-	saved_iflag = ios.c_iflag;
-
-	/* Set new flags. */
-	ios.c_lflag &= ~(ECHO | ICANON | ISIG);
-	ios.c_iflag &= ~IXON;
-	if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &ios))
-		cli_input_log("CLI Input: tcsetattr failed (%d)\n", errno);
-    }
-#endif
+    cli_input_raw();
 
     /* Start input processing thread. */
     thread_create(cli_input_process, NULL);
@@ -997,26 +1062,6 @@ cli_input_init()
 void
 cli_input_close()
 {
-    /* Restore terminal state if it was saved. */
-    if (have_state_restore) {
-#ifdef _WIN32
-	HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
-	if (h) {
-		if (!SetConsoleMode(h, saved_console_mode))
-			cli_input_log("CLI Input: SetConsoleMode failed (%08X)\n", GetLastError());
-	} else {
-		cli_input_log("CLI Input: GetStdHandle failed (%08X)\n", GetLastError());
-	}
-#else
-	struct termios ios;
-	if (tcgetattr(STDIN_FILENO, &ios)) {
-		cli_input_log("CLI Input: tcgetattr failed (%d)\n", errno);
-	} else {
-		ios.c_lflag = saved_lflag;
-		ios.c_iflag = saved_iflag;
-		if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &ios))
-			cli_input_log("CLI Input: tcsetattr failed (%d)\n", errno);
-	}
-#endif
-    }
+    /* Restore terminal state. */
+    cli_input_unraw();
 }

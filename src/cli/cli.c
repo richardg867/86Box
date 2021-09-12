@@ -243,6 +243,9 @@ cli_term_updatesize(int runtime)
 void
 cli_init()
 {
+    /* Initialize monitor module. */
+    cli_monitor_init(0);
+
     /* Initialize input module. */
     cli_input_init();
 
@@ -300,6 +303,9 @@ cli_init()
 void
 cli_close()
 {
+    /* Stop monitor module. */
+    cli_monitor_close();
+
     /* Stop input module. */
     cli_input_close();
 

@@ -14,10 +14,12 @@
  *
  *		Copyright 2021 RichardG.
  */
-#if !defined(EMU_CLI_H) && defined(USE_CLI)
+#ifndef EMU_CLI_H
 # define EMU_CLI_H
 
 #define CLI_RENDER_OUTPUT	stderr
+
+#ifdef USE_CLI
 #define CLI_RENDER_MAX_LINES	60
 #define CLI_RENDER_FB_SIZE	150
 #define CLI_RENDER_ANSIBUF_SIZE	4096	/* good for a fully packed SVGA 150-column line with some margin */
@@ -111,6 +113,9 @@ extern void	cli_render_mda(int xlimit, uint8_t rowcount,
 extern void	cli_render_write(int slot, char *s);
 extern void	cli_render_write_title(wchar_t *s);
 
+extern void	cli_render_monitorenter();
+extern void	cli_render_monitorexit();
+
 extern int	cli_render_setcolor_none(char *p, uint8_t index, uint8_t is_background);
 extern void	cli_render_setcolorlevel();
 extern void	cli_render_setpal(uint8_t index, uint32_t color);
@@ -118,5 +123,11 @@ extern void	cli_render_updatescreen();
 
 extern void	cli_render_init();
 extern void	cli_render_close();
+#endif
+
+/* cli_monitor.c */
+extern void	cli_monitor_thread(void *priv);
+extern void	cli_monitor_init(uint8_t independent);
+extern void	cli_monitor_close();
 
 #endif

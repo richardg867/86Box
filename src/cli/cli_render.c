@@ -170,6 +170,9 @@ cli_render_gfx(char *str)
 
 		/* Tell video.c to start blitting to the image rendering buffer. */
 		cli_blit = 1;
+
+		/* Render on the first opportunity. */
+		gfx_last = 0;
 	}
 
 	/* Render image if we have valid image data and it's time. */
@@ -320,6 +323,38 @@ cli_render_write_title(wchar_t *s)
     wcsncpy(render_data.title, s, len);
 
     thread_set_event(render_data.wake_render_thread);
+}
+
+
+void
+cli_render_monitorenter()
+{
+    thread_wait_event(render_data.render_complete, -1);
+    thread_reset_event(render_data.render_complete);
+
+    /* Block any further rendering. */
+    render_data.block = 1;
+
+    /* Move to top left corner, clear screen and restore cursor. */
+    cursor_x = cursor_y = -1;
+    fprintf(CLI_RENDER_OUTPUT, "\033[0m\033[1;1H\033[2J\033[3J\033[?25h");
+
+    thread_set_event(render_data.wake_render_thread);
+    thread_wait_event(render_data.render_complete, -1); /* avoid race conditions */
+}
+
+
+void
+cli_render_monitorexit()
+{
+    /* Clear and re-render the entire screen on the next rendering run. */
+    render_data.invalidate_all = 1;
+
+    /* If image rendering mode is currently active, then re-render on the first opportunity. */
+    gfx_last = 0;
+
+    /* Resume rendering. */
+    render_data.block = 0;
 }
 
 
@@ -971,7 +1006,7 @@ next:			cli_render_updateline(p, render_data.y, 1, new_cx, new_cy);
 			png_write_image(png_ptr, (png_bytep *) render_data.blit_fb);
 			png_write_end(png_ptr, NULL);
 
-			/* Reset formatting and move to the top left corner. */
+			/* Reset formatting and move to top left corner. */
 			sprintf(cli_render_clearbg(buf), "\033[1;1H");
 			fputs(buf, CLI_RENDER_OUTPUT);
 
