@@ -301,7 +301,7 @@ cli_init()
 
     /* Probe UTF-8 support using CPR. */
     cli_term.cpr |= 2;
-    cli_render_write(RENDER_SIDEBAND_CPR_UTF8, "\033[1;1H\xc2\xa0\033[6n"); /* non-breaking space */
+    cli_render_write(RENDER_SIDEBAND_CPR_UTF8, "\033[1;1H\xC2\xA0\033[6n"); /* non-breaking space */
 }
 
 
