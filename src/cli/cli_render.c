@@ -148,6 +148,8 @@ cli_render_log(const char *fmt, ...)
 void
 cli_render_blank()
 {
+    if (render_data.block)
+	return;
     thread_wait_event(render_data.render_complete, -1);
     thread_reset_event(render_data.render_complete);
 
@@ -160,6 +162,9 @@ cli_render_blank()
 void
 cli_render_gfx(char *str)
 {
+    if (render_data.block)
+	return;
+
     /* Perform an image render if this terminal supports graphics. */
     if (cli_term.gfx_level & (TERM_GFX_PNG | TERM_GFX_PNG_KITTY)) {
 	/* Initialize stuff if this mode was just switched into. */
@@ -230,6 +235,8 @@ cli_render_gfx_blit(uint32_t *buf, int w, int h)
 void
 cli_render_gfx_box(char *str)
 {
+    if (render_data.block)
+	return;
     thread_wait_event(render_data.render_complete, -1);
     thread_reset_event(render_data.render_complete);
 
@@ -252,6 +259,8 @@ cli_render_cga(uint8_t y, uint8_t rowcount,
 	       uint8_t do_render, uint8_t do_blink,
 	       uint32_t ca, uint8_t con)
 {
+    if (render_data.block)
+	return;
     thread_wait_event(render_data.render_complete, -1);
     thread_reset_event(render_data.render_complete);
 
@@ -279,6 +288,8 @@ cli_render_mda(int xlimit, uint8_t rowcount,
 	       uint8_t do_render, uint8_t do_blink,
 	       uint16_t ca, uint8_t con)
 {
+    if (render_data.block)
+	return;
     thread_wait_event(render_data.render_complete, -1);
     thread_reset_event(render_data.render_complete);
 
@@ -699,14 +710,6 @@ cli_render_process(void *priv)
 	thread_wait_event(render_data.wake_render_thread, -1);
 	thread_reset_event(render_data.wake_render_thread);
 
-	/* Output any requested side-band messages. */
-	for (i = 0; i < RENDER_SIDEBAND_MAX; i++) {
-		if (render_data.sideband_slots[i][0]) {
-			fputs(render_data.sideband_slots[i], CLI_RENDER_OUTPUT);
-			render_data.sideband_slots[i][0] = '\0';
-		}
-	}
-
 	/* Output any requested title change. */
 	if (render_data.title[0]) {
 		p = buf;
@@ -722,6 +725,14 @@ cli_render_process(void *priv)
 	/* Don't render anything if rendering is blocked. */
 	if (render_data.block)
 		continue;
+
+	/* Output any requested side-band messages. */
+	for (i = 0; i < RENDER_SIDEBAND_MAX; i++) {
+		if (render_data.sideband_slots[i][0]) {
+			fputs(render_data.sideband_slots[i], CLI_RENDER_OUTPUT);
+			render_data.sideband_slots[i][0] = '\0';
+		}
+	}
 
 	/* Trigger invalidation on a mode transition. */
 	if (render_data.mode != render_data.prev_mode) {
