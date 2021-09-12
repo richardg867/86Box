@@ -112,12 +112,11 @@ process_media_commands_3(uint8_t *id, char *fn, uint8_t *wp, int cmdargc)
 void
 cli_monitor_thread(void *priv)
 {
-    if (!isatty(fileno(stdin)) || !isatty(fileno(stdout)))
+    if (!isatty(fileno(stdin)) || !isatty(fileno(CLI_RENDER_OUTPUT)))
 	return;
 
     char *line = NULL, buf[4096];
 
-    fprintf(CLI_RENDER_OUTPUT, "86Box monitor console.\n");
     while (!feof(stdin)) {
 	if (f_readline) {
 		line = f_readline("(86Box) ");
@@ -318,6 +317,9 @@ cli_monitor_thread(void *priv)
 void
 cli_monitor_init(uint8_t independent)
 {
+    if (!isatty(fileno(stdin)) || !isatty(fileno(CLI_RENDER_OUTPUT)))
+	return;
+
 #ifndef _WIN32
     void *libedithandle = dlopen(LIBEDIT_LIBRARY, RTLD_LOCAL | RTLD_LAZY);
     if (libedithandle) {
@@ -333,6 +335,8 @@ cli_monitor_init(uint8_t independent)
 	fprintf(CLI_RENDER_OUTPUT, "libedit not found, monitor line editing will be limited.\n");
     }
 #endif
+
+    fprintf(CLI_RENDER_OUTPUT, "86Box monitor console.\n");
 
     if (independent) {
 	/* Start monitor processing thread. */

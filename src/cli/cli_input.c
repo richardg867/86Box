@@ -479,9 +479,20 @@ cli_input_csi_dispatch(int c)
     }
 
     /* Determine if this is actually a terminal size query response. */
-    if (cli_term.cpr && (c == 'R') && (code > 1) && (modifier > 1)) {
-	cli_term.cpr = 0;
-	cli_term_setsize(modifier, code, "CPR");
+    if (cli_term.cpr && (c == 'R') && (modifier > 1)) {
+	if (code == 1) {
+		cli_term.cpr &= ~2;
+
+		/* If we're exactly one character in, we can assume the
+		   terminal has interpreted our UTF-8 sequence as UTF-8. */
+		cli_term.can_utf8 = modifier == 2;
+		cli_input_log("CLI Input: CPR probe reports%sUTF-8 support\n", cli_term.can_utf8 ? " " : " no ");
+	} else {
+		cli_term.cpr &= ~1;
+
+		/* Set 0-based terminal size to the current 1-based cursor position. */
+		cli_term_setsize(modifier, code, "CPR");
+	}
 	return;
     }
 

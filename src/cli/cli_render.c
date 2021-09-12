@@ -90,6 +90,25 @@ static const char *cp437[] = {
     /* E0 */ "\xCE\xB1",     "\xC3\x9F",     "\xCE\x93",     "\xCF\x80",     "\xCE\xA3",     "\xCF\x83",     "\xC2\xB5",     "\xCF\x84",     "\xCE\xA6",     "\xCE\x98",     "\xCE\xA9",     "\xCE\xB4",     "\xE2\x88\x9E", "\xCF\x86",     "\xCE\xB5",     "\xE2\x88\xA9",
     /* F0 */ "\xE2\x89\xA1", "\xC2\xB1",     "\xE2\x89\xA5", "\xE2\x89\xA4", "\xE2\x8C\xA0", "\xE2\x8C\xA1", "\xC3\xB7",     "\xE2\x89\x88", "\xC2\xB0",     "\xE2\x88\x99", "\xC2\xB7",     "\xE2\x88\x9A", "\xE2\x81\xBF", "\xC2\xB2",     "\xE2\x96\xA0", "\xC2\xA0"
 };
+/* Fallback character set for non-UTF-8 terminals. */
+static const char cp437_fallback[] = {
+    /* 00 */ ' ', 'o', 'o', 'o', 'o', '^', '^', '.', 'o', 'o', 'o', 'M', 'F', '8', '8', 'o',
+    /* 10 */ '>', '<', '|', '!', 'P', 'S', '-', '|', '^', 'v', '>', '<', 'L', '-', '^', 'v',
+    /* 20 */ ' ', '!', '"', '#', '$', '%', '&', '\'','(', ')', '*', '+', ',', '-', '.', '/',
+    /* 30 */ '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?',
+    /* 40 */ '@', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
+    /* 50 */ 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '[', '\\',']', '^', '_',
+    /* 60 */ '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
+    /* 70 */ 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '{', '|', '}', '~', 'D',
+    /* 80 */ 'C', 'u', 'e', 'a', 'a', 'a', 'a', 'c', 'e', 'e', 'e', 'i', 'i', 'i', 'A', 'A',
+    /* 90 */ 'E', 'e', 'E', 'o', 'o', 'o', 'u', 'u', 'y', 'O', 'U', 'c', 'L', 'Y', 'P', 'f',
+    /* A0 */ 'a', 'i', 'o', 'u', 'n', 'N', 'a', 'o', '?', '-', '-', '2', '4', '!', '<', '>',
+    /* B0 */ '#', '#', '#', '|', '+', '+', '+', '+', '+', '+', '|', '+', '+', '+', '+', '+',
+    /* C0 */ '+', '+', '+', '+', '-', '+', '+', '+', '+', '+', '+', '+', '+', '-', '+', '+',
+    /* D0 */ '+', '+', '+', '+', '+', '+', '+', '+', '+', '+', '+', '#', '#', '#', '#', '#',
+    /* E0 */ 'a', 's', 'c', 'p', 'S', 's', 'm', 't', 'W', 'O', 'O', 'd', '8', 'p', 'e', '^',
+    /* F0 */ '=', '+', '>', '<', '|', '|', '/', '~', 'o', '.', '.', 'v', 'n', '2', '#', ' ' 
+};
 
 /* Lookup table for encoding images as base64. */
 static const char base64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -346,9 +365,14 @@ cli_render_monitorenter()
     /* Block any further rendering. */
     render_data.block = 1;
 
-    /* Move to top left corner, clear screen and restore cursor. */
+    /* Set up terminal:
+       - Reset formatting
+       - Move cursor to top left corner
+       - Clear screen
+       - Show cursor
+       - Switch to xterm's Main Screen Buffer */
     cursor_x = cursor_y = -1;
-    fprintf(CLI_RENDER_OUTPUT, "\033[0m\033[1;1H\033[2J\033[3J\033[?25h");
+    fputs("\033[0m\033[1;1H\033[2J\033[3J\033[?25h\033[?1049l", CLI_RENDER_OUTPUT);
 
     thread_set_event(render_data.wake_render_thread);
     thread_wait_event(render_data.render_complete, -1); /* avoid race conditions */
@@ -358,6 +382,9 @@ cli_render_monitorenter()
 void
 cli_render_monitorexit()
 {
+    /* Switch back to xterm's Alternate Screen Buffer. */
+    fputs("\033[?1049h", CLI_RENDER_OUTPUT);
+
     /* Clear and re-render the entire screen on the next rendering run. */
     render_data.invalidate_all = 1;
 
@@ -768,25 +795,53 @@ cli_render_process(void *priv)
 			if (render_data.infobox) {
 				/* Render middle line, while determining the box's width. */
 				p = buf;
-				p += sprintf(p, "\033[30;47m%s", cp437[0xba]);
+				p += sprintf(p, "\033[30;47m");
+				if (cli_term.can_utf8)
+					p += sprintf(p, "%s", cp437[0xba]);
+				else
+					*p++ = '|';
 				w = sprintf(p, render_data.infobox, render_data.infobox_sx, render_data.infobox_sy);
-				sprintf(p + w, "%s", cp437[0xba]);
+				p += w;
+				if (cli_term.can_utf8) {
+					sprintf(p, "%s", cp437[0xba]);
+				} else {
+					*p++ = '|';
+					*p = '\0';
+				}
 				cli_render_updateline(buf, 1, 0, -1, -1);
 
 				/* Render top line. */
 				p = buf;
-				p += sprintf(p, "\033[30;47m%s", cp437[0xc9]);
-				for (i = 0; i < w; i++)
-					p += sprintf(p, "%s", cp437[0xcd]);
-				sprintf(p, "%s", cp437[0xbb]);
+				p += sprintf(p, "\033[30;47m");
+				if (cli_term.can_utf8) {
+					p += sprintf(p, "%s", cp437[0xc9]);
+					for (i = 0; i < w; i++)
+						p += sprintf(p, "%s", cp437[0xcd]);
+					sprintf(p, "%s", cp437[0xbb]);
+				} else {
+					*p++ = '+';
+					memset(p, '-', w);
+					p += w;
+					*p++ = '+';
+					*p = '\0';
+				}
 				cli_render_updateline(buf, 0, 0, -1, -1);
 
 				/* Render bottom line. */
 				p = buf;
-				p += sprintf(p, "\033[30;47m%s", cp437[0xc8]);
-				for (i = 0; i < w; i++)
-					p += sprintf(p, "%s", cp437[0xcd]);
-				sprintf(p, "%s", cp437[0xbc]);
+				p += sprintf(p, "\033[30;47m");
+				if (cli_term.can_utf8) {
+					p += sprintf(p, "%s", cp437[0xc8]);
+					for (i = 0; i < w; i++)
+						p += sprintf(p, "%s", cp437[0xcd]);
+					sprintf(p, "%s", cp437[0xbc]);
+				} else {
+					*p++ = '+';
+					memset(p, '-', w);
+					p += w;
+					*p++ = '+';
+					*p = '\0';
+				}				
 				cli_render_updateline(buf, 2, 0, -1, -1);
 
 				i = 3;
@@ -981,7 +1036,12 @@ cli_render_process(void *priv)
 				}
 
 				/* Add character. */
-				p += sprintf(p, "%s", cp437[chr]);
+				if (cli_term.can_utf8) {
+					p += sprintf(p, "%s", cp437[chr]);
+				} else {
+					*p++ = cp437_fallback[chr];
+					*p = '\0';
+				}
 			}
 
 			/* Output rendered line. */
@@ -1017,7 +1077,7 @@ next:			cli_render_updateline(p, render_data.y, 1, new_cx, new_cy);
 			png_write_image(png_ptr, (png_bytep *) render_data.blit_fb);
 			png_write_end(png_ptr, NULL);
 
-			/* Reset formatting and move to top left corner. */
+			/* Reset formatting and move cursor to top left corner. */
 			sprintf(cli_render_clearbg(buf), "\033[1;1H");
 			fputs(buf, CLI_RENDER_OUTPUT);
 
@@ -1076,6 +1136,9 @@ next:			cli_render_updateline(p, render_data.y, 1, new_cx, new_cy);
 void
 cli_render_init()
 {
+    /* Switch to xterm's Alternate Screen Buffer if available. */
+    fputs("\033[?1049h", CLI_RENDER_OUTPUT);
+
     /* Set terminal encoding to UTF-8. */
 #ifdef _WIN32
     SetConsoleOutputCP(65001);
@@ -1123,6 +1186,6 @@ cli_render_close()
 	free(render_data.blit_fb[i]);
     free(render_data.blit_fb);
 
-    /* Reset terminal. */
-    fputs("\033[0m\033[999;1H\033[?25h\033c", CLI_RENDER_OUTPUT);
+    /* Reset terminal and switch back to xterm's Main Screen Buffer. */
+    fputs("\033[0m\033[999;1H\033[?25h\033[?1049l", CLI_RENDER_OUTPUT);
 }

@@ -67,6 +67,7 @@ static const struct {
 
 
 cli_term_t	cli_term = {
+    .can_utf8 = 1,
     .size_x = 80, .size_y = 24, /* terminals default to 80x24, not the IBM PC's 80x25 */
     .setcolor = cli_render_setcolor_none
 };
@@ -234,8 +235,8 @@ cli_term_updatesize(int runtime)
     /* Get terminal size through a CPR query, even if we already have
        bash environment variable data, since that may be inaccurate. */
     if (cli_term.can_input) {
-	cli_term.cpr = 1;
-	cli_render_write(RENDER_SIDEBAND_CPR, "\033[999;999H\033[6n\033[1;1H");
+	cli_term.cpr |= 1;
+	cli_render_write(RENDER_SIDEBAND_CPR_SIZE, "\033[999;999H\033[6n\033[1;1H");
     }
 }
 
@@ -297,6 +298,10 @@ cli_init()
     /* Redraw screen on terminal resize. */
     signal(SIGWINCH, cli_term_updatesize);
 #endif
+
+    /* Probe UTF-8 support using CPR. */
+    cli_term.cpr |= 2;
+    cli_render_write(RENDER_SIDEBAND_CPR_UTF8, "\033[1;1H\xc2\xa0\033[6n"); /* non-breaking space */
 }
 
 
