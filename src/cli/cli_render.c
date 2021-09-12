@@ -382,8 +382,9 @@ cli_render_monitorenter()
 void
 cli_render_monitorexit()
 {
-    /* Switch back to xterm's Alternate Screen Buffer. */
-    fputs("\033[?1049h", CLI_RENDER_OUTPUT);
+    /* Switch back to xterm's Alternate Screen Buffer, and
+       set the cursor style back to blinking underline. */
+    fputs("\033[?1049h\033[3 q", CLI_RENDER_OUTPUT);
 
     /* Clear and re-render the entire screen on the next rendering run. */
     render_data.invalidate_all = 1;
@@ -1136,8 +1137,9 @@ next:			cli_render_updateline(p, render_data.y, 1, new_cx, new_cy);
 void
 cli_render_init()
 {
-    /* Switch to xterm's Alternate Screen Buffer if available. */
-    fputs("\033[?1049h", CLI_RENDER_OUTPUT);
+    /* Switch to xterm's Alternate Screen Buffer if available,
+       and set the cursor style to blinking underline. */
+    fputs("\033[?1049h\033[3 q", CLI_RENDER_OUTPUT);
 
     /* Set terminal encoding to UTF-8. */
 #ifdef _WIN32
