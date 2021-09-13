@@ -183,6 +183,7 @@ static struct {
     png_bytep	*blit_lines;
     int		blit_sx, blit_sy;
 
+    uint8_t	has_sideband;
     char	sideband_slots[RENDER_SIDEBAND_MAX][32];
     wchar_t	title[200];
 
@@ -389,6 +390,9 @@ cli_render_write(int slot, char *s)
     len = MIN(len, sizeof(render_data.sideband_slots[slot]) - 1);
     render_data.sideband_slots[slot][len] = '\0'; /* avoid potential race conditions leading to unbounded strings */
     strncpy(render_data.sideband_slots[slot], s, len);
+
+    /* Mark that we have side-band data on this slot. */
+    render_data.has_sideband |= 1 << slot;
 
     thread_set_event(render_data.wake_render_thread);
 }
@@ -817,10 +821,13 @@ cli_render_process(void *priv)
 		continue;
 
 	/* Output any requested side-band messages. */
-	for (i = 0; i < RENDER_SIDEBAND_MAX; i++) {
-		if (render_data.sideband_slots[i][0]) {
+	if (render_data.has_sideband) {
+		for (i = 0; i < RENDER_SIDEBAND_MAX; i++) {
+			if (!render_data.sideband_slots[i][0])
+				continue;
 			fputs(render_data.sideband_slots[i], CLI_RENDER_OUTPUT);
 			render_data.sideband_slots[i][0] = '\0';
+			render_data.has_sideband &= ~(1 << i); /* FIXME: this is not atomic, there could be trouble... */
 		}
 	}
 
