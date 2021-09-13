@@ -826,6 +826,10 @@ cli_input_process(void *priv)
 					/* Enter monitor loop. */
 					cli_monitor_thread(NULL);
 
+					/* Don't resume render thread if we're exiting. */
+					if (is_quit)
+						return;
+
 					/* Re-enable raw input. */
 					cli_input_raw();
 
