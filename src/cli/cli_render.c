@@ -880,26 +880,22 @@ cli_render_process(void *priv)
 				}
 				cli_render_updateline(buf, 1, 0, -1, -1);
 
+				p = buf + 8;
 				if (cli_term.can_utf8) {
 					/* Render top line. */
-					p = buf;
-					p += sprintf(p, "\033[30;47m%s", cp437[0xc9]);
+					p += sprintf(p, "%s", cp437[0xc9]);
 					for (i = 0; i < w; i++)
 						p += sprintf(p, "%s", cp437[0xcd]);
 					sprintf(p, "%s", cp437[0xbb]);
 					cli_render_updateline(buf, 0, 0, -1, -1);
 
 					/* Render bottom line. */
-					p = buf;
-					p += sprintf(p, "\033[30;47m%s", cp437[0xc8]);
-					for (i = 0; i < w; i++)
-						p += sprintf(p, "%s", cp437[0xcd]);
-					sprintf(p, "%s", cp437[0xbc]);
+					p = buf + 8;
+					memcpy(p, cp437[0xc8], 3);
+					memcpy(p + 3 + (3 * w), cp437[0xbc], 3);
 					cli_render_updateline(buf, 2, 0, -1, -1);
 				} else {
 					/* Render top and bottom lines, which are identical in ASCII mode. */
-					p = buf;
-					p += sprintf(p, "\033[30;47m");
 					*p++ = '+';
 					memset(p, '-', w);
 					p += w;
@@ -1140,7 +1136,7 @@ next:			cli_render_updateline(p, render_data.y, 1, new_cx, new_cy);
 			sprintf(cli_render_clearbg(buf), "\033[1;1H");
 			fputs(buf, CLI_RENDER_OUTPUT);
 
-			if (cli_term.gfx_level & (TERM_GFX_PNG | TERM_GFX_PNG_KITTY)) {
+			if (0 && cli_term.gfx_level & (TERM_GFX_PNG | TERM_GFX_PNG_KITTY)) {
 				/* Initialize PNG data. */
 				png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
 				png_size = 0;

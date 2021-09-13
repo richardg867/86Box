@@ -75,7 +75,7 @@
 
 volatile int	screenshots = 0;
 #ifdef USE_CLI
-volatile int	cli_blit = 0;
+int		cli_blit = 0;
 #endif
 bitmap_t	*buffer32 = NULL;
 uint8_t		fontdat[2048][8];		/* IBM CGA font */
@@ -456,8 +456,8 @@ void blit_thread(void *param)
 
 #ifdef USE_CLI
 	if (cli_blit) {
-		if (render_buffer != NULL)
-			cli_render_gfx_blit(render_buffer->dat, blit_data.w, blit_data.h);
+		if (buffer32 != NULL)
+			cli_render_gfx_blit(buffer32->dat, blit_data.w, blit_data.h);
 	}
 #endif
 

@@ -83,7 +83,7 @@ extern cli_term_t cli_term;
 extern const uint8_t cga_ansi_palette[];
 
 /* video.c */
-extern volatile int cli_blit;
+extern int cli_blit;
 
 
 /* cli.c */
