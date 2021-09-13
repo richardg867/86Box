@@ -1383,9 +1383,11 @@ cli_render_init()
 	cli_render_log("CLI Render: libsixel not loaded\n");
     }
 
-    /* Switch to xterm's Alternate Screen Buffer if available,
-       and set the cursor style to blinking underline. */
-    fputs("\033[?1049h\033[3 q", CLI_RENDER_OUTPUT);
+    /* xterm(-compatible)-specific configuration:
+       - Switch to Alternate Screen Buffer
+       - Enable ESC on Meta
+       - Set cursor style to blinking underline */
+    fputs("\033[?1049h\033[?1036h\033[3 q", CLI_RENDER_OUTPUT);
 
     /* Set terminal encoding to UTF-8. */
 #ifdef _WIN32

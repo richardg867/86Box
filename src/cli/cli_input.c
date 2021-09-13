@@ -42,7 +42,6 @@
 /* Escape sequence parser states. */
 enum {
     VT_GROUND = 0,
-    VT_C3,
     VT_ESCAPE,
     VT_ESCAPE_INTERMEDIATE,
     VT_CSI_ENTRY,
@@ -585,7 +584,7 @@ cli_input_esc_dispatch(int c)
     switch (collect_buf[0]) {
 	case '\0': /* no parameter */
 		switch (c) {
-			case 0x20 ... 0x7f: /* Alt+Space to Alt+Backspace (Windows, PuTTY) */
+			case 0x20 ... 0x7f: /* Alt+Space to Alt+Backspace */
 				cli_input_send(ascii_seqs[c], 3);
 				break;
 		}
@@ -805,25 +804,7 @@ cli_input_process(void *priv)
 				case 0x7f: /* Backspace */
 					cli_input_send(ascii_seqs['\b'], 0);
 					break;
-
-				case 0xc3:
-					state = VT_C3;
-					break;
 			}
-			break;
-
-		case VT_C3: /* this is actually UTF-8, fix later */
-			switch (c) {
-				case 0x81 ... 0x9a: /* Alt+Shift+A to Alt+Shift+Z (xterm) */
-				case 0xa1 ... 0xba: /* Alt+A to Alt+Z (xterm) */
-					cli_input_send(ascii_seqs['`' + (c & 0x1f)], (c >= 0xa1) ? 3 : 4);
-					break;
-
-				case 0xa0: /* Alt+Space (xterm) */
-					cli_input_send(ascii_seqs[' '], 3);
-					break;
-			}
-			state = VT_GROUND;
 			break;
 
 		case VT_ESCAPE:
@@ -842,7 +823,7 @@ cli_input_process(void *priv)
 					/* Disable raw input. */
 					cli_input_unraw();
 
-					/* Enter monitor mode. */
+					/* Enter monitor loop. */
 					cli_monitor_thread(NULL);
 
 					/* Re-enable raw input. */
