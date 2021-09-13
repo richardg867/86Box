@@ -1137,7 +1137,7 @@ next:			cli_render_updateline(p, render_data.y, 1, new_cx, new_cy);
 			sprintf(cli_render_clearbg(buf), "\033[1;1H");
 			fputs(buf, CLI_RENDER_OUTPUT);
 
-			if (0 && cli_term.gfx_level & (TERM_GFX_PNG | TERM_GFX_PNG_KITTY)) {
+			if (cli_term.gfx_level & (TERM_GFX_PNG | TERM_GFX_PNG_KITTY)) {
 				/* Initialize PNG data. */
 				png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
 				png_size = 0;
