@@ -30,11 +30,11 @@
 #endif
 #define HAVE_STDARG_H
 #include <86box/86box.h>
-#include <86box/cli.h>
 #include <86box/timer.h>
 #include <86box/plat.h>
 #include <86box/plat_dynld.h>
 #include <86box/video.h>
+#include <86box/cli.h>
 
 
 #define APPEND_SGR()	if (!sgr_started) { \
@@ -264,7 +264,7 @@ cli_render_gfx(char *str)
 
 
 void
-cli_render_gfx_blit(uint32_t *buf, int w, int h)
+cli_render_gfx_blit(bitmap_t *bitmap, int w, int h)
 {
     /* Don't overflow the image rendering buffer. */
     if (w >= CLI_RENDER_GFXBUF_W)
@@ -280,14 +280,15 @@ cli_render_gfx_blit(uint32_t *buf, int w, int h)
 
     /* Blit to the image rendering buffer. */
     uint8_t *p = render_data.blit_fb;
-    uint32_t temp;
+    uint32_t *q, temp;
     for (int y = 0; y < h; y++) {
 	/* Update line pointer array. */
 	render_data.blit_lines[y] = p;
 
 	/* Blit line. */
+	q = bitmap->line[y];
 	for (int x = 0; x < w; x++) {
-		temp = *buf++;
+		temp = *q++;
 		*p++ = (temp >> 16) & 0xff;
 		*p++ = (temp >> 8) & 0xff;
 		*p++ = temp & 0xff;
