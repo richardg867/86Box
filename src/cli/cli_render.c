@@ -63,6 +63,11 @@ typedef struct _cli_render_png_ {
     struct _cli_render_png_ *next;
 } cli_render_png_t;
 
+typedef struct _cli_render_sixel_ {
+    uint8_t	set, render, sixmap[CLI_RENDER_GFXBUF_W];
+    uint32_t	user_rgb;
+} cli_render_sixel_t;
+
 
 /* Lookup table for converting CGA colors to the ANSI palette. */
 const uint8_t cga_ansi_palette[] = {
@@ -90,9 +95,11 @@ static const char *cp437[] = {
     /* E0 */ "\xCE\xB1",     "\xC3\x9F",     "\xCE\x93",     "\xCF\x80",     "\xCE\xA3",     "\xCF\x83",     "\xC2\xB5",     "\xCF\x84",     "\xCE\xA6",     "\xCE\x98",     "\xCE\xA9",     "\xCE\xB4",     "\xE2\x88\x9E", "\xCF\x86",     "\xCE\xB5",     "\xE2\x88\xA9",
     /* F0 */ "\xE2\x89\xA1", "\xC2\xB1",     "\xE2\x89\xA5", "\xE2\x89\xA4", "\xE2\x8C\xA0", "\xE2\x8C\xA1", "\xC3\xB7",     "\xE2\x89\x88", "\xC2\xB0",     "\xE2\x88\x99", "\xC2\xB7",     "\xE2\x88\x9A", "\xE2\x81\xBF", "\xC2\xB2",     "\xE2\x96\xA0", "\xC2\xA0"
 };
-/* Fallback character set for non-UTF-8 terminals. */
+
+/* Fallback ASCII-only character set for non-UTF-8 terminals.
+   On values >= 0x80, DEC Special Graphics should be used on the lower 7 bits. */
 static const char cp437_fallback[] = {
-    /* 00 */ ' ', 'o', 'o', 'o', 'o', '^', '^', '.', 'o', 'o', 'o', 'M', 'F', '8', '8', 'o',
+    /* 00 */ ' ', 'o', 'o', 'o', 0xe0,'^', '^', '.', 'o', 'o', 'o', 'M', 'F', '8', '8', 'o',
     /* 10 */ '>', '<', '|', '!', 'P', 'S', '-', '|', '^', 'v', '>', '<', 'L', '-', '^', 'v',
     /* 20 */ ' ', '!', '"', '#', '$', '%', '&', '\'','(', ')', '*', '+', ',', '-', '.', '/',
     /* 30 */ '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?',
@@ -101,13 +108,13 @@ static const char cp437_fallback[] = {
     /* 60 */ '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
     /* 70 */ 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '{', '|', '}', '~', 'D',
     /* 80 */ 'C', 'u', 'e', 'a', 'a', 'a', 'a', 'c', 'e', 'e', 'e', 'i', 'i', 'i', 'A', 'A',
-    /* 90 */ 'E', 'e', 'E', 'o', 'o', 'o', 'u', 'u', 'y', 'O', 'U', 'c', 'L', 'Y', 'P', 'f',
-    /* A0 */ 'a', 'i', 'o', 'u', 'n', 'N', 'a', 'o', '?', '-', '-', '2', '4', '!', '<', '>',
-    /* B0 */ '#', '#', '#', '|', '+', '+', '+', '+', '+', '+', '|', '+', '+', '+', '+', '+',
-    /* C0 */ '+', '+', '+', '+', '-', '+', '+', '+', '+', '+', '+', '+', '+', '-', '+', '+',
-    /* D0 */ '+', '+', '+', '+', '+', '+', '+', '+', '+', '+', '+', '#', '#', '#', '#', '#',
-    /* E0 */ 'a', 's', 'c', 'p', 'S', 's', 'm', 't', 'W', 'O', 'O', 'd', '8', 'p', 'e', '^',
-    /* F0 */ '=', '+', '>', '<', '|', '|', '/', '~', 'o', '.', '.', 'v', 'n', '2', '#', ' ' 
+    /* 90 */ 'E', 'e', 'E', 'o', 'o', 'o', 'u', 'u', 'y', 'O', 'U', 'c', 0xfd,'Y', 'P', 'f',
+    /* A0 */ 'a', 'i', 'o', 'u', 'n', 'N', 'a', 0xe6,'?', '-', '-', '2', '4', '!', '<', '>',
+    /* B0 */ 0xe8,0xe1,0xe1,0xf8,0xf5,0xf5,0xf5,0xeb,0xeb,0xf5,0xf8,0xeb,0xea,0xea,0xea,0xeb,
+    /* C0 */ 0xed,0xf6,0xf7,0xf4,0xf1,0xee,0xf4,0xf4,0xed,0xec,0xf6,0xf7,0xf4,0xf1,0xee,0xf6,
+    /* D0 */ 0xf6,0xf7,0xf7,0xed,0xed,0xec,0xec,0xee,0xee,0xea,0xec,0xb0,0xf3,'#', '#', 0xef,
+    /* E0 */ 'a', 's', 'c', 0xfb,'S', 's', 'm', 't', 'W', 'O', 'O', 'd', '8', 'p', 'e', '^',
+    /* F0 */ '=', 0xe7,0xfa,0xf9,'|', '|', '/', '~', 0xe6,0xfe,0xfe,'v', 'n', '2', '#', ' ' 
 };
 
 /* Lookup table for encoding images as base64. */
@@ -117,10 +124,11 @@ static const char base64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwx
 static char	infobox[256];
 static uint8_t	palette_4bit[16], palette_8bit[16],
 		cursor_x = -1, cursor_y = -1;
-static uint32_t	palette_24bit[16];
+static uint32_t	colors_8bit[256], palette_24bit[16];
 static time_t	gfx_last = 0;
 static int	png_size = 0;
 static cli_render_png_t *png_first, *png_current;
+static cli_render_sixel_t *sixel_colors = NULL;
 static cli_render_line_t *lines[CLI_RENDER_MAX_LINES];
 static struct {
     thread_t	*thread;
@@ -185,7 +193,7 @@ cli_render_gfx(char *str)
 	return;
 
     /* Perform an image render if this terminal supports graphics. */
-    if (cli_term.gfx_level & (TERM_GFX_PNG | TERM_GFX_PNG_KITTY)) {
+    if (cli_term.gfx_level) {
 	/* Initialize stuff if this mode was just switched into. */
 	if (!cli_blit) {
 		/* Clear image rendering buffer. */
@@ -512,37 +520,16 @@ cli_render_setcolorlevel()
 
 
 void
-cli_render_setpal(uint8_t index, uint32_t color)
+cli_render_findclosest(uint32_t color, uint8_t *best_4bit, uint8_t *best_8bit)
 {
-    /* Don't re-calculate if the color hasn't changed. */
-    if (palette_24bit[index] == color)
-	return;
-
-    uint8_t best_4bit = 0, best_8bit = 0,
-	    exact, rdif, gdif, bdif;
+    uint8_t exact, rdif, gdif, bdif;
     uint32_t palette_color;
     double candidate, best = INFINITY;
 
     /* Look through 16- and 256-color palettes for the closest color to the desired one. */
     for (int i = 0; i < 256; i++) {
-	/* Get palette color. Algorithm based on Linux's vt.c */
-	if (i < 16) { /* 16-color ANSI */
-		palette_color = (i & 8) ? 0x555555 : 0x000000;
-		if (i & 1)
-			palette_color |= 0xaa0000;
-		if (i & 2)
-			palette_color |= 0x00aa00;
-		if (i & 4)
-			palette_color |= 0x0000aa;
-	} else if (i < 232) { /* color cube */
-		palette_color  = (uint8_t) ((i - 16) / 36 * 85 / 2) << 16;
-		palette_color |= (uint8_t) ((i - 16) / 6 % 6 * 85 / 2) << 8;
-		palette_color |= (uint8_t) ((i - 16) % 6 * 85 / 2);
-	} else { /* grayscale ramp */
-		palette_color  = (uint8_t) (i * 10 - 2312);
-		palette_color |= palette_color << 8;
-		palette_color |= palette_color << 8;
-	}
+	/* Get palette color. */
+	palette_color = colors_8bit[i];
 
 	/* Measure color distance. */
 	exact = palette_color == color;
@@ -562,21 +549,30 @@ cli_render_setpal(uint8_t index, uint32_t color)
 		/* Mark this as the best candidate for each applicable palette. */
 		best = candidate;
 		if (i < 16)
-			best_4bit = i;
-		best_8bit = i;
+			*best_4bit = i;
+		*best_8bit = i;
 
 		/* Stop if we've found an exact match. */
 		if (exact)
 			break;
 	}
     }
+}
 
-    /* Store color values. */
-    cli_render_log("CLI Render: setpal(%d, %06X) = %d/%d\n",
-		   index, color, best_4bit, best_8bit);
-    palette_4bit[index] = best_4bit;
-    palette_8bit[index] = best_8bit;
+
+void
+cli_render_setpal(uint8_t index, uint32_t color)
+{
+    /* Don't re-calculate if the color hasn't changed. */
+    if (palette_24bit[index] == color)
+	return;
+
+    /* Look for the closest match. */
+    cli_render_findclosest(color, &palette_4bit[index], &palette_8bit[index]);
     palette_24bit[index] = color;
+
+    cli_render_log("CLI Render: setpal(%d, %06X) = %d/%d\n",
+		   index, color, palette_4bit[index], palette_8bit[index]);
 }
 
 
@@ -587,7 +583,7 @@ cli_render_clearbg(char *p)
     p += sprintf(p, "\033[0;");
     int i = 0;
     if ((render_data.mode < 0x10) || !(i = cli_term.setcolor(p, 0, 1)))
-	*p = '\0';
+	*--p = '\0';
     p += i;
     p += sprintf(p, "m");
     return p;
@@ -725,12 +721,14 @@ cli_render_process(void *priv)
 	    sgr_blink, sgr_bg, sgr_fg,
 	    prev_sgr_ul, prev_sgr_int, prev_sgr_reverse,
 	    prev_sgr_blink, prev_sgr_bg, prev_sgr_fg,
-	    new_cx, new_cy;
+	    in_decsg, new_cx, new_cy;
     uint16_t chr_attr;
-    int i, x, w;
+    uint32_t color;
+    int i, j, w, x, y;
     cli_render_line_t *line;
     png_structp png_ptr;
     png_infop info_ptr;
+    cli_render_sixel_t *color_entry;
 
     while (1) {
 	thread_set_event(render_data.render_complete);
@@ -811,39 +809,34 @@ cli_render_process(void *priv)
 				}
 				cli_render_updateline(buf, 1, 0, -1, -1);
 
-				/* Render top line. */
-				p = buf;
-				p += sprintf(p, "\033[30;47m");
 				if (cli_term.can_utf8) {
-					p += sprintf(p, "%s", cp437[0xc9]);
+					/* Render top line. */
+					p = buf;
+					p += sprintf(p, "\033[30;47m%s", cp437[0xc9]);
 					for (i = 0; i < w; i++)
 						p += sprintf(p, "%s", cp437[0xcd]);
 					sprintf(p, "%s", cp437[0xbb]);
-				} else {
-					*p++ = '+';
-					memset(p, '-', w);
-					p += w;
-					*p++ = '+';
-					*p = '\0';
-				}
-				cli_render_updateline(buf, 0, 0, -1, -1);
+					cli_render_updateline(buf, 0, 0, -1, -1);
 
-				/* Render bottom line. */
-				p = buf;
-				p += sprintf(p, "\033[30;47m");
-				if (cli_term.can_utf8) {
-					p += sprintf(p, "%s", cp437[0xc8]);
+					/* Render bottom line. */
+					p = buf;
+					p += sprintf(p, "\033[30;47m%s", cp437[0xc8]);
 					for (i = 0; i < w; i++)
 						p += sprintf(p, "%s", cp437[0xcd]);
 					sprintf(p, "%s", cp437[0xbc]);
+					cli_render_updateline(buf, 2, 0, -1, -1);
 				} else {
+					/* Render top and bottom lines, which are identical in ASCII mode. */
+					p = buf;
+					p += sprintf(p, "\033[30;47m");
 					*p++ = '+';
 					memset(p, '-', w);
 					p += w;
 					*p++ = '+';
 					*p = '\0';
-				}				
-				cli_render_updateline(buf, 2, 0, -1, -1);
+					cli_render_updateline(buf, 0, 0, -1, -1);
+					cli_render_updateline(buf, 2, 0, -1, -1);
+				}
 
 				i = 3;
 			} else {
@@ -940,6 +933,7 @@ cli_render_process(void *priv)
 			p = buf;
 			*p = '\0';
 			sgr_started = prev_sgr_blink = prev_sgr_bg = prev_sgr_fg = prev_sgr_ul = prev_sgr_int = prev_sgr_reverse = 0;
+			in_decsg = 0;
 			sgr_blackout = -1;
 
 			/* Render each character. */
@@ -1039,13 +1033,29 @@ cli_render_process(void *priv)
 				/* Add character. */
 				if (cli_term.can_utf8) {
 					p += sprintf(p, "%s", cp437[chr]);
+				} else if (cp437_fallback[chr] & 0x80) {
+					/* Enter DEC Special Graphics. */
+					if (!in_decsg) {
+						p += sprintf(p, "\033(0");
+						in_decsg = 1;
+					}
+					*p++ = cp437_fallback[chr] & 0x7f;
 				} else {
+					/* Exit DEC Special Graphics. */
+					if (in_decsg) {
+						p += sprintf(p, "\033(B");
+						in_decsg = 0;
+					}
 					*p++ = cp437_fallback[chr];
-					*p = '\0';
 				}
 			}
 
+			/* Exit DEC Special Graphics. */
+			if (in_decsg)
+				p += sprintf(p, "\033(B");
+
 			/* Output rendered line. */
+			*p = '\0';
 			p = buf;
 next:			cli_render_updateline(p, render_data.y, 1, new_cx, new_cy);
 
@@ -1055,75 +1065,192 @@ next:			cli_render_updateline(p, render_data.y, 1, new_cx, new_cy);
 			break;
 
 		case CLI_RENDER_GFX:
-			/* Make sure we have an image. */
-			if (!render_data.blit_fb)
-				break;
-
-			/* Initialize PNG data. */
-			png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-			png_size = 0;
-			png_first = png_current = malloc(sizeof(cli_render_png_t));
-			png_first->size = 0;
-			png_first->next = NULL;
-
-			/* Set write function. */
-			png_set_write_fn(png_ptr, NULL, cli_render_process_pngwrite, cli_render_process_pngflush);
-
-			/* Output PNG to data buffer. */
-			info_ptr = png_create_info_struct(png_ptr);
-			png_set_IHDR(png_ptr, info_ptr, render_data.blit_sx, render_data.blit_sy,
-				     8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
-				     PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
-			png_write_info(png_ptr, info_ptr);
-			png_write_image(png_ptr, (png_bytep *) render_data.blit_fb);
-			png_write_end(png_ptr, NULL);
-
 			/* Reset formatting and move cursor to top left corner. */
 			sprintf(cli_render_clearbg(buf), "\033[1;1H");
 			fputs(buf, CLI_RENDER_OUTPUT);
 
-			/* Output PNG from data buffer according to the terminal's capabilities. */
-			if (cli_term.gfx_level & TERM_GFX_PNG) {
-				/* Output header. */
-				fprintf(CLI_RENDER_OUTPUT, "\033]1337;File=name=aS5wbmc=;size=%d:", png_size); /* i.png */
+			if (cli_term.gfx_level & (TERM_GFX_PNG | TERM_GFX_PNG_KITTY)) {
+				/* Initialize PNG data. */
+				png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+				png_size = 0;
+				png_first = png_current = malloc(sizeof(cli_render_png_t));
+				png_first->size = 0;
+				png_first->next = NULL;
 
-				/* Output image. */
-				while (png_first) {
-					/* Output chunk data as base64. */
-					cli_render_process_base64(png_first->buffer, png_first->size);
+				/* Set write function. */
+				png_set_write_fn(png_ptr, NULL, cli_render_process_pngwrite, cli_render_process_pngflush);
 
-					/* Move on to the next chunk. */
-					png_current = png_first;
-					png_first = png_first->next;
-					free(png_current);
-				}
+				/* Output PNG to data buffer. */
+				info_ptr = png_create_info_struct(png_ptr);
+				png_set_IHDR(png_ptr, info_ptr, render_data.blit_sx, render_data.blit_sy,
+					     8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
+					     PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
+				png_write_info(png_ptr, info_ptr);
+				png_write_image(png_ptr, (png_bytep *) render_data.blit_fb);
+				png_write_end(png_ptr, NULL);
 
-				/* Output terminator. */
-				fputc('\a', CLI_RENDER_OUTPUT);
-			} else if (cli_term.gfx_level & TERM_GFX_PNG_KITTY) {
-				/* Output image in chunks of up to 4096
-				   base64-encoded bytes (3072 real bytes). */
-				i = 1;
-				while (png_first) {
+				/* Output PNG from data buffer according to the terminal's capabilities. */
+				if (cli_term.gfx_level & TERM_GFX_PNG) {
 					/* Output header. */
-					fputs("\033_G", CLI_RENDER_OUTPUT);
-					if (i) {
-						i = 0;
-						fputs("a=T,f=100,q=1,", CLI_RENDER_OUTPUT);
-					}
-					fprintf(CLI_RENDER_OUTPUT, "m=%d;", !!png_first->next);
+					fprintf(CLI_RENDER_OUTPUT, "\033]1337;File=name=aS5wbmc=;size=%d:", png_size); /* i.png */
 
-					/* Output chunk data as base64. */
-					cli_render_process_base64(png_first->buffer, png_first->size);
+					/* Output image. */
+					while (png_first) {
+						/* Output chunk data as base64. */
+						cli_render_process_base64(png_first->buffer, png_first->size);
+
+						/* Move on to the next chunk. */
+						png_current = png_first;
+						png_first = png_first->next;
+						free(png_current);
+					}
 
 					/* Output terminator. */
-					fputs("\033\\", CLI_RENDER_OUTPUT);
+					fputc('\a', CLI_RENDER_OUTPUT);
+				} else if (cli_term.gfx_level & TERM_GFX_PNG_KITTY) {
+					/* Output image in chunks of up to 4096
+					   base64-encoded bytes (3072 real bytes). */
+					i = 1;
+					while (png_first) {
+						/* Output header. */
+						fputs("\033_G", CLI_RENDER_OUTPUT);
+						if (i) {
+							i = 0;
+							fputs("a=T,f=100,q=1,", CLI_RENDER_OUTPUT);
+						}
+						fprintf(CLI_RENDER_OUTPUT, "m=%d;", !!png_first->next);
 
-					/* Move on to the next chunk. */
-					png_current = png_first;
-					png_first = png_first->next;
-					free(png_current);
+						/* Output chunk data as base64. */
+						cli_render_process_base64(png_first->buffer, png_first->size);
+
+						/* Output terminator. */
+						fputs("\033\\", CLI_RENDER_OUTPUT);
+
+						/* Move on to the next chunk. */
+						png_current = png_first;
+						png_first = png_first->next;
+						free(png_current);
+					}
 				}
+			} else if (cli_term.gfx_level & TERM_GFX_SIXEL) {
+				/* Allocate color array on the first use of sixel rendering. */
+				if (!sixel_colors)
+					sixel_colors = malloc(sizeof(cli_render_sixel_t) * 1024);
+
+				/* Set up color entries. */
+				for (chr_attr = 0; chr_attr < 1024; chr_attr++) {
+					color_entry = &sixel_colors[chr_attr];
+					color_entry->set = 0;
+					color_entry->user_rgb = (chr_attr >= 101) << 31;
+				}
+
+				/* Start sixel output. */
+				fputs("\033Pq", CLI_RENDER_OUTPUT);
+
+				/* Render each sixel row, which corresponds to 6 pixel rows. */
+				for (y = 0; (y < render_data.blit_sy) && (y < (CLI_RENDER_GFXBUF_H - 6)); y += 6) {
+					/* Clear sixmap and render flag for all colors. */
+					for (chr_attr = 0; chr_attr < 1024; chr_attr++) {
+						color_entry = &sixel_colors[chr_attr];
+						color_entry->render = 0;
+						memset(color_entry->sixmap, 0, render_data.blit_sx);
+					}
+
+					/* Go through columns, building the sixmap for each color. */
+					for (x = i = 0; i < render_data.blit_sx; x += 3, i++) {
+						for (w = 0; w < 6; w++) {
+							/* Check the 923-color palette. */
+							color  = (uint8_t) (render_data.blit_fb[y + w][x]     / 2.55);
+							color |= (uint8_t) (render_data.blit_fb[y + w][x + 1] / 2.55) << 8;
+							color |= (uint8_t) (render_data.blit_fb[y + w][x + 2] / 2.55) << 16;
+							for (chr_attr = 101; chr_attr < 1024; chr_attr++) {
+								color_entry = &sixel_colors[chr_attr];
+								if (color == color_entry->user_rgb) {
+									goto have_color;
+								} else if (color_entry->user_rgb & 0x80000000) {
+									/* This palette entry is up for grabs. */
+									color_entry->user_rgb = color;
+									goto have_color;
+								}
+							}
+
+							/* Convert non-palette colors to grayscale. */
+							if (video_graytype) {
+								if (video_graytype == 1)
+									chr_attr = ((54 * (uint32_t)render_data.blit_fb[y + w][x + 2]) + (183 * (uint32_t)render_data.blit_fb[y + w][x + 1]) + (18 * (uint32_t)render_data.blit_fb[y + w][x])) / 650.25;
+								else
+									chr_attr = ((uint32_t)render_data.blit_fb[y + w][x + 2] + (uint32_t)render_data.blit_fb[y + w][x + 1] + (uint32_t)render_data.blit_fb[y + w][x]) / 7.65;
+							} else {
+								chr_attr = ((76 * (uint32_t)render_data.blit_fb[y + w][x + 2]) + (150 * (uint32_t)render_data.blit_fb[y + w][x + 1]) + (29 * (uint32_t)render_data.blit_fb[y + w][x])) / 650.25;
+							}
+							color_entry = &sixel_colors[chr_attr];
+
+							/* Set bit in sixmap, and mark this color for rendering. */
+have_color:						color_entry->sixmap[i] |= 1 << w;
+							color_entry->render = 1;
+						}
+					}
+
+					/* Render the sixmaps for each color. */
+					for (chr_attr = 0; chr_attr < 1024; chr_attr++) {
+						/* Only render colors marked for rendering. */
+						color_entry = &sixel_colors[chr_attr];
+						if (color_entry->user_rgb & 0x80000000) /* end of 923-color palette */
+							break;
+						else if (!color_entry->render)
+							continue;
+
+						/* Set color register if it wasn't already set. */
+						if (!color_entry->set) {
+							color_entry->set = 1;
+							if (chr_attr < 101)
+								fprintf(CLI_RENDER_OUTPUT, "#%d;2;%d;%d;%d",
+									chr_attr, chr_attr & 127, chr_attr & 127, chr_attr & 127);
+							else
+								fprintf(CLI_RENDER_OUTPUT, "#%d;2;%d;%d;%d",
+									chr_attr,
+									( color_entry->user_rgb        & 0xff),
+									((color_entry->user_rgb >> 8)  & 0xff),
+									((color_entry->user_rgb >> 16) & 0xff));								
+						}
+
+						/* Activate color register. */
+						fprintf(CLI_RENDER_OUTPUT, "#%d", chr_attr);
+
+						/* Output sixels with RLE compression. */
+						j = 0;
+						attr = 0xff;
+						for (i = 0; i < render_data.blit_sx; i++) {
+							chr = color_entry->sixmap[i];
+							if (chr != attr) {
+								if (j <= 3) {
+									for (; j; j--)
+										fputc(63 + attr, CLI_RENDER_OUTPUT);
+								} else {
+									fprintf(CLI_RENDER_OUTPUT, "!%d%c", j, 63 + attr);
+									j = 0;
+								}
+								attr = chr;
+							}
+							j++;
+						}
+						if (j <= 3) {
+							for (; j; j--)
+								fputc(63 + attr, CLI_RENDER_OUTPUT);
+						} else {
+							fprintf(CLI_RENDER_OUTPUT, "!%d%c", j, 63 + attr);
+						}
+
+						/* Rewind this sixel row. */
+						fputc('$', CLI_RENDER_OUTPUT);
+					}
+
+					/* Move on to the next sixel row. */
+					fputc('-', CLI_RENDER_OUTPUT);
+				}
+
+				/* Finish sixel output. */
+				fputs("\033\\", CLI_RENDER_OUTPUT);
 			}
 
 			/* Flush output. */
@@ -1148,9 +1275,32 @@ cli_render_init()
     fputs("\033[%G", CLI_RENDER_OUTPUT);
 #endif
 
-    /* Load standard CGA palette. */
+    /* Load RGB color values for the 256-color palette.
+       Algorithm based on Linux's vt.c */
     int i;
     uint32_t palette_color;
+    for (i = 0; i < 256; i++) {
+	if (i < 16) { /* 16-color ANSI */
+		palette_color = (i & 8) ? 0x555555 : 0x000000;
+		if (i & 1)
+			palette_color |= 0xaa0000;
+		if (i & 2)
+			palette_color |= 0x00aa00;
+		if (i & 4)
+			palette_color |= 0x0000aa;
+	} else if (i < 232) { /* color cube */
+		palette_color  = (uint8_t) ((i - 16) / 36 * 85 / 2) << 16;
+		palette_color |= (uint8_t) ((i - 16) / 6 % 6 * 85 / 2) << 8;
+		palette_color |= (uint8_t) ((i - 16) % 6 * 85 / 2);
+	} else { /* grayscale ramp */
+		palette_color  = (uint8_t) (i * 10 - 2312);
+		palette_color |= palette_color << 8;
+		palette_color |= palette_color << 8;
+	}
+	colors_8bit[i] = palette_color;
+    }
+
+    /* Load standard CGA palette. */
     for (i = 0; i < 16; i++) {
 	palette_color = (i & 8) ? 0x555555 : 0x000000;
 	if (i & 1)
@@ -1184,9 +1334,12 @@ cli_render_close()
 
     /* Clean up. There shouldn't be any race conditions with
        the blit thread, as this is called after video_close. */
-    for (int i = 0; i < CLI_RENDER_GFXBUF_H; i++)
+    int i;
+    for (i = 0; i < CLI_RENDER_GFXBUF_H; i++)
 	free(render_data.blit_fb[i]);
     free(render_data.blit_fb);
+    if (sixel_colors)
+	free(sixel_colors);
 
     /* Reset terminal and switch back to xterm's Main Screen Buffer. */
     fputs("\033[0m\033[999;1H\033[?25h\033[?1049l", CLI_RENDER_OUTPUT);

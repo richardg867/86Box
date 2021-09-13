@@ -56,9 +56,9 @@ static const struct {
     {"xterm-24bit",	TERM_COLOR_24BIT, 0, 0}, /* non-standard value not in terminfo database */
     {"xterm-24bits",	TERM_COLOR_24BIT, 0, 0}, /* same as above */
     {"putty",		TERM_COLOR_8BIT,  0, 0},
-    {"xterm",		TERM_COLOR_8BIT,  0, 0}, /* DECRQSS query unlocks 24-bit if available */
-    {"xterm-256color",	TERM_COLOR_8BIT,  0, 0}, /* same as above */
-    {"xterm-16color",	TERM_COLOR_4BIT,  0, 0},
+    {"xterm",		TERM_COLOR_8BIT,  0, TERM_GFX_SIXEL}, /* DECRQSS query unlocks 24-bit if available */
+    {"xterm-256color",	TERM_COLOR_8BIT,  0, TERM_GFX_SIXEL}, /* same as above */
+    {"xterm-16color",	TERM_COLOR_4BIT,  0, TERM_GFX_SIXEL},
     {"vt100",		TERM_COLOR_NONE,  0, 0},
     {"vt220",		TERM_COLOR_NONE,  0, 0},
     {"vt240",		TERM_COLOR_NONE,  0, TERM_GFX_SIXEL},
@@ -300,8 +300,10 @@ cli_init()
 #endif
 
     /* Probe UTF-8 support using CPR. */
-    cli_term.cpr |= 2;
-    cli_render_write(RENDER_SIDEBAND_CPR_UTF8, "\033[1;1H\xC2\xA0\033[6n"); /* non-breaking space */
+    if (cli_term.can_input) {
+	cli_term.cpr |= 2;
+	cli_render_write(RENDER_SIDEBAND_CPR_UTF8, "\033[1;1H\xC2\xA0\033[6n"); /* non-breaking space */
+    }
 }
 
 
