@@ -23,8 +23,8 @@
 #define CLI_RENDER_MAX_LINES	60
 #define CLI_RENDER_FB_SIZE	150
 #define CLI_RENDER_ANSIBUF_SIZE	4096	/* good for a fully packed SVGA 150-column line with some margin */
-#define CLI_RENDER_GFXBUF_W	2048
-#define CLI_RENDER_GFXBUF_H	2048
+#define CLI_RENDER_GFXBUF_W	2048 + 64
+#define CLI_RENDER_GFXBUF_H	2048 + 64
 
 
 enum {
