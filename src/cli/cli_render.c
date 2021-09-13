@@ -33,6 +33,7 @@
 #include <86box/cli.h>
 #include <86box/timer.h>
 #include <86box/plat.h>
+#include <86box/plat_dynld.h>
 #include <86box/video.h>
 
 
@@ -42,6 +43,20 @@
 			} else { \
 				p += sprintf(p, ";"); \
 			}
+
+#ifdef _WIN32
+# define LIBSIXELDLLAPI		__stdcall
+#else
+# define LIBSIXELDLLAPI
+#endif
+
+#ifdef _WIN32
+#define PATH_LIBSIXEL_DLL	"libsixel.1.dll"
+#elif defined __APPLE__
+#define PATH_LIBSIXEL_DLL	"libsixel.1.dylib"
+#else
+#define PATH_LIBSIXEL_DLL	"libsixel.so.1"
+#endif
 
 
 enum {
@@ -75,7 +90,6 @@ const uint8_t cga_ansi_palette[] = {
      8, 12, 10, 14,  9, 13, 11, 15  /* bright */
 };
 
-
 /* Lookup table for converting code page 437 to UTF-8. */
 static const char *cp437[] = {
     /* 00 */ " ",            "\xE2\x98\xBA", "\xE2\x98\xBB", "\xE2\x99\xA5", "\xE2\x99\xA6", "\xE2\x99\xA3", "\xE2\x99\xA0", "\xE2\x80\xA2", "\xE2\x97\x98", "\xE2\x97\x8B", "\xE2\x97\x99", "\xE2\x99\x82", "\xE2\x99\x80", "\xE2\x99\xAA", "\xE2\x99\xAB", "\xE2\x98\xBC",
@@ -96,7 +110,7 @@ static const char *cp437[] = {
     /* F0 */ "\xE2\x89\xA1", "\xC2\xB1",     "\xE2\x89\xA5", "\xE2\x89\xA4", "\xE2\x8C\xA0", "\xE2\x8C\xA1", "\xC3\xB7",     "\xE2\x89\x88", "\xC2\xB0",     "\xE2\x88\x99", "\xC2\xB7",     "\xE2\x88\x9A", "\xE2\x81\xBF", "\xC2\xB2",     "\xE2\x96\xA0", "\xC2\xA0"
 };
 
-/* Fallback ASCII-only character set for non-UTF-8 terminals.
+/* Fallback ASCII-only code page 437 character set for non-UTF-8 terminals.
    On values >= 0x80, DEC Special Graphics should be used on the lower 7 bits. */
 static const char cp437_fallback[] = {
     /* 00 */ ' ', 'o', 'o', 'o', 0xe0,'^', '^', '.', 'o', 'o', 'o', 'M', 'F', '8', '8', 'o',
@@ -121,6 +135,26 @@ static const char cp437_fallback[] = {
 static const char base64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 
+/* libsixel dynamic loading imports. */
+static void	*(LIBSIXELDLLAPI *sixel_dither_get)(int builtin_dither);
+static int	(LIBSIXELDLLAPI *sixel_output_new)(void **output,
+						   int (*fn_write)(char *data, int size, void *priv),
+						   void *priv, void *allocator);
+static void	(LIBSIXELDLLAPI *sixel_output_destroy)(void *output);
+static int	(LIBSIXELDLLAPI *sixel_encode)(unsigned char *pixels, int width, int height,
+					       int depth, void *dither, void *context);
+
+static dllimp_t libsixel_imports[] = {
+    { "sixel_dither_get",	&sixel_dither_get	},
+    { "sixel_output_new",	&sixel_output_new	},
+    { "sixel_output_destroy",	&sixel_output_destroy	},
+    { "sixel_encode",		&sixel_encode		},
+    { NULL,			NULL			}
+};
+static void	*libsixel_handle = NULL,
+		*libsixel_dither = NULL, *libsixel_output = NULL;
+
+
 static char	infobox[256];
 static uint8_t	palette_4bit[16], palette_8bit[16],
 		cursor_x = -1, cursor_y = -1;
@@ -142,7 +176,8 @@ static struct {
     uint32_t	fb_base, fb_mask, fb_step;
     int		xlimit, xinc;
 
-    png_bytep	*blit_fb;
+    uint8_t	*blit_fb;
+    png_bytep	*blit_lines;
     int		blit_sx, blit_sy;
 
     char	sideband_slots[RENDER_SIDEBAND_MAX][32];
@@ -150,7 +185,7 @@ static struct {
 
     char	*infobox;
     int		infobox_sx, infobox_sy;
-} render_data = { .prev_mode = -1, .y = CLI_RENDER_MAX_LINES + 1 };
+} render_data = { .prev_mode = -1, .y = CLI_RENDER_MAX_LINES + 1, .blit_sx = -1, .blit_sy = -1 };
 
 #define ENABLE_CLI_RENDER_LOG 1
 #ifdef ENABLE_CLI_RENDER_LOG
@@ -196,10 +231,6 @@ cli_render_gfx(char *str)
     if (cli_term.gfx_level) {
 	/* Initialize stuff if this mode was just switched into. */
 	if (!cli_blit) {
-		/* Clear image rendering buffer. */
-		for (int i = 0; i < CLI_RENDER_GFXBUF_H; i++)
-			memset(render_data.blit_fb[i], 0, 3 * CLI_RENDER_GFXBUF_W);
-
 		/* Tell video.c to start blitting to the image rendering buffer. */
 		cli_blit = 1;
 
@@ -237,11 +268,20 @@ cli_render_gfx_blit(uint32_t *buf, int w, int h)
     if (h >= CLI_RENDER_GFXBUF_H)
 	h = CLI_RENDER_GFXBUF_H;
 
+    /* Allocate image rendering buffer and line pointer array if required. */
+    if (!render_data.blit_fb)
+	render_data.blit_fb = malloc(CLI_RENDER_GFXBUF_W * CLI_RENDER_GFXBUF_H * 3);
+    if (!render_data.blit_lines)
+	render_data.blit_lines = malloc(sizeof(png_bytep) * CLI_RENDER_GFXBUF_H);
+
     /* Blit to the image rendering buffer. */
-    png_byte *p;
+    uint8_t *p = render_data.blit_fb;
     uint32_t temp;
     for (int y = 0; y < h; y++) {
-	p = render_data.blit_fb[y];
+	/* Update line pointer array. */
+	render_data.blit_lines[y] = p;
+
+	/* Blit line. */
 	for (int x = 0; x < w; x++) {
 		temp = *buf++;
 		*p++ = (temp >> 16) & 0xff;
@@ -494,28 +534,38 @@ cli_render_setcolor_24bit(char *p, uint8_t index, uint8_t is_background)
 void
 cli_render_setcolorlevel()
 {
-    /* Set color functions. */
+    /* Set color functions and establish libsixel dither level. */
+    int libsixel_dither_level;
     switch (cli_term.color_level) {
 	case TERM_COLOR_3BIT:
 		cli_term.setcolor = cli_render_setcolor_3bit;
+		libsixel_dither_level = 0x2; /* SIXEL_BUILTIN_XTERM16 */
 		break;
 
 	case TERM_COLOR_4BIT:
 		cli_term.setcolor = cli_render_setcolor_4bit;
+		libsixel_dither_level = 0x2; /* SIXEL_BUILTIN_XTERM16 */
 		break;
 
 	case TERM_COLOR_8BIT:
 		cli_term.setcolor = cli_render_setcolor_8bit;
+		libsixel_dither_level = 0x3; /* SIXEL_BUILTIN_XTERM256 */
 		break;
 
 	case TERM_COLOR_24BIT:
 		cli_term.setcolor = cli_render_setcolor_24bit;
+		libsixel_dither_level = 0x3; /* SIXEL_BUILTIN_XTERM256 */
 		break;
 
 	default:
 		cli_term.setcolor = cli_render_setcolor_none;
+		libsixel_dither_level = 0x0; /* SIXEL_BUILTIN_MONO_DARK */
 		break;
     }
+
+    /* Get libsixel dither object. */
+    if (sixel_dither_get)
+	libsixel_dither = sixel_dither_get(libsixel_dither_level);
 }
 
 
@@ -707,6 +757,14 @@ cli_render_process_pngwrite(png_structp png_ptr, png_bytep data, size_t length)
 static void
 cli_render_process_pngflush(png_structp png_ptr)
 {
+}
+
+
+static int
+cli_render_process_sixelwrite(char *data, int size, void *priv)
+{
+    fwrite(data, size, 1, priv);
+    return 0;
 }
 
 
@@ -1086,7 +1144,7 @@ next:			cli_render_updateline(p, render_data.y, 1, new_cx, new_cy);
 					     8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
 					     PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
 				png_write_info(png_ptr, info_ptr);
-				png_write_image(png_ptr, (png_bytep *) render_data.blit_fb);
+				png_write_image(png_ptr, render_data.blit_lines);
 				png_write_end(png_ptr, NULL);
 
 				/* Output PNG from data buffer according to the terminal's capabilities. */
@@ -1133,6 +1191,21 @@ next:			cli_render_updateline(p, render_data.y, 1, new_cx, new_cy);
 					}
 				}
 			} else if (cli_term.gfx_level & TERM_GFX_SIXEL) {
+				/* Make sure we have a framebuffer. */
+				if (!render_data.blit_fb || !render_data.blit_lines)
+					break;
+
+				/* Encode using libsixel instead if available. */
+				if (libsixel_dither) {
+					i = sixel_encode(render_data.blit_fb,
+							 render_data.blit_sx, render_data.blit_sy, 24,
+							 libsixel_dither, libsixel_output);
+					if (i)
+						cli_render_log("CLI Render: libsixel returned error %04X\n", i);
+					else
+						goto gfx_end;
+				}
+
 				/* Allocate color array on the first use of sixel rendering. */
 				if (!sixel_colors)
 					sixel_colors = malloc(sizeof(cli_render_sixel_t) * 1024);
@@ -1160,9 +1233,9 @@ next:			cli_render_updateline(p, render_data.y, 1, new_cx, new_cy);
 					for (x = i = 0; i < render_data.blit_sx; x += 3, i++) {
 						for (w = 0; w < 6; w++) {
 							/* Check the 923-color palette. */
-							color  = (uint8_t) (render_data.blit_fb[y + w][x]     / 2.55);
-							color |= (uint8_t) (render_data.blit_fb[y + w][x + 1] / 2.55) << 8;
-							color |= (uint8_t) (render_data.blit_fb[y + w][x + 2] / 2.55) << 16;
+							color  = (uint8_t) (render_data.blit_lines[y + w][x]     / 2.55);
+							color |= (uint8_t) (render_data.blit_lines[y + w][x + 1] / 2.55) << 8;
+							color |= (uint8_t) (render_data.blit_lines[y + w][x + 2] / 2.55) << 16;
 							for (chr_attr = 101; chr_attr < 1024; chr_attr++) {
 								color_entry = &sixel_colors[chr_attr];
 								if (color == color_entry->user_rgb) {
@@ -1177,11 +1250,11 @@ next:			cli_render_updateline(p, render_data.y, 1, new_cx, new_cy);
 							/* Convert non-palette colors to grayscale. */
 							if (video_graytype) {
 								if (video_graytype == 1)
-									chr_attr = ((54 * (uint32_t)render_data.blit_fb[y + w][x + 2]) + (183 * (uint32_t)render_data.blit_fb[y + w][x + 1]) + (18 * (uint32_t)render_data.blit_fb[y + w][x])) / 650.25;
+									chr_attr = ((54 * (uint32_t)render_data.blit_lines[y + w][x + 2]) + (183 * (uint32_t)render_data.blit_lines[y + w][x + 1]) + (18 * (uint32_t)render_data.blit_lines[y + w][x])) / 650.25;
 								else
-									chr_attr = ((uint32_t)render_data.blit_fb[y + w][x + 2] + (uint32_t)render_data.blit_fb[y + w][x + 1] + (uint32_t)render_data.blit_fb[y + w][x]) / 7.65;
+									chr_attr = ((uint32_t)render_data.blit_lines[y + w][x + 2] + (uint32_t)render_data.blit_lines[y + w][x + 1] + (uint32_t)render_data.blit_lines[y + w][x]) / 7.65;
 							} else {
-								chr_attr = ((76 * (uint32_t)render_data.blit_fb[y + w][x + 2]) + (150 * (uint32_t)render_data.blit_fb[y + w][x + 1]) + (29 * (uint32_t)render_data.blit_fb[y + w][x])) / 650.25;
+								chr_attr = ((76 * (uint32_t)render_data.blit_lines[y + w][x + 2]) + (150 * (uint32_t)render_data.blit_lines[y + w][x + 1]) + (29 * (uint32_t)render_data.blit_lines[y + w][x])) / 650.25;
 							}
 							color_entry = &sixel_colors[chr_attr];
 
@@ -1254,7 +1327,7 @@ have_color:						color_entry->sixmap[i] |= 1 << w;
 			}
 
 			/* Flush output. */
-			fflush(CLI_RENDER_OUTPUT);
+gfx_end:		fflush(CLI_RENDER_OUTPUT);
 			break;
 	}
     }
@@ -1264,6 +1337,21 @@ have_color:						color_entry->sixmap[i] |= 1 << w;
 void
 cli_render_init()
 {
+    /* Try loading libsixel. */
+    int i;
+    libsixel_handle = dynld_module(PATH_LIBSIXEL_DLL, libsixel_imports);
+    if (libsixel_handle) {
+	cli_render_log("CLI Render: libsixel loaded successfully\n");
+
+	/* Create output object. */
+	if (sixel_output_new && sixel_encode)
+		sixel_output_new(&libsixel_output, cli_render_process_sixelwrite, CLI_RENDER_OUTPUT, NULL);
+	else
+		sixel_dither_get = NULL; /* disable libsixel if we somehow don't have sixel_output_new */
+    } else {
+	cli_render_log("CLI Render: libsixel not loaded\n");
+    }
+
     /* Switch to xterm's Alternate Screen Buffer if available,
        and set the cursor style to blinking underline. */
     fputs("\033[?1049h\033[3 q", CLI_RENDER_OUTPUT);
@@ -1277,7 +1365,6 @@ cli_render_init()
 
     /* Load RGB color values for the 256-color palette.
        Algorithm based on Linux's vt.c */
-    int i;
     uint32_t palette_color;
     for (i = 0; i < 256; i++) {
 	if (i < 16) { /* 16-color ANSI */
@@ -1313,11 +1400,6 @@ cli_render_init()
 	cli_render_setpal(i, palette_color);
     }
 
-    /* Allocate image rendering buffer. */
-    render_data.blit_fb = malloc(sizeof(png_bytep) * CLI_RENDER_GFXBUF_H);
-    for (i = 0; i < CLI_RENDER_GFXBUF_H; i++)
-	render_data.blit_fb[i] = malloc(3 * CLI_RENDER_GFXBUF_W);
-
     /* Start rendering thread. */
     render_data.wake_render_thread = thread_create_event();
     render_data.render_complete = thread_create_event();
@@ -1334,12 +1416,17 @@ cli_render_close()
 
     /* Clean up. There shouldn't be any race conditions with
        the blit thread, as this is called after video_close. */
-    int i;
-    for (i = 0; i < CLI_RENDER_GFXBUF_H; i++)
-	free(render_data.blit_fb[i]);
-    free(render_data.blit_fb);
+    if (render_data.blit_lines)
+	free(render_data.blit_lines);
+    if (render_data.blit_fb)
+	free(render_data.blit_fb);
     if (sixel_colors)
 	free(sixel_colors);
+    if (libsixel_handle) {
+	if (libsixel_output)
+		sixel_output_destroy(libsixel_output);
+	dynld_close(libsixel_handle);
+    }
 
     /* Reset terminal and switch back to xterm's Main Screen Buffer. */
     fputs("\033[0m\033[999;1H\033[?25h\033[?1049l", CLI_RENDER_OUTPUT);
