@@ -44,6 +44,7 @@ extern int	fullscreen_pending; /* ugly hack */
 #endif
 
 static char	*xargv[512];
+static int	first_run = 1;
 
 static char	*(*f_readline)(const char*) = NULL;
 static int	(*f_add_history)(const char *) = NULL;
@@ -114,6 +115,11 @@ cli_monitor_thread(void *priv)
 {
     if (!isatty(fileno(stdin)) || !isatty(fileno(CLI_RENDER_OUTPUT)))
 	return;
+
+    if (first_run) {
+	first_run = 0;
+	fprintf(CLI_RENDER_OUTPUT, "86Box monitor console.\n");
+    }
 
     char *line = NULL, buf[4096];
 
@@ -335,8 +341,6 @@ cli_monitor_init(uint8_t independent)
 	fprintf(CLI_RENDER_OUTPUT, "libedit not found, monitor line editing will be limited.\n");
     }
 #endif
-
-    fprintf(CLI_RENDER_OUTPUT, "86Box monitor console.\n");
 
     if (independent) {
 	/* Start monitor processing thread. */
