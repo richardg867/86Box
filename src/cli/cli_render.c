@@ -438,9 +438,18 @@ cli_render_monitorenter()
 void
 cli_render_monitorexit()
 {
-    /* Switch back to xterm's Alternate Screen Buffer, and
-       set the cursor style back to blinking underline. */
-    fputs("\033[?1049h\033[3 q", CLI_RENDER_OUTPUT);
+    /* Set up terminal:
+       - Switch to Alternate Screen Buffer
+       - Enable ESC on Meta
+       - Set cursor style to blinking underline */
+    fputs("\033[?1049h\033[?1036h\033[3 q", CLI_RENDER_OUTPUT);
+
+    /* Set terminal encoding to UTF-8. */
+#ifdef _WIN32
+    SetConsoleOutputCP(65001);
+#else
+    fputs("\033[%G", CLI_RENDER_OUTPUT);
+#endif
 
     /* Clear and re-render the entire screen on the next rendering run. */
     render_data.invalidate_all = 1;
@@ -1380,18 +1389,8 @@ cli_render_init()
 	cli_render_log("CLI Render: libsixel not loaded\n");
     }
 
-    /* xterm(-compatible)-specific configuration:
-       - Switch to Alternate Screen Buffer
-       - Enable ESC on Meta
-       - Set cursor style to blinking underline */
-    fputs("\033[?1049h\033[?1036h\033[3 q", CLI_RENDER_OUTPUT);
-
-    /* Set terminal encoding to UTF-8. */
-#ifdef _WIN32
-    SetConsoleOutputCP(65001);
-#else
-    fputs("\033[%G", CLI_RENDER_OUTPUT);
-#endif
+    /* Perform initial terminal setup. */
+    cli_render_monitorexit();
 
     /* Load RGB color values for the 256-color palette.
        Algorithm based on Linux's vt.c */
