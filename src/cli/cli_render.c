@@ -264,7 +264,7 @@ cli_render_gfx(char *str)
 
 
 void
-cli_render_gfx_blit(bitmap_t *bitmap, int w, int h)
+cli_render_gfx_blit(bitmap_t *bitmap, int x, int y, int w, int h)
 {
     /* Don't overflow the image rendering buffer. */
     if (w >= CLI_RENDER_GFXBUF_W)
@@ -281,13 +281,13 @@ cli_render_gfx_blit(bitmap_t *bitmap, int w, int h)
     /* Blit to the image rendering buffer. */
     uint8_t *p = render_data.blit_fb;
     uint32_t *q, temp;
-    for (int y = 0; y < h; y++) {
+    for (int dy = 0; dy < h; dy++) {
 	/* Update line pointer array. */
-	render_data.blit_lines[y] = p;
+	render_data.blit_lines[dy] = p;
 
 	/* Blit line. */
-	q = bitmap->line[y];
-	for (int x = 0; x < w; x++) {
+	q = &bitmap->line[y++][x];
+	for (int dx = 0; dx < w; dx++) {
 		temp = *q++;
 		*p++ = (temp >> 16) & 0xff;
 		*p++ = (temp >> 8) & 0xff;
