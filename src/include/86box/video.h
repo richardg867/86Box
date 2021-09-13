@@ -84,10 +84,10 @@ typedef rgb_t PALETTE[256];
 extern int	changeframecount;
 
 extern volatile int screenshots;
+extern bitmap_t	*buffer32;
 #ifdef USE_CLI
 extern volatile int text_render_png;
 #endif
-extern bitmap_t	*buffer32, *render_buffer;
 extern PALETTE	cgapal,
 		cgapal_mono[6];
 extern uint32_t	pal_lookup[256];
