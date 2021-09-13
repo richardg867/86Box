@@ -121,9 +121,10 @@ cli_term_gettypeid(char *name) {
 
 
 void
-cli_term_setcolor(uint8_t level)
+cli_term_setcolor(uint8_t level, char *source)
 {
     cli_term.color_level = level;
+    cli_log("CLI: Terminal supports %d-bit color according to %s\n", level, source);
 
     /* Tell the renderer that we have a new color level. */
     cli_render_setcolorlevel();
@@ -169,7 +170,7 @@ cli_term_settype(int type)
 	type = (sizeof(term_types) / sizeof(term_types[0])) - 1;
 
     /* Set feature levels for this terminal type definition. */
-    cli_term_setcolor(term_types[type].color);
+    cli_term_setcolor(term_types[type].color, "table");
     cli_term_setctl(term_types[type].ctl);
     cli_term_setgfx(term_types[type].gfx);
 }
@@ -283,7 +284,7 @@ cli_init()
     if (cli_term.color_level < TERM_COLOR_24BIT) {
 	char *value = getenv("COLORTERM");
 	if (value && (strcasecmp(value, "truecolor") || strcasecmp(value, "24bit"))) {
-		cli_term_setcolor(TERM_COLOR_24BIT);
+		cli_term_setcolor(TERM_COLOR_24BIT, "environment");
 	} else if (cli_term.can_input) {
 		/* Start detecting the terminal's color capabilities through DECRQSS queries. */
 		cli_term.decrqss_color = TERM_COLOR_24BIT;
@@ -299,10 +300,14 @@ cli_init()
     signal(SIGWINCH, cli_term_updatesize);
 #endif
 
-    /* Probe UTF-8 support using CPR. */
     if (cli_term.can_input) {
+	/* Probe UTF-8 support using CPR. */
 	cli_term.cpr |= 2;
 	cli_render_write(RENDER_SIDEBAND_CPR_UTF8, "\033[1;1H\xC2\xA0\033[6n"); /* non-breaking space */
+
+	/* Query primary device attributes. */
+	cli_term.sda = 1;
+	cli_render_write(RENDER_SIDEBAND_SDA, "\033[c");
     }
 }
 

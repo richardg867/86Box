@@ -585,6 +585,44 @@ cli_input_put(int c)
 }
 
 
+static int
+cli_input_response_strstr(char *response, const char *cmp)
+{
+    /* Allocate a local buffer. */
+    int len = strlen(response);
+    if (!len)
+	return -1;
+    char *response_cleaned = malloc(len + 2),
+	 *p = response_cleaned, ch;
+
+    /* Copy response while removing double colons. */
+    for (int i = 0; i < len; i++) {
+	ch = response[i];
+	if ((ch >= ':') && (ch <= '?')) {
+		if ((p != response_cleaned) && (*(p - 1) != ':'))
+			*p++ = ':';
+	} else {
+		*p++ = ch;
+	}
+    }
+
+    /* Add or replace last character with a colon. */
+    ch = *(p - 1);
+    if ((ch >= '0') && (ch <= '9'))
+	*p++ = ':';
+    else
+	*(p - 1) = ':';
+    *p = '\0';
+
+    /* Perform comparison. */
+    p = strstr(response_cleaned, cmp);
+    cli_input_log("CLI Input: response_strstr(%s, %s) = %s = %d\n",
+		  response, cmp, response_cleaned, !!p);
+    free(response_cleaned);
+    return !!p;
+}
+
+
 static void
 cli_input_unhook(int c)
 {
@@ -592,29 +630,17 @@ cli_input_unhook(int c)
 
     /* Process DECRQSS. */
     if ((collect_buf[0] == '$') && (dcs_buf[0] == 'r')) {
-	/* Convert all delimiter characters to colon. */
-	for (int i = 0; i < dcs_buf_pos; i++) {
-		if ((dcs_buf[i] > ':') && (dcs_buf[i] <= '?'))
-			dcs_buf[i] = ':';
-	}
-
 	/* Interpret color-related responses. */
 	if (cli_term.decrqss_color) {
-		/* Add or replace last character with a colon to ease detection. */
-		if ((dcs_buf[dcs_buf_pos - 1] >= '0') && (dcs_buf[dcs_buf_pos - 1] <= '9'))
-			strcat(dcs_buf, ":");
-		else
-			dcs_buf[dcs_buf_pos - 1] = ':';
-
 		/* Interpret response according to the color level currently being queried. */
 		switch (cli_term.decrqss_color) {
 			case TERM_COLOR_24BIT:
 				cli_input_log("CLI Input: DECRQSS response for 24-bit color: %s\n", dcs_buf);
-				if (strstr(dcs_buf, ":2:1:2:3:")) {
+				if (cli_input_response_strstr(dcs_buf, ":2:1:2:3:")) {
 					/* 24-bit color supported. */
-					cli_term_setcolor(TERM_COLOR_24BIT);
+					cli_term_setcolor(TERM_COLOR_24BIT, "DECRQSS");
 				} else if (cli_term.color_level < TERM_COLOR_8BIT) {
-					/* Try 8-bit color if needed. */
+					/* Try 8-bit color if we don't explicitly know it's supported. */
 					cli_term.decrqss_color = TERM_COLOR_8BIT;
 					cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR, "\033[38;5;255m\033P$qm\033\\\033[0m");
 					break;
@@ -624,11 +650,11 @@ cli_input_unhook(int c)
 
 			case TERM_COLOR_8BIT:
 				cli_input_log("CLI Input: DECRQSS response for 8-bit color: %s\n", dcs_buf);
-				if (strstr(dcs_buf, ":5:255:")) {
+				if (cli_input_response_strstr(dcs_buf, ":5:255:")) {
 					/* 8-bit color supported. */
-					cli_term_setcolor(TERM_COLOR_8BIT);
+					cli_term_setcolor(TERM_COLOR_8BIT, "DECRQSS");
 				} else if (cli_term.color_level < TERM_COLOR_4BIT) {
-					/* Try 4-bit color if needed. */
+					/* Try 4-bit color if we don't explicitly know it's supported. */
 					cli_term.decrqss_color = TERM_COLOR_4BIT;
 					cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR, "\033[97m\033P$qm\033\\\033[0m");
 					break;
@@ -638,9 +664,9 @@ cli_input_unhook(int c)
 
 			case TERM_COLOR_4BIT:
 				cli_input_log("CLI Input: DECRQSS response for 4-bit color: %s\n", dcs_buf);
-				if (strstr(dcs_buf, ":97:")) {
+				if (cli_input_response_strstr(dcs_buf, ":97:")) {
 					/* 4-bit color supported. */
-					cli_term_setcolor(TERM_COLOR_4BIT);
+					cli_term_setcolor(TERM_COLOR_4BIT, "DECRQSS");
 				}
 				cli_term.decrqss_color = TERM_COLOR_NONE;
 				break;

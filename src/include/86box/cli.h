@@ -29,15 +29,15 @@
 
 enum {
     /* No color capability. */
-    TERM_COLOR_NONE = 0x00,
+    TERM_COLOR_NONE	= 0,
     /* 8 ANSI colors. */
-    TERM_COLOR_3BIT	= 0x01,
+    TERM_COLOR_3BIT	= 3,
     /* 8 ANSI colors in dark and bright variants. */
-    TERM_COLOR_4BIT	= TERM_COLOR_3BIT | 0x02,
+    TERM_COLOR_4BIT	= 4,
     /* xterm 256-color palette. */
-    TERM_COLOR_8BIT	= TERM_COLOR_4BIT | 0x04,
+    TERM_COLOR_8BIT	= 8,
     /* True color with arbitrary RGB values. */
-    TERM_COLOR_24BIT	= TERM_COLOR_8BIT | 0x08
+    TERM_COLOR_24BIT	= 24
 };
 
 enum {
@@ -62,13 +62,14 @@ enum {
 enum {
     RENDER_SIDEBAND_CPR_SIZE = 0,
     RENDER_SIDEBAND_CPR_UTF8,
+    RENDER_SIDEBAND_SDA,
     RENDER_SIDEBAND_DECRQSS_COLOR,
     RENDER_SIDEBAND_MAX
 };
 
 typedef struct {
     uint8_t	color_level, ctl_level, gfx_level,
-		can_input, can_utf8, cpr, decrqss_color,
+		can_input, can_utf8, cpr, sda, decrqss_color,
 		size_x, size_y;
 
     int		(*setcolor)(char *p, uint8_t index, uint8_t is_background);
@@ -86,7 +87,7 @@ extern volatile int cli_blit;
 
 
 /* cli.c */
-extern void	cli_term_setcolor(uint8_t level);
+extern void	cli_term_setcolor(uint8_t level, char *source);
 extern void	cli_term_setsize(int size_x, int size_y, char *source);
 
 extern void	cli_init();
