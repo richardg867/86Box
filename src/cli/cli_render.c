@@ -1201,7 +1201,7 @@ next:			cli_render_updateline(p, render_data.y, 1, new_cx, new_cy);
 				if (!render_data.blit_fb || !render_data.blit_lines)
 					break;
 
-				/* Encode using libsixel instead if available. */
+				/* Render using libsixel instead if available. */
 				if (libsixel_dither) {
 					i = sixel_encode(render_data.blit_fb,
 							 render_data.blit_sx, render_data.blit_sy, 24,
@@ -1371,7 +1371,7 @@ cli_render_init()
 	if (sixel_output_new && sixel_encode)
 		sixel_output_new(&libsixel_output, cli_render_process_sixelwrite, CLI_RENDER_OUTPUT, NULL);
 	else
-		sixel_dither_get = NULL; /* disable libsixel if we somehow don't have sixel_output_new */
+		sixel_dither_get = NULL; /* disable libsixel if we're somehow missing functions */
     } else {
 	cli_render_log("CLI Render: libsixel not loaded\n");
     }

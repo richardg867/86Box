@@ -433,6 +433,47 @@ cli_input_unraw()
 }
 
 
+static int
+cli_input_response_strstr(char *response, const char *cmp)
+{
+    /* Allocate a local buffer. */
+    int len = strlen(response);
+    if (!len)
+	return -1;
+    char *response_cleaned = malloc(len + 2),
+	 *p = response_cleaned, ch;
+
+    /* Copy response while removing double colons. */
+    for (int i = 0; i < len; i++) {
+	ch = response[i];
+	if ((ch >= ':') && (ch <= '?')) {
+		if ((p != response_cleaned) && (*(p - 1) != ':'))
+			*p++ = ':';
+	} else {
+		*p++ = ch;
+	}
+    }
+
+    /* Replace non-numeric first character with a colon. */
+    ch = response_cleaned[0];
+    if ((ch < '0') || (ch > '9'))
+	response_cleaned[0] = ':';
+
+    /* Add or replace last character with a colon. */
+    ch = *(p - 1);
+    if ((ch >= '0') && (ch <= '9'))
+	*p++ = ':';
+    else
+	*(p - 1) = ':';
+    *p = '\0';
+
+    /* Perform comparison. */
+    p = strstr(response_cleaned, cmp);
+    free(response_cleaned);
+    return !!p;
+}
+
+
 static void
 cli_input_clear(int c)
 {
@@ -465,7 +506,7 @@ cli_input_csi_dispatch(int c)
 	return;
 
     /* Read numeric code and modifier parameters if applicable. */
-    int code = 0, modifier = 0;
+    int code, modifier;
     char delimiter;
     switch (sscanf(param_buf, "%d%c%d", &code, &delimiter, &modifier)) {
 	case EOF:
@@ -486,13 +527,37 @@ cli_input_csi_dispatch(int c)
 		/* If we're exactly one character in, we can assume the
 		   terminal has interpreted our UTF-8 sequence as UTF-8. */
 		cli_term.can_utf8 = modifier == 2;
-		cli_input_log("CLI Input: CPR probe reports%sUTF-8 support\n", cli_term.can_utf8 ? " " : " no ");
+		cli_input_log("CLI Input: CPR probe reports%sUTF-8\n", cli_term.can_utf8 ? " " : " no ");
 	} else {
 		cli_term.cpr &= ~1;
 
 		/* Set 0-based terminal size to the current 1-based cursor position. */
 		cli_term_setsize(modifier, code, "CPR");
 	}
+	return;
+    }
+
+    /* Determine if this is actually a device attribute query response. */
+    if (cli_term.sda && (c == 'c') && (collect_buf[0] == '?')) {
+	cli_input_log("CLI Input: Attributes[%d] report:", cli_term.sda);
+	if (cli_term.sda == 1) { /* primary attributes */
+		/* Enable sixel graphics if supported. */
+		modifier = cli_input_response_strstr(param_buf, ":4:");
+		cli_input_log("%ssixel,", modifier ? " " : " no ");
+		if (modifier)
+			cli_term.gfx_level |= TERM_GFX_SIXEL;
+		else
+			cli_term.gfx_level &= ~TERM_GFX_SIXEL;
+
+		/* Enable 16-bit color if supported. */
+		modifier = cli_input_response_strstr(param_buf, ":22:");
+		cli_input_log("%scolor\n", modifier ? " " : " no ");
+		if ((cli_term.color_level < TERM_COLOR_4BIT) && modifier)
+			cli_term_setcolor(TERM_COLOR_4BIT, "attributes");
+	} else {
+		cli_input_log("nothing we care about\n");
+	}
+	cli_term.sda = 0;
 	return;
     }
 
@@ -585,44 +650,6 @@ cli_input_put(int c)
 }
 
 
-static int
-cli_input_response_strstr(char *response, const char *cmp)
-{
-    /* Allocate a local buffer. */
-    int len = strlen(response);
-    if (!len)
-	return -1;
-    char *response_cleaned = malloc(len + 2),
-	 *p = response_cleaned, ch;
-
-    /* Copy response while removing double colons. */
-    for (int i = 0; i < len; i++) {
-	ch = response[i];
-	if ((ch >= ':') && (ch <= '?')) {
-		if ((p != response_cleaned) && (*(p - 1) != ':'))
-			*p++ = ':';
-	} else {
-		*p++ = ch;
-	}
-    }
-
-    /* Add or replace last character with a colon. */
-    ch = *(p - 1);
-    if ((ch >= '0') && (ch <= '9'))
-	*p++ = ':';
-    else
-	*(p - 1) = ':';
-    *p = '\0';
-
-    /* Perform comparison. */
-    p = strstr(response_cleaned, cmp);
-    cli_input_log("CLI Input: response_strstr(%s, %s) = %s = %d\n",
-		  response, cmp, response_cleaned, !!p);
-    free(response_cleaned);
-    return !!p;
-}
-
-
 static void
 cli_input_unhook(int c)
 {
@@ -630,12 +657,13 @@ cli_input_unhook(int c)
 
     /* Process DECRQSS. */
     if ((collect_buf[0] == '$') && (dcs_buf[0] == 'r')) {
+    	cli_input_log("CLI Input: DECRQSS response: %s\n", dcs_buf);
+
 	/* Interpret color-related responses. */
 	if (cli_term.decrqss_color) {
 		/* Interpret response according to the color level currently being queried. */
 		switch (cli_term.decrqss_color) {
 			case TERM_COLOR_24BIT:
-				cli_input_log("CLI Input: DECRQSS response for 24-bit color: %s\n", dcs_buf);
 				if (cli_input_response_strstr(dcs_buf, ":2:1:2:3:")) {
 					/* 24-bit color supported. */
 					cli_term_setcolor(TERM_COLOR_24BIT, "DECRQSS");
@@ -649,7 +677,6 @@ cli_input_unhook(int c)
 				break;
 
 			case TERM_COLOR_8BIT:
-				cli_input_log("CLI Input: DECRQSS response for 8-bit color: %s\n", dcs_buf);
 				if (cli_input_response_strstr(dcs_buf, ":5:255:")) {
 					/* 8-bit color supported. */
 					cli_term_setcolor(TERM_COLOR_8BIT, "DECRQSS");
@@ -663,7 +690,6 @@ cli_input_unhook(int c)
 				break;
 
 			case TERM_COLOR_4BIT:
-				cli_input_log("CLI Input: DECRQSS response for 4-bit color: %s\n", dcs_buf);
 				if (cli_input_response_strstr(dcs_buf, ":97:")) {
 					/* 4-bit color supported. */
 					cli_term_setcolor(TERM_COLOR_4BIT, "DECRQSS");

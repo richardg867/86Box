@@ -56,12 +56,14 @@ static const struct {
     {"xterm-24bit",	TERM_COLOR_24BIT, 0, 0}, /* non-standard value not in terminfo database */
     {"xterm-24bits",	TERM_COLOR_24BIT, 0, 0}, /* same as above */
     {"putty",		TERM_COLOR_8BIT,  0, 0},
-    {"xterm",		TERM_COLOR_8BIT,  0, TERM_GFX_SIXEL}, /* DECRQSS query unlocks 24-bit if available */
-    {"xterm-256color",	TERM_COLOR_8BIT,  0, TERM_GFX_SIXEL}, /* same as above */
-    {"xterm-16color",	TERM_COLOR_4BIT,  0, TERM_GFX_SIXEL},
+    {"xterm",		TERM_COLOR_8BIT,  0, 0}, /* queries unlock additional color and sixel if available */
+    {"xterm-256color",	TERM_COLOR_8BIT,  0, 0}, /* same as above */
+    {"xterm-16color",	TERM_COLOR_4BIT,  0, 0}, /* same as above */
+    {"vt340",		TERM_COLOR_4BIT,  0, TERM_GFX_SIXEL},
     {"vt100",		TERM_COLOR_NONE,  0, 0},
-    {"vt220",		TERM_COLOR_NONE,  0, 0},
     {"vt240",		TERM_COLOR_NONE,  0, TERM_GFX_SIXEL},
+    {"vt241",		TERM_COLOR_NONE,  0, TERM_GFX_SIXEL},
+    {"vt330",		TERM_COLOR_NONE,  0, TERM_GFX_SIXEL},
     {NULL,		TERM_COLOR_3BIT,  0, 0} /* unknown terminal */
 };
 
