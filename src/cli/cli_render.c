@@ -278,7 +278,7 @@ cli_render_gfx_blit(bitmap_t *bitmap, int x, int y, int w, int h)
     if (!render_data.blit_lines)
 	render_data.blit_lines = malloc(sizeof(png_bytep) * CLI_RENDER_GFXBUF_H);
 
-    /* Blit to the image rendering buffer. */
+    /* Blit lines to the image rendering buffer. */
     uint8_t *p = render_data.blit_fb;
     uint32_t *q, temp;
     for (int dy = 0; dy < h; dy++) {
