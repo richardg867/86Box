@@ -879,41 +879,45 @@ cli_render_process(void *priv)
 				if (cli_term.can_utf8)
 					p += sprintf(p, "%s", cp437[0xba]);
 				else
-					*p++ = '|';
+					p += sprintf(p, "\033(0\x78\033(B");
 				w = sprintf(p, render_data.infobox, render_data.infobox_sx, render_data.infobox_sy);
 				p += w;
-				if (cli_term.can_utf8) {
+				if (cli_term.can_utf8)
 					sprintf(p, "%s", cp437[0xba]);
-				} else {
-					*p++ = '|';
-					*p = '\0';
-				}
+				else
+					sprintf(p, "\033(0\x78\033(B");
 				cli_render_updateline(buf, 1, 0, -1, -1);
 
-				p = buf + 8;
+				/* Render top line. */
 				if (cli_term.can_utf8) {
-					/* Render top line. */
+					p = buf + 8;
 					p += sprintf(p, "%s", cp437[0xc9]);
 					for (i = 0; i < w; i++)
 						p += sprintf(p, "%s", cp437[0xcd]);
 					sprintf(p, "%s", cp437[0xbb]);
-					cli_render_updateline(buf, 0, 0, -1, -1);
+				} else {
+					p = buf + 11;
+					*p++ = '\x6C';
+					for (i = 0; i < w; i++)
+						*p++ = '\x71';
+					sprintf(p, "\x6B\033(B");
+				}
+				cli_render_updateline(buf, 0, 0, -1, -1);
 
-					/* Render bottom line. */
+				/* Render bottom line. */
+				if (cli_term.can_utf8) {
 					p = buf + 8;
 					memcpy(p, cp437[0xc8], 3);
-					memcpy(p + 3 + (3 * w), cp437[0xbc], 3);
-					cli_render_updateline(buf, 2, 0, -1, -1);
+					p += 3;
+					p += 3 * w;
+					memcpy(p, cp437[0xbc], 3);
 				} else {
-					/* Render top and bottom lines, which are identical in ASCII mode. */
-					*p++ = '+';
-					memset(p, '-', w);
+					p = buf + 11;
+					*p++ = '\x6D';
 					p += w;
-					*p++ = '+';
-					*p = '\0';
-					cli_render_updateline(buf, 0, 0, -1, -1);
-					cli_render_updateline(buf, 2, 0, -1, -1);
+					*p = '\x6A';
 				}
+				cli_render_updateline(buf, 2, 0, -1, -1);
 
 				i = 3;
 			} else {
