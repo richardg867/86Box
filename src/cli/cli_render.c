@@ -405,7 +405,7 @@ cli_render_write_title(wchar_t *s)
     int len = wcslen(s);
     len = MIN(len, sizeof(render_data.title) - 1);
     render_data.title[len] = '\0'; /* avoid potential race conditions leading to unbounded strings */
-    //wcsncpy(render_data.title, s, len);
+    wcsncpy(render_data.title, s, len);
 
     thread_set_event(render_data.wake_render_thread);
 }
