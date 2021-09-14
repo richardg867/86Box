@@ -258,21 +258,26 @@ cli_init()
 
     /* Determine this terminal's type. */
     int id = cli_term_gettypeid(getenv("TERM_PROGRAM"));
-    if (id == -1) {
+    if (id < 0) {
 	id = cli_term_gettypeid(getenv("TERM"));
 #ifdef _WIN32
 	/* Assume an unknown terminal on Windows to be cmd. */
-	if (id == -1) {
+	if (id < 0) {
 		/* Account for cmd's more generous default sizes. */
 		if (IsWindows10OrGreater()) {
-			id = 1;
-			cli_term.size_x = 100;
+cmd_nt10:		id = 1;
+			cli_term.size_x = 120;
 			cli_term.size_y = 30;
 		} else {
 			id = 0;
 			cli_term.size_x = 80;
 			cli_term.size_y = 25;
 		}
+	} else if (!strcmp(term_types[id].name, "xterm")) {
+		/* Windows Terminal pretends it is xterm. Treat it as Windows 10 cmd if
+		   its presence is detected through the session GUID environment variable. */
+		if (IsWindows10OrGreater() && getenv("WT_SESSION"))
+			goto cmd_nt10;
 	}
 #endif
     }
