@@ -74,6 +74,11 @@ cli_monitor_parsebool(char *arg)
 static int
 cli_monitor_parsefile(char *path, int wp)
 {
+    if (strlen(path) >= PATH_MAX) {
+	fprintf(CLI_RENDER_OUTPUT, "File path too long.\n");
+	return -3;
+    }
+
     FILE *f = fopen(path, "rb");
     if (f) {
 	fclose(f);
