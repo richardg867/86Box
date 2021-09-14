@@ -265,9 +265,10 @@ cli_monitor_screenshot_hook(char *path)
 		int read;
 		uint8_t buf[3072];
 
+		/* Render PNG. */
 		if (cli_term.gfx_level & TERM_GFX_PNG) {
 			/* Output header. */
-			fprintf(CLI_RENDER_OUTPUT, "\033]1337;File=name=");
+			fputs("\033]1337;File=name=", CLI_RENDER_OUTPUT);
 			path = plat_get_basename((const char *) path);
 			cli_render_process_base64((uint8_t *) path, strlen(path));
 			fseek(f, 0, SEEK_END);
@@ -291,7 +292,7 @@ cli_monitor_screenshot_hook(char *path)
 					i = 0;
 					fputs("a=T,f=100,q=1,", CLI_RENDER_OUTPUT);
 				}
-				fprintf(CLI_RENDER_OUTPUT, "m=%d;", !!feof(f));
+				fprintf(CLI_RENDER_OUTPUT, "m=%d;", !feof(f));
 
 				/* Output chunk data as base64. */
 				cli_render_process_base64(buf, read);
@@ -300,6 +301,10 @@ cli_monitor_screenshot_hook(char *path)
 				fputs("\033\\", CLI_RENDER_OUTPUT);
 			}
 		}
+
+		/* Finish and flush output. */
+		fputc('\n', CLI_RENDER_OUTPUT);
+		fflush(CLI_RENDER_OUTPUT);
 
 		fclose(f);
 	}
@@ -319,7 +324,15 @@ cli_monitor_screenshot(int argc, char **argv, const void *priv)
     screenshot_hook = cli_monitor_screenshot_hook;
 
     /* Take screenshot. */
+#ifdef _WIN32 /* temporary, while unix take_screenshot is not implemented */
     take_screenshot();
+#else
+    startblit();
+    screenshots++;
+    endblit();
+# include <86box/device.h>
+    device_force_redraw();
+#endif
 
     /* Wait for the hook. */
     thread_wait_event(screenshot_event, -1);
