@@ -27,6 +27,9 @@
 #include <wchar.h>
 #ifdef _WIN32
 # include <windows.h>
+# include <fcntl.h>
+#else
+# include <unistd.h>
 #endif
 #define HAVE_STDARG_H
 #include <86box/86box.h>
@@ -146,12 +149,14 @@ static int	(LIBSIXELDLLAPI *sixel_output_new)(void **output,
 static void	(LIBSIXELDLLAPI *sixel_output_destroy)(void *output);
 static int	(LIBSIXELDLLAPI *sixel_encode)(unsigned char *pixels, int width, int height,
 					       int depth, void *dither, void *context);
+static int	(LIBSIXELDLLAPI *sixel_encoder_encode)(void *encoder, const char *filename);
 
 static dllimp_t libsixel_imports[] = {
     { "sixel_dither_get",	&sixel_dither_get	},
     { "sixel_output_new",	&sixel_output_new	},
     { "sixel_output_destroy",	&sixel_output_destroy	},
     { "sixel_encode",		&sixel_encode		},
+    { "sixel_encoder_encode",	&sixel_encoder_encode	},
     { NULL,			NULL			}
 };
 static void	*libsixel_handle = NULL,
@@ -936,6 +941,24 @@ have_color:		color_entry->sixmap[x] |= 1 << i;
 
     /* Finish sixel output. */
     fputs("\033\\", CLI_RENDER_OUTPUT);
+}
+
+
+void
+cli_render_process_sixel_png(char *fn)
+{
+    /* This requires libsixel. */
+    if (!sixel_encoder_encode)
+	return;
+
+    /* Check if stdout is not redirected, because libsixel's weird API
+       does not provide a way to change the encoder object's output fd... */
+    if (!isatty(fileno(stdout)))
+	return;
+
+    /* Render image and flush stdout. */
+    sixel_encoder_encode(NULL, (const char *) fn);
+    fflush(stdout);
 }
 
 

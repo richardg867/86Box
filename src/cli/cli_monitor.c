@@ -308,6 +308,8 @@ cli_monitor_screenshot_hook(char *path)
 
 		fclose(f);
 	}
+    } else if (cli_term.gfx_level & TERM_GFX_SIXEL) {
+	cli_render_process_sixel_png(path);
     }
 #endif
 
