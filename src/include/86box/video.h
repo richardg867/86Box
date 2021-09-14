@@ -84,6 +84,7 @@ typedef rgb_t PALETTE[256];
 extern int	changeframecount;
 
 extern volatile int screenshots;
+extern void	(*screenshot_hook)(char *path);
 extern bitmap_t	*buffer32;
 extern PALETTE	cgapal,
 		cgapal_mono[6];

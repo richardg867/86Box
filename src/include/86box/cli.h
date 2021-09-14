@@ -125,6 +125,8 @@ extern void	cli_render_setcolorlevel();
 extern void	cli_render_setpal(uint8_t index, uint32_t color);
 extern void	cli_render_updatescreen();
 
+extern void	cli_render_process_base64(uint8_t *buf, int len);
+
 extern void	cli_render_init();
 extern void	cli_render_close();
 #endif

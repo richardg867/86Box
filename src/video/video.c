@@ -77,6 +77,7 @@ volatile int	screenshots = 0;
 #ifdef USE_CLI
 int		cli_blit = 0;
 #endif
+void		(*screenshot_hook)(char *path) = NULL;
 bitmap_t	*buffer32 = NULL;
 uint8_t		fontdat[2048][8];		/* IBM CGA font */
 uint8_t		fontdatm[2048][16];		/* IBM MDA font */
@@ -414,6 +415,8 @@ video_screenshot(void)
 
     video_take_screenshot((const char *) path);
     png_destroy_write_struct(&png_ptr, &info_ptr);
+    if (screenshot_hook)
+	screenshot_hook(path);
 }
 
 

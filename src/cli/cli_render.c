@@ -709,7 +709,7 @@ cli_render_updatescreen()
 }
 
 
-static void
+void
 cli_render_process_base64(uint8_t *buf, int len)
 {
     char output_buf[257], *p = output_buf,
