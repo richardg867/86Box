@@ -224,7 +224,7 @@ cli_render_blank()
     thread_set_event(render_data.wake_render_thread);
 }
 
-
+int gx = 0;
 void
 cli_render_gfx(char *str)
 {
@@ -242,17 +242,16 @@ cli_render_gfx(char *str)
 		gfx_last = 0;
 	}
 
-	/* Render image if we have valid image data and it's time. */
-	if ((cli_blit == 2) && (time(NULL) - gfx_last)) { /* render at 1 fps */
-		thread_wait_event(render_data.render_complete, -1);
-		thread_reset_event(render_data.render_complete);
+	/* Render image if we have valid data. */
+	if (cli_blit == 2) {
+		if (render_data.mode != CLI_RENDER_GFX) {
+			thread_wait_event(render_data.render_complete, -1);
+			thread_reset_event(render_data.render_complete);
+		}
 
 		render_data.mode = CLI_RENDER_GFX;
 
 		thread_set_event(render_data.wake_render_thread);
-
-		/* Update last render time to keep track of framerate. */
-		gfx_last = time(NULL);
 	}
 
 	return;
@@ -406,7 +405,7 @@ cli_render_write_title(wchar_t *s)
     int len = wcslen(s);
     len = MIN(len, sizeof(render_data.title) - 1);
     render_data.title[len] = '\0'; /* avoid potential race conditions leading to unbounded strings */
-    wcsncpy(render_data.title, s, len);
+    //wcsncpy(render_data.title, s, len);
 
     thread_set_event(render_data.wake_render_thread);
 }
@@ -1146,6 +1145,10 @@ next:			cli_render_updateline(p, render_data.y, 1, new_cx, new_cy);
 			break;
 
 		case CLI_RENDER_GFX:
+			/* Make sure we have a framebuffer, and it's time to render. */
+			if (!render_data.blit_fb || !render_data.blit_lines || !(time(NULL) - gfx_last)) /* render at ~1 fps minus rendering time */
+				break;
+
 			/* Reset formatting and move cursor to top left corner. */
 			sprintf(cli_render_clearbg(buf), "\033[1;1H");
 			fputs(buf, CLI_RENDER_OUTPUT);
@@ -1214,10 +1217,6 @@ next:			cli_render_updateline(p, render_data.y, 1, new_cx, new_cy);
 					}
 				}
 			} else if (cli_term.gfx_level & TERM_GFX_SIXEL) {
-				/* Make sure we have a framebuffer. */
-				if (!render_data.blit_fb || !render_data.blit_lines)
-					break;
-
 				/* Render using libsixel instead if available. */
 				if (libsixel_dither) {
 					i = sixel_encode(render_data.blit_fb,
@@ -1369,6 +1368,9 @@ have_color:						color_entry->sixmap[x] |= 1 << i;
 
 			/* Flush output. */
 gfx_end:		fflush(CLI_RENDER_OUTPUT);
+
+			/* Update render time to keep track of framerate. */
+			gfx_last = time(NULL);
 			break;
 	}
     }
