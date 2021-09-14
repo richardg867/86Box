@@ -16,6 +16,7 @@
  *		Copyright 2021 Cacodemon345.
  *		Copyright 2021 RichardG.
  */
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,6 +29,7 @@
 # include <unistd.h>
 #endif
 #include <86box/86box.h>
+#include <86box/version.h>
 #include <86box/config.h>
 #include <86box/plat.h>
 #include <86box/cli.h>
@@ -43,7 +45,6 @@
 extern int	fullscreen_pending; /* ugly hack */
 #endif
 
-static char	*xargv[512];
 static int	first_run = 1;
 
 static char	*(*f_readline)(const char*) = NULL;
@@ -51,62 +52,402 @@ static int	(*f_add_history)(const char *) = NULL;
 static void	(*f_rl_callback_handler_remove)(void) = NULL;
 
 
-/* From musl. */
-static char *
-local_strsep(char **str, const char *sep)
+typedef struct {
+    void	*func;
+    int		ndrives;
+    const char	*drive;
+} media_cmd_t;
+
+
+static int
+cli_monitor_parsebool(char *arg)
 {
-    char *s = *str, *end;
-    if (!s)
-	return NULL;
-
-    end = s + strcspn(s, sep);
-    if (*end)
-	*end++ = 0;
-    else
-	end = 0;
-    *str = end;
-
-    return s;
+    char ch = arg[0];
+    if ((ch == 'o') || (ch == 'O')) {
+	ch = arg[1];
+	return (ch == 'n') || (ch == 'N');
+    }
+    return (ch == '1') || (ch == 'y') || (ch == 'Y') || (ch == 't') || (ch == 'T');
 }
 
 
-static uint8_t
-process_media_commands_3(uint8_t *id, char *fn, uint8_t *wp, int cmdargc)
+static int
+cli_monitor_parsefile(char *path, int wp)
 {
-    uint8_t err = 0;
-    *id = atoi(xargv[1]);
-
-    if (xargv[2][0] == '\'' || xargv[2][0] == '"') {
-	int curarg = 2;
-	for (curarg = 2; curarg < cmdargc; curarg++) {
-		if (strlen(fn) + strlen(xargv[curarg]) >= PATH_MAX) {
-			err = 1;
-			fprintf(CLI_RENDER_OUTPUT, "Path name too long.\n");
+    FILE *f = fopen(path, "rb");
+    if (f) {
+	fclose(f);
+	if (!wp) {
+		f = fopen(path, "ab");
+		if (f) {
+			fclose(f);
+		} else {
+			if (errno == EPERM)
+				fprintf(CLI_RENDER_OUTPUT, "No permission to write file, enabling write protection.\n");
+			else
+				fprintf(CLI_RENDER_OUTPUT, "File is read-only, enabling write protection.\n");	
+			wp = 1;
 		}
-
-		strcat(fn, xargv[curarg] + (xargv[curarg][0] == '\'' || xargv[curarg][0] == '"'));
-		if (fn[strlen(fn) - 1] == '\'' ||
-			fn[strlen(fn) - 1] == '"') {
-			if (curarg + 1 < cmdargc)
-				*wp = atoi(xargv[curarg + 1]);
-			break;
-		}
-		strcat(fn, " ");
 	}
+	return wp;
+    } else if (errno == EPERM) {
+	fprintf(CLI_RENDER_OUTPUT, "No permission to read file: %s\n", path);
+	return -2;
     } else {
-	if (strlen(xargv[2]) < PATH_MAX) {
-		strcpy(fn, xargv[2]);
-		*wp = atoi(xargv[3]);
-	} else {
-		fprintf(CLI_RENDER_OUTPUT, "Path name too long.\n");
-		err = 1;
+	fprintf(CLI_RENDER_OUTPUT, "File not found: %s\n", path);
+	return -1;
+    }
+}
+
+
+static int
+cli_monitor_parsemediaid(media_cmd_t *cmd, char *id_s)
+{
+    int id;
+    if ((sscanf(id_s, "%d", &id) != 1) ||
+	(id < 0) || (id >= cmd->ndrives)) {
+	fprintf(CLI_RENDER_OUTPUT, "Invalid %s ID, expected 0-%d.\n", cmd->drive, cmd->ndrives);
+	return -1;
+    }
+    return id;
+}
+
+
+static void
+cli_monitor_mediaload(int argc, char **argv, const void *priv)
+{
+    /* Read media command information. */
+    media_cmd_t *cmd = (media_cmd_t *) priv;
+    void (*mount_func)(uint8_t id, char *fn, uint8_t wp) = cmd->func;
+
+    /* Read and validate ID. */
+    int id = cli_monitor_parsemediaid(cmd, argv[1]);
+    if (id < 0)
+	return;
+
+    /* Read write protect flag. */
+    int wp = (argc >= 3) && cli_monitor_parsebool(argv[3]);
+
+    /* Validate file path. */
+    wp = cli_monitor_parsefile(argv[2], wp);
+    if (wp < 0)
+	return;
+
+    /* Provide feedback. */
+    fprintf(CLI_RENDER_OUTPUT, "Inserting%simage into %s %d: %s\n",
+	    (wp ? " write-protected " : " "),
+	    cmd->drive, id,
+	    argv[2]);
+
+    /* Call mount function. */
+    mount_func(id, argv[2], wp);
+}
+
+
+static void
+cli_monitor_mediaload_nowp(int argc, char **argv, const void *priv)
+{
+    /* Read media command information. */
+    media_cmd_t *cmd = (media_cmd_t *) priv;
+    void (*mount_func)(uint8_t id, char *fn) = cmd->func;
+
+    /* Read and validate ID. */
+    int id = cli_monitor_parsemediaid(cmd, argv[1]);
+    if (id < 0)
+	return;
+
+    /* Validate file path. */
+    if (cli_monitor_parsefile(argv[2], 1) < 0)
+	return;
+
+    /* Provide feedback. */
+    fprintf(CLI_RENDER_OUTPUT, "Inserting image into %s %d: %s\n",
+	    cmd->drive, id, argv[2]);
+
+    /* Call mount function. */
+    mount_func(id, argv[2]);
+}
+
+
+static void
+cli_monitor_mediaeject(int argc, char **argv, const void *priv)
+{
+    /* Read media command information. */
+    media_cmd_t *cmd = (media_cmd_t *) priv;
+    void (*eject_func)(uint8_t id) = cmd->func;
+
+    /* Read and validate ID. */
+    int id = cli_monitor_parsemediaid(cmd, argv[1]);
+    if (id < 0)
+	return;
+
+    /* Provide feedback. */
+    fprintf(CLI_RENDER_OUTPUT, "Ejecting image from %s %d.\n",
+	    cmd->drive, id);
+
+    /* Call eject function. */
+    eject_func(id);
+}
+
+
+static void
+cli_monitor_mediaeject_mountblank_nowp(int argc, char **argv, const void *priv)
+{
+    /* Read media command information. */
+    media_cmd_t *cmd = (media_cmd_t *) priv;
+    void (*mount_func)(uint8_t id, char *fn) = cmd->func;
+
+    /* Read and validate ID. */
+    int id = cli_monitor_parsemediaid(cmd, argv[1]);
+    if (id < 0)
+	return;
+
+    /* Provide feedback. */
+    fprintf(CLI_RENDER_OUTPUT, "Ejecting image from %s %d.\n",
+	    cmd->drive, id);
+
+    /* Call eject function. */
+    mount_func(id, "");
+}
+
+
+static void	cli_monitor_help(int argc, char **argv, const void *priv);
+
+
+static void
+cli_monitor_hardreset(int argc, char **argv, const void *priv)
+{
+    fprintf(CLI_RENDER_OUTPUT, "Hard resetting emulated machine.\n");
+    pc_reset_hard();
+}
+
+
+static void
+cli_monitor_pause(int argc, char **argv, const void *priv)
+{
+    plat_pause(dopause ^ 1);
+    fprintf(CLI_RENDER_OUTPUT, "Emulated machine %saused.\n", dopause ? "p" : "unp");
+}
+
+
+static void
+cli_monitor_fullscreen(int argc, char **argv, const void *priv)
+{
+    video_fullscreen ^= 1;
+#ifndef _WIN32
+    fullscreen_pending = 1;
+#endif
+    fprintf(CLI_RENDER_OUTPUT, "Fullscreen mode %s.\n", video_fullscreen ? "entered" : "exited");
+}
+
+
+static void
+cli_monitor_exit(int argc, char **argv, const void *priv)
+{
+    fprintf(CLI_RENDER_OUTPUT, "Exiting.\n");
+    do_stop();
+}
+
+
+enum {
+    MONITOR_CATEGORY_MEDIALOAD = 0,
+    MONITOR_CATEGORY_MEDIAEJECT,
+    MONITOR_CATEGORY_EMULATOR
+};
+
+static const struct {
+    const char	*name, *helptext, **args;
+    int		args_min, args_max, exit, category;
+    void	(*handler)(int argc, char **argv, const void *priv);
+    const void	*priv;
+} commands[] = {
+    {
+	.name = "fddload",
+	.helptext = "Load floppy disk image into drive <id>.",
+	.args = (const char*[]) { "id", "filename", "writeprotect" },
+	.args_min = 2, .args_max = 3,
+	.category = MONITOR_CATEGORY_MEDIALOAD,
+	.handler = cli_monitor_mediaload,
+	.priv = (const media_cmd_t[]) { [0] = { floppy_mount, 4, "floppy drive" } }
+    }, {
+	.name = "cdload",
+	.helptext = "Load CD-ROM image into drive <id>.",
+	.args = (const char*[]) { "id", "filename" },
+	.args_min = 2, .args_max = 2,
+	.category = MONITOR_CATEGORY_MEDIALOAD,
+	.handler = cli_monitor_mediaload_nowp,
+	.priv = (const media_cmd_t[]) { [0] = { cdrom_mount, 4, "CD-ROM drive" } }
+    }, {
+	.name = "zipload",
+	.helptext = "Load ZIP disk image into drive <id>.",
+	.args = (const char*[]) { "id", "filename", "writeprotect" },
+	.args_min = 2, .args_max = 3,
+	.category = MONITOR_CATEGORY_MEDIALOAD,
+	.handler = cli_monitor_mediaload,
+	.priv = (const media_cmd_t[]) { [0] = { zip_mount, 4, "ZIP drive" } }
+    }, {
+	.name = "moload",
+	.helptext = "Load MO disk image into drive <id>.",
+	.args = (const char*[]) { "id", "filename", "writeprotect" },
+	.args_min = 2, .args_max = 3,
+	.category = MONITOR_CATEGORY_MEDIALOAD,
+	.handler = cli_monitor_mediaload,
+	.priv = (const media_cmd_t[]) { [0] = { mo_mount, 4, "MO drive" } }
+    }, {
+	.name = "cartload",
+	.helptext = "Load cartridge image into slot <id>.",
+	.args = (const char*[]) { "id", "filename", "writeprotect" },
+	.args_min = 2, .args_max = 3,
+	.category = MONITOR_CATEGORY_MEDIALOAD,
+	.handler = cli_monitor_mediaload,
+	.priv = (const media_cmd_t[]) { [0] = { cartridge_mount, 2, "cartridge slot" } }
+    },
+
+    {
+	.name = "fddeject",
+	.helptext = "Eject disk from floppy drive <id>.",
+	.args = (const char*[]) { "id" },
+	.args_min = 1, .args_max = 1,
+	.category = MONITOR_CATEGORY_MEDIAEJECT,
+	.handler = cli_monitor_mediaeject,
+	.priv = (const media_cmd_t[]) { [0] = { floppy_eject, 4, "floppy drive" } }
+    }, {
+	.name = "cdeject",
+	.helptext = "Eject disc from CD-ROM drive <id>.",
+	.args = (const char*[]) { "id" },
+	.args_min = 1, .args_max = 1,
+	.category = MONITOR_CATEGORY_MEDIAEJECT,
+	.handler = cli_monitor_mediaeject_mountblank_nowp,
+	.priv = (const media_cmd_t[]) { [0] = { cdrom_mount, 4, "CD-ROM drive" } }
+    }, {
+	.name = "zipeject",
+	.helptext = "Eject disk from ZIP drive <id>.",
+	.args = (const char*[]) { "id" },
+	.args_min = 1, .args_max = 1,
+	.category = MONITOR_CATEGORY_MEDIAEJECT,
+	.handler = cli_monitor_mediaeject,
+	.priv = (const media_cmd_t[]) { [0] = { zip_eject, 4, "ZIP drive" } }
+    }, {
+	.name = "moeject",
+	.helptext = "Eject disk from MO drive <id>.",
+	.args = (const char*[]) { "id" },
+	.args_min = 1, .args_max = 1,
+	.category = MONITOR_CATEGORY_MEDIAEJECT,
+	.handler = cli_monitor_mediaeject,
+	.priv = (const media_cmd_t[]) { [0] = { mo_eject, 4, "MO drive" } }
+    }, {
+	.name = "carteject",
+	.helptext = "Eject cartridge from slot <id>.",
+	.args = (const char*[]) { "id" },
+	.args_min = 1, .args_max = 1,
+	.category = MONITOR_CATEGORY_MEDIAEJECT,
+	.handler = cli_monitor_mediaeject,
+	.priv = (const media_cmd_t[]) { [0] = { cartridge_eject, 2, "cartridge slot" } }
+    },
+
+    {
+	.name = "hardreset",
+	.helptext = "Hard reset the emulated machine.",
+	.category = MONITOR_CATEGORY_EMULATOR,
+	.handler = cli_monitor_hardreset,
+    }, {
+	.name = "pause",
+	.helptext = "Pause or unpause the emulated machine.",
+	.category = MONITOR_CATEGORY_EMULATOR,
+	.handler = cli_monitor_pause,
+    }, {
+	.name = "fullscreen",
+	.helptext = "Enter or exit fullscreen mode.",
+	.category = MONITOR_CATEGORY_EMULATOR,
+	.handler = cli_monitor_fullscreen,
+    }, {
+	.name = "exit",
+	.helptext = "Exit " EMU_NAME ".",
+	.exit = 1,
+	.category = MONITOR_CATEGORY_EMULATOR,
+	.handler = cli_monitor_exit
+#ifdef USE_CLI
+    }, {
+	.name = "back",
+	.helptext = "Return to the screen.",
+	.exit = 1,
+	.category = MONITOR_CATEGORY_EMULATOR
+#endif
+    }, {
+	.name = "help",
+	.args_max = 1,
+	.category = MONITOR_CATEGORY_EMULATOR,
+	.handler = cli_monitor_help
+    }, {0}
+};
+
+
+static void
+cli_monitor_printargs(int cmd)
+{
+    /* Make sure this is a valid command. */
+    if ((cmd >= (sizeof(commands) / sizeof(commands[0]))) ||
+	!commands[cmd].name)
+	return;
+
+    /* Print command name. */
+    fputs(commands[cmd].name, CLI_RENDER_OUTPUT);
+
+    /* Print command arguments if applicable. */
+    if (!commands[cmd].args)
+	return;
+    for (int arg = 0; arg < commands[cmd].args_max; arg++) {
+	if (arg < commands[cmd].args_min)
+		fprintf(CLI_RENDER_OUTPUT, " <%s>", commands[cmd].args[arg]);
+	else
+		fprintf(CLI_RENDER_OUTPUT, " [%s]", commands[cmd].args[arg]);
+    }
+}
+
+
+static void
+cli_monitor_usage(int cmd)
+{
+    cli_monitor_printargs(cmd);
+    fprintf(CLI_RENDER_OUTPUT, "\n");
+    if (commands[cmd].helptext)
+	fprintf(CLI_RENDER_OUTPUT, "- %s\n", commands[cmd].helptext);
+}
+
+
+static void
+cli_monitor_help(int argc, char **argv, const void *priv)
+{
+    /* Print help for a specific command if one was provided. */
+    int cmd;
+    if (argc) {
+	for (cmd = 0; commands[cmd].name; cmd++) {
+		if (strcasecmp(commands[cmd].name, argv[1]))
+			continue;
+		cli_monitor_usage(cmd);
+		return;
 	}
+	fprintf(CLI_RENDER_OUTPUT, "Command not found.\n");
+	return;
     }
 
-    if (fn[strlen(fn) - 1] == '\'' || fn[strlen(fn) - 1] == '"')
-	fn[strlen(fn) - 1] = '\0';
+    /* List all commands. */
+    int category = 0;
+    for (cmd = 0; commands[cmd].name; cmd++) {
+	/* Don't list commands with no helptext. */
+	if (!commands[cmd].helptext)
+		continue;
 
-    return err;
+	/* Print blank line if this is a new category. */
+	if (commands[cmd].category != category) {
+		category = commands[cmd].category;
+		fprintf(CLI_RENDER_OUTPUT, "\n");
+	}
+
+	/* Print arguments and helptext. */
+	cli_monitor_printargs(cmd);
+	fprintf(CLI_RENDER_OUTPUT, " - %s\n", commands[cmd].helptext);
+    }
 }
 
 
@@ -118,203 +459,115 @@ cli_monitor_thread(void *priv)
 
     if (first_run) {
 	first_run = 0;
-	fprintf(CLI_RENDER_OUTPUT, "86Box monitor console.\n");
+	fprintf(CLI_RENDER_OUTPUT, EMU_NAME " monitor console.\n");
     }
 
-    char *line = NULL, buf[4096];
+    char buf[4096], *line = NULL, *line_copy, *argv[8],
+	 ch, in_quote;
+    int argc, end, i, j, arg_start;
 
+    /* Read and process commands. */
     while (!feof(stdin)) {
+	/* Read line. */
 	if (f_readline) {
-		line = f_readline("(86Box) ");
+		line = f_readline("(" EMU_NAME ") ");
 	} else {
-		fprintf(CLI_RENDER_OUTPUT, "(86Box) ");
+		fprintf(CLI_RENDER_OUTPUT, "(" EMU_NAME ") ");
 		line = fgets(buf, sizeof(buf), stdin);
 	}
 	if (!line)
 		continue;
 
-	int cmdargc = 0;
-	char* linecpy;
-	line[strcspn(line, "\r\n")] = '\0';
-	linecpy = strdup(line);
-	if (!linecpy) {
-		free(line);
-		line = NULL;
-		continue;
-	}
+	/* Remove trailing newline characters. */
+	end = strlen(line) - 1;
+	while (end && (((line[end] == '\r') || (line[end] == '\n'))))
+		line[end--] = '\0';
 
+	/* Add line to libedit history. */
 	if (f_add_history)
 		f_add_history(line);
 
-	memset(xargv, 0, sizeof(xargv));
-	while (1) {
-		xargv[cmdargc++] = local_strsep(&linecpy, " ");
-		if (xargv[cmdargc - 1] == NULL || cmdargc >= 512)
-			break;
-	}
-	cmdargc--;
+	/* Allocate new line buffer. */
+	line_copy = malloc(end + 2);
+	if (!line_copy)
+		goto next;
 
-	if (strncasecmp(xargv[0], "help", 4) == 0) {
-		printf("fddload <id> <filename> <wp> - Load floppy disk image into drive <id>.\n"
-		       "cdload <id> <filename> - Load CD-ROM image into drive <id>.\n"
-		       "zipload <id> <filename> <wp> - Load ZIP image into ZIP drive <id>.\n"
-		       "cartload <id> <filename> <wp> - Load cartridge image into cartridge drive <id>.\n"
-		       "moload <id> <filename> <wp> - Load MO image into MO drive <id>.\n"
-		       "\n"
-		       "fddeject <id> - eject disk from floppy drive <id>.\n"
-		       "cdeject <id> - eject disc from CD-ROM drive <id>.\n"
-		       "zipeject <id> - eject ZIP image from ZIP drive <id>.\n"
-		       "carteject <id> - eject cartridge from drive <id>.\n"
-		       "moeject <id> - eject image from MO drive <id>.\n"
-		       "\n"
-		       "hardreset - hard reset the emulated system.\n"
-		       "pause - pause the the emulated system.\n"
-		       "fullscreen - toggle fullscreen.\n"
-		       "exit - exit 86Box.\n"
-#ifdef USE_CLI
-		       "back - Return to the screen.\n"
-#endif
-		       );
-#ifdef USE_CLI
-	} else if (strncasecmp(xargv[0], "back", 4) == 0) {
-		break;
-#endif
-	} else if (strncasecmp(xargv[0], "exit", 4) == 0) {
-		do_stop();
-		break;
-	} else if (strncasecmp(xargv[0], "fullscreen", 10) == 0) {
-		video_fullscreen = 1;
-#ifndef _WIN32
-		fullscreen_pending = 1;
-#endif
-	}
-	else if (strncasecmp(xargv[0], "pause", 5) == 0) {
-		plat_pause(dopause ^ 1);
-		fprintf(CLI_RENDER_OUTPUT, "%s", dopause ? "Paused.\n" : "Unpaused.\n");
-	} else if (strncasecmp(xargv[0], "hardreset", 9) == 0) {
-		pc_reset_hard();
-	} else if ((strncasecmp(xargv[0], "cdload", 6) == 0) && (cmdargc >= 3)) {
-		uint8_t id, err = 0;
-		char fn[PATH_MAX];
-
-		if (!xargv[2] || !xargv[1]) {
-			free(line);
-			free(linecpy);
-			line = NULL;
-			continue;
-		}
-
-		id = atoi(xargv[1]);
-		memset(fn, 0, sizeof(fn));
-		if (xargv[2][0] == '\'' || xargv[2][0] == '"') {
-			int curarg = 2;
-			for (; curarg < cmdargc; curarg++) {
-				if (strlen(fn) + strlen(xargv[curarg]) >= PATH_MAX) {
-					err = 1;
-					fprintf(CLI_RENDER_OUTPUT, "Path name too long.\n");
-				}
+	/* Parse arguments. */
+	memset(argv, 0, sizeof(argv));
+	argc = arg_start = 0;
+	in_quote = 0;
+	for (i = j = 0; i <= end; i++) {
+		ch = line[i];
+		if (ch == '\\') {
+#ifdef _WIN32		/* On Windows, treat \ as a path separator if the
+			   next character is a valid filename character. */
+			ch = line[i + 1];
+			if ((ch != '\\') && (in_quote || (ch != ' ')) &&
+			    (ch != '/') && (ch != ':') && (ch != '*') && (ch != '?') &&
+			    (ch != '"') && (ch != '<') && (ch != '>') && (ch != '|')) {
+				line_copy[j++] = '\\';
+				continue;
 			}
-			strcat(fn, xargv[curarg] + (xargv[curarg][0] == '\'' || xargv[curarg][0] == '"'));
-
-			if (fn[strlen(fn) - 1] == '\'' || fn[strlen(fn) - 1] == '"')
-				break;
-
-			strcat(fn, " ");
-		} else {
-			if (strlen(xargv[2]) < PATH_MAX)
-				strcpy(fn, xargv[2]);
+#endif
+			/* Add escaped character. */
+			line_copy[j++] = line[++i];
+		} else if ((ch == '"') || (ch == '\'')) {
+			/* Enter or exit quote mode. */
+			if (!in_quote)
+				in_quote = ch;
+			else if (in_quote == ch)
+				in_quote = 0;
 			else
-				fprintf(CLI_RENDER_OUTPUT, "Path name too long.\n");
-		}
-		if (!err) {
-			if (fn[strlen(fn) - 1] == '\'' || fn[strlen(fn) - 1] == '"')
-				fn[strlen(fn) - 1] = '\0';
-			fprintf(CLI_RENDER_OUTPUT, "Inserting disc into CD-ROM drive %d: %s\n", id, fn);
-			cdrom_mount(id, fn);
-		}
-	} else if ((strncasecmp(xargv[0], "fddeject", 8) == 0) && (cmdargc >= 2)) {
-		floppy_eject(atoi(xargv[1]));
-	} else if ((strncasecmp(xargv[0], "cdeject", 8) == 0) && (cmdargc >= 2)) {
-		cdrom_mount(atoi(xargv[1]), "");
-	} else if ((strncasecmp(xargv[0], "moeject", 8) == 0) && (cmdargc >= 2)) {
-		mo_eject(atoi(xargv[1]));
-	} else if ((strncasecmp(xargv[0], "carteject", 8) == 0) && (cmdargc >= 2)) {
-		cartridge_eject(atoi(xargv[1]));
-	} else if ((strncasecmp(xargv[0], "zipeject", 8) == 0) && (cmdargc >= 2)) {
-		zip_eject(atoi(xargv[1]));
-	} else if ((strncasecmp(xargv[0], "fddload", 7) == 0) && (cmdargc >= 4)) {
-		uint8_t id, wp;
-		char fn[PATH_MAX];
-		memset(fn, 0, sizeof(fn));
-		if (!xargv[2] || !xargv[1]) {
-			free(line);
-			free(linecpy);
-			line = NULL;
-			continue;
-		}
+				line_copy[j++] = ch;
+		} else if (!in_quote && (line[i] == ' ')) {
+			/* Terminate and save this argument. */
+			line_copy[j++] = '\0';
+			argv[argc++] = &line_copy[arg_start];
+			arg_start = j;
 
-		if (!process_media_commands_3(&id, fn, &wp, cmdargc)) {
-			if (fn[strlen(fn) - 1] == '\'' || fn[strlen(fn) - 1] == '"')
-				fn[strlen(fn) - 1] = '\0';
-			fprintf(CLI_RENDER_OUTPUT, "Inserting disk into floppy drive %c: %s\n", id + 'A', fn);
-			floppy_mount(id, fn, wp);
-		}
-	} else if ((strncasecmp(xargv[0], "moload", 7) == 0) && (cmdargc >= 4)) {
-		uint8_t id, wp;
-		char fn[PATH_MAX];
-		memset(fn, 0, sizeof(fn));
-		if (!xargv[2] || !xargv[1]) {
-			free(line);
-			free(linecpy);
-			line = NULL;
-			continue;
-		}
-
-		if (!process_media_commands_3(&id, fn, &wp, cmdargc)) {
-			if (fn[strlen(fn) - 1] == '\'' || fn[strlen(fn) - 1] == '"')
-				fn[strlen(fn) - 1] = '\0';
-			fprintf(CLI_RENDER_OUTPUT, "Inserting into mo drive %d: %s\n", id, fn);
-			mo_mount(id, fn, wp);
-		}
-	} else if (strncasecmp(xargv[0], "cartload", 7) == 0 && cmdargc >= 4) {
-		uint8_t id, wp;
-		char fn[PATH_MAX];
-		memset(fn, 0, sizeof(fn));
-		if (!xargv[2] || !xargv[1]) {
-			free(line);
-			free(linecpy);
-			line = NULL;
-			continue;
-		}
-
-		if (!process_media_commands_3(&id, fn, &wp, cmdargc)) {
-			if (fn[strlen(fn) - 1] == '\'' || fn[strlen(fn) - 1] == '"')
-				fn[strlen(fn) - 1] = '\0';
-			fprintf(CLI_RENDER_OUTPUT, "Inserting tape into cartridge holder %d: %s\n", id, fn);
-			cartridge_mount(id, fn, wp);
-		}
-	} else if ((strncasecmp(xargv[0], "zipload", 7) == 0) && (cmdargc >= 4)) {
-		uint8_t id, wp;
-		char fn[PATH_MAX];
-		memset(fn, 0, sizeof(fn));
-		if (!xargv[2] || !xargv[1]) {
-			free(line);
-			free(linecpy);
-			line = NULL;
-			continue;
-		}
-
-		if (!process_media_commands_3(&id, fn, &wp, cmdargc)) {
-			if (fn[strlen(fn) - 1] == '\'' || fn[strlen(fn) - 1] == '"')
-				fn[strlen(fn) - 1] = '\0';
-			fprintf(CLI_RENDER_OUTPUT, "Inserting disk into ZIP drive %c: %s\n", id + 'A', fn);
-			zip_mount(id, fn, wp);
+			/* Stop if we have too many arguments. */
+			if (argc >= (sizeof(argv) / sizeof(argv[0])))
+				goto have_args;
+		} else {
+			/* Add character. */
+			line_copy[j++] = ch;
 		}
 	}
+	/* Add final argument. */
+	line_copy[j++] = '\0';
+	argv[argc++] = &line_copy[arg_start];
 
+have_args:
+	argc--;
 	if (f_readline)
 		free(line);
-	free(linecpy);
+
+	/* Go through the command list. */
+	for (i = 0; commands[i].name; i++) {
+		/* Move on if this is not the command we're looking for. */
+		if (strcasecmp(argv[0], commands[i].name))
+			continue;
+
+		/* Check number of arguments. */
+		if ((argc < commands[i].args_min) || (argc > commands[i].args_max)) {
+			/* Print usage and don't process this command. */
+			cli_monitor_usage(i);
+			break;
+		}
+
+		/* Call command handler. */
+		if (commands[i].handler)
+			commands[i].handler(argc, argv, commands[i].priv);
+
+		/* Stop thread if this is an exiting command. */
+		if (commands[i].exit)
+			return;
+
+		break;
+	}
+
+next:	if (line_copy)
+		free(line_copy);
 	line = NULL;
     }
 }
