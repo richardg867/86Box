@@ -32,16 +32,17 @@
 #include <86box/version.h>
 #include <86box/config.h>
 #include <86box/plat.h>
+#include <86box/plat_dynld.h>
 #include <86box/video.h>
 #include <86box/cli.h>
 
 #ifndef _WIN32
 # ifdef __APPLE__
-#  define LIBEDIT_LIBRARY "libedit.2.dylib"
-#  define LIBEDIT_LIBRARY_ALT "libedit.dylib"
+#  define PATH_LIBEDIT_DLL	"libedit.2.dylib"
+#  define PATH_LIBEDIT_DLL_ALT	"libedit.dylib"
 # else
-#  define LIBEDIT_LIBRARY "libedit.so.2"
-#  define LIBEDIT_LIBRARY_ALT "libedit.so"
+#  define PATH_LIBEDIT_DLL	"libedit.so.2"
+#  define PATH_LIBEDIT_DLL_ALT	"libedit.so"
 # endif
 
 
@@ -51,9 +52,21 @@ extern int	fullscreen_pending; /* ugly hack */
 static int	first_run = 1;
 static event_t	*screenshot_event;
 
-static char	*(*f_readline)(const char*) = NULL;
-static int	(*f_add_history)(const char *) = NULL;
-static void	(*f_rl_callback_handler_remove)(void) = NULL;
+
+#ifndef _WIN32
+/* libedit dynamic loading imports. */
+static char	*(*readline)(const char*) = NULL;
+static int	(*add_history)(const char *) = NULL;
+static void	(*rl_callback_handler_remove)(void) = NULL;
+
+static dllimp_t libedit_imports[] = {
+    { "readline",			&readline			},
+    { "add_history",			&add_history			},
+    { "rl_callback_handler_remove",	&rl_callback_handler_remove	},
+    { NULL,				NULL				}
+};
+static void	*libedit_handle = NULL;
+#endif
 
 
 typedef struct {
@@ -528,14 +541,14 @@ cli_monitor_help(int argc, char **argv, const void *priv)
 {
     /* Print help for a specific command if one was provided. */
     int cmd;
-    if (argc) {
+    if (argv[1] && argv[1][0]) {
 	for (cmd = 0; commands[cmd].name; cmd++) {
 		if (strcasecmp(commands[cmd].name, argv[1]))
 			continue;
 		cli_monitor_usage(cmd);
 		return;
 	}
-	fprintf(CLI_RENDER_OUTPUT, "Command not found.\n");
+	fprintf(CLI_RENDER_OUTPUT, "Unknown command: %s\n", argv[1]);
 	return;
     }
 
@@ -577,9 +590,12 @@ cli_monitor_thread(void *priv)
     /* Read and process commands. */
     while (!feof(stdin)) {
 	/* Read line. */
-	if (f_readline) {
-		line = f_readline("(" EMU_NAME ") ");
-	} else {
+#ifndef _WIN32
+	if (readline) {
+		line = readline("(" EMU_NAME ") ");
+	} else
+#endif
+	{
 		fprintf(CLI_RENDER_OUTPUT, "(" EMU_NAME ") ");
 		line = fgets(buf, sizeof(buf), stdin);
 	}
@@ -591,15 +607,30 @@ cli_monitor_thread(void *priv)
 	while (end && (((line[end] == '\r') || (line[end] == '\n'))))
 		line[end--] = '\0';
 
+#ifndef _WIN32
 	/* Add line to libedit history. */
-	if (f_add_history)
-		f_add_history(line);
+	if (add_history)
+		add_history(line);
+#endif
 
-	/* Parse arguments. */
+	/* Prepare line parsing. */
 	memset(argv, 0, sizeof(argv));
 	argc = arg_start = 0;
 	in_quote = 0;
-	for (i = j = 0; i <= end; i++) {
+
+	/* Remove leading and trailing spaces from the line. */
+	i = j = 0;
+	while (line[i] == ' ')
+		i++;
+	while (line[end] == ' ')
+		end--;
+
+	/* Ignore blank lines. */
+	if (!line[0])
+		goto have_cmd;
+
+	/* Parse line. */
+	for (; i <= end; i++) {
 		ch = line[i];
 		if (ch == '\\') {
 #ifdef _WIN32		/* On Windows, treat \ as a path separator if the
@@ -653,22 +684,30 @@ have_args:
 		if ((argc < commands[i].args_min) || (argc > commands[i].args_max)) {
 			/* Print usage and don't process this command. */
 			cli_monitor_usage(i);
-			break;
+			goto have_cmd;
 		}
 
 		/* Call command handler. */
 		if (commands[i].handler)
 			commands[i].handler(argc, argv, commands[i].priv);
 
-		break;
+		/* A matching command was found. */
+		goto have_cmd;
 	}
 
-	/* Clean up. */
-	if (f_readline)
-		free(line);
+	/* No matching command was found. */
+	printf("Unknown command: %s\n", argv[0]);
 
-	/* Stop thread if this is an exiting command. */
-	if (commands[i].exit)
+have_cmd:
+	/* Clean up, while saving a "line not blank" flag. */
+	ch = line[0];
+#ifndef _WIN32
+	if (readline)
+		free(line);
+#endif
+
+	/* Stop thread if the line has a valid exiting command. */
+	if (ch && commands[i].exit)
 		break;
     }
 }
@@ -677,24 +716,22 @@ have_args:
 void
 cli_monitor_init(uint8_t independent)
 {
+    /* The monitor should only be available if both stdin and stdout are not redirected. */
     if (!isatty(fileno(stdin)) || !isatty(fileno(CLI_RENDER_OUTPUT)))
 	return;
 
 #ifndef _WIN32
-    void *libedithandle = dlopen(LIBEDIT_LIBRARY, RTLD_LOCAL | RTLD_LAZY);
-    if (!libedithandle)
-	libedithandle = dlopen(LIBEDIT_LIBRARY_ALT, RTLD_LOCAL | RTLD_LAZY);
-    if (libedithandle) {
-	f_readline = dlsym(libedithandle, "readline");
-	f_add_history = dlsym(libedithandle, "add_history");
-	if (!f_readline)
-		fprintf(CLI_RENDER_OUTPUT, "readline in libedit not found, monitor line editing will be limited.\n");
-	f_rl_callback_handler_remove = dlsym(libedithandle, "rl_callback_handler_remove");
-	FILE **f_rl_outstream = dlsym(libedithandle, "rl_outstream");
-	if (f_rl_outstream)
-		*f_rl_outstream = CLI_RENDER_OUTPUT;
+    /* Try loading libedit. We don't need libedit on Windows since cmd has
+       its own line editing, which is activated when raw input is disabled. */
+    libedit_handle = dynld_module(PATH_LIBEDIT_DLL, libedit_imports);
+    if (!libedit_handle)
+	libedit_handle = dynld_module(PATH_LIBEDIT_DLL_ALT, libedit_imports);
+    if (libedit_handle && readline) {
+	FILE **rl_outstream = dlsym(libedit_handle, "rl_outstream");
+	if (rl_outstream)
+		*rl_outstream = CLI_RENDER_OUTPUT;
     } else {
-	fprintf(CLI_RENDER_OUTPUT, "libedit not found, monitor line editing will be limited.\n");
+	fprintf(CLI_RENDER_OUTPUT, "libedit not loaded, monitor line editing will be limited.\n");
     }
 #endif
 
@@ -708,6 +745,11 @@ cli_monitor_init(uint8_t independent)
 void
 cli_monitor_close()
 {
-    if (f_rl_callback_handler_remove)
-	f_rl_callback_handler_remove();
+#ifndef _WIN32
+    /* Stop and close libedit. */
+    if (rl_callback_handler_remove)
+	rl_callback_handler_remove();
+    if (libedit_handle)
+	dynld_close(libedit_handle);
+#endif
 }

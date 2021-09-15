@@ -55,10 +55,13 @@
 
 #ifdef _WIN32
 #define PATH_LIBSIXEL_DLL	"libsixel.1.dll"
-#elif defined __APPLE__
+#define PATH_LIBSIXEL_DLL_ALT	"libsixel.dll"
+#elif defined(__APPLE__)
 #define PATH_LIBSIXEL_DLL	"libsixel.1.dylib"
+#define PATH_LIBSIXEL_DLL_ALT	"libsixel.dylib"
 #else
 #define PATH_LIBSIXEL_DLL	"libsixel.so.1"
+#define PATH_LIBSIXEL_DLL_ALT	"libsixel.so"
 #endif
 
 
@@ -1410,15 +1413,20 @@ cli_render_init()
     /* Try loading libsixel. */
     int i;
     libsixel_handle = dynld_module(PATH_LIBSIXEL_DLL, libsixel_imports);
+    if (!libsixel_handle)
+	libsixel_handle = dynld_module(PATH_LIBSIXEL_DLL_ALT, libsixel_imports);
     if (libsixel_handle) {
-	cli_render_log("CLI Render: libsixel loaded successfully\n");
-
 	/* Create output object. */
-	if (sixel_output_new && sixel_encode)
+	if (sixel_output_new && sixel_encode) {
 		sixel_output_new(&libsixel_output, cli_render_process_sixelwrite, CLI_RENDER_OUTPUT, NULL);
-	else
+	} else {
 		sixel_dither_get = NULL; /* disable libsixel if we're somehow missing functions */
+		goto no_libsixel;
+	}
+
+	cli_render_log("CLI Render: libsixel loaded successfully\n");
     } else {
+no_libsixel:
 	cli_render_log("CLI Render: libsixel not loaded\n");
     }
 
