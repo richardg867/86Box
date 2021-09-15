@@ -37,9 +37,11 @@
 
 #ifndef _WIN32
 # ifdef __APPLE__
-#  define LIBEDIT_LIBRARY "libedit.dylib"
+#  define LIBEDIT_LIBRARY "libedit.2.dylib"
+#  define LIBEDIT_LIBRARY_ALT "libedit.dylib"
 # else
-#  define LIBEDIT_LIBRARY "libedit.so"
+#  define LIBEDIT_LIBRARY "libedit.so.2"
+#  define LIBEDIT_LIBRARY_ALT "libedit.so"
 # endif
 
 
@@ -575,11 +577,12 @@ cli_monitor_thread(void *priv)
     /* Read and process commands. */
     while (!feof(stdin)) {
 	/* Read line. */
-	fprintf(CLI_RENDER_OUTPUT, "(" EMU_NAME ") ");
-	if (f_readline)
-		line = f_readline(NULL);
-	else
+	if (f_readline) {
+		line = f_readline("(" EMU_NAME ") ");
+	} else {
+		fprintf(CLI_RENDER_OUTPUT, "(" EMU_NAME ") ");
 		line = fgets(buf, sizeof(buf), stdin);
+	}
 	if (!line)
 		continue;
 
@@ -679,6 +682,8 @@ cli_monitor_init(uint8_t independent)
 
 #ifndef _WIN32
     void *libedithandle = dlopen(LIBEDIT_LIBRARY, RTLD_LOCAL | RTLD_LAZY);
+    if (!libedithandle)
+	libedithandle = dlopen(LIBEDIT_LIBRARY_ALT, RTLD_LOCAL | RTLD_LAZY);
     if (libedithandle) {
 	f_readline = dlsym(libedithandle, "readline");
 	f_add_history = dlsym(libedithandle, "add_history");
