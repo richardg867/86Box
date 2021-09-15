@@ -568,7 +568,7 @@ cli_monitor_thread(void *priv)
 	fprintf(CLI_RENDER_OUTPUT, EMU_NAME " monitor console.\n");
     }
 
-    char buf[4096], *line = NULL, *line_copy, *argv[8],
+    char buf[4096], *line = NULL, *argv[8],
 	 ch, in_quote;
     int argc, end, i, j, arg_start;
 
@@ -593,11 +593,6 @@ cli_monitor_thread(void *priv)
 	if (f_add_history)
 		f_add_history(line);
 
-	/* Allocate new line buffer. */
-	line_copy = malloc(end + 2);
-	if (!line_copy)
-		goto next;
-
 	/* Parse arguments. */
 	memset(argv, 0, sizeof(argv));
 	argc = arg_start = 0;
@@ -611,12 +606,12 @@ cli_monitor_thread(void *priv)
 			if ((ch != '\\') && (in_quote || (ch != ' ')) &&
 			    (ch != '/') && (ch != ':') && (ch != '*') && (ch != '?') &&
 			    (ch != '"') && (ch != '<') && (ch != '>') && (ch != '|')) {
-				line_copy[j++] = '\\';
+				line[j++] = '\\';
 				continue;
 			}
 #endif
 			/* Add escaped character. */
-			line_copy[j++] = line[++i];
+			line[j++] = line[++i];
 		} else if ((ch == '"') || (ch == '\'')) {
 			/* Enter or exit quote mode. */
 			if (!in_quote)
@@ -624,11 +619,11 @@ cli_monitor_thread(void *priv)
 			else if (in_quote == ch)
 				in_quote = 0;
 			else
-				line_copy[j++] = ch;
+				line[j++] = ch;
 		} else if (!in_quote && (line[i] == ' ')) {
 			/* Terminate and save this argument. */
-			line_copy[j++] = '\0';
-			argv[argc++] = &line_copy[arg_start];
+			line[j++] = '\0';
+			argv[argc++] = &line[arg_start];
 			arg_start = j;
 
 			/* Stop if we have too many arguments. */
@@ -636,17 +631,15 @@ cli_monitor_thread(void *priv)
 				goto have_args;
 		} else {
 			/* Add character. */
-			line_copy[j++] = ch;
+			line[j++] = ch;
 		}
 	}
 	/* Add final argument. */
-	line_copy[j++] = '\0';
-	argv[argc++] = &line_copy[arg_start];
+	line[j++] = '\0';
+	argv[argc++] = &line[arg_start];
 
 have_args:
 	argc--;
-	if (f_readline)
-		free(line);
 
 	/* Go through the command list. */
 	for (i = 0; commands[i].name; i++) {
@@ -665,16 +658,16 @@ have_args:
 		if (commands[i].handler)
 			commands[i].handler(argc, argv, commands[i].priv);
 
-		/* Stop thread if this is an exiting command. */
-		if (commands[i].exit)
-			return;
-
 		break;
 	}
 
-next:	if (line_copy)
-		free(line_copy);
-	line = NULL;
+	/* Clean up. */
+	if (f_readline)
+		free(line);
+
+	/* Stop thread if this is an exiting command. */
+	if (commands[i].exit)
+		break;
     }
 }
 
