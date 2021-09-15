@@ -575,12 +575,11 @@ cli_monitor_thread(void *priv)
     /* Read and process commands. */
     while (!feof(stdin)) {
 	/* Read line. */
-	if (f_readline) {
-		line = f_readline("(" EMU_NAME ") ");
-	} else {
-		fprintf(CLI_RENDER_OUTPUT, "(" EMU_NAME ") ");
+	fprintf(CLI_RENDER_OUTPUT, "(" EMU_NAME ") ");
+	if (f_readline)
+		line = f_readline(NULL);
+	else
 		line = fgets(buf, sizeof(buf), stdin);
-	}
 	if (!line)
 		continue;
 
