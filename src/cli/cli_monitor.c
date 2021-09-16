@@ -60,6 +60,7 @@ static const struct {
 } named_seqs[] = {
     {"tab",	0x000f},
     {"enter",	0x001c},
+    {"ret",	0x001c},
     {"return",	0x001c},
     {"spc",	0x0039},
     {"space",	0x0039},
@@ -405,6 +406,43 @@ separator:	/* Search lookup table. */
     cli_input_send(code, modifier);
     fprintf(CLI_RENDER_OUTPUT, "Key combination sent: %s\n", argv[1]);
 }
+
+
+static void
+cli_monitor_type(int argc, char **argv, const void *priv)
+{
+    /* Send individual keys. */
+    char ch;
+    uint16_t code;
+    int utf8_warned = 0;
+    for (int i = 0; argv[1][i]; i++) {
+    	/* Ignore and warn about UTF-8 sequences. */
+    	ch = argv[1][i];
+    	if (ch & 0x80) {
+    		if (!utf8_warned) {
+    			utf8_warned = 1;
+    			fprintf(CLI_RENDER_OUTPUT, "Ignoring UTF-8 characters.\n");
+    		}
+    		continue;
+    	}
+
+	/* Convert character to keycode. */
+	if (ch < (sizeof(ascii_seqs) / sizeof(ascii_seqs[0])))
+		code = ascii_seqs[ch];
+	else
+		code = 0;
+
+	/* Convert Ctrl+letter codes. */
+	if (!code && (ch <= 0x1a))
+		code = ascii_seqs['`' + ch];
+
+	/* Send key if a table match was found, otherwise warn about unknown keys. */
+	if (code)
+		cli_input_send(code, 0);
+	else
+		fprintf(CLI_RENDER_OUTPUT, "Ignoring unknown key: %c\n", ch);
+    }
+}
 #endif
 
 
@@ -647,6 +685,14 @@ static const struct {
 	.flags = MONITOR_CMD_UNBOUNDED,
 	.category = MONITOR_CATEGORY_INPUT,
 	.handler = cli_monitor_sendkey,
+    }, {
+	.name = "type",
+	.helptext = "Type <text> on the keyboard.",
+	.args = (const char*[]) { "text" },
+	.args_min = 1,
+	.flags = MONITOR_CMD_UNBOUNDED,
+	.category = MONITOR_CATEGORY_INPUT,
+	.handler = cli_monitor_type,
     },
 #endif
 
