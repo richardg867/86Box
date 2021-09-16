@@ -273,15 +273,9 @@ cli_input_log_key(const char *func, int c)
 static void
 cli_input_send(uint16_t code, uint8_t modifier)
 {
-    cli_input_log("CLI Input: send(%04X, %d)\n", code, modifier);
+    cli_input_log("CLI Input: send(%04X, %02X)\n", code, modifier);
 
-    /* Determine modifiers set by the modifier argument. */
-    if (modifier < sizeof(csi_modifiers))
-	modifier = csi_modifiers[modifier];
-    else
-	modifier = 0;
-
-    /* Determine modifiers set by the keycode definition. */
+    /* Add modifiers set by the keycode definition. */
     switch (code >> 8) {
 	case 0x1d:
 		modifier |= VT_CTRL;
@@ -562,16 +556,24 @@ cli_input_csi_dispatch(int c)
 
     /* Determine keycode. */
     if (c == '~') {
-	if (code >= (sizeof(csi_num_seqs) / sizeof(csi_num_seqs[0])))
-		return;
-	code = csi_num_seqs[code];
+	if ((code >= 0) && (code < (sizeof(csi_num_seqs) / sizeof(csi_num_seqs[0]))))
+		code = csi_num_seqs[code];
+	else
+		code = 0;
     } else {
-	if (code >= (sizeof(csi_letter_seqs) / sizeof(csi_letter_seqs[0])))
-		return;
-	code = csi_letter_seqs[c];
+	if ((code >= 0) && (code < (sizeof(csi_letter_seqs) / sizeof(csi_letter_seqs[0]))))
+		code = csi_letter_seqs[c];
+	else
+		code = 0;
     }
 
-    /* Press key with modifier. */
+    /* Determine modifiers. */
+    if ((modifier >= 0) && (modifier < sizeof(csi_modifiers)))
+	modifier = csi_modifiers[modifier];
+    else
+	modifier = 0;
+
+    /* Press key with any modifiers. */
     cli_input_send(code, modifier);
 }
 
@@ -585,7 +587,7 @@ cli_input_esc_dispatch(int c)
 	case '\0': /* no parameter */
 		switch (c) {
 			case 0x20 ... 0x7f: /* Alt+Space to Alt+Backspace */
-				cli_input_send(ascii_seqs[c], 3);
+				cli_input_send(ascii_seqs[c], VT_ALT);
 				break;
 		}
 		break;
@@ -609,7 +611,7 @@ cli_input_execute(int c)
 	case 0x0b ... 0x0c: /* Ctrl+K to Ctrl+L */
 	/* skip Ctrl+M (Windows Enter) */
 	case 0x0e ... 0x1a: /* Ctrl+N to Ctrl+Z */
-		cli_input_send(ascii_seqs['`' + c], 5);
+		cli_input_send(ascii_seqs['`' + c], VT_CTRL);
 		break;
 
 	case 0x09: /* Tab */
