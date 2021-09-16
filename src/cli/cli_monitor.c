@@ -38,6 +38,7 @@
 
 #define	MONITOR_CMD_EXIT	0x01
 #define	MONITOR_CMD_UNBOUNDED	0x02
+#define	MONITOR_CMD_NOQUOTE	0x04
 
 #ifndef _WIN32
 # ifdef __APPLE__
@@ -328,7 +329,7 @@ cli_monitor_sendkey(int argc, char **argv, const void *priv)
 
 	/* Terminate this key name here. */
 	argv[1][i] = '\0';
-	
+
 	/* Parse this key name. */
 	if (!p[0]) { /* blank */
 		/* Treat the separator as a character. (ctrl-- = ctrl + -) */
@@ -339,7 +340,7 @@ cli_monitor_sendkey(int argc, char **argv, const void *priv)
 
 		/* Lowercase letters. */
 		if ((sch >= 'A') && (sch <= 'Z'))
-			sch -= 32;
+			sch += 32;
 
 separator:	/* Search lookup table. */
 		if ((sch < (sizeof(ascii_seqs) / sizeof(ascii_seqs[0]))) &&
@@ -351,7 +352,7 @@ separator:	/* Search lookup table. */
 			fprintf(CLI_RENDER_OUTPUT, "Unknown key: %c\n", sch);
 			return;
 		}
-	} if (!strcasecmp(p, "ctrl") || !strcasecmp(p, "control")) { /* modifiers */
+	} else if (!strcasecmp(p, "ctrl") || !strcasecmp(p, "control")) { /* modifiers */
 		modifier |= VT_CTRL;
 	} else if (!strcasecmp(p, "shift")) {
 		modifier |= VT_SHIFT;
@@ -389,17 +390,15 @@ separator:	/* Search lookup table. */
 		}
 	}
 
-	/* Stop if we've reached a termination key. */
-	if (code)
+	/* Stop if we've reached a termination key or the end. */
+	if (code || (ch == '\0')) {
+		argv[1][i] = '\0';
 		break;
+	}
 
 	/* Restore separator and start the next key name. */
 	argv[1][i] = '+';
 	p = &argv[1][i + 1];
-
-	/* Stop if we've reached the end. */
-	if (ch == '\0')
-		break;
     }
 
     /* Send key combination. */
@@ -416,19 +415,19 @@ cli_monitor_type(int argc, char **argv, const void *priv)
     uint16_t code;
     int utf8_warned = 0;
     for (int i = 0; argv[1][i]; i++) {
-    	/* Ignore and warn about UTF-8 sequences. */
-    	ch = argv[1][i];
-    	if (ch & 0x80) {
-    		if (!utf8_warned) {
-    			utf8_warned = 1;
-    			fprintf(CLI_RENDER_OUTPUT, "Ignoring UTF-8 characters.\n");
-    		}
-    		continue;
-    	}
+	/* Ignore and warn about UTF-8 sequences. */
+	ch = argv[1][i];
+	if (ch & 0x80) {
+		if (!utf8_warned) {
+			utf8_warned = 1;
+			fprintf(CLI_RENDER_OUTPUT, "Ignoring UTF-8 characters.\n");
+		}
+		continue;
+	}
 
 	/* Convert character to keycode. */
 	if (ch < (sizeof(ascii_seqs) / sizeof(ascii_seqs[0])))
-		code = ascii_seqs[ch];
+		code = ascii_seqs[(uint8_t) ch];
 	else
 		code = 0;
 
@@ -690,7 +689,7 @@ static const struct {
 	.helptext = "Type <text> on the keyboard.",
 	.args = (const char*[]) { "text" },
 	.args_min = 1,
-	.flags = MONITOR_CMD_UNBOUNDED,
+	.flags = MONITOR_CMD_UNBOUNDED | MONITOR_CMD_NOQUOTE,
 	.category = MONITOR_CATEGORY_INPUT,
 	.handler = cli_monitor_type,
     },
@@ -867,7 +866,7 @@ cli_monitor_thread(void *priv)
 
     char buf[4096], *line = NULL, *argv[8],
 	 ch, in_quote;
-    int argc, end, i, j, arg_start;
+    int argc, end, i, j, cmd, arg_start;
 
     /* Read and process commands. */
     while (!feof(stdin)) {
@@ -900,14 +899,17 @@ cli_monitor_thread(void *priv)
 	argc = arg_start = 0;
 	in_quote = 0;
 
-	/* Remove leading and trailing spaces from the line. */
+	/* Remove leading spaces from the line. */
 	i = j = 0;
 	while (line[i] == ' ')
 		i++;
-	while (line[end] == ' ')
-		end--;
+
+	/* Remove trailing spaces and newlines from the line. */
+	while ((line[end] == ' ') || (line[end] == '\r') || (line[end] == '\n'))
+		line[end--] = '\0';
 
 	/* Ignore blank lines. */
+	cmd = (sizeof(commands) / sizeof(commands[0])) - 1;
 	if (!line[0])
 		goto have_cmd;
 
@@ -929,7 +931,7 @@ cli_monitor_thread(void *priv)
 			line[j++] = line[++i];
 		} else if ((ch == '"') || (ch == '\'')) {
 			/* Enter or exit quote mode. */
-			if (!in_quote)
+			if (!in_quote && !(commands[cmd].flags & MONITOR_CMD_NOQUOTE) && (i != end))
 				in_quote = ch;
 			else if (in_quote == ch)
 				in_quote = 0;
@@ -941,6 +943,23 @@ cli_monitor_thread(void *priv)
 			argv[argc++] = &line[arg_start];
 			arg_start = j;
 
+			/* Identify command now to disable quote mode for commands which request that. */
+			if (argc == 1) {
+identify_cmd:			/* Go through the command list. */
+				for (cmd = 0; ; cmd++) {
+					/* Move on if this is not the command we're looking for. */
+					if (commands[cmd].name && strcasecmp(argv[0], commands[cmd].name))
+						continue;
+
+					/* A matching command was found or the end was reached. */
+					break;
+				}
+
+				/* Return to main flow if this is the second check further down. */
+				if (!ch)
+					goto have_args;
+			}
+
 			/* Stop if we have too many arguments. */
 			if (argc >= (sizeof(argv) / sizeof(argv[0])))
 				goto have_args;
@@ -949,44 +968,42 @@ cli_monitor_thread(void *priv)
 			line[j++] = ch;
 		}
 	}
+
 	/* Add final argument. */
 	line[j++] = '\0';
 	argv[argc++] = &line[arg_start];
 
+	/* Identify command now if it wasn't identified earlier. */
+	if (argc == 1) {
+		ch = 0;
+		goto identify_cmd;
+	}
+
 have_args:
 	argc--;
 
-	/* Go through the command list. */
-	for (i = 0; commands[i].name; i++) {
-		/* Move on if this is not the command we're looking for. */
-		if (strcasecmp(argv[0], commands[i].name))
-			continue;
+	/* Process command if any match was found. */
+	if (commands[cmd].name) {
+		/* Flatten arguments for unbounded commands. */
+		if (commands[cmd].flags & MONITOR_CMD_UNBOUNDED) {
+			for (i = 2; i <= argc; i++)
+				*(&argv[i][0] - 1) = ' ';
+		}
 
 		/* Check number of arguments. */
-		if ((argc < commands[i].args_min) ||
-		    (!(commands[i].flags & MONITOR_CMD_UNBOUNDED) && (argc > commands[i].args_max))) {
+		if ((argc < commands[cmd].args_min) ||
+		    (!(commands[cmd].flags & MONITOR_CMD_UNBOUNDED) && (argc > commands[cmd].args_max))) {
 			/* Print usage and don't process this command. */
-			cli_monitor_usage(i);
-			goto have_cmd;
+			cli_monitor_usage(cmd);
+		} else {
+			/* Call command handler. */
+			if (commands[cmd].handler)
+				commands[cmd].handler(argc, argv, commands[cmd].priv);
 		}
-
-		/* Flatten all arguments into a single one if the command is unbounded. */
-		if (commands[i].flags & MONITOR_CMD_UNBOUNDED) {
-			for (j = 2; j <= argc; j++)
-				*(argv[j] - 1) = ' ';
-			argc = 1;
-		}
-
-		/* Call command handler. */
-		if (commands[i].handler)
-			commands[i].handler(argc, argv, commands[i].priv);
-
-		/* A matching command was found. */
-		goto have_cmd;
+	} else {
+		/* No matching command was found. */
+		fprintf(CLI_RENDER_OUTPUT, "Unknown command: %s\n", argv[0]);
 	}
-
-	/* No matching command was found. */
-	printf("Unknown command: %s\n", argv[0]);
 
 have_cmd:
 	/* Clean up, while saving a "line not blank" flag. */
@@ -997,7 +1014,7 @@ have_cmd:
 #endif
 
 	/* Stop thread if the line has a valid exiting command. */
-	if (ch && (commands[i].flags & MONITOR_CMD_EXIT))
+	if (ch && (commands[cmd].flags & MONITOR_CMD_EXIT))
 		break;
     }
 }
