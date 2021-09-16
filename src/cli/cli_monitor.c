@@ -368,7 +368,8 @@ cli_monitor_exit(int argc, char **argv, const void *priv)
 enum {
     MONITOR_CATEGORY_MEDIALOAD = 0,
     MONITOR_CATEGORY_MEDIAEJECT,
-    MONITOR_CATEGORY_EMULATOR
+    MONITOR_CATEGORY_EMULATOR,
+    MONITOR_CATEGORY_HIDDEN
 };
 
 static const struct {
@@ -379,15 +380,15 @@ static const struct {
 } commands[] = {
     {
 	.name = "fddload",
-	.helptext = "Load floppy disk image into drive <id>.",
-	.args = (const char*[]) { "id", "filename", "writeprotect" },
+	.helptext = "Load floppy disk image <filename> into drive <id>.\n[wp] enables write protection when set to 1.",
+	.args = (const char*[]) { "id", "filename", "wp" },
 	.args_min = 2, .args_max = 3,
 	.category = MONITOR_CATEGORY_MEDIALOAD,
 	.handler = cli_monitor_mediaload,
 	.priv = (const media_cmd_t[]) { [0] = { floppy_mount, 4, "floppy drive" } }
     }, {
 	.name = "cdload",
-	.helptext = "Load CD-ROM image into drive <id>.",
+	.helptext = "Load CD-ROM image <filename> into drive <id>.",
 	.args = (const char*[]) { "id", "filename" },
 	.args_min = 2, .args_max = 2,
 	.category = MONITOR_CATEGORY_MEDIALOAD,
@@ -395,24 +396,24 @@ static const struct {
 	.priv = (const media_cmd_t[]) { [0] = { cdrom_mount, 4, "CD-ROM drive" } }
     }, {
 	.name = "zipload",
-	.helptext = "Load ZIP disk image into drive <id>.",
-	.args = (const char*[]) { "id", "filename", "writeprotect" },
+	.helptext = "Load ZIP disk image <filename> into drive <id>.\n[wp] enables write protection when set to 1.",
+	.args = (const char*[]) { "id", "filename", "wp" },
 	.args_min = 2, .args_max = 3,
 	.category = MONITOR_CATEGORY_MEDIALOAD,
 	.handler = cli_monitor_mediaload,
 	.priv = (const media_cmd_t[]) { [0] = { zip_mount, 4, "ZIP drive" } }
     }, {
 	.name = "moload",
-	.helptext = "Load MO disk image into drive <id>.",
-	.args = (const char*[]) { "id", "filename", "writeprotect" },
+	.helptext = "Load MO disk image <filename> into drive <id>.\n[wp] enables write protection when set to 1.",
+	.args = (const char*[]) { "id", "filename", "wp" },
 	.args_min = 2, .args_max = 3,
 	.category = MONITOR_CATEGORY_MEDIALOAD,
 	.handler = cli_monitor_mediaload,
 	.priv = (const media_cmd_t[]) { [0] = { mo_mount, 4, "MO drive" } }
     }, {
 	.name = "cartload",
-	.helptext = "Load cartridge image into slot <id>.",
-	.args = (const char*[]) { "id", "filename", "writeprotect" },
+	.helptext = "Load cartridge <filename> image into slot <id>.\n[wp] enables write protection when set to 1.",
+	.args = (const char*[]) { "id", "filename", "wp" },
 	.args_min = 2, .args_max = 3,
 	.category = MONITOR_CATEGORY_MEDIALOAD,
 	.handler = cli_monitor_mediaload,
@@ -494,10 +495,14 @@ static const struct {
 	.exit = 1,
 	.category = MONITOR_CATEGORY_EMULATOR
 #endif
-    }, {
+    },
+
+    {
 	.name = "help",
+	.helptext = "List all commands, or show usage for <command>.",
+	.args = (const char*[]) { "command" },
 	.args_max = 1,
-	.category = MONITOR_CATEGORY_EMULATOR,
+	.category = MONITOR_CATEGORY_HIDDEN,
 	.handler = cli_monitor_help
     }, {0}
 };
@@ -527,12 +532,51 @@ cli_monitor_printargs(int cmd)
 
 
 static void
+cli_monitor_helptext(int cmd, int limit)
+{
+    /* Output nothing if the command has no helptext. */
+    if (!commands[cmd].helptext)
+	return;
+
+    /* Copy the command's helptext. */
+    char *buf = strdup(commands[cmd].helptext), *p = buf, ch;
+    if (!buf)
+    	return;
+
+    /* Print each helptext line. */
+    for (int i = 0; ; i++) {
+    	/* We don't care about non-termination characters. */
+    	ch = buf[i];
+	if ((ch != '\n') && (ch != '\0'))
+		continue;
+
+	/* Remove trailing period if this is a single-line helptext. */
+	if ((limit == 1) && (i > 0) && (buf[i - 1] == '.'))
+		buf[i - 1] = '\0';
+
+	/* Terminate this line here and print it. */
+	buf[i] = '\0';
+	fprintf(CLI_RENDER_OUTPUT, "%c %s\n", (p == buf) ? '-' : ' ', p);
+
+	/* Stop if we've reached the line limit or the helptext's end. */
+	if ((--limit == 0) || (ch == '\0'))
+		break;
+
+	/* Start the next line. */
+	p = &buf[i + 1];
+    }
+
+    /* Clean up. */
+    free(buf);
+}
+
+
+static void
 cli_monitor_usage(int cmd)
 {
     cli_monitor_printargs(cmd);
     fprintf(CLI_RENDER_OUTPUT, "\n");
-    if (commands[cmd].helptext)
-	fprintf(CLI_RENDER_OUTPUT, "- %s\n", commands[cmd].helptext);
+    cli_monitor_helptext(cmd, 0);
 }
 
 
@@ -555,8 +599,8 @@ cli_monitor_help(int argc, char **argv, const void *priv)
     /* List all commands. */
     int category = 0;
     for (cmd = 0; commands[cmd].name; cmd++) {
-	/* Don't list commands with no helptext. */
-	if (!commands[cmd].helptext)
+	/* Don't list commands with no helptext or hidden commands. */
+	if (!commands[cmd].helptext || (commands[cmd].category == MONITOR_CATEGORY_HIDDEN))
 		continue;
 
 	/* Print blank line if this is a new category. */
@@ -565,9 +609,10 @@ cli_monitor_help(int argc, char **argv, const void *priv)
 		fprintf(CLI_RENDER_OUTPUT, "\n");
 	}
 
-	/* Print arguments and helptext. */
+	/* Print arguments and single-line helptext. */
 	cli_monitor_printargs(cmd);
-	fprintf(CLI_RENDER_OUTPUT, " - %s\n", commands[cmd].helptext);
+	fputc(' ', CLI_RENDER_OUTPUT);
+	cli_monitor_helptext(cmd, 1);
     }
 }
 
