@@ -36,6 +36,9 @@
 #include <86box/video.h>
 #include <86box/cli.h>
 
+#define	MONITOR_CMD_EXIT	0x01
+#define	MONITOR_CMD_UNBOUNDED	0x02
+
 #ifndef _WIN32
 # ifdef __APPLE__
 #  define PATH_LIBEDIT_DLL	"libedit.2.dylib"
@@ -47,6 +50,79 @@
 
 
 extern int	fullscreen_pending; /* ugly hack */
+#endif
+
+#ifdef USE_CLI
+/* Lookup tables for converting key names to keyboard scan codes. */
+static const struct {
+    const char	*name;
+    uint16_t	code;
+} named_seqs[] = {
+    {"tab",	0x000f},
+    {"enter",	0x001c},
+    {"return",	0x001c},
+    {"spc",	0x0039},
+    {"space",	0x0039},
+    {"bksp",	0x000e},
+    {"bkspc",	0x000e},
+    {"backsp",	0x000e},
+    {"backspc",	0x000e},
+    {"backspace",0x000e},
+    {"menu",	0xe05d},
+
+    {"esc",	0x0001},
+    {"escape",	0x0001},
+    {"f1",	0x003b},
+    {"f2",	0x003c},
+    {"f3",	0x003d},
+    {"f4",	0x003e},
+    {"f5",	0x003f},
+    {"f6",	0x0040},
+    {"f7",	0x0041},
+    {"f8",	0x0042},
+    {"f9",	0x0043},
+    {"f10",	0x0044},
+    {"f11",	0x0057},
+    {"f12",	0x0058},
+    {"prtsc",	0xe037},
+    {"prtscreen",0xe037},
+    {"printsc",	0xe037},
+    {"printscreen",0xe037},
+    {"sysrq",	0xe037},
+    {"pause",	0xe11d},
+    {"brk",	0xe11d},
+    {"break",	0xe11d},
+    {"pausebrk",0xe11d},
+    {"pausebreak",0xe11d},
+
+    {"home",	0xe047},
+    {"ins",	0xe052},
+    {"insert",	0xe052},
+    {"del",	0xe053},
+    {"delete",	0xe053},
+    {"end",	0xe04f},
+    {"pgup",	0xe049},
+    {"pageup",	0xe049},
+    {"pgdn",	0xe051},
+    {"pgdown",	0xe051},
+    {"pagedn",	0xe051},
+    {"pagedown",0xe051},
+
+    {"up",	0xe048},
+    {"down",	0xe050},
+    {"right",	0xe04d},
+    {"left",	0xe04b},
+
+    {"numlk",	0x0045},
+    {"numlock",	0x0045},
+    {"capslk",	0x003a},
+    {"capslock",0x003a},
+    {"scrlk",	0x0046},
+    {"scrlock",	0x0046},
+    {"scrolllk",0x0046},
+    {"scrolllock",0x0046},
+    {0}
+};
 #endif
 
 static int	first_run = 1;
@@ -233,7 +309,103 @@ cli_monitor_mediaeject_mountblank_nowp(int argc, char **argv, const void *priv)
 }
 
 
-static void	cli_monitor_help(int argc, char **argv, const void *priv);
+#ifdef USE_CLI
+static void
+cli_monitor_sendkey(int argc, char **argv, const void *priv)
+{
+    /* Parse key combination. */
+    char ch, sch, *p = argv[1];
+    uint8_t modifier = 0;
+    uint16_t code = 0;
+    int j;
+    for (int i = 0; ; i++) {
+	/* We don't care about non-separator characters. */
+	ch = argv[1][i];
+	if ((ch != '\0') && (ch != ' ') && (ch != '-') && (ch != '+') &&
+	    (ch != ',') && (ch != ';') && (ch != '_') && (ch != ':'))
+		continue;
+
+	/* Terminate this key name here. */
+	argv[1][i] = '\0';
+	
+	/* Parse this key name. */
+	if (!p[0]) { /* blank */
+		/* Treat the separator as a character. (ctrl-- = ctrl + -) */
+		argv[1][i] = sch = ch;
+		goto separator;
+	} else if (!p[1]) { /* single character */
+		sch = p[0];
+
+		/* Lowercase letters. */
+		if ((sch >= 'A') && (sch <= 'Z'))
+			sch -= 32;
+
+separator:	/* Search lookup table. */
+		if ((sch < (sizeof(ascii_seqs) / sizeof(ascii_seqs[0]))) &&
+		    ascii_seqs[(uint8_t) sch]) {
+			/* Set keycode. */
+			code = ascii_seqs[(uint8_t) sch];
+		} else {
+			/* No match. */
+			fprintf(CLI_RENDER_OUTPUT, "Unknown key: %c\n", sch);
+			return;
+		}
+	} if (!strcasecmp(p, "ctrl") || !strcasecmp(p, "control")) { /* modifiers */
+		modifier |= VT_CTRL;
+	} else if (!strcasecmp(p, "shift")) {
+		modifier |= VT_SHIFT;
+	} else if (!strcasecmp(p, "alt")) {
+		modifier |= VT_ALT;
+	} else if (!strcasecmp(p, "win") || !strcasecmp(p, "windows") || !strcasecmp(p, "meta")) {
+		modifier |= VT_META;
+	} else { /* other */
+		/* Search named sequences. */
+		for (j = 0; named_seqs[j].name; j++) {
+			/* Move on if this sequence doesn't match. */
+			if (strcasecmp(p, named_seqs[j].name))
+				continue;
+
+			/* Set keycode and stop search. */
+			code = named_seqs[j].code;
+			break;
+		}
+
+		if (!code) {
+			/* No match. */
+			fprintf(CLI_RENDER_OUTPUT, "Unknown key: %s\n", p);
+			return;
+		}
+	}
+
+	/* Convert key name to sentence case for display purposes. */
+	if (p[0]) {
+		if ((p[0] >= 'a') && (p[0] <= 'z'))
+			p[0] -= 32;
+		for (j = 1; p[j]; j++) {
+			sch = p[j];
+			if ((sch >= 'A') && (sch <= 'Z'))
+				p[j] += 32;
+		}
+	}
+
+	/* Stop if we've reached a termination key. */
+	if (code)
+		break;
+
+	/* Restore separator and start the next key name. */
+	argv[1][i] = '+';
+	p = &argv[1][i + 1];
+
+	/* Stop if we've reached the end. */
+	if (ch == '\0')
+		break;
+    }
+
+    /* Send key combination. */
+    cli_input_send(code, modifier);
+    fprintf(CLI_RENDER_OUTPUT, "Key combination sent: %s\n", argv[1]);
+}
+#endif
 
 
 static void
@@ -365,16 +537,20 @@ cli_monitor_exit(int argc, char **argv, const void *priv)
 }
 
 
+static void	cli_monitor_help(int argc, char **argv, const void *priv);
+
+
 enum {
     MONITOR_CATEGORY_MEDIALOAD = 0,
     MONITOR_CATEGORY_MEDIAEJECT,
+    MONITOR_CATEGORY_INPUT,
     MONITOR_CATEGORY_EMULATOR,
     MONITOR_CATEGORY_HIDDEN
 };
 
 static const struct {
     const char	*name, *helptext, **args;
-    int		args_min, args_max, exit, category;
+    uint8_t	args_min, args_max, flags, category;
     void	(*handler)(int argc, char **argv, const void *priv);
     const void	*priv;
 } commands[] = {
@@ -462,6 +638,18 @@ static const struct {
 	.priv = (const media_cmd_t[]) { [0] = { cartridge_eject, 2, "cartridge slot" } }
     },
 
+#ifdef USE_CLI
+    {
+	.name = "sendkey",
+	.helptext = "Send key combination <combo>.",
+	.args = (const char*[]) { "combo" },
+	.args_min = 1,
+	.flags = MONITOR_CMD_UNBOUNDED,
+	.category = MONITOR_CATEGORY_INPUT,
+	.handler = cli_monitor_sendkey,
+    },
+#endif
+
     {
 	.name = "hardreset",
 	.helptext = "Hard reset the emulated machine.",
@@ -485,14 +673,14 @@ static const struct {
     }, {
 	.name = "exit",
 	.helptext = "Exit " EMU_NAME ".",
-	.exit = 1,
+	.flags = MONITOR_CMD_EXIT,
 	.category = MONITOR_CATEGORY_EMULATOR,
 	.handler = cli_monitor_exit
 #ifdef USE_CLI
     }, {
 	.name = "back",
 	.helptext = "Return to the screen.",
-	.exit = 1,
+	.flags = MONITOR_CMD_EXIT,
 	.category = MONITOR_CATEGORY_EMULATOR
 #endif
     },
@@ -516,13 +704,16 @@ cli_monitor_printargs(int cmd)
 	!commands[cmd].name)
 	return;
 
-    /* Print command name. */
+    /* Output command name. */
     fputs(commands[cmd].name, CLI_RENDER_OUTPUT);
 
-    /* Print command arguments if applicable. */
+    /* Determine argument count. */
     if (!commands[cmd].args)
 	return;
-    for (int arg = 0; arg < commands[cmd].args_max; arg++) {
+    int max_args = (commands[cmd].flags & MONITOR_CMD_UNBOUNDED) ? 1 : commands[cmd].args_max;
+
+    /* Output argument names. */
+    for (int arg = 0; (arg < max_args) && commands[cmd].args[arg]; arg++) {
 	if (arg < commands[cmd].args_min)
 		fprintf(CLI_RENDER_OUTPUT, " <%s>", commands[cmd].args[arg]);
 	else
@@ -541,12 +732,12 @@ cli_monitor_helptext(int cmd, int limit)
     /* Copy the command's helptext. */
     char *buf = strdup(commands[cmd].helptext), *p = buf, ch;
     if (!buf)
-    	return;
+	return;
 
     /* Print each helptext line. */
     for (int i = 0; ; i++) {
-    	/* We don't care about non-termination characters. */
-    	ch = buf[i];
+	/* We don't care about non-termination characters. */
+	ch = buf[i];
 	if ((ch != '\n') && (ch != '\0'))
 		continue;
 
@@ -726,10 +917,18 @@ have_args:
 			continue;
 
 		/* Check number of arguments. */
-		if ((argc < commands[i].args_min) || (argc > commands[i].args_max)) {
+		if ((argc < commands[i].args_min) ||
+		    (!(commands[i].flags & MONITOR_CMD_UNBOUNDED) && (argc > commands[i].args_max))) {
 			/* Print usage and don't process this command. */
 			cli_monitor_usage(i);
 			goto have_cmd;
+		}
+
+		/* Flatten all arguments into a single one if the command is unbounded. */
+		if (commands[i].flags & MONITOR_CMD_UNBOUNDED) {
+			for (j = 2; j <= argc; j++)
+				*(argv[j] - 1) = ' ';
+			argc = 1;
 		}
 
 		/* Call command handler. */
@@ -752,7 +951,7 @@ have_cmd:
 #endif
 
 	/* Stop thread if the line has a valid exiting command. */
-	if (ch && commands[i].exit)
+	if (ch && (commands[i].flags & MONITOR_CMD_EXIT))
 		break;
     }
 }

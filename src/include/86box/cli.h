@@ -60,6 +60,14 @@ enum {
 };
 
 enum {
+    VT_SHIFT	  = 0x01,
+    VT_ALT	  = 0x02,
+    VT_CTRL	  = 0x04,
+    VT_META	  = 0x08,
+    VT_SHIFT_FAKE = 0x10
+};
+
+enum {
     RENDER_SIDEBAND_CPR_SIZE = 0,
     RENDER_SIDEBAND_CPR_UTF8,
     RENDER_SIDEBAND_SDA,
@@ -79,11 +87,14 @@ typedef struct {
 /* cli.c */
 extern cli_term_t cli_term;
 
+/* cli_input.c */
+extern const uint16_t ascii_seqs[128];
+
 /* cli_render.c */
 extern const uint8_t cga_ansi_palette[];
 
 /* video.c */
-extern int cli_blit;
+extern int	cli_blit;
 
 
 /* cli.c */
@@ -94,6 +105,8 @@ extern void	cli_init();
 extern void	cli_close();
 
 /* cli_input.c */
+extern void	cli_input_send(uint16_t code, uint8_t modifier);
+
 extern void	cli_input_init();
 extern void	cli_input_close();
 

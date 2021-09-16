@@ -57,18 +57,9 @@ enum {
     VT_OSC_STRING
 };
 
-/* Modifier flags. */
-enum {
-    VT_SHIFT	  = 0x01,
-    VT_ALT	  = 0x02,
-    VT_CTRL	  = 0x04,
-    VT_META	  = 0x08,
-    VT_SHIFT_FAKE = 0x10
-};
-
 
 /* Lookup tables for converting keys and escape sequences to keyboard scan codes. */
-static const uint16_t ascii_seqs[] = {
+const uint16_t ascii_seqs[128] = {
     ['\b'] = 0x000e,
     ['\t'] = 0x000f,
     ['\n'] = 0x001c,
@@ -270,7 +261,7 @@ cli_input_log_key(const char *func, int c)
 #endif
 
 
-static void
+void
 cli_input_send(uint16_t code, uint8_t modifier)
 {
     cli_input_log("CLI Input: send(%04X, %02X)\n", code, modifier);
@@ -658,7 +649,7 @@ cli_input_unhook(int c)
 
     /* Process DECRQSS. */
     if ((collect_buf[0] == '$') && (dcs_buf[0] == 'r')) {
-    	cli_input_log("CLI Input: DECRQSS response: %s\n", dcs_buf);
+	cli_input_log("CLI Input: DECRQSS response: %s\n", dcs_buf);
 
 	/* Interpret color-related responses. */
 	if (cli_term.decrqss_color) {
