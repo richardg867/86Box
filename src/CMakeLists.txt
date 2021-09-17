@@ -57,6 +57,18 @@ if(VFIO)
 	add_compile_definitions(USE_VFIO)
 endif()
 
+if(NOT WIN32 OR PTHREAD)
+	target_sources(86Box PRIVATE thread.c)
+	if(WIN32 AND VCPKG_TOOLCHAIN)
+		find_package(pthreads REQUIRED)
+		target_link_libraries(86Box pthreads)
+	else()
+		set(THREADS_PREFER_PTHREAD_FLAG TRUE)
+		find_package(Threads REQUIRED)
+		target_link_libraries(86Box Threads::Threads)
+	endif()
+endif()
+
 target_link_libraries(86Box cpu chipset mch dev mem fdd game cdrom zip mo hdd
 	net print scsi sio snd vid voodoo plat ui)
 
