@@ -642,7 +642,7 @@ void mouse_poll()
 }
 
 
-extern int real_sdl_w, real_sdl_h;
+int real_sdl_w, real_sdl_h;
 void ui_sb_set_ready(int ready) {}
 
 
@@ -715,6 +715,7 @@ int main(int argc, char** argv)
     SDL_AddTimer(1000, timer_onesec, NULL);
     while (!is_quit)
     {
+        static int mouse_inside = 0;
         while (SDL_PollEvent(&event))
 	    {
             switch(event.type)
@@ -754,7 +755,7 @@ int main(int argc, char** argv)
                     if ((event.button.button == SDL_BUTTON_LEFT)
                     && !(mouse_capture || video_fullscreen)
                     && event.button.state == SDL_RELEASED
-                    && event.button.x <= real_sdl_w && event.button.y <= real_sdl_h)
+                    && mouse_inside)
                     {
                         plat_mouse_capture(1);
                         break;
@@ -808,6 +809,18 @@ int main(int argc, char** argv)
                             break;
                     }
                     keyboard_input(event.key.state == SDL_PRESSED, xtkey);
+                }
+                case SDL_WINDOWEVENT:
+                {
+                    switch (event.window.event)
+                    {
+                        case SDL_WINDOWEVENT_ENTER:
+                            mouse_inside = 1;
+                            break;
+                        case SDL_WINDOWEVENT_LEAVE:
+                            mouse_inside = 0;
+                            break;
+                    }
                 }
             }
 	    }

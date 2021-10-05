@@ -26,10 +26,6 @@ ifndef DEV_BUILD
 DEV_BUILD	:= n
 endif
 
-ifneq ($(PTHREAD), n)
-  PTHREAD	:= y
-endif
-
 ifeq ($(DEV_BUILD), y)
  ifndef DEBUG
   DEBUG		:= y
@@ -75,9 +71,6 @@ ifeq ($(DEV_BUILD), y)
  endif
  ifndef PS2M70T4
   PS2M70T4	:= y
- endif
- ifndef S3TRIO3D2X
-  S3TRIO3D2X	:= y
  endif
  ifndef SIO_DETECT
   SIO_DETECT	:= y
@@ -148,9 +141,6 @@ else
  endif
  ifndef PS2M70T4
   PS2M70T4	:= n
- endif
- ifndef S3TRIO3D2X
-  S3TRIO3D2X	:= n
  endif
  ifndef SIO_DETECT
   SIO_DETECT	:= n
@@ -566,10 +556,6 @@ ifeq ($(PS2M70T4), y)
 OPTS		+= -DUSE_PS2M70T4
 endif
 
-ifeq ($(S3TRIO3D2X), y)
-OPTS		+= -DUSE_S3TRIO3D2X
-endif
-
 ifeq ($(SIO_DETECT), y)
 OPTS		+= -DUSE_SIO_DETECT
 DEVBROBJ	+= sio_detect.o
@@ -616,17 +602,10 @@ CXXFLAGS	:= $(CFLAGS)
 #########################################################################
 #		Create the (final) list of objects to build.		#
 #########################################################################
-ifeq ($(PTHREAD), y)
-MAINOBJ		:= 86box.o config.o random.o timer.o io.o acpi.o apm.o dma.o ddma.o \
-		   nmi.o pic.o pit.o port_92.o ppi.o pci.o mca.o \
-		   usb.o device.o nvr.o nvr_at.o nvr_ps2.o thread.o \
-		   $(VNCOBJ)
-else
 MAINOBJ		:= 86box.o config.o random.o timer.o io.o acpi.o apm.o dma.o ddma.o \
 		   nmi.o pic.o pit.o port_92.o ppi.o pci.o mca.o \
 		   usb.o device.o nvr.o nvr_at.o nvr_ps2.o \
 		   $(VNCOBJ)
-endif
 
 MEMOBJ		:= catalyst_flash.o i2c_eeprom.o intel_flash.o mem.o rom.o smram.o spd.o sst_flash.o
 
@@ -807,19 +786,11 @@ VOODOOOBJ	:= vid_voodoo.o vid_voodoo_banshee.o \
 		    vid_voodoo_render.o vid_voodoo_setup.o \
 		    vid_voodoo_texture.o
 
-ifeq ($(PTHREAD), y)
-PLATOBJ		:= win.o \
-		    win_dynld.o \
-		    win_cdrom.o win_keyboard.o \
-		    win_crashdump.o win_midi.o \
-		    win_mouse.o
-else
 PLATOBJ		:= win.o \
 		    win_dynld.o win_thread.o \
 		    win_cdrom.o win_keyboard.o \
 		    win_crashdump.o win_midi.o \
 		    win_mouse.o
-endif
 
 ifeq ($(DINPUT), y)
  PLATOBJ	+= win_joystick.o
@@ -848,11 +819,7 @@ endif
 ifneq ($(WX), n)
 LIBS		+= $(WX_LIBS) -lm
 endif
-ifeq ($(PTHREAD), y)
-LIBS		+= -lpng -lz -lwsock32 -lshell32 -liphlpapi -lpsapi -lSDL2 -limm32 -lhid -lsetupapi -loleaut32 -luxtheme -lversion -lwinmm -static -lstdc++ -lpthread
-else
 LIBS		+= -lpng -lz -lwsock32 -lshell32 -liphlpapi -lpsapi -lSDL2 -limm32 -lhid -lsetupapi -loleaut32 -luxtheme -lversion -lwinmm -static -lstdc++
-endif
 ifneq ($(X64), y)
 ifneq ($(ARM64), y)
 LIBS		+= -Wl,--large-address-aware

@@ -253,7 +253,7 @@ es1371_reset(void *p)
        Addressable as byte, word, longword */
     dev->mem_page = 0x00;
 
-    /* Sample Rate Concerter Interface Register, Address 10H
+    /* Sample Rate Converter Interface Register, Address 10H
        Addressable as longword only */
     dev->sr_cir = 0x00000000;
 
@@ -495,7 +495,7 @@ es1371_inb(uint16_t port, void *p)
 		break;
 
 	/* Interrupt/Chip Select Status Register, Address 04H
-	   Addressable as longword only, but PCem implemens byte access, which
+	   Addressable as longword only, but PCem implements byte access, which
 	   must be for a reason */
 	case 0x04:
 		ret = dev->int_status & 0xff;
@@ -684,7 +684,7 @@ es1371_inl(uint16_t port, void *p)
 		ret = dev->mem_page;
 		break;
 
-	/* Sample Rate Concerter Interface Register, Address 10H
+	/* Sample Rate Converter Interface Register, Address 10H
 	   Addressable as longword only */
 	case 0x10:
 		ret = dev->sr_cir & ~0xffff;
@@ -804,7 +804,6 @@ es1371_outb(uint16_t port, uint8_t val, void *p)
 	   Addressable as byte, word, longword */
 	case 0x18:
 		dev->legacy_ctrl |= LEGACY_INT;
-		// nmi = 0;
 		break;
 	case 0x1a:
 		old_legacy_ctrl = dev->legacy_ctrl;
@@ -881,7 +880,6 @@ es1371_outw(uint16_t port, uint16_t val, void *p)
 	   Addressable as byte, word, longword */
 	case 0x18:
 		dev->legacy_ctrl |= LEGACY_INT;
-		// nmi = 0;
 		break;
 	case 0x1a:
 		old_legacy_ctrl = dev->legacy_ctrl;
@@ -963,7 +961,7 @@ es1371_outl(uint16_t port, uint32_t val, void *p)
 		dev->mem_page = val & 0xf;
 		break;
 
-	/* Sample Rate Concerter Interface Register, Address 10H
+	/* Sample Rate Converter Interface Register, Address 10H
 	   Addressable as longword only */
 	case 0x10:
 		dev->sr_cir = val;
@@ -1034,7 +1032,6 @@ es1371_outl(uint16_t port, uint32_t val, void *p)
 		old_legacy_ctrl = dev->legacy_ctrl;
 		dev->legacy_ctrl = (dev->legacy_ctrl & 0x0000ffff) | (val & 0xffff0000);
 		dev->legacy_ctrl |= LEGACY_INT;
-		// nmi = 0;
 		es1371_update_irqs(dev);
 		update_legacy(dev, old_legacy_ctrl);
 		break;
@@ -1241,17 +1238,17 @@ update_legacy(es1371_t *dev, uint32_t old_legacy_ctrl)
     if (old_legacy_ctrl & LEGACY_CAPTURE_CODEC) {
 	switch ((old_legacy_ctrl >> LEGACY_CODEC_ADDR_SHIFT) & 3) {
 		case 0:
-			io_removehandler(0x5300, 0x0080,
+			io_removehandler(0x0530, 0x0008,
 					 capture_read_codec, NULL, NULL,
 					 capture_write_codec, NULL, NULL, dev);
 			break;
 		case 2:
-			io_removehandler(0xe800, 0x0080,
+			io_removehandler(0x0e80, 0x0008,
 					 capture_read_codec, NULL, NULL,
 					 capture_write_codec,NULL,NULL, dev);
 			break;
 		case 3:
-			io_removehandler(0xf400, 0x0080,
+			io_removehandler(0x0f40, 0x0008,
 					 capture_read_codec, NULL, NULL,
 					 capture_write_codec, NULL, NULL, dev);
 			break;
@@ -1328,17 +1325,17 @@ update_legacy(es1371_t *dev, uint32_t old_legacy_ctrl)
     if (dev->legacy_ctrl & LEGACY_CAPTURE_CODEC) {
 	switch ((dev->legacy_ctrl >> LEGACY_CODEC_ADDR_SHIFT) & 3) {
 		case 0:
-			io_sethandler(0x5300, 0x0080,
+			io_sethandler(0x0530, 0x0008,
 				      capture_read_codec, NULL, NULL,
 				      capture_write_codec, NULL, NULL, dev);
 			break;
 		case 2:
-			io_sethandler(0xe800, 0x0080,
+			io_sethandler(0x0e80, 0x0008,
 				      capture_read_codec, NULL, NULL,
 				      capture_write_codec, NULL, NULL, dev);
 			break;
 		case 3:
-			io_sethandler(0xf400, 0x0080,
+			io_sethandler(0x0f40, 0x0008,
 				      capture_read_codec, NULL, NULL,
 				      capture_write_codec, NULL, NULL, dev);
 			break;

@@ -980,7 +980,7 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 			video_force_resize_set(1);
 		}
 
-		if (window_remember || (vid_resize & 2)) {
+		if (!(pos->flags & SWP_NOSIZE) && (window_remember || (vid_resize & 2))) {
 			window_x = pos->x;
 			window_y = pos->y;
 			if (!(vid_resize & 2)) {
@@ -1379,6 +1379,7 @@ ui_init(int nCmdShow)
 	MoveWindow(hwnd, window_x, window_y, window_w, window_h, TRUE);
     else {
 	if (vid_resize >= 2) {
+		MoveWindow(hwnd, window_x, window_y, window_w, window_h, TRUE);
 		scrnsz_x = fixed_size_x;
 		scrnsz_y = fixed_size_y;
 	}
@@ -1386,8 +1387,6 @@ ui_init(int nCmdShow)
 		ResizeWindowByClientArea(hwndMain, scrnsz_x, scrnsz_y);
 	else
 		ResizeWindowByClientArea(hwndMain, scrnsz_x, scrnsz_y + sbar_height);
-
-	SetWindowPos(hwndMain, HWND_TOP, window_x, window_y, 0, 0, SWP_NOSIZE);
     }
 
     /* Reset all menus to their defaults. */
@@ -1428,7 +1427,8 @@ ui_init(int nCmdShow)
     }
 
     /* Initialize the mouse module. */
-    win_mouse_init();
+    if (!start_in_fullscreen)
+	win_mouse_init();
 
     /*
      * Before we can create the Render window, we first have
@@ -1458,15 +1458,15 @@ ui_init(int nCmdShow)
     else
 	plat_resize(scrnsz_x, scrnsz_y);
 
+    /* Initialize the rendering window, or fullscreen. */
+    if (start_in_fullscreen)
+	plat_setfullscreen(3);
+
     /* Fire up the machine. */
     pc_reset_hard_init();
 
     /* Set the PAUSE mode depending on the renderer. */
     plat_pause(0);
-
-    /* Initialize the rendering window, or fullscreen. */
-    if (start_in_fullscreen)
-	plat_setfullscreen(1);
 
     /* If so requested via the command line, inform the
      * application that started us of our HWND, using the
