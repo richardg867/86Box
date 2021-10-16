@@ -226,7 +226,7 @@ VFIO_RW(io, l, uint16_t, 4, uint32_t, 8)
 
 /* These read/write functions help with porting quirks from QEMU. */
 static uint32_t
-vfio_config_read(int func, uint8_t addr, uint8_t size, void *priv)
+vfio_config_reads(int func, uint8_t addr, uint8_t size, void *priv)
 {
     if (size == 2)
 	addr &= 0xfe;
@@ -246,7 +246,7 @@ vfio_config_read(int func, uint8_t addr, uint8_t size, void *priv)
 
 
 static void
-vfio_config_write(int func, uint8_t addr, uint32_t val, uint8_t size, void *priv)
+vfio_config_writes(int func, uint8_t addr, uint32_t val, uint8_t size, void *priv)
 {
     if (size == 2)
 	addr &= 0xfe;
@@ -264,76 +264,79 @@ vfio_config_write(int func, uint8_t addr, uint32_t val, uint8_t size, void *priv
 }
 
 
-static uint32_t
-vfio_io_reads_fd(uint16_t addr, uint8_t size, void *priv)
-{
-    if (size == 1)
-	return vfio_io_readb_fd(addr, priv);
-    else if (size == 2)
-	return vfio_io_readw_fd(addr, priv);
-    else
-	return vfio_io_readl_fd(addr, priv);
+#define VFIO_RW_S(name, method, addr_type) \
+static uint32_t \
+vfio_ ## name ## _reads_ ## method(addr_type addr, uint8_t size, void *priv) \
+{ \
+    if (size == 1) \
+	return vfio_ ## name ## _readb_ ## method(addr, priv); \
+    else if (size == 2) \
+	return vfio_ ## name ## _readw_ ## method(addr, priv); \
+    else \
+	return vfio_ ## name ## _readl_ ## method(addr, priv); \
+} \
+\
+static uint32_t \
+vfio_io_writes_ ## method(addr_type addr, uint32_t val, uint8_t size, void *priv) \
+{ \
+    if (size == 1) \
+	vfio_ ##name ## _writeb_ ## method(addr, val, priv); \
+    else if (size == 2) \
+	vfio_ ##name ## _writew_ ## method(addr, val, priv); \
+    else \
+	vfio_ ##name ## _writel_ ## method(addr, val, priv); \
 }
 
-
-static uint32_t
-vfio_io_writes_fd(uint16_t addr, uint32_t val, uint8_t size, void *priv)
-{
-    if (size == 1)
-	vfio_io_writeb_fd(addr, val, priv);
-    else if (size == 2)
-	vfio_io_writew_fd(addr, val, priv);
-    else
-	vfio_io_writel_fd(addr, val, priv);
-}
+VFIO_RW_S(io, fd, uint16_t);
+VFIO_RW_S(mem, fd, uint8_t);
 
 
 #define VFIO_RW_BWL(name, addr_type) \
 static uint8_t \
 vfio_ ## name ## _readb(addr_type addr, void *priv) \
 { \
-    return vfio_ ## name ## _read(addr, 1, priv); \
+    return vfio_ ## name ## _reads(addr, 1, priv); \
 } \
 \
 static uint16_t \
 vfio_ ## name ## _readw(addr_type addr, void *priv) \
 { \
-    return vfio_ ## name ## _read(addr, 2, priv); \
+    return vfio_ ## name ## _reads(addr, 2, priv); \
 } \
 \
 static uint32_t \
 vfio_ ## name ## _readl(addr_type addr, void *priv) \
 { \
-    return vfio_ ## name ## _read(addr, 4, priv); \
+    return vfio_ ## name ## _reads(addr, 4, priv); \
 } \
 \
 static void \
 vfio_ ## name ## _writeb(addr_type addr, uint8_t val, void *priv) \
 { \
-    vfio_ ## name ## _write(addr, val, 1, priv); \
+    vfio_ ## name ## _writes(addr, val, 1, priv); \
 } \
 \
 static void \
 vfio_ ## name ## _writew(addr_type addr, uint16_t val, void *priv) \
 { \
-    vfio_ ## name ## _write(addr, val, 2, priv); \
+    vfio_ ## name ## _writes(addr, val, 2, priv); \
 } \
 \
 static void \
 vfio_ ## name ## _writel(addr_type addr, uint32_t val, void *priv) \
 { \
-    vfio_ ## name ## _write(addr, val, 4, priv); \
+    vfio_ ## name ## _writes(addr, val, 4, priv); \
 }
 /* End helper functions. */
 
 
 static uint32_t
-vfio_quirk_configmirror_read(uint32_t addr, uint8_t size, void *priv)
+vfio_quirk_configmirror_reads(uint32_t addr, uint8_t size, void *priv)
 {
     vfio_device_t *dev = (vfio_device_t *) priv;
 
     /* Read configuration register. */
-    register uint32_t ret = vfio_config_read(0, addr, size, dev);
+    register uint32_t ret = vfio_config_reads(0, addr, size, dev);
     vfio_log_op("VFIO %s: Config mirror: Read %08X from %02X\n",
 		dev->name, ret, addr & 0xff);
     return ret;
@@ -341,22 +344,109 @@ vfio_quirk_configmirror_read(uint32_t addr, uint8_t size, void *priv)
 
 
 static void
-vfio_quirk_configmirror_write(uint32_t addr, uint32_t val, uint8_t size, void *priv)
+vfio_quirk_configmirror_writes(uint32_t addr, uint32_t val, uint8_t size, void *priv)
 {
     vfio_device_t *dev = (vfio_device_t *) priv;
 
     /* Write configuration register. */
-    vfio_log_op("VFIO %s: Config mirror: Read %08X from %02X\n",
+    vfio_log_op("VFIO %s: Config mirror: Write %08X to %02X\n",
 		dev->name, val, addr & 0xff);
-    vfio_config_write(0, addr, val, size, dev);
+    vfio_config_writes(0, addr, val, size, dev);
 }
 
 
 VFIO_RW_BWL(quirk_configmirror, uint32_t);
 
 
+static void
+vfio_quirk_configmirror(vfio_device_t *dev, vfio_region_t *bar,
+			uint32_t offset, uint8_t mapping_slot, uint8_t enable)
+{
+    /* Get the additional memory mapping structure. */
+    mem_mapping_t *mapping = &bar->mem_mapping_add[mapping_slot];
+
+    vfio_log("VFIO %s: %sapping configuration space mirror for %s @ %08X\n",
+	     dev->name, enable ? "M" : "Unm", bar->name, bar->emulated_offset + offset);
+
+    /* Add mapping if it wasn't already added.
+       Being added after region setup, it should override the main BAR mapping. */
+    if (!mapping->base)
+	mem_mapping_add(mapping, bar->emulated_offset + offset, 0,
+			vfio_quirk_configmirror_readb,
+			vfio_quirk_configmirror_readw,
+			vfio_quirk_configmirror_readl,
+			vfio_quirk_configmirror_writeb,
+			vfio_quirk_configmirror_writew,
+			vfio_quirk_configmirror_writel,
+			NULL, MEM_MAPPING_EXTERNAL, dev);
+
+    /* Enable or disable mapping. */
+    if (enable)
+	mem_mapping_set_addr(mapping, bar->emulated_offset + offset, 256);
+    else
+	mem_mapping_disable(mapping);
+}
+
+
 static uint32_t
-vfio_quirk_nvidia3d0_read(uint16_t addr, uint8_t size, void *priv)
+vfio_quirk_iomirror_reads(uint16_t addr, uint8_t size, void *priv)
+{
+    vfio_bar_t *bar = (vfio_bar_t *) priv;
+
+    /* Read I/O port mirror from memory-mapped space. */
+    uint32_t ret;
+    if (pread(bar->fd, &ret, sizeof(ret), )) /* need to store offset... */
+    vfio_log_op("VFIO %s: I/O mirror: Read %08X from %02X\n",
+		dev->name, ret, addr);
+    return ret;
+}
+
+
+static void
+vfio_quirk_iomirror_writes(uint16_t addr, uint32_t val, uint8_t size, void *priv)
+{
+    vfio_bar_t *bar = (vfio_bar_t *) priv;
+
+    /* Write I/O port mirror to memory-mapped space. */
+    vfio_log_op("VFIO %s: I/O mirror: Read %08X from %02X\n",
+		dev->name, val, addr);
+}
+
+
+VFIO_RW_BWL(quirk_iomirror, uint16_t);
+
+
+static void 
+vfio_quirk_iomirror(vfio_device_t *dev, vfio_region_t *bar,
+		    uint32_t offset, uint16_t base, uint16_t length, uint8_t enable)
+{
+    vfio_log("VFIO %s: %sapping I/O mirror for %s @ %08X\n",
+	     dev->name, enable ? "M" : "Unm", bar->name, bar->emulated_offset + offset);
+
+    /* Add or remove quirk handler from port range. */
+    if (enable)
+    	io_sethandler(base, length,
+		      bar->read ? vfio_quirk_iomirror_readb : NULL,
+		      bar->read ? vfio_quirk_iomirror_readw : NULL,
+		      bar->read ? vfio_quirk_iomirror_readl : NULL,
+		      bar->write ? vfio_quirk_iomirror_writeb : NULL,
+		      bar->write ? vfio_quirk_iomirror_writew : NULL,
+		      bar->write ? vfio_quirk_iomirror_writel : NULL,
+		      dev);
+    else
+	io_removehandler(base, length,
+			 bar->read ? vfio_quirk_iomirror_readb : NULL,
+			 bar->read ? vfio_quirk_iomirror_readw : NULL,
+			 bar->read ? vfio_quirk_iomirror_readl : NULL,
+			 bar->write ? vfio_quirk_iomirror_writeb : NULL,
+			 bar->write ? vfio_quirk_iomirror_writew : NULL,
+			 bar->write ? vfio_quirk_iomirror_writel : NULL,
+			 dev);
+}
+
+
+static uint32_t
+vfio_quirk_nvidia3d0_reads(uint16_t addr, uint8_t size, void *priv)
 {
     vfio_device_t *dev = (vfio_device_t *) priv;
 
@@ -369,7 +459,7 @@ vfio_quirk_nvidia3d0_read(uint16_t addr, uint8_t size, void *priv)
     if ((addr < 0x3d4) && (prev_state == NVIDIA_3D0_READ) &&
 	((dev->quirks.nvidia3d0.offset & 0xffffff00) == 0x00001800)) {
 	/* Configuration read. */
-	ret = vfio_config_read(0, dev->quirks.nvidia3d0.offset, size, dev);
+	ret = vfio_config_reads(0, dev->quirks.nvidia3d0.offset, size, dev);
 	vfio_log_op("VFIO %s: NVIDIA 3D0: Read %08X from %08X\n", dev->name,
 		    ret, dev->quirks.nvidia3d0.offset & 0xff);
     }
@@ -379,7 +469,7 @@ vfio_quirk_nvidia3d0_read(uint16_t addr, uint8_t size, void *priv)
 
 
 static void
-vfio_quirk_nvidia3d0_write(uint16_t addr, uint32_t val, uint8_t size, void *priv)
+vfio_quirk_nvidia3d0_writes(uint16_t addr, uint32_t val, uint8_t size, void *priv)
 {
     vfio_device_t *dev = (vfio_device_t *) priv;
 
@@ -398,7 +488,7 @@ vfio_quirk_nvidia3d0_write(uint16_t addr, uint32_t val, uint8_t size, void *priv
 			/* Configuration write. */
 			vfio_log_op("VFIO %s: NVIDIA 3D0: Write %08X to %08X\n", dev->name,
 				    val, dev->quirks.nvidia3d0.offset & 0xff);
-			vfio_config_write(0, dev->quirks.nvidia3d0.offset, val, size, dev);
+			vfio_config_writes(0, dev->quirks.nvidia3d0.offset, val, size, dev);
 			return;
 		}
 	}
@@ -427,35 +517,6 @@ vfio_quirk_nvidia3d0_write(uint16_t addr, uint32_t val, uint8_t size, void *priv
 
 
 VFIO_RW_BWL(quirk_nvidia3d0, uint16_t);
-
-
-static void
-vfio_quirk_configmirror(vfio_device_t *dev, vfio_region_t *bar, uint32_t offset, uint8_t mapping_slot, uint8_t enable)
-{
-    /* Get the additional memory mapping structure. */
-    mem_mapping_t *mapping = &bar->mem_mapping_add[mapping_slot];
-
-    vfio_log("VFIO %s: %sapping configuration space mirror for %s @ %08X\n",
-	     dev->name, enable ? "M" : "Unm", bar->name, bar->emulated_offset + offset);
-
-    /* Add mapping if it wasn't already added.
-       Being added after region setup, it should override the main BAR mapping. */
-    if (!mapping->base)
-	mem_mapping_add(mapping, bar->emulated_offset + offset, 0,
-			vfio_quirk_configmirror_readb,
-			vfio_quirk_configmirror_readw,
-			vfio_quirk_configmirror_readl,
-			vfio_quirk_configmirror_writeb,
-			vfio_quirk_configmirror_writew,
-			vfio_quirk_configmirror_writel,
-			NULL, MEM_MAPPING_EXTERNAL, dev);
-
-    /* Enable or disable mapping. */
-    if (enable)
-	mem_mapping_set_addr(mapping, bar->emulated_offset + offset, 256);
-    else
-	mem_mapping_disable(mapping);
-}
 
 
 static void
