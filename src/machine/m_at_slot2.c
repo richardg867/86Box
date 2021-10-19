@@ -10,6 +10,8 @@
  *
  *		Slot 2 is quite a rare type of Slot. Used mostly by Pentium II & III Xeons
  *
+ *
+ *
  * Authors:	Miran Grca, <mgrca8@gmail.com>
  *
  *		Copyright 2016-2019 Miran Grca.
@@ -67,10 +69,7 @@ machine_at_6gxu_init(const machine_t *model)
     device_add(&w83977ef_device);
     device_add(&sst_flash_39sf020_device);
     spd_register(SPD_TYPE_SDRAM, 0xF, 512);
-    device_add(&w83782d_device); /* fans: ???, ???, System; temperatures: System, CPU, unused */
-    hwm_values.fans[0] = 2000;
-    hwm_values.fans[1] = 2500;
-    hwm_values.fans[2] = 3000;
+    device_add(&w83782d_device); /* fans: CPU, Power, System; temperatures: System, CPU, unused */
     hwm_values.temperatures[2] = 0; /* unused */
     hwm_values.voltages[1] = 1500; /* VGTL */
 	

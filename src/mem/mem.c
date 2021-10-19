@@ -129,7 +129,11 @@ static uint8_t		*_mem_exec[MEM_MAPPINGS_NO];
 static uint8_t		ff_pccache[4] = { 0xff, 0xff, 0xff, 0xff };
 static mem_state_t	_mem_state[MEM_MAPPINGS_NO];
 static uint32_t		remap_start_addr;
+#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
 static size_t		ram_size = 0, ram2_size = 0;
+#else
+static size_t		ram_size = 0;
+#endif
 
 
 #ifdef ENABLE_MEM_LOG
@@ -1592,7 +1596,7 @@ do_mmutranslate(uint32_t addr, uint32_t *a64, int num, int write)
 	a64[i] = (uint64_t) addr;
 
     for (i = 0; i < num; i++) {
-    	if (cr0 >> 31) {
+	if (cr0 >> 31) {
 		if (write && ((i == 0) || !(addr & 0xfff)))
 		    cond = (!page_lookup[addr >> 12] || !page_lookup[addr >> 12]->write_b);
 
@@ -1662,7 +1666,7 @@ mem_readw_phys(uint32_t addr)
 	p = (uint16_t *) &(map->exec[addr - map->base]);
 	ret = *p;
     } else if (((addr & MEM_GRANULARITY_MASK) <= MEM_GRANULARITY_HBOUND) && (map && map->read_w))
-       	ret = map->read_w(addr, map->p);
+	ret = map->read_w(addr, map->p);
     else {
 	ret = mem_readb_phys(addr + 1) << 8;
 	ret |=  mem_readb_phys(addr);
@@ -1684,7 +1688,7 @@ mem_readl_phys(uint32_t addr)
 	p = (uint32_t *) &(map->exec[addr - map->base]);
 	ret = *p;
     } else if (((addr & MEM_GRANULARITY_MASK) <= MEM_GRANULARITY_QBOUND) && (map && map->read_l))
-       	ret = map->read_l(addr, map->p);
+	ret = map->read_l(addr, map->p);
     else {
 	ret = mem_readw_phys(addr + 2) << 16;
 	ret |=  mem_readw_phys(addr);
@@ -1742,7 +1746,7 @@ mem_writew_phys(uint32_t addr, uint16_t val)
 	p = (uint16_t *) &(map->exec[addr - map->base]);
 	*p = val;
     } else if (((addr & MEM_GRANULARITY_MASK) <= MEM_GRANULARITY_HBOUND) && (map && map->write_w))
-       	map->write_w(addr, val, map->p);
+	map->write_w(addr, val, map->p);
     else {
 	mem_writeb_phys(addr, val & 0xff);
 	mem_writeb_phys(addr + 1, (val >> 8) & 0xff);
@@ -1762,7 +1766,7 @@ mem_writel_phys(uint32_t addr, uint32_t val)
 	p = (uint32_t *) &(map->exec[addr - map->base]);
 	*p = val;
     } else if (((addr & MEM_GRANULARITY_MASK) <= MEM_GRANULARITY_QBOUND) && (map && map->write_l))
-       	map->write_l(addr, val, map->p);
+	map->write_l(addr, val, map->p);
     else {
 	mem_writew_phys(addr, val & 0xffff);
 	mem_writew_phys(addr + 2, (val >> 16) & 0xffff);
@@ -2620,14 +2624,14 @@ mem_reset(void)
     }
 
     if (mem_size > 2097152)
-	fatal("Attempting to use more than 2 GB of emulated RAM\n");
+	mem_size = 2097152;
 #endif
 
     m = 1024UL * mem_size;
 
 #if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
     if (mem_size > 1048576) {
-    	ram_size = 1 << 30;
+	ram_size = 1 << 30;
 	ram = (uint8_t *) plat_mmap(ram_size, 0);	/* allocate and clear the RAM block of the first 1 GB */
 	if (ram == NULL) {
 		fatal("Failed to allocate primary RAM block. Make sure you have enough RAM available.\n");
