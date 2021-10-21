@@ -64,8 +64,28 @@ typedef struct {
     uint8_t	*mmap_base, *mmap_precalc,
 		type, bar_id,
 		read: 1, write: 1;
-    mem_mapping_t mem_mapping, mem_mapping_add[2];
+    mem_mapping_t mem_mapping;
     char	name[20];
+    struct _vfio_device_ *dev;
+
+    struct {
+	mem_mapping_t mem_mappings[2];
+
+	struct {
+		uint32_t offset;
+	} iomirror;
+
+	struct {
+		uint32_t offset;
+	} configmirror;
+
+	struct {
+		struct {
+			uint32_t start, end;
+		} offset[2];
+		uint32_t index;
+	} configwindow;
+    } quirks;
 } vfio_region_t;
 
 typedef struct {
@@ -107,10 +127,21 @@ typedef struct _vfio_device_ {
     } irq;
 
     struct {
-	struct {
-		uint8_t state;
-		uint32_t offset;
-	} nvidia3d0;
+	union {
+		struct {
+			vfio_region_t *bar;
+		} ati3c3;
+
+		struct {
+			uint64_t master_enable;
+			uint8_t bar_enable;
+		} nvidiabar5;
+
+		struct {
+			uint32_t index;
+			uint8_t state;
+		} nvidia3d0;
+	};
     } quirks;
 
     struct _vfio_device_ *next;
@@ -165,7 +196,11 @@ vfio_log(const char *fmt, ...)
 
 
 static uint8_t	vfio_config_readb(int func, int addr, void *priv);
+static uint16_t	vfio_config_readw(int func, int addr, void *priv);
+static uint32_t	vfio_config_readl(int func, int addr, void *priv);
 static void	vfio_config_writeb(int func, int addr, uint8_t val, void *priv);
+static void	vfio_config_writew(int func, int addr, uint16_t val, void *priv);
+static void	vfio_config_writel(int func, int addr, uint32_t val, void *priv);
 static void	vfio_irq_intx_setpin(vfio_device_t *dev);
 static void	vfio_irq_msi_disable(vfio_device_t *dev);
 static void	vfio_irq_msix_disable(vfio_device_t *dev);
@@ -181,7 +216,7 @@ vfio_ ## space ## _read ## length_char ## _fd(addr_type addr, void *priv) \
     val_type ret; \
     if (pread(region->fd, &ret, sizeof(ret), region->precalc_offset + addr) != sizeof(ret)) \
 	ret = -1; \
-    vfio_log_op("[%08X:%04X] VFIO: " #space "_read" #length_char "_fd(%0" #addr_slength "X) = %0" #val_slength "X\n", CS, cpu_state.pc, addr, ret); \
+    vfio_log_op("[%04X:%08X] VFIO: " #space "_read" #length_char "_fd(%0" #addr_slength "X) = %0" #val_slength "X\n", CS, cpu_state.pc, addr, ret); \
     cycles -= timing_read ## length_char; \
     intx_high = 0; \
     return ret; \
@@ -191,7 +226,7 @@ static void \
 vfio_ ## space ## _write ## length_char ## _fd(addr_type addr, val_type val, void *priv) \
 { \
     register vfio_region_t *region = (vfio_region_t *) priv; \
-    vfio_log_op("[%08X:%04X] VFIO: " #space "_write" #length_char "_fd(%0" #addr_slength "X, %0" #val_slength "X)\n", CS, cpu_state.pc, addr, val); \
+    vfio_log_op("[%04X:%08X] VFIO: " #space "_write" #length_char "_fd(%0" #addr_slength "X, %0" #val_slength "X)\n", CS, cpu_state.pc, addr, val); \
     pwrite(region->fd, &val, sizeof(val), region->precalc_offset + addr); \
     cycles -= timing_write ## length_char; \
     intx_high = 0; \
@@ -201,7 +236,7 @@ static val_type \
 vfio_ ## space ## _read ## length_char ## _mm(addr_type addr, void *priv) \
 { \
     register val_type ret = *((val_type *) &((uint8_t *) priv)[addr]); \
-    vfio_log_op("[%08X:%04X] VFIO: " #space "_read" #length_char "_mm(%0" #addr_slength "X) = %0" #val_slength "X\n", CS, cpu_state.pc, addr, ret); \
+    vfio_log_op("[%04X:%08X] VFIO: " #space "_read" #length_char "_mm(%0" #addr_slength "X) = %0" #val_slength "X\n", CS, cpu_state.pc, addr, ret); \
     cycles -= timing_read ## length_char; \
     intx_high = 0; \
     return ret; \
@@ -210,7 +245,7 @@ vfio_ ## space ## _read ## length_char ## _mm(addr_type addr, void *priv) \
 static void \
 vfio_ ## space ## _write ## length_char ## _mm(addr_type addr, val_type val, void *priv) \
 { \
-    vfio_log_op("[%08X:%04X] VFIO: " #space "_write" #length_char "_mm(%0" #addr_slength "X, %0" #val_slength "X)\n", CS, cpu_state.pc, addr, val); \
+    vfio_log_op("[%04X:%08X] VFIO: " #space "_write" #length_char "_mm(%0" #addr_slength "X, %0" #val_slength "X)\n", CS, cpu_state.pc, addr, val); \
     *((val_type *) &((uint8_t *) priv)[addr]) = val; \
     cycles -= timing_write ## length_char; \
     intx_high = 0; \
@@ -224,138 +259,151 @@ VFIO_RW(io, w, uint16_t, 4, uint16_t, 4)
 VFIO_RW(io, l, uint16_t, 4, uint32_t, 8)
 
 
-/* These read/write functions help with porting quirks from QEMU. */
-static uint32_t
-vfio_config_reads(int func, uint8_t addr, uint8_t size, void *priv)
-{
-    if (size == 2)
-	addr &= 0xfe;
-    else if (size == 4)
-	addr &= 0xfc;
-
-    uint32_t ret = vfio_config_readb(func, addr, priv);
-    if (size >= 2) {
-	ret |= vfio_config_readb(func, addr | 1, priv) << 8;
-	if (size == 4) {
-		ret |= vfio_config_readb(func, addr | 2, priv) << 16;
-		ret |= vfio_config_readb(func, addr | 3, priv) << 24;
-	}
-    }
-    return ret;
-}
-
-
 static void
-vfio_config_writes(int func, uint8_t addr, uint32_t val, uint8_t size, void *priv)
+vfio_quirk_capture_io(vfio_device_t *dev, vfio_region_t *bar,
+		      uint16_t base, uint16_t size, uint8_t enable,
+		      uint8_t (*inb)(uint16_t addr, void *priv),
+		      uint16_t (*inw)(uint16_t addr, void *priv),
+		      uint32_t (*inl)(uint16_t addr, void *priv),
+		      void (*outb)(uint16_t addr, uint8_t val, void *priv),
+		      void (*outw)(uint16_t addr, uint16_t val, void *priv),
+		      void (*outl)(uint16_t addr, uint32_t val, void *priv))
 {
-    if (size == 2)
-	addr &= 0xfe;
-    else if (size == 4)
-	addr &= 0xfc;
+    /* Remove quirk handler from port range. */
+    io_removehandler(base, size,
+		     bar->read ? inb : NULL,
+		     bar->read ? inw : NULL,
+		     bar->read ? inl : NULL,
+		     bar->write ? outb : NULL,
+		     bar->write ? outw : NULL,
+		     bar->write ? outl : NULL,
+		     dev ? ((void *) dev) : ((void *) bar));
 
-    vfio_config_writeb(func, addr, val, priv);
-    if (size >= 2) {
-	vfio_config_writeb(func, addr | 1, val >> 8, priv);
-	if (size == 4) {
-		vfio_config_writeb(func, addr | 2, val >> 16, priv);
-		vfio_config_writeb(func, addr | 3, val >> 24, priv);
-	}
+    if (enable) {
+	/* Remove existing handler from port range. */
+	if (bar->mmap_base) /* mmap available */
+		io_removehandler(base, size,
+				 bar->read ? vfio_io_readb_mm : NULL,
+				 bar->read ? vfio_io_readw_mm : NULL,
+				 bar->read ? vfio_io_readl_mm : NULL,
+				 bar->write ? vfio_io_writeb_mm : NULL,
+				 bar->write ? vfio_io_writew_mm : NULL,
+				 bar->write ? vfio_io_writel_mm : NULL,
+				 bar->mmap_precalc);
+	else /* mmap not available */
+		io_removehandler(base, size,
+				 bar->read ? vfio_io_readb_fd : NULL,
+				 bar->read ? vfio_io_readw_fd : NULL,
+				 bar->read ? vfio_io_readl_fd : NULL,
+				 bar->write ? vfio_io_writeb_fd : NULL,
+				 bar->write ? vfio_io_writew_fd : NULL,
+				 bar->write ? vfio_io_writel_fd : NULL,
+				 bar);
+
+	/* Add quirk handler to port range. */
+	io_sethandler(base, size,
+		      bar->read ? inb : NULL,
+		      bar->read ? inw : NULL,
+		      bar->read ? inl : NULL,
+		      bar->write ? outb : NULL,
+		      bar->write ? outw : NULL,
+		      bar->write ? outl : NULL,
+		      dev ? ((void *) dev) : ((void *) bar));
     }
 }
 
 
-#define VFIO_RW_S(name, method, addr_type) \
-static uint32_t \
-vfio_ ## name ## _reads_ ## method(addr_type addr, uint8_t size, void *priv) \
-{ \
-    if (size == 1) \
-	return vfio_ ## name ## _readb_ ## method(addr, priv); \
-    else if (size == 2) \
-	return vfio_ ## name ## _readw_ ## method(addr, priv); \
-    else \
-	return vfio_ ## name ## _readl_ ## method(addr, priv); \
-} \
-\
-static uint32_t \
-vfio_io_writes_ ## method(addr_type addr, uint32_t val, uint8_t size, void *priv) \
-{ \
-    if (size == 1) \
-	vfio_ ##name ## _writeb_ ## method(addr, val, priv); \
-    else if (size == 2) \
-	vfio_ ##name ## _writew_ ## method(addr, val, priv); \
-    else \
-	vfio_ ##name ## _writel_ ## method(addr, val, priv); \
-}
-
-VFIO_RW_S(io, fd, uint16_t);
-VFIO_RW_S(mem, fd, uint8_t);
-
-
-#define VFIO_RW_BWL(name, addr_type) \
-static uint8_t \
-vfio_ ## name ## _readb(addr_type addr, void *priv) \
-{ \
-    return vfio_ ## name ## _reads(addr, 1, priv); \
-} \
-\
-static uint16_t \
-vfio_ ## name ## _readw(addr_type addr, void *priv) \
-{ \
-    return vfio_ ## name ## _reads(addr, 2, priv); \
-} \
-\
-static uint32_t \
-vfio_ ## name ## _readl(addr_type addr, void *priv) \
-{ \
-    return vfio_ ## name ## _reads(addr, 4, priv); \
-} \
-\
-static void \
-vfio_ ## name ## _writeb(addr_type addr, uint8_t val, void *priv) \
-{ \
-    vfio_ ## name ## _writes(addr, val, 1, priv); \
-} \
-\
-static void \
-vfio_ ## name ## _writew(addr_type addr, uint16_t val, void *priv) \
-{ \
-    vfio_ ## name ## _writes(addr, val, 2, priv); \
-} \
-\
-static void \
-vfio_ ## name ## _writel(addr_type addr, uint32_t val, void *priv) \
-{ \
-    vfio_ ## name ## _writes(addr, val, 4, priv); \
-}
-/* End helper functions. */
-
-
-static uint32_t
-vfio_quirk_configmirror_reads(uint32_t addr, uint8_t size, void *priv)
+static uint8_t
+vfio_quirk_configmirror_readb(uint32_t addr, void *priv)
 {
-    vfio_device_t *dev = (vfio_device_t *) priv;
+    vfio_region_t *bar = (vfio_region_t *) priv;
+    vfio_device_t *dev = bar->dev;
+
+    /* Cascade to the main handler. */
+    vfio_mem_readb_fd(addr, bar);
 
     /* Read configuration register. */
-    register uint32_t ret = vfio_config_reads(0, addr, size, dev);
-    vfio_log_op("VFIO %s: Config mirror: Read %08X from %02X\n",
-		dev->name, ret, addr & 0xff);
+    uint8_t ret = vfio_config_readb(0, addr - bar->quirks.configmirror.offset, dev);
+    vfio_log_op("VFIO %s: Config mirror: Read %02X from index %02X\n",
+		dev->name, ret, addr - bar->quirks.configmirror.offset);
+
+    return ret;
+}
+
+
+static uint16_t
+vfio_quirk_configmirror_readw(uint32_t addr, void *priv)
+{
+    vfio_region_t *bar = (vfio_region_t *) priv;
+    vfio_device_t *dev = bar->dev;
+
+    /* Cascade to the main handler. */
+    vfio_mem_readw_fd(addr, bar);
+
+    /* Read configuration register. */
+    uint16_t ret = vfio_config_readw(0, addr - bar->quirks.configmirror.offset, dev);
+    vfio_log_op("VFIO %s: Config mirror: Read %04X from index %02X\n",
+		dev->name, ret, addr - bar->quirks.configmirror.offset);
+
+    return ret;
+}
+
+
+static uint32_t
+vfio_quirk_configmirror_readl(uint32_t addr, void *priv)
+{
+    vfio_region_t *bar = (vfio_region_t *) priv;
+    vfio_device_t *dev = bar->dev;
+
+    /* Cascade to the main handler. */
+    vfio_mem_readl_fd(addr, bar);
+
+    /* Read configuration register. */
+    uint32_t ret = vfio_config_readw(0, addr - bar->quirks.configmirror.offset, dev);
+    vfio_log_op("VFIO %s: Config mirror: Read %08X from index %02X\n",
+		dev->name, ret, addr - bar->quirks.configmirror.offset);
+
     return ret;
 }
 
 
 static void
-vfio_quirk_configmirror_writes(uint32_t addr, uint32_t val, uint8_t size, void *priv)
+vfio_quirk_configmirror_writeb(uint32_t addr, uint8_t val, void *priv)
 {
-    vfio_device_t *dev = (vfio_device_t *) priv;
+    vfio_region_t *bar = (vfio_region_t *) priv;
+    vfio_device_t *dev = bar->dev;
 
     /* Write configuration register. */
-    vfio_log_op("VFIO %s: Config mirror: Write %08X to %02X\n",
-		dev->name, val, addr & 0xff);
-    vfio_config_writes(0, addr, val, size, dev);
+    vfio_log_op("VFIO %s: Config mirror: Write %02X to index %02X\n",
+		dev->name, val, addr - bar->quirks.configmirror.offset);
+    vfio_config_writeb(0, addr - bar->quirks.configmirror.offset, val, dev);
 }
 
 
-VFIO_RW_BWL(quirk_configmirror, uint32_t);
+static void
+vfio_quirk_configmirror_writew(uint32_t addr, uint16_t val, void *priv)
+{
+    vfio_region_t *bar = (vfio_region_t *) priv;
+    vfio_device_t *dev = bar->dev;
+
+    /* Write configuration register. */
+    vfio_log_op("VFIO %s: Config mirror: Write %04X to index %02X\n",
+		dev->name, val, addr - bar->quirks.configmirror.offset);
+    vfio_config_writew(0, addr - bar->quirks.configmirror.offset, val, dev);
+}
+
+
+static void
+vfio_quirk_configmirror_writel(uint32_t addr, uint32_t val, void *priv)
+{
+    vfio_region_t *bar = (vfio_region_t *) priv;
+    vfio_device_t *dev = bar->dev;
+
+    /* Write configuration register. */
+    vfio_log_op("VFIO %s: Config mirror: Write %08X to index %02X\n",
+		dev->name, val, addr - bar->quirks.configmirror.offset);
+    vfio_config_writel(0, addr - bar->quirks.configmirror.offset, val, dev);
+}
 
 
 static void
@@ -363,7 +411,7 @@ vfio_quirk_configmirror(vfio_device_t *dev, vfio_region_t *bar,
 			uint32_t offset, uint8_t mapping_slot, uint8_t enable)
 {
     /* Get the additional memory mapping structure. */
-    mem_mapping_t *mapping = &bar->mem_mapping_add[mapping_slot];
+    mem_mapping_t *mapping = &bar->quirks.mem_mappings[mapping_slot];
 
     vfio_log("VFIO %s: %sapping configuration space mirror for %s @ %08X\n",
 	     dev->name, enable ? "M" : "Unm", bar->name, bar->emulated_offset + offset);
@@ -371,14 +419,17 @@ vfio_quirk_configmirror(vfio_device_t *dev, vfio_region_t *bar,
     /* Add mapping if it wasn't already added.
        Being added after region setup, it should override the main BAR mapping. */
     if (!mapping->base)
-	mem_mapping_add(mapping, bar->emulated_offset + offset, 0,
+	mem_mapping_add(mapping, 0, 0,
 			vfio_quirk_configmirror_readb,
 			vfio_quirk_configmirror_readw,
 			vfio_quirk_configmirror_readl,
 			vfio_quirk_configmirror_writeb,
 			vfio_quirk_configmirror_writew,
 			vfio_quirk_configmirror_writel,
-			NULL, MEM_MAPPING_EXTERNAL, dev);
+			NULL, MEM_MAPPING_EXTERNAL, bar);
+
+    /* Store start offset. */
+    bar->quirks.configmirror.offset = bar->emulated_offset + offset;
 
     /* Enable or disable mapping. */
     if (enable)
@@ -388,32 +439,347 @@ vfio_quirk_configmirror(vfio_device_t *dev, vfio_region_t *bar,
 }
 
 
-static uint32_t
-vfio_quirk_iomirror_reads(uint16_t addr, uint8_t size, void *priv)
+static void
+vfio_quirk_configwindow_index_writeb(uint16_t addr, uint8_t val, void *priv)
 {
-    vfio_bar_t *bar = (vfio_bar_t *) priv;
+    vfio_region_t *bar = (vfio_region_t *) priv;
+    vfio_device_t *dev = bar->dev;
 
-    /* Read I/O port mirror from memory-mapped space. */
-    uint32_t ret;
-    if (pread(bar->fd, &ret, sizeof(ret), )) /* need to store offset... */
-    vfio_log_op("VFIO %s: I/O mirror: Read %08X from %02X\n",
-		dev->name, ret, addr);
+    /* Write configuration register index. */
+    vfio_log_op("VFIO %s: Config window: Write index[%d] %02X\n",
+		dev->name, addr & 3, val);
+    uint8_t offset = (addr & 3) << 3;
+    bar->quirks.configwindow.index &= ~(0x000000ff << offset);
+    bar->quirks.configwindow.index |= val << offset;
+
+    /* Cascade to the main handler. */
+    vfio_io_writeb_fd(addr, val, bar);
+}
+
+
+static void
+vfio_quirk_configwindow_index_writew(uint16_t addr, uint16_t val, void *priv)
+{
+    vfio_region_t *bar = (vfio_region_t *) priv;
+    vfio_device_t *dev = bar->dev;
+
+    /* Write configuration register index. */
+    vfio_log_op("VFIO %s: Config window: Write index[%d] %04X\n",
+		dev->name, addr & 2, val);
+    uint8_t offset = (addr & 2) << 3;
+    bar->quirks.configwindow.index &= ~(0x0000ffff << offset);
+    bar->quirks.configwindow.index |= val << offset;
+
+    /* Cascade to the main handler. */
+    vfio_io_writew_fd(addr, val, bar);
+}
+
+
+static void
+vfio_quirk_configwindow_index_writel(uint16_t addr, uint32_t val, void *priv)
+{
+    vfio_region_t *bar = (vfio_region_t *) priv;
+    vfio_device_t *dev = bar->dev;
+
+    /* Write configuration register index. */
+    vfio_log_op("VFIO %s: Config window: Write index %08X\n",
+		dev->name, val);
+    bar->quirks.configwindow.index = val;
+
+    /* Cascade to the main handler. */
+    vfio_io_writel_fd(addr, val, bar);
+}
+
+
+static uint8_t
+vfio_quirk_configwindow_data_readb(uint16_t addr, void *priv)
+{
+    vfio_region_t *bar = (vfio_region_t *) priv;
+    vfio_device_t *dev = bar->dev;
+
+    /* Cascade to the main handler. */
+    uint8_t ret = vfio_io_readb_fd(addr, bar);
+
+    /* Read configuration register if part of the main PCI configuration space. */
+    uint32_t index = bar->quirks.configwindow.index;
+    if ((index >= bar->quirks.configwindow.offset[0].start) &&
+    	(index <= bar->quirks.configwindow.offset[0].end)) {
+	ret = vfio_config_readb(0, index - bar->quirks.configwindow.offset[0].start, dev);
+	vfio_log_op("VFIO %s: Config window: Read %02X from primary index %08X\n",
+		    dev->name, ret, index);
+    } else if ((index >= bar->quirks.configwindow.offset[1].start) &&
+	       (index <= bar->quirks.configwindow.offset[1].end)) {
+	ret = vfio_config_readb(0, index - bar->quirks.configwindow.offset[1].start, dev);
+	vfio_log_op("VFIO %s: Config window: Read %02X from secondary index %08X\n",
+		    dev->name, ret, index);
+    }
+
+    return ret;
+}
+
+
+static uint16_t
+vfio_quirk_configwindow_data_readw(uint16_t addr, void *priv)
+{
+    vfio_region_t *bar = (vfio_region_t *) priv;
+    vfio_device_t *dev = bar->dev;
+
+    /* Cascade to the main handler. */
+    uint16_t ret = vfio_io_readw_fd(addr, bar);
+
+    /* Read configuration register if part of the main PCI configuration space. */
+    uint32_t index = bar->quirks.configwindow.index;
+    if ((index >= bar->quirks.configwindow.offset[0].start) &&
+    	(index <= bar->quirks.configwindow.offset[0].end)) {
+	ret = vfio_config_readw(0, index - bar->quirks.configwindow.offset[0].start, dev);
+	vfio_log_op("VFIO %s: Config window: Read %04X from primary index %08X\n",
+		    dev->name, ret, index);
+    } else if ((index >= bar->quirks.configwindow.offset[1].start) &&
+	       (index <= bar->quirks.configwindow.offset[1].end)) {
+	ret = vfio_config_readw(0, index - bar->quirks.configwindow.offset[1].start, dev);
+	vfio_log_op("VFIO %s: Config window: Read %04X from secondary index %08X\n",
+		    dev->name, ret, index);
+    }
+
+    return ret;
+}
+
+
+static uint32_t
+vfio_quirk_configwindow_data_readl(uint16_t addr, void *priv)
+{
+    vfio_region_t *bar = (vfio_region_t *) priv;
+    vfio_device_t *dev = bar->dev;
+
+    /* Cascade to the main handler. */
+    uint32_t ret = vfio_io_readl_fd(addr, bar);
+
+    /* Read configuration register if part of the main PCI configuration space. */
+    uint32_t index = bar->quirks.configwindow.index;
+    if ((index >= bar->quirks.configwindow.offset[0].start) &&
+    	(index <= bar->quirks.configwindow.offset[0].end)) {
+	ret = vfio_config_readl(0, index - bar->quirks.configwindow.offset[0].start, dev);
+	vfio_log_op("VFIO %s: Config window: Read %08X from primary index %08X\n",
+		    dev->name, ret, index);
+    } else if ((index >= bar->quirks.configwindow.offset[1].start) &&
+	       (index <= bar->quirks.configwindow.offset[1].end)) {
+	ret = vfio_config_readl(0, index - bar->quirks.configwindow.offset[1].start, dev);
+	vfio_log_op("VFIO %s: Config window: Read %08X from secondary index %08X\n",
+		    dev->name, ret, index);
+    }
+
     return ret;
 }
 
 
 static void
-vfio_quirk_iomirror_writes(uint16_t addr, uint32_t val, uint8_t size, void *priv)
+vfio_quirk_configwindow_data_writeb(uint16_t addr, uint8_t val, void *priv)
 {
-    vfio_bar_t *bar = (vfio_bar_t *) priv;
+    vfio_region_t *bar = (vfio_region_t *) priv;
+    vfio_device_t *dev = bar->dev;
 
-    /* Write I/O port mirror to memory-mapped space. */
-    vfio_log_op("VFIO %s: I/O mirror: Read %08X from %02X\n",
-		dev->name, val, addr);
+    /* Write configuration register if part of the main PCI configuration space. */
+    uint32_t index = bar->quirks.configwindow.index;
+    if ((index >= bar->quirks.configwindow.offset[0].start) &&
+    	(index <= bar->quirks.configwindow.offset[0].end)) {
+	vfio_log_op("VFIO %s: Config window: Write %02X to primary index %08X\n",
+		    dev->name, val, index);
+	vfio_config_writeb(0, index - bar->quirks.configwindow.offset[0].start, val, dev);
+	return;
+    } else if ((index >= bar->quirks.configwindow.offset[1].start) &&
+	       (index <= bar->quirks.configwindow.offset[1].end)) {
+	vfio_log_op("VFIO %s: Config window: Write %02X to secondary index %08X\n",
+		    dev->name, val, index);
+	vfio_config_writeb(0, index - bar->quirks.configwindow.offset[1].start, val, dev);
+	return;
+    }
+
+    /* Cascade to the main handler. */
+    vfio_io_writeb_fd(addr, val, bar);
 }
 
 
-VFIO_RW_BWL(quirk_iomirror, uint16_t);
+static void
+vfio_quirk_configwindow_data_writew(uint16_t addr, uint16_t val, void *priv)
+{
+    vfio_region_t *bar = (vfio_region_t *) priv;
+    vfio_device_t *dev = bar->dev;
+
+    /* Write configuration register if part of the main PCI configuration space. */
+    uint32_t index = bar->quirks.configwindow.index;
+    if ((index >= bar->quirks.configwindow.offset[0].start) &&
+    	(index <= bar->quirks.configwindow.offset[0].end)) {
+	vfio_log_op("VFIO %s: Config window: Write %04X to primary index %08X\n",
+		    dev->name, val, index);
+	vfio_config_writew(0, index - bar->quirks.configwindow.offset[0].start, val, dev);
+	return;
+    } else if ((index >= bar->quirks.configwindow.offset[1].start) &&
+	       (index <= bar->quirks.configwindow.offset[1].end)) {
+	vfio_log_op("VFIO %s: Config window: Write %04X to secondary index %08X\n",
+		    dev->name, val, index);
+	vfio_config_writew(0, index - bar->quirks.configwindow.offset[1].start, val, dev);
+	return;
+    }
+
+    /* Cascade to the main handler. */
+    vfio_io_writew_fd(addr, val, bar);
+}
+
+
+static void
+vfio_quirk_configwindow_data_writel(uint16_t addr, uint32_t val, void *priv)
+{
+    vfio_region_t *bar = (vfio_region_t *) priv;
+    vfio_device_t *dev = bar->dev;
+
+    /* Write configuration register if part of the main PCI configuration space. */
+    uint32_t index = bar->quirks.configwindow.index;
+    if ((index >= bar->quirks.configwindow.offset[0].start) &&
+    	(index <= bar->quirks.configwindow.offset[0].end)) {
+	vfio_log_op("VFIO %s: Config window: Write %08X to primary index %08X\n",
+		    dev->name, val, index);
+	vfio_config_writel(0, index - bar->quirks.configwindow.offset[0].start, val, dev);
+	return;
+    } else if ((index >= bar->quirks.configwindow.offset[1].start) &&
+	       (index <= bar->quirks.configwindow.offset[1].end)) {
+	vfio_log_op("VFIO %s: Config window: Write %08X to secondary index %08X\n",
+		    dev->name, val, index);
+	vfio_config_writel(0, index - bar->quirks.configwindow.offset[1].start, val, dev);
+	return;
+    }
+
+    /* Cascade to the main handler. */
+    vfio_io_writel_fd(addr, val, bar);
+}
+
+
+static void
+vfio_quirk_configwindow(vfio_device_t *dev, vfio_region_t *bar,
+			uint16_t index_offset, uint16_t index_size,
+			uint16_t data_offset, uint16_t data_size,
+			uint32_t window_offset0, uint32_t window_offset1, uint8_t enable)
+{
+    vfio_log("VFIO %s: %sapping configuration space window for %s @ %04X and %04X\n",
+	     dev->name, enable ? "M" : "Unm", bar->name,
+	     bar->emulated_offset + index_offset, bar->emulated_offset + data_offset);
+
+    /* Store start offsets, as well as end offsets to speed up operations. */
+    bar->quirks.configwindow.offset[0].start = window_offset0;
+    bar->quirks.configwindow.offset[0].end = window_offset0 + 255;
+    bar->quirks.configwindow.offset[1].start = window_offset1;
+    bar->quirks.configwindow.offset[1].end = window_offset1 + 255;
+
+    /* Enable or disable mapping. */
+    vfio_quirk_capture_io(NULL, bar, bar->emulated_offset + index_offset, index_size, enable,
+			  vfio_io_readb_fd,
+			  vfio_io_readw_fd,
+			  vfio_io_readl_fd,
+			  vfio_quirk_configwindow_index_writeb,
+			  vfio_quirk_configwindow_index_writew,
+			  vfio_quirk_configwindow_index_writel);
+    vfio_quirk_capture_io(NULL, bar, bar->emulated_offset + data_offset, data_size, enable,
+			  vfio_quirk_configwindow_data_readb,
+			  vfio_quirk_configwindow_data_readw,
+			  vfio_quirk_configwindow_data_readl,
+			  vfio_quirk_configwindow_data_writeb,
+			  vfio_quirk_configwindow_data_writew,
+			  vfio_quirk_configwindow_data_writel);
+}
+
+
+static uint8_t
+vfio_quirk_iomirror_readb(uint16_t addr, void *priv)
+{
+    vfio_region_t *bar = (vfio_region_t *) priv;
+    vfio_device_t *dev = bar->dev;
+
+    /* Read I/O port mirror from memory-mapped space. */
+    uint8_t ret = vfio_mem_readb_fd(bar->emulated_offset + bar->quirks.iomirror.offset + addr, bar);
+#ifdef ENABLE_VFIO_LOG
+    vfio_device_t *dev = bar->dev;
+    vfio_log_op("VFIO %s: I/O mirror: Read %02X from %04X (%08X)\n", dev->name,
+		ret, addr, bar->quirks.iomirror.offset + addr);
+#endif
+    return ret;
+}
+
+
+static uint16_t
+vfio_quirk_iomirror_readw(uint16_t addr, void *priv)
+{
+    vfio_region_t *bar = (vfio_region_t *) priv;
+    vfio_device_t *dev = bar->dev;
+
+    /* Read I/O port mirror from memory-mapped space. */
+    uint16_t ret = vfio_mem_readw_fd(bar->emulated_offset + bar->quirks.iomirror.offset + addr, bar);
+#ifdef ENABLE_VFIO_LOG
+    vfio_device_t *dev = bar->dev;
+    vfio_log_op("VFIO %s: I/O mirror: Read %04X from %04X (%08X)\n", dev->name,
+		ret, addr, bar->quirks.iomirror.offset + addr);
+#endif
+    return ret;
+}
+
+
+static uint32_t
+vfio_quirk_iomirror_readl(uint16_t addr, void *priv)
+{
+    vfio_region_t *bar = (vfio_region_t *) priv;
+
+    /* Read I/O port mirror from memory-mapped space. */
+    uint32_t ret = vfio_mem_readl_fd(bar->emulated_offset + bar->quirks.iomirror.offset + addr, bar);
+#ifdef ENABLE_VFIO_LOG
+    vfio_device_t *dev = bar->dev;
+    vfio_log_op("VFIO %s: I/O mirror: Read %08X from %04X (%08X)\n", dev->name,
+		ret, addr, bar->quirks.iomirror.offset + addr);
+#endif
+    return ret;
+}
+
+
+static void
+vfio_quirk_iomirror_writeb(uint16_t addr, uint8_t val, void *priv)
+{
+    vfio_region_t *bar = (vfio_region_t *) priv;
+
+    /* Write I/O port mirror to memory-mapped space. */
+#ifdef ENABLE_VFIO_LOG
+    vfio_device_t *dev = bar->dev;
+    vfio_log_op("VFIO %s: I/O mirror: Write %02X to %04X (%08X)\n", dev->name,
+		val, addr, bar->quirks.iomirror.offset + addr);
+#endif
+    vfio_mem_writeb_fd(bar->emulated_offset + bar->quirks.iomirror.offset + addr, val, bar);
+}
+
+
+static void
+vfio_quirk_iomirror_writew(uint16_t addr, uint16_t val, void *priv)
+{
+    vfio_region_t *bar = (vfio_region_t *) priv;
+
+    /* Write I/O port mirror to memory-mapped space. */
+#ifdef ENABLE_VFIO_LOG
+    vfio_device_t *dev = bar->dev;
+    vfio_log_op("VFIO %s: I/O mirror: Write %04X to %04X (%08X)\n", dev->name,
+		val, addr, bar->quirks.iomirror.offset + addr);
+#endif
+    vfio_mem_writew_fd(bar->emulated_offset + bar->quirks.iomirror.offset + addr, val, bar);
+}
+
+
+static void
+vfio_quirk_iomirror_writel(uint16_t addr, uint32_t val, void *priv)
+{
+    vfio_region_t *bar = (vfio_region_t *) priv;
+
+    /* Write I/O port mirror to memory-mapped space. */
+#ifdef ENABLE_VFIO_LOG
+    vfio_device_t *dev = bar->dev;
+    vfio_log_op("VFIO %s: I/O mirror: Write %08X to %04X (%08X)\n", dev->name,
+		val, addr, bar->quirks.iomirror.offset + addr);
+#endif
+    vfio_mem_writel_fd(bar->emulated_offset + bar->quirks.iomirror.offset + addr, val, bar);
+}
 
 
 static void 
@@ -423,16 +789,19 @@ vfio_quirk_iomirror(vfio_device_t *dev, vfio_region_t *bar,
     vfio_log("VFIO %s: %sapping I/O mirror for %s @ %08X\n",
 	     dev->name, enable ? "M" : "Unm", bar->name, bar->emulated_offset + offset);
 
+    /* Save I/O mirror offset, only one per BAR for now. */
+    bar->quirks.iomirror.offset = offset;
+
     /* Add or remove quirk handler from port range. */
     if (enable)
-    	io_sethandler(base, length,
+	io_sethandler(base, length,
 		      bar->read ? vfio_quirk_iomirror_readb : NULL,
 		      bar->read ? vfio_quirk_iomirror_readw : NULL,
 		      bar->read ? vfio_quirk_iomirror_readl : NULL,
 		      bar->write ? vfio_quirk_iomirror_writeb : NULL,
 		      bar->write ? vfio_quirk_iomirror_writew : NULL,
 		      bar->write ? vfio_quirk_iomirror_writel : NULL,
-		      dev);
+		      bar);
     else
 	io_removehandler(base, length,
 			 bar->read ? vfio_quirk_iomirror_readb : NULL,
@@ -441,35 +810,147 @@ vfio_quirk_iomirror(vfio_device_t *dev, vfio_region_t *bar,
 			 bar->write ? vfio_quirk_iomirror_writeb : NULL,
 			 bar->write ? vfio_quirk_iomirror_writew : NULL,
 			 bar->write ? vfio_quirk_iomirror_writel : NULL,
-			 dev);
+			 bar);
 }
 
 
-static uint32_t
-vfio_quirk_nvidia3d0_reads(uint16_t addr, uint8_t size, void *priv)
+static uint8_t
+vfio_quirk_ati3c3_readb(uint16_t addr, void *priv)
 {
     vfio_device_t *dev = (vfio_device_t *) priv;
 
-    /* Cascade to the main handler. */
-    uint8_t prev_state = dev->quirks.nvidia3d0.state;
-    uint32_t ret = vfio_io_reads_fd(addr, size, &dev->vga_io_hi);
-    dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
-
-    /* Interpret NVIDIA commands. */
-    if ((addr < 0x3d4) && (prev_state == NVIDIA_3D0_READ) &&
-	((dev->quirks.nvidia3d0.offset & 0xffffff00) == 0x00001800)) {
-	/* Configuration read. */
-	ret = vfio_config_reads(0, dev->quirks.nvidia3d0.offset, size, dev);
-	vfio_log_op("VFIO %s: NVIDIA 3D0: Read %08X from %08X\n", dev->name,
-		    ret, dev->quirks.nvidia3d0.offset & 0xff);
-    }
+    /* Read high byte of the I/O BAR address. */
+    uint8_t ret = dev->quirks.ati3c3.bar->emulated_offset >> 8;
+    vfio_log_op("VFIO %s: ATI 3C3: Read %02X\n", ret);
 
     return ret;
 }
 
 
 static void
-vfio_quirk_nvidia3d0_writes(uint16_t addr, uint32_t val, uint8_t size, void *priv)
+vfio_quirk_nvidiabar5(vfio_device_t *dev)
+{
+    /* Remap config window based on BAR enable status and the master/enable registers. */
+    vfio_quirk_configwindow(dev, &dev->bars[5], 0x08, 4, 0x0c, 4, 0x1800, 0x88000,
+			    dev->quirks.nvidiabar5.bar_enable &&
+			    ((dev->quirks.nvidiabar5.master_enable & 0x0000000100000001) == 0x0000000100000001));
+}
+
+
+static void
+vfio_quirk_nvidiabar5_writeb(uint16_t addr, uint8_t val, void *priv)
+{
+    vfio_device_t *dev = (vfio_device_t *) priv;
+
+    /* Write master/enable registers. */
+    vfio_log_op("VFIO %s: NVIDIA BAR 5: Write [%d] %02X\n",
+		dev->name, addr & 7, val);
+    uint8_t offset = (addr & 7) << 3;
+    dev->quirks.nvidiabar5.master_enable &= ~(0x00000000000000ff << offset);
+    dev->quirks.nvidiabar5.master_enable |= val << offset;
+
+    /* Update window to account for changes in master/enable registers. */
+    vfio_quirk_nvidiabar5(dev);
+
+    /* Cascade to the main handler. */
+    vfio_io_writeb_fd(addr, val, &dev->bars[5]);
+}
+
+
+static void
+vfio_quirk_nvidiabar5_writew(uint16_t addr, uint16_t val, void *priv)
+{
+    vfio_device_t *dev = (vfio_device_t *) priv;
+
+    /* Write master/enable registers. */
+    vfio_log_op("VFIO %s: NVIDIA BAR 5: Write [%d] %04X\n",
+		dev->name, addr & 7, val);
+    uint8_t offset = (addr & 6) << 3;
+    dev->quirks.nvidiabar5.master_enable &= ~(0x000000000000ffff << offset);
+    dev->quirks.nvidiabar5.master_enable |= val << offset;
+
+    /* Update window to account for changes in master/enable registers. */
+    vfio_quirk_nvidiabar5(dev);
+
+    /* Cascade to the main handler. */
+    vfio_io_writew_fd(addr, val, &dev->bars[5]);
+}
+
+
+static void
+vfio_quirk_nvidiabar5_writel(uint16_t addr, uint32_t val, void *priv)
+{
+    vfio_device_t *dev = (vfio_device_t *) priv;
+
+    /* Write master/enable registers. */
+    vfio_log_op("VFIO %s: NVIDIA BAR 5: Write [%d] %08X\n",
+		dev->name, addr & 7, val);
+    uint8_t offset = (addr & 4) << 3;
+    dev->quirks.nvidiabar5.master_enable &= ~(0x00000000ffffffff << offset);
+    dev->quirks.nvidiabar5.master_enable |= val << offset;
+
+    /* Update window to account for changes in master/enable registers. */
+    vfio_quirk_nvidiabar5(dev);
+
+    /* Cascade to the main handler. */
+    vfio_io_writel_fd(addr, val, &dev->bars[5]);
+}
+
+
+static uint8_t
+vfio_quirk_nvidia3d0_state_readb(uint16_t addr, void *priv)
+{
+    vfio_device_t *dev = (vfio_device_t *) priv;
+
+    /* Reset state on read. */
+    dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
+
+    /* Cascade to the main handler. */
+    return vfio_io_readb_fd(addr, priv);
+}
+
+
+static uint16_t
+vfio_quirk_nvidia3d0_state_readw(uint16_t addr, void *priv)
+{
+    vfio_device_t *dev = (vfio_device_t *) priv;
+
+    /* Reset state on read. */
+    dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
+
+    /* Cascade to the main handler. */
+    return vfio_io_readw_fd(addr, priv);
+}
+
+
+static uint32_t
+vfio_quirk_nvidia3d0_state_readl(uint16_t addr, void *priv)
+{
+    vfio_device_t *dev = (vfio_device_t *) priv;
+
+    /* Reset state on read. */
+    dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
+
+    /* Cascade to the main handler. */
+    return vfio_io_readl_fd(addr, priv);
+}
+
+
+static void
+vfio_quirk_nvidia3d0_state_writeb(uint16_t addr, uint8_t val, void *priv)
+{
+    vfio_device_t *dev = (vfio_device_t *) priv;
+
+    /* Commands don't fit in a byte; just reset state and move on. */
+    dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
+
+    /* Cascade to the main handler. */
+    vfio_io_writeb_fd(addr, val, &dev->vga_io_hi);
+}
+
+
+static void
+vfio_quirk_nvidia3d0_state_writew(uint16_t addr, uint16_t val, void *priv)
 {
     vfio_device_t *dev = (vfio_device_t *) priv;
 
@@ -478,45 +959,213 @@ vfio_quirk_nvidia3d0_writes(uint16_t addr, uint32_t val, uint8_t size, void *pri
     dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
 
     /* Interpret NVIDIA commands. */
-    if (addr < 0x3d4) {
-	if (prev_state == NVIDIA_3D0_SELECT) {
-		/* Offset write. */
-		dev->quirks.nvidia3d0.offset = val;
-		dev->quirks.nvidia3d0.state = NVIDIA_3D0_WINDOW;
-	} else if (prev_state == NVIDIA_3D0_WRITE) {
-		if ((dev->quirks.nvidia3d0.offset & 0xffffff00) == 0x00001800) {
-			/* Configuration write. */
-			vfio_log_op("VFIO %s: NVIDIA 3D0: Write %08X to %08X\n", dev->name,
-				    val, dev->quirks.nvidia3d0.offset & 0xff);
-			vfio_config_writes(0, dev->quirks.nvidia3d0.offset, val, size, dev);
-			return;
-		}
-	}
-    } else {
-	switch (val) {
-		case 0x338:
-			if (prev_state == NVIDIA_3D0_NONE)
-				dev->quirks.nvidia3d0.state = NVIDIA_3D0_SELECT;
-			break;
+    switch (val) {
+	case 0x338:
+		if (prev_state == NVIDIA_3D0_NONE)
+			dev->quirks.nvidia3d0.state = NVIDIA_3D0_SELECT;
+		break;
 
-		case 0x538:
-			if (prev_state == NVIDIA_3D0_WINDOW)
-				dev->quirks.nvidia3d0.state = NVIDIA_3D0_READ;
-			break;
+	case 0x538:
+		if (prev_state == NVIDIA_3D0_WINDOW)
+			dev->quirks.nvidia3d0.state = NVIDIA_3D0_READ;
+		break;
 
-		case 0x738:
-			if (prev_state == NVIDIA_3D0_WINDOW)
-				dev->quirks.nvidia3d0.state = NVIDIA_3D0_WRITE;
-			break;
+	case 0x738:
+		if (prev_state == NVIDIA_3D0_WINDOW)
+			dev->quirks.nvidia3d0.state = NVIDIA_3D0_WRITE;
+		break;
+    }
+
+    /* Cascade to the main handler. */
+    vfio_io_writew_fd(addr, val, &dev->vga_io_hi);
+}
+
+
+static void
+vfio_quirk_nvidia3d0_state_writel(uint16_t addr, uint32_t val, void *priv)
+{
+    vfio_device_t *dev = (vfio_device_t *) priv;
+
+    uint8_t prev_state = dev->quirks.nvidia3d0.state,
+	    offset;
+    dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
+
+    /* Interpret NVIDIA commands. */
+    switch (val) {
+	case 0x338:
+		if (prev_state == NVIDIA_3D0_NONE)
+			dev->quirks.nvidia3d0.state = NVIDIA_3D0_SELECT;
+		break;
+
+	case 0x538:
+		if (prev_state == NVIDIA_3D0_WINDOW)
+			dev->quirks.nvidia3d0.state = NVIDIA_3D0_READ;
+		break;
+
+	case 0x738:
+		if (prev_state == NVIDIA_3D0_WINDOW)
+			dev->quirks.nvidia3d0.state = NVIDIA_3D0_WRITE;
+		break;
+    }
+
+    /* Cascade to the main handler. */
+    vfio_io_writel_fd(addr, val, &dev->vga_io_hi);
+}
+
+
+static uint8_t
+vfio_quirk_nvidia3d0_data_readb(uint16_t addr, void *priv)
+{
+    vfio_device_t *dev = (vfio_device_t *) priv;
+
+    /* Cascade to the main handler. */
+    uint8_t prev_state = dev->quirks.nvidia3d0.state;
+    uint8_t ret = vfio_io_readb_fd(addr, &dev->vga_io_hi);
+    dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
+
+    /* Read configuration register if part of the main PCI configuration space. */
+    if ((prev_state == NVIDIA_3D0_READ) &&
+	(((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00001800) ||
+	 ((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00088000))) {
+	ret = vfio_config_readb(0, dev->quirks.nvidia3d0.index, dev);
+	vfio_log_op("VFIO %s: NVIDIA 3D0: Read %02X from index %08X\n", dev->name,
+		    ret, dev->quirks.nvidia3d0.index);
+    }
+
+    return ret;
+}
+
+
+static uint16_t
+vfio_quirk_nvidia3d0_data_readw(uint16_t addr, void *priv)
+{
+    vfio_device_t *dev = (vfio_device_t *) priv;
+
+    /* Cascade to the main handler. */
+    uint8_t prev_state = dev->quirks.nvidia3d0.state;
+    uint16_t ret = vfio_io_readw_fd(addr, &dev->vga_io_hi);
+    dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
+
+    /* Read configuration register if part of the main PCI configuration space. */
+    if ((prev_state == NVIDIA_3D0_READ) &&
+	(((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00001800) ||
+	 ((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00088000))) {
+	ret = vfio_config_readw(0, dev->quirks.nvidia3d0.index, dev);
+	vfio_log_op("VFIO %s: NVIDIA 3D0: Read %04X from index %08X\n", dev->name,
+		    ret, dev->quirks.nvidia3d0.index);
+    }
+
+    return ret;
+}
+
+
+static uint32_t
+vfio_quirk_nvidia3d0_data_readl(uint16_t addr, void *priv)
+{
+    vfio_device_t *dev = (vfio_device_t *) priv;
+
+    /* Cascade to the main handler. */
+    uint8_t prev_state = dev->quirks.nvidia3d0.state;
+    uint32_t ret = vfio_io_readl_fd(addr, &dev->vga_io_hi);
+    dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
+
+    /* Read configuration register if part of the main PCI configuration space. */
+    if ((prev_state == NVIDIA_3D0_READ) &&
+	(((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00001800) ||
+	 ((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00088000))) {
+	ret = vfio_config_readl(0, dev->quirks.nvidia3d0.index, dev);
+	vfio_log_op("VFIO %s: NVIDIA 3D0: Read %08X from index %08X\n", dev->name,
+		    ret, dev->quirks.nvidia3d0.index);
+    }
+
+    return ret;
+}
+
+
+static void
+vfio_quirk_nvidia3d0_data_writeb(uint16_t addr, uint8_t val, void *priv)
+{
+    vfio_device_t *dev = (vfio_device_t *) priv;
+
+    uint8_t prev_state = dev->quirks.nvidia3d0.state;
+    dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
+
+    if (prev_state == NVIDIA_3D0_SELECT) {
+	/* Write MMIO index. */
+	dev->quirks.nvidia3d0.index = val;
+	dev->quirks.nvidia3d0.state = NVIDIA_3D0_WINDOW;
+    } else if (prev_state == NVIDIA_3D0_WRITE) {
+    	/* Write configuration register if part of the main PCI configuration space. */
+	if (((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00001800) ||
+	    ((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00088000)) {
+		/* Write configuration register. */
+		vfio_log_op("VFIO %s: NVIDIA 3D0: Write %02X to index %08X\n", dev->name,
+			    size, val, dev->quirks.nvidia3d0.index);
+		vfio_config_writeb(0, dev->quirks.nvidia3d0.index, val, dev);
+		return;
 	}
     }
 
     /* Cascade to the main handler. */
-    vfio_io_writes_fd(addr, val, size, &dev->vga_io_hi);
+    vfio_io_writeb_fd(addr, val, &dev->vga_io_hi);
 }
 
 
-VFIO_RW_BWL(quirk_nvidia3d0, uint16_t);
+static void
+vfio_quirk_nvidia3d0_data_writew(uint16_t addr, uint16_t val, void *priv)
+{
+    vfio_device_t *dev = (vfio_device_t *) priv;
+
+    uint8_t prev_state = dev->quirks.nvidia3d0.state;
+    dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
+
+    if (prev_state == NVIDIA_3D0_SELECT) {
+	/* Write MMIO index. */
+	dev->quirks.nvidia3d0.index = val;
+	dev->quirks.nvidia3d0.state = NVIDIA_3D0_WINDOW;
+    } else if (prev_state == NVIDIA_3D0_WRITE) {
+    	/* Write configuration register if part of the main PCI configuration space. */
+	if (((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00001800) ||
+	    ((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00088000)) {
+		vfio_log_op("VFIO %s: NVIDIA 3D0: Write %02X to index %08X\n", dev->name,
+			    size, val, dev->quirks.nvidia3d0.index);
+		vfio_config_writew(0, dev->quirks.nvidia3d0.index, val, dev);
+		return;
+	}
+    }
+
+    /* Cascade to the main handler. */
+    vfio_io_writew_fd(addr, val, &dev->vga_io_hi);
+}
+
+
+static void
+vfio_quirk_nvidia3d0_data_writel(uint16_t addr, uint32_t val, void *priv)
+{
+    vfio_device_t *dev = (vfio_device_t *) priv;
+
+    uint8_t prev_state = dev->quirks.nvidia3d0.state;
+    dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
+
+    if (prev_state == NVIDIA_3D0_SELECT) {
+	/* Write MMIO index. */
+	dev->quirks.nvidia3d0.index = val;
+	dev->quirks.nvidia3d0.state = NVIDIA_3D0_WINDOW;
+    } else if (prev_state == NVIDIA_3D0_WRITE) {
+    	/* Write configuration register if part of the main PCI configuration space. */
+	if (((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00001800) ||
+	    ((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00088000)) {
+		/* Write configuration register. */
+		vfio_log_op("VFIO %s: NVIDIA 3D0: Write %02X to index %08X\n", dev->name,
+			    size, val, dev->quirks.nvidia3d0.index);
+		vfio_config_writel(0, dev->quirks.nvidia3d0.index, val, dev);
+		return;
+	}
+    }
+
+    /* Cascade to the main handler. */
+    vfio_io_writel_fd(addr, val, &dev->vga_io_hi);
+}
 
 
 static void
@@ -527,64 +1176,156 @@ vfio_quirk_remap(vfio_device_t *dev, vfio_region_t *bar, uint8_t enable)
     if (pread(dev->config.fd, &vendor, sizeof(vendor), dev->config.offset) != sizeof(vendor))
 	vendor = 0x0000;
 
-    if ((vendor == 0x1002) && (bar->size == 32) &&
-	(dev->bars[4].type == 0x01) && (dev->bars[4].size >= 256)) {
-	vfio_log("VFIO %s: %sapping ATI 3C3 quirk\n", dev->name, enable ? "M" : "Unm");
+    int i, j;
+    switch (vendor) {
+	case 0x1002: /* ATI */
+		i = (dev->bars[1].type == 0x01) && (dev->bars[1].size >= 256);
+   		j = (dev->bars[4].type == 0x01) && (dev->bars[4].size >= 256);
 
-
-    } else if (vendor == 0x10de) {
-	/* BAR 0 configuration space mirrors. */
-	if (bar->bar_id == 0) {
-		vfio_quirk_configmirror(dev, bar, 0x1800, 0, enable);
-		vfio_quirk_configmirror(dev, bar, 0x88000, 1, enable);
-	}
-
-	/* Port 3D0 configuration space mirror. */
-	if ((bar->bar_id == 0xfe) && (bar->size == 32) && dev->bars[1].size) {
-		vfio_log("VFIO %s: %sapping NVIDIA 3D0 quirk\n", dev->name, enable ? "M" : "Unm");
-
-		/* Remove quirk handler from port range. */
-		io_removehandler(0x3d0, 8,
-				 bar->read ? vfio_quirk_nvidia3d0_readb : NULL,
-				 bar->read ? vfio_quirk_nvidia3d0_readw : NULL,
-				 bar->read ? vfio_quirk_nvidia3d0_readl : NULL,
-				 bar->write ? vfio_quirk_nvidia3d0_writeb : NULL,
-				 bar->write ? vfio_quirk_nvidia3d0_writew : NULL,
-				 bar->write ? vfio_quirk_nvidia3d0_writel : NULL,
-				 dev);
-
-		if (enable) {
-			/* Remove existing handler from port range. */
-			if (bar->mmap_base) /* mmap available */
-				io_removehandler(0x3d0, 8,
-						 bar->read ? vfio_io_readb_mm : NULL,
-						 bar->read ? vfio_io_readw_mm : NULL,
-						 bar->read ? vfio_io_readl_mm : NULL,
-						 bar->write ? vfio_io_writeb_mm : NULL,
-						 bar->write ? vfio_io_writew_mm : NULL,
-						 bar->write ? vfio_io_writel_mm : NULL,
-						 bar->mmap_precalc);
-			else /* mmap not available */
-				io_removehandler(0x3d0, 8,
-						 bar->read ? vfio_io_readb_fd : NULL,
-						 bar->read ? vfio_io_readw_fd : NULL,
-						 bar->read ? vfio_io_readl_fd : NULL,
-						 bar->write ? vfio_io_writeb_fd : NULL,
-						 bar->write ? vfio_io_writew_fd : NULL,
-						 bar->write ? vfio_io_writel_fd : NULL,
-						 bar);
-
-			/* Add quirk handler to port range. */
-			io_sethandler(0x3d0, 8,
-				      bar->read ? vfio_quirk_nvidia3d0_readb : NULL,
-				      bar->read ? vfio_quirk_nvidia3d0_readw : NULL,
-				      bar->read ? vfio_quirk_nvidia3d0_readl : NULL,
-				      bar->write ? vfio_quirk_nvidia3d0_writeb : NULL,
-				      bar->write ? vfio_quirk_nvidia3d0_writew : NULL,
-				      bar->write ? vfio_quirk_nvidia3d0_writel : NULL,
-				      dev);
+		/* ATI/AMD cards report the I/O BAR's high byte on port 3C3, and according
+		   to the Red Hat slide deck, this is used for VBIOS bootstrapping purposes.
+		   This I/O BAR can be either 1 or 4, so we probe which one it is. If unsure
+		   (shouldn't really happen), pick 1 which is mostly used by older cards. */
+		if ((bar == &dev->vga_io_hi) && (i || j)) {
+			dev->quirks.ati3c3.bar = (j && !i) ? &dev->bars[4] : &dev->bars[1];
+			vfio_log("VFIO %s: %sapping ATI 3C3 quirk (BAR %d)\n", dev->name,
+				 enable ? "M" : "Unm", dev->quirks.ati3c3.bar->bar_id);
+			vfio_quirk_capture_io(dev, bar, 0x3c3, 1, enable,
+					      vfio_quirk_ati3c3_readb, NULL, NULL,
+					      NULL, NULL, NULL);
 		}
-	}
+
+		/* BAR 2 configuration space mirror, and BAR 1/4 configuration space window. */
+		if (j && !i) {
+			/* QEMU only enables the mirror here if BAR 2 is 64-bit capable. */
+			if ((bar->bar_id == 2) && ((vfio_config_readb(0, 0x18, dev) & 0x07) == 0x04))
+				vfio_quirk_configmirror(dev, bar, 0x4000, 0, enable);
+			else if (bar->bar_id == 4)
+				vfio_quirk_configwindow(dev, bar, 0x00, 4, 0x04, 4, 0x4000, 0x4000, enable);
+		} else {
+			if (bar->bar_id == 2)
+				vfio_quirk_configmirror(dev, bar, 0xf00, 0, enable);
+			else if (bar->bar_id == 1)
+				vfio_quirk_configwindow(dev, bar, 0x00, 4, 0x04, 4, 0xf00, 0xf00, enable);
+		}
+		break;
+
+	case 0x10de: /* NVIDIA */
+		/* BAR 0 configuration space mirrors. */
+		if (bar->bar_id == 0) {
+			vfio_quirk_configmirror(dev, bar, 0x1800, 0, enable);
+			vfio_quirk_configmirror(dev, bar, 0x88000, 1, enable);
+		}
+
+		/* BAR 5 configuration space window. */
+		if (bar->bar_id == 5) {
+			vfio_log("VFIO %s: %sapping NVIDIA BAR 5 quirk\n", dev->name, enable ? "M" : "Unm");
+			vfio_quirk_capture_io(dev, bar, bar->emulated_offset, 8, enable,
+					      vfio_io_readb_fd,
+					      vfio_io_readw_fd,
+					      vfio_io_readl_fd,
+					      vfio_quirk_nvidiabar5_writeb,
+					      vfio_quirk_nvidiabar5_writew,
+					      vfio_quirk_nvidiabar5_writel);
+
+			/* Update window to account for changes in BAR enable status. */
+			dev->quirks.nvidiabar5.bar_enable = enable;
+			vfio_quirk_nvidiabar5(dev);
+		}
+
+		/* Port 3D0 configuration space window. */
+		if ((bar == &dev->vga_io_hi) && dev->bars[1].size) {
+			vfio_log("VFIO %s: %sapping NVIDIA 3D0 quirk\n", dev->name, enable ? "M" : "Unm");
+			vfio_quirk_capture_io(dev, bar, 0x3d0, 1, enable,
+					      vfio_quirk_nvidia3d0_data_readb,
+					      vfio_quirk_nvidia3d0_data_readw,
+					      vfio_quirk_nvidia3d0_data_readl,
+					      vfio_quirk_nvidia3d0_data_writeb,
+					      vfio_quirk_nvidia3d0_data_writew,
+					      vfio_quirk_nvidia3d0_data_writel);
+			vfio_quirk_capture_io(dev, bar, 0x3d4, 1, enable,
+					      vfio_quirk_nvidia3d0_state_readb,
+					      vfio_quirk_nvidia3d0_state_readw,
+					      vfio_quirk_nvidia3d0_state_readl,
+					      vfio_quirk_nvidia3d0_state_writeb,
+					      vfio_quirk_nvidia3d0_state_writew,
+					      vfio_quirk_nvidia3d0_state_writel);
+		}
+		break;
+
+	case 0x8333: /* S3 */
+		/* Mirror 8514/A and XGA port ranges to memory-mapped space, since the PCI bridge
+		   VGA decode policy doesn't allow those to be forwarded directly to the real card.
+		   These cards don't use BARs; according to vid_s3.c, MMIO space can be at A0000
+		   (default), B8000 (on later models, and not large enough to support these port
+		   mirrors), or an offset of the arbitrary linear framebuffer base (not accessible
+		   by VFIO). This just blindly maps to A0000, which is at least better than nothing. */
+		if (bar == &dev->vga_mem) {
+			/* Main port list from vid_s3.c */
+			vfio_quirk_iomirror(dev, bar, 0, 0x42e8, 2, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0x46e8, 2, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0x4ae8, 2, enable);
+
+			vfio_quirk_iomirror(dev, bar, 0, 0x82e8, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0x86e8, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0x8ae8, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0x8ee8, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0x92e8, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0x96e8, 4, enable);
+
+			vfio_quirk_iomirror(dev, bar, 0, 0x9ae8, 4, enable);
+
+			vfio_quirk_iomirror(dev, bar, 0, 0x9ee8, 2, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xa2e8, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xa6e8, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xaae8, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xaee8, 4, enable);
+
+			vfio_quirk_iomirror(dev, bar, 0, 0xb2e8, 4, enable);
+
+			vfio_quirk_iomirror(dev, bar, 0, 0xb6e8, 2, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xbae8, 2, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xbee8, 2, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xe2e8, 2, enable);
+
+			vfio_quirk_iomirror(dev, bar, 0, 0xd2e8, 2, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xe6e8, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xeae8, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xeee8, 4, enable);
+
+			/* Aux port list from vid_s3.c */
+			vfio_quirk_iomirror(dev, bar, 0, 0x4148, 2, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0x4548, 2, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0x4948, 2, enable);
+
+			vfio_quirk_iomirror(dev, bar, 0, 0x8148, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0x8548, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0x8948, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0x8d48, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0x9148, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0x9548, 4, enable);
+
+			vfio_quirk_iomirror(dev, bar, 0, 0x9948, 4, enable);
+
+			vfio_quirk_iomirror(dev, bar, 0, 0x9d48, 2, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xa148, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xa548, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xa948, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xad48, 4, enable);
+
+			vfio_quirk_iomirror(dev, bar, 0, 0xb148, 4, enable);
+
+			vfio_quirk_iomirror(dev, bar, 0, 0xb548, 2, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xb948, 2, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xbd48, 2, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xe148, 2, enable);
+
+			vfio_quirk_iomirror(dev, bar, 0, 0xd148, 2, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xe548, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xe948, 4, enable);
+			vfio_quirk_iomirror(dev, bar, 0, 0xed48, 4, enable);
+		}
+		break;
     }
 }
 
@@ -755,7 +1496,7 @@ vfio_config_readb(int func, int addr, void *priv)
 		}
 
 		/* Mask off and insert static bits. */
-		offset = (addr & 0x03) << 3;
+		offset = (addr & 3) << 3;
 		new = dev->bars[bar_id].emulated_offset >> offset;
 		if (!offset) {
 			switch (vfio_bar_gettype(dev, &dev->bars[bar_id])) {
@@ -779,7 +1520,7 @@ vfio_config_readb(int func, int addr, void *priv)
 		}
 
 		/* Mask off and insert ROM enable bit. */
-		offset = (addr & 0x03) << 3;
+		offset = (addr & 3) << 3;
 		ret = dev->rom.emulated_offset >> offset;
 		if (!offset)
 			ret = (ret & ~0x01) | dev->rom_enabled;
@@ -938,7 +1679,7 @@ vfio_config_writeb(int func, int addr, uint8_t val, void *priv)
 			break;
 
 		/* Mask off static bits. */
-		offset = (addr & 0x03) << 3;
+		offset = (addr & 3) << 3;
 		if (!offset) {
 			switch (vfio_bar_gettype(dev, &dev->bars[bar_id])) {
 				case 0x00: /* Memory BAR */
@@ -964,7 +1705,7 @@ vfio_config_writeb(int func, int addr, uint8_t val, void *priv)
 			break;
 
 		/* Set ROM enable bit. */
-		offset = (addr & 0x03) << 3;
+		offset = (addr & 3) << 3;
 		if (!offset) {
 			dev->rom_enabled = val & 0x01;
 			val &= 0xfe;
@@ -1559,6 +2300,7 @@ vfio_region_init(vfio_device_t *dev, struct vfio_region_info *reg, vfio_region_t
     }
     region->read = !!(reg->flags & VFIO_REGION_INFO_FLAG_READ);
     region->write = !!(reg->flags & VFIO_REGION_INFO_FLAG_WRITE);
+    region->dev = dev;
 
     /* Use special memory mapping for expansion ROMs. */
     if (reg->index == VFIO_PCI_ROM_REGION_INDEX) {
