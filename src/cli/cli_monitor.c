@@ -48,10 +48,8 @@
 #  define PATH_LIBEDIT_DLL	"libedit.so.2"
 #  define PATH_LIBEDIT_DLL_ALT	"libedit.so"
 # endif
-
-
-extern int	fullscreen_pending; /* ugly hack */
 #endif
+
 
 #ifdef USE_CLI
 /* Lookup tables for converting key names to keyboard scan codes. */
@@ -162,7 +160,7 @@ cli_monitor_parsebool(char *arg)
 	ch = arg[1];
 	return (ch == 'n') || (ch == 'N');
     }
-    return (ch == '1') || (ch == 'y') || (ch == 'Y') || (ch == 't') || (ch == 'T');
+    return (ch == '1') || (ch == 'y') || (ch == 'Y') || (ch == 't') || (ch == 'T') || (ch == 'e') || (ch == 'E');
 }
 
 
@@ -465,9 +463,6 @@ static void
 cli_monitor_fullscreen(int argc, char **argv, const void *priv)
 {
     video_fullscreen ^= 1;
-#ifndef _WIN32
-    fullscreen_pending = 1;
-#endif
     fprintf(CLI_RENDER_OUTPUT, "Fullscreen mode %s.\n", video_fullscreen ? "entered" : "exited");
 }
 
