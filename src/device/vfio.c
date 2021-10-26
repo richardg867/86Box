@@ -1264,7 +1264,7 @@ vfio_quirk_remap(vfio_device_t *dev, vfio_region_t *bar, uint8_t enable)
 		}
 		break;
 
-	case 0x8333: /* S3 */
+	case 0x5333: /* S3 */
 		/* Mirror enhanced command port ranges to memory-mapped space, since the PCI bridge
 		   VGA decode policy doesn't allow those to be forwarded directly to the real card. */
 		if (vfio_bar_gettype(dev, &dev->bars[0]) != 0x00)
