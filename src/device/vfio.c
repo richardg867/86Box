@@ -98,6 +98,7 @@ typedef struct _vfio_device_ {
     int		fd, slot;
     uint8_t	mem_enabled: 1, io_enabled: 1, rom_enabled: 1,
 		can_reset: 1, can_flr_reset: 1, can_pm_reset: 1, can_hot_reset: 1,
+		bar_count,
 		pm_cap, msi_cap, msix_cap, pcie_cap, af_cap;
     char	*name, *rom_fn;
 
@@ -195,6 +196,7 @@ vfio_log(const char *fmt, ...)
 #endif
 
 
+static uint8_t	vfio_bar_gettype(vfio_device_t *dev, vfio_region_t *bar);
 static uint8_t	vfio_config_readb(int func, int addr, void *priv);
 static uint16_t	vfio_config_readw(int func, int addr, void *priv);
 static uint32_t	vfio_config_readl(int func, int addr, void *priv);
@@ -503,7 +505,7 @@ vfio_quirk_configwindow_data_readb(uint16_t addr, void *priv)
     /* Read configuration register if part of the main PCI configuration space. */
     uint32_t index = bar->quirks.configwindow.index;
     if ((index >= bar->quirks.configwindow.offset[0].start) &&
-    	(index <= bar->quirks.configwindow.offset[0].end)) {
+	(index <= bar->quirks.configwindow.offset[0].end)) {
 	ret = vfio_config_readb(0, index - bar->quirks.configwindow.offset[0].start, dev);
 	vfio_log_op("VFIO %s: Config window: Read %02X from primary index %08X\n",
 		    dev->name, ret, index);
@@ -530,7 +532,7 @@ vfio_quirk_configwindow_data_readw(uint16_t addr, void *priv)
     /* Read configuration register if part of the main PCI configuration space. */
     uint32_t index = bar->quirks.configwindow.index;
     if ((index >= bar->quirks.configwindow.offset[0].start) &&
-    	(index <= bar->quirks.configwindow.offset[0].end)) {
+	(index <= bar->quirks.configwindow.offset[0].end)) {
 	ret = vfio_config_readw(0, index - bar->quirks.configwindow.offset[0].start, dev);
 	vfio_log_op("VFIO %s: Config window: Read %04X from primary index %08X\n",
 		    dev->name, ret, index);
@@ -557,7 +559,7 @@ vfio_quirk_configwindow_data_readl(uint16_t addr, void *priv)
     /* Read configuration register if part of the main PCI configuration space. */
     uint32_t index = bar->quirks.configwindow.index;
     if ((index >= bar->quirks.configwindow.offset[0].start) &&
-    	(index <= bar->quirks.configwindow.offset[0].end)) {
+	(index <= bar->quirks.configwindow.offset[0].end)) {
 	ret = vfio_config_readl(0, index - bar->quirks.configwindow.offset[0].start, dev);
 	vfio_log_op("VFIO %s: Config window: Read %08X from primary index %08X\n",
 		    dev->name, ret, index);
@@ -581,7 +583,7 @@ vfio_quirk_configwindow_data_writeb(uint16_t addr, uint8_t val, void *priv)
     /* Write configuration register if part of the main PCI configuration space. */
     uint32_t index = bar->quirks.configwindow.index;
     if ((index >= bar->quirks.configwindow.offset[0].start) &&
-    	(index <= bar->quirks.configwindow.offset[0].end)) {
+	(index <= bar->quirks.configwindow.offset[0].end)) {
 	vfio_log_op("VFIO %s: Config window: Write %02X to primary index %08X\n",
 		    dev->name, val, index);
 	vfio_config_writeb(0, index - bar->quirks.configwindow.offset[0].start, val, dev);
@@ -608,7 +610,7 @@ vfio_quirk_configwindow_data_writew(uint16_t addr, uint16_t val, void *priv)
     /* Write configuration register if part of the main PCI configuration space. */
     uint32_t index = bar->quirks.configwindow.index;
     if ((index >= bar->quirks.configwindow.offset[0].start) &&
-    	(index <= bar->quirks.configwindow.offset[0].end)) {
+	(index <= bar->quirks.configwindow.offset[0].end)) {
 	vfio_log_op("VFIO %s: Config window: Write %04X to primary index %08X\n",
 		    dev->name, val, index);
 	vfio_config_writew(0, index - bar->quirks.configwindow.offset[0].start, val, dev);
@@ -635,7 +637,7 @@ vfio_quirk_configwindow_data_writel(uint16_t addr, uint32_t val, void *priv)
     /* Write configuration register if part of the main PCI configuration space. */
     uint32_t index = bar->quirks.configwindow.index;
     if ((index >= bar->quirks.configwindow.offset[0].start) &&
-    	(index <= bar->quirks.configwindow.offset[0].end)) {
+	(index <= bar->quirks.configwindow.offset[0].end)) {
 	vfio_log_op("VFIO %s: Config window: Write %08X to primary index %08X\n",
 		    dev->name, val, index);
 	vfio_config_writel(0, index - bar->quirks.configwindow.offset[0].start, val, dev);
@@ -1095,7 +1097,7 @@ vfio_quirk_nvidia3d0_data_writeb(uint16_t addr, uint8_t val, void *priv)
 	dev->quirks.nvidia3d0.index = val;
 	dev->quirks.nvidia3d0.state = NVIDIA_3D0_WINDOW;
     } else if (prev_state == NVIDIA_3D0_WRITE) {
-    	/* Write configuration register if part of the main PCI configuration space. */
+	/* Write configuration register if part of the main PCI configuration space. */
 	if (((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00001800) ||
 	    ((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00088000)) {
 		/* Write configuration register. */
@@ -1124,7 +1126,7 @@ vfio_quirk_nvidia3d0_data_writew(uint16_t addr, uint16_t val, void *priv)
 	dev->quirks.nvidia3d0.index = val;
 	dev->quirks.nvidia3d0.state = NVIDIA_3D0_WINDOW;
     } else if (prev_state == NVIDIA_3D0_WRITE) {
-    	/* Write configuration register if part of the main PCI configuration space. */
+	/* Write configuration register if part of the main PCI configuration space. */
 	if (((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00001800) ||
 	    ((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00088000)) {
 		vfio_log_op("VFIO %s: NVIDIA 3D0: Write %02X to index %08X\n", dev->name,
@@ -1152,7 +1154,7 @@ vfio_quirk_nvidia3d0_data_writel(uint16_t addr, uint32_t val, void *priv)
 	dev->quirks.nvidia3d0.index = val;
 	dev->quirks.nvidia3d0.state = NVIDIA_3D0_WINDOW;
     } else if (prev_state == NVIDIA_3D0_WRITE) {
-    	/* Write configuration register if part of the main PCI configuration space. */
+	/* Write configuration register if part of the main PCI configuration space. */
 	if (((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00001800) ||
 	    ((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00088000)) {
 		/* Write configuration register. */
@@ -1179,8 +1181,8 @@ vfio_quirk_remap(vfio_device_t *dev, vfio_region_t *bar, uint8_t enable)
     int i, j;
     switch (vendor) {
 	case 0x1002: /* ATI */
-		i = (dev->bars[1].type == 0x01) && (dev->bars[1].size >= 256);
-   		j = (dev->bars[4].type == 0x01) && (dev->bars[4].size >= 256);
+		i = (vfio_bar_gettype(dev, &dev->bars[1]) == 0x01) && (dev->bars[1].size >= 256);
+		j = (vfio_bar_gettype(dev, &dev->bars[4]) == 0x01) && (dev->bars[4].size >= 256);
 
 		/* ATI/AMD cards report the I/O BAR's high byte on port 3C3, and according
 		   to the Red Hat slide deck, this is used for VBIOS bootstrapping purposes.
@@ -1213,7 +1215,7 @@ vfio_quirk_remap(vfio_device_t *dev, vfio_region_t *bar, uint8_t enable)
 	case 0x1023: /* Trident */
 		/* Mirror TGUI acceleration port range to memory-mapped space, since the PCI bridge
 		   VGA decode policy doesn't allow it to be forwarded directly to the real card. */
-		if ((bar->bar_id == 1) && (bar->type == 0x00) && (bar->size >= 65536)) {
+		if ((bar->bar_id == 1) && (vfio_bar_gettype(dev, bar) == 0x00) && (bar->size >= 65536)) {
 			/* Port range from vid_tgui9440.c */
 			vfio_quirk_iomirror(dev, bar, 0, 0x2100, 256, enable);
 		}
@@ -1221,13 +1223,13 @@ vfio_quirk_remap(vfio_device_t *dev, vfio_region_t *bar, uint8_t enable)
 
 	case 0x10de: /* NVIDIA */
 		/* BAR 0 configuration space mirrors. */
-		if (bar->bar_id == 0) {
+		if ((bar->bar_id == 0) && (vfio_bar_gettype(dev, bar) == 0x00)) {
 			vfio_quirk_configmirror(dev, bar, 0x1800, 0, enable);
 			vfio_quirk_configmirror(dev, bar, 0x88000, 1, enable);
 		}
 
 		/* BAR 5 configuration space window. */
-		if (bar->bar_id == 5) {
+		if ((bar->bar_id == 5) && (vfio_bar_gettype(dev, bar) == 0x01)) {
 			vfio_log("VFIO %s: %sapping NVIDIA BAR 5 quirk\n", dev->name, enable ? "M" : "Unm");
 			vfio_quirk_capture_io(dev, bar, bar->emulated_offset, 8, enable,
 					      vfio_io_readb_fd,
@@ -1263,76 +1265,71 @@ vfio_quirk_remap(vfio_device_t *dev, vfio_region_t *bar, uint8_t enable)
 		break;
 
 	case 0x8333: /* S3 */
-		/* Mirror 8514/A and XGA port ranges to memory-mapped space, since the PCI bridge
-		   VGA decode policy doesn't allow those to be forwarded directly to the real card.
-		   These cards don't use BARs; according to vid_s3.c, MMIO space can be at A0000
-		   (default), B8000 (on later models, and not large enough to support these port
-		   mirrors), or an offset of the arbitrary linear framebuffer base (not accessible
-		   by VFIO). This just blindly maps to A0000, which is at least better than nothing. */
-		if (bar == &dev->vga_mem) {
-			/* Main port list from vid_s3.c */
-			vfio_quirk_iomirror(dev, bar, 0, 0x42e8, 2, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0x46e8, 2, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0x4ae8, 2, enable);
+		/* Mirror enhanced command port ranges to memory-mapped space, since the PCI bridge
+		   VGA decode policy doesn't allow those to be forwarded directly to the real card. */
+		if (vfio_bar_gettype(dev, &dev->bars[0]) != 0x00)
+			break;
+		if ((dev->bars[0].size == 33554432) && (dev->bar_count == 1)) {
+			/* Older chips can only remap to VGA A0000. We can tell
+			   those through BAR 0 being 32M and the only BAR. */
+			if (bar == &dev->vga_mem) {
+				i = 0;
 
-			vfio_quirk_iomirror(dev, bar, 0, 0x82e8, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0x86e8, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0x8ae8, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0x8ee8, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0x92e8, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0x96e8, 4, enable);
+				/* Main port list from vid_s3.c */
+				vfio_quirk_iomirror(dev, bar, i, 0x42e8, 2, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0x46e8, 2, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0x4ae8, 2, enable);
 
-			vfio_quirk_iomirror(dev, bar, 0, 0x9ae8, 4, enable);
+s3_old_mmio:			vfio_quirk_iomirror(dev, bar, i, 0x82e8, 4, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0x86e8, 4, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0x8ae8, 4, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0x8ee8, 4, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0x92e8, 4, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0x96e8, 4, enable);
 
-			vfio_quirk_iomirror(dev, bar, 0, 0x9ee8, 2, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xa2e8, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xa6e8, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xaae8, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xaee8, 4, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0x9ae8, 4, enable);
 
-			vfio_quirk_iomirror(dev, bar, 0, 0xb2e8, 4, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0x9ee8, 2, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0xa2e8, 4, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0xa6e8, 4, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0xaae8, 4, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0xaee8, 4, enable);
 
-			vfio_quirk_iomirror(dev, bar, 0, 0xb6e8, 2, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xbae8, 2, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xbee8, 2, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xe2e8, 2, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0xb2e8, 4, enable);
 
-			vfio_quirk_iomirror(dev, bar, 0, 0xd2e8, 2, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xe6e8, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xeae8, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xeee8, 4, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0xb6e8, 2, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0xbae8, 2, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0xbee8, 2, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0xe2e8, 2, enable);
 
-			/* Aux port list from vid_s3.c */
-			vfio_quirk_iomirror(dev, bar, 0, 0x4148, 2, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0x4548, 2, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0x4948, 2, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0xd2e8, 2, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0xe6e8, 4, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0xeae8, 4, enable);
+				vfio_quirk_iomirror(dev, bar, i, 0xeee8, 4, enable);
+			}
+		} else if ((dev->bars[0].size == 67108864) && (dev->bar_count == 1)) {
+			/* Trio64V+ and ViRGE chips can remap to BAR 0 + 16M. We can tell those through
+			   BAR 0 being 64M = ((16M linear + 16M MMIO) * both endians) and the only BAR. */
+			if (bar->bar_id == 0) {
+				i = 0x1000000; /* 16M MMIO offset */
 
-			vfio_quirk_iomirror(dev, bar, 0, 0x8148, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0x8548, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0x8948, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0x8d48, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0x9148, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0x9548, 4, enable);
+s3_new_mmio:			/* There's a configuration space mirror in here as well. */
+				vfio_quirk_configmirror(dev, bar, i + 0x8000, 0, enable);
 
-			vfio_quirk_iomirror(dev, bar, 0, 0x9948, 4, enable);
+				/* Subsystem Control/Status and Advanced Function Control. */
+				vfio_quirk_iomirror(dev, bar, i + 0x8504 - 0x42e8, 0x42e8, 2, enable);
+				vfio_quirk_iomirror(dev, bar, i + 0x850c - 0x4ae8, 0x4ae8, 2, enable);
 
-			vfio_quirk_iomirror(dev, bar, 0, 0x9d48, 2, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xa148, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xa548, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xa948, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xad48, 4, enable);
-
-			vfio_quirk_iomirror(dev, bar, 0, 0xb148, 4, enable);
-
-			vfio_quirk_iomirror(dev, bar, 0, 0xb548, 2, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xb948, 2, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xbd48, 2, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xe148, 2, enable);
-
-			vfio_quirk_iomirror(dev, bar, 0, 0xd148, 2, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xe548, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xe948, 4, enable);
-			vfio_quirk_iomirror(dev, bar, 0, 0xed48, 4, enable);
+				/* The rest maps exactly as older chips. */
+				goto s3_old_mmio;
+			}
+		} else if ((dev->bars[0].size >= 524288) && (vfio_bar_gettype(dev, &dev->bars[1]) == 0x00)) {
+			/* Savage chips break the linear framebuffer out to
+			   BAR 1+, eliminating the 16M MMIO offset from BAR 0. */
+			if (bar->bar_id == 0) {
+				i = 0;
+				goto s3_new_mmio;
+			}
 		}
 		break;
     }
@@ -2636,8 +2633,10 @@ vfio_dev_init(vfio_device_t *dev)
 
     /* Establish region names. */
     int i;
-    for (i = 0; i < 6; i++)
+    for (i = 0; i < 6; i++) {
 	sprintf(dev->bars[i].name, "BAR #%d", dev->bars[i].bar_id = i);
+	dev->bars[i].type = 0xff;
+    }
     strcpy(dev->rom.name, "Expansion ROM");
     strcpy(dev->config.name, "Configuration space");
     strcpy(dev->vga_io_lo.name, "VGA MDA");
@@ -2660,6 +2659,8 @@ vfio_dev_init(vfio_device_t *dev)
 	switch (reg.index) {
 		case VFIO_PCI_BAR0_REGION_INDEX ... VFIO_PCI_BAR5_REGION_INDEX:
 			vfio_region_init(dev, &reg, &dev->bars[reg.index - VFIO_PCI_BAR0_REGION_INDEX]);
+			if (reg.size)
+				dev->bar_count++;
 			break;
 
 		case VFIO_PCI_ROM_REGION_INDEX:
