@@ -1210,6 +1210,15 @@ vfio_quirk_remap(vfio_device_t *dev, vfio_region_t *bar, uint8_t enable)
 		}
 		break;
 
+	case 0x1023: /* Trident */
+		/* Mirror TGUI acceleration port range to memory-mapped space, since the PCI bridge
+		   VGA decode policy doesn't allow it to be forwarded directly to the real card. */
+		if ((bar->bar_id == 1) && (bar->type == 0x00) && (bar->size >= 65536)) {
+			/* Port range from vid_tgui9440.c */
+			vfio_quirk_iomirror(dev, bar, 0, 0x2100, 256, enable);
+		}
+		break;
+
 	case 0x10de: /* NVIDIA */
 		/* BAR 0 configuration space mirrors. */
 		if (bar->bar_id == 0) {
