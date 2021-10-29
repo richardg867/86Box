@@ -2225,7 +2225,7 @@ vfio_irq_enable(vfio_device_t *dev, int type)
 
     vfio_log("VFIO %s: irq_enable(%d)\n", dev->name, type);
 
-    /* Determine the amount of vectors needed. */
+    /* Determine the number of vectors needed. */
     switch (type) {
 	case VFIO_PCI_INTX_IRQ_INDEX:
 		/* Only one vector needed. */
@@ -2233,12 +2233,12 @@ vfio_irq_enable(vfio_device_t *dev, int type)
 		break;
 
 	case VFIO_PCI_MSI_IRQ_INDEX:
-		/* Up to the amount of vectors read during init is needed. */
+		/* Up to the number of vectors read during init is needed. */
 		dev->irq.vector_count = dev->irq.msi.vector_count;
 		break;
 
 	case VFIO_PCI_MSIX_IRQ_INDEX:
-		/* The amount of vectors read during init is needed. */
+		/* The number of vectors read during init is needed. */
 		dev->irq.vector_count = dev->irq.msix.vector_count;
 		break;
     }
@@ -3002,7 +3002,7 @@ next1:		if (hot_reset_info)
 	group = group->next;
     }
 
-    /* Count the amount of groups we own. */
+    /* Count the number of groups we own. */
     count = 0;
     group = first_group;
     while (group) {
