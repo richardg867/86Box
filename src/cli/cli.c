@@ -21,8 +21,8 @@
 #include <stdlib.h>
 #include <string.h>
 #ifdef _WIN32
-#    include <VersionHelpers.h>
 #    include <windows.h>
+#    include <VersionHelpers.h>
 #else
 #    include <sys/ioctl.h>
 #endif
