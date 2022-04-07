@@ -72,6 +72,13 @@ svga_render_blank(svga_t *svga)
 			break;
 	}
     }
+
+#ifdef USE_CLI
+    if (svga->dpms)
+	cli_render_gfx_box("VGA Sleep");
+    else
+	cli_render_blank();
+#endif
 }
 
 
@@ -129,6 +136,15 @@ svga_render_text_40(svga_t *svga)
     if (svga->fullchange) {
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 	xinc = (svga->seqregs[1] & 1) ? 16 : 18;
+
+#ifdef USE_CLI
+	if ((svga->sc == 0) && (svga->displine < get_actual_size_y()))
+		cli_render_cga((svga->ma >> 2) / 40, svga->rowcount,
+				svga->hdisp + svga->scrollcache, xinc,
+				svga->vram, svga->ma, svga->vram_display_mask, 4,
+				svga->crtc[0x17] & 0x80, svga->attrregs[0x10] & 0x08,
+				svga->ca, !(svga->crtc[0x0a] & 0x20) && ((svga->crtc[0x0b] & 0x1f) >= (svga->crtc[0x0a] & 0x1f)));
+#endif
 
 	for (x = 0; x < (svga->hdisp + svga->scrollcache); x += xinc) {
 		if (!svga->force_old_addr)
@@ -206,6 +222,15 @@ svga_render_text_80(svga_t *svga)
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 	xinc = (svga->seqregs[1] & 1) ? 8 : 9;
 
+#ifdef USE_CLI
+	if ((svga->sc == 0) && (svga->displine < get_actual_size_y()))
+		cli_render_cga((svga->ma >> 2) / 80, svga->rowcount,
+				svga->hdisp + svga->scrollcache, xinc,
+				svga->vram, svga->ma, svga->vram_display_mask, 4,
+				svga->crtc[0x17] & 0x80, svga->attrregs[0x10] & 0x08,
+				svga->ca, !(svga->crtc[0x0a] & 0x20) && ((svga->crtc[0x0b] & 0x1f) >= (svga->crtc[0x0a] & 0x1f)));
+#endif
+
 	for (x = 0; x < (svga->hdisp + svga->scrollcache); x += xinc) {
 		if (!svga->force_old_addr)
 			addr = svga->remap_func(svga, svga->ma) & svga->vram_display_mask;
@@ -277,6 +302,10 @@ svga_render_text_80_ksc5601(svga_t *svga)
     svga->lastline_draw = svga->displine;
 
     if (svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA KSC5601");
+#endif
+
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 	xinc = (svga->seqregs[1] & 1) ? 8 : 9;
@@ -400,6 +429,10 @@ svga_render_2bpp_lowres(svga_t *svga)
 		changed_offset = ((svga->ma << 1) + (svga->sc & ~svga->crtc[0x17] & 3) * 0x8000) >> 12;
 		
 		if (svga->changedvram[changed_offset] || svga->changedvram[changed_offset + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 			p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 			if (svga->firstline_draw == 2000)
@@ -451,6 +484,10 @@ svga_render_2bpp_lowres(svga_t *svga)
 		changed_addr = svga->remap_func(svga, svga->ma);
 
 		if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 			p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 			if (svga->firstline_draw == 2000)
@@ -504,6 +541,10 @@ svga_render_2bpp_highres(svga_t *svga)
 		changed_offset = ((svga->ma << 1) + (svga->sc & ~svga->crtc[0x17] & 3) * 0x8000) >> 12;
 
 		if (svga->changedvram[changed_offset] || svga->changedvram[changed_offset + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000)
@@ -555,6 +596,10 @@ svga_render_2bpp_highres(svga_t *svga)
 		changed_addr = svga->remap_func(svga, svga->ma);
 
 		if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000)
@@ -608,6 +653,10 @@ svga_render_2bpp_headland_highres(svga_t *svga)
     changed_addr = svga->remap_func(svga, svga->ma);
 
      if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 	if (svga->firstline_draw == 2000)
@@ -664,6 +713,10 @@ svga_render_4bpp_lowres(svga_t *svga)
 
 	if (svga->force_old_addr) {
 		if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000) 
@@ -727,6 +780,10 @@ svga_render_4bpp_lowres(svga_t *svga)
 		changed_addr = svga->remap_func(svga, svga->ma);
 
 		if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000)
@@ -789,6 +846,10 @@ svga_render_4bpp_highres(svga_t *svga)
 		changed_offset = (svga->ma + (svga->sc & ~svga->crtc[0x17] & 3) * 0x8000) >> 12;
 
 		if (svga->changedvram[changed_offset] || svga->changedvram[changed_offset + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000) 
@@ -852,6 +913,10 @@ svga_render_4bpp_highres(svga_t *svga)
 		changed_addr = svga->remap_func(svga, svga->ma);
 
 		if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000)
@@ -911,6 +976,10 @@ svga_render_8bpp_lowres(svga_t *svga)
 	
 	if (svga->force_old_addr) {
 		if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000) 
@@ -934,6 +1003,10 @@ svga_render_8bpp_lowres(svga_t *svga)
 		changed_addr = svga->remap_func(svga, svga->ma);
 
 		if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000)
@@ -984,6 +1057,10 @@ svga_render_8bpp_highres(svga_t *svga)
 	
 	if (svga->force_old_addr) {
 		if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000) 
@@ -1012,6 +1089,10 @@ svga_render_8bpp_highres(svga_t *svga)
 		changed_addr = svga->remap_func(svga, svga->ma);
 
 		if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000)
@@ -1064,6 +1145,10 @@ svga_render_8bpp_tseng_lowres(svga_t *svga)
 	return;
 
     if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 	if (svga->firstline_draw == 2000)
@@ -1110,6 +1195,10 @@ svga_render_8bpp_tseng_highres(svga_t *svga)
 	return;
 
     if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 	if (svga->firstline_draw == 2000)
@@ -1175,6 +1264,10 @@ svga_render_15bpp_lowres(svga_t *svga)
 	
 	if (svga->force_old_addr) {
 		if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000) 
@@ -1202,6 +1295,10 @@ svga_render_15bpp_lowres(svga_t *svga)
 		changed_addr = svga->remap_func(svga, svga->ma);
 
 		if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000)
@@ -1256,6 +1353,10 @@ svga_render_15bpp_highres(svga_t *svga)
 	
 	if (svga->force_old_addr) {
 		if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000) 
@@ -1289,6 +1390,10 @@ svga_render_15bpp_highres(svga_t *svga)
 		changed_addr = svga->remap_func(svga, svga->ma);
 
 		if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000)
@@ -1347,6 +1452,10 @@ svga_render_15bpp_mix_lowres(svga_t *svga)
 	return;
 
     if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 	if (svga->firstline_draw == 2000)
@@ -1386,6 +1495,10 @@ svga_render_15bpp_mix_highres(svga_t *svga)
 	return;
 
     if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 	if (svga->firstline_draw == 2000)
@@ -1435,6 +1548,10 @@ svga_render_16bpp_lowres(svga_t *svga)
 
 	if (svga->force_old_addr) {
 		if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000)
@@ -1460,6 +1577,10 @@ svga_render_16bpp_lowres(svga_t *svga)
 		changed_addr = svga->remap_func(svga, svga->ma);
 
 		if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000)
@@ -1514,6 +1635,10 @@ svga_render_16bpp_highres(svga_t *svga)
 	
 	if (svga->force_old_addr) {
     if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 	if (svga->firstline_draw == 2000) 
@@ -1547,6 +1672,10 @@ svga_render_16bpp_highres(svga_t *svga)
 		changed_addr = svga->remap_func(svga, svga->ma);
 
 		if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000)
@@ -1612,6 +1741,10 @@ svga_render_24bpp_lowres(svga_t *svga)
 		return;
 
 		if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		if (svga->firstline_draw == 2000) 
 			svga->firstline_draw = svga->displine;
 		svga->lastline_draw = svga->displine;
@@ -1631,6 +1764,10 @@ svga_render_24bpp_lowres(svga_t *svga)
 		changed_addr = svga->remap_func(svga, svga->ma);
 
 		if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000)
@@ -1693,6 +1830,10 @@ svga_render_24bpp_highres(svga_t *svga)
 	
 	if (svga->force_old_addr) {
 		if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000) 
@@ -1723,6 +1864,10 @@ svga_render_24bpp_highres(svga_t *svga)
 		changed_addr = svga->remap_func(svga, svga->ma);
 
 		if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000)
@@ -1784,6 +1929,10 @@ svga_render_32bpp_lowres(svga_t *svga)
 	
 	if (svga->force_old_addr) {
 		if (svga->changedvram[svga->ma >> 12] || svga->changedvram[(svga->ma >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		if (svga->firstline_draw == 2000) 
 			svga->firstline_draw = svga->displine;
 		svga->lastline_draw = svga->displine;
@@ -1803,6 +1952,10 @@ svga_render_32bpp_lowres(svga_t *svga)
 		changed_addr = svga->remap_func(svga, svga->ma);
 
 		if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000)
@@ -1850,6 +2003,10 @@ svga_render_32bpp_highres(svga_t *svga)
 	
 	if (svga->force_old_addr) {
 		if (svga->changedvram[svga->ma >> 12] ||  svga->changedvram[(svga->ma >> 12) + 1] || svga->changedvram[(svga->ma >> 12) + 2] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 			
 		if (svga->firstline_draw == 2000) 
@@ -1870,6 +2027,10 @@ svga_render_32bpp_highres(svga_t *svga)
 		changed_addr = svga->remap_func(svga, svga->ma);
 
 		if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 		p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 		if (svga->firstline_draw == 2000)
@@ -1917,6 +2078,10 @@ svga_render_ABGR8888_highres(svga_t *svga)
 	changed_addr = svga->remap_func(svga, svga->ma);
 
     if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 	if (svga->firstline_draw == 2000)
@@ -1963,6 +2128,10 @@ svga_render_RGBA8888_highres(svga_t *svga)
 	changed_addr = svga->remap_func(svga, svga->ma);
 
     if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
+#ifdef USE_CLI
+	cli_render_gfx("VGA %dx%d");
+#endif
+
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
 
 	if (svga->firstline_draw == 2000)

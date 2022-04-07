@@ -134,6 +134,7 @@ option(MINITRACE    "Enable Chrome tracing using the modified minitrace library"
 option(GDBSTUB      "Enable GDB stub server for debugging"                          OFF)
 option(DEV_BRANCH   "Development branch"                                            OFF)
 option(QT           "Qt GUI"                                                        ON)
+option(CLI          "Command line interface"                                        OFF)
 
 # Development branch features
 #
