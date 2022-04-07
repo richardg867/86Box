@@ -152,7 +152,7 @@ opti495_write(uint16_t addr, uint8_t val, void *priv)
 
 	case 0xe1:
 	case 0xe2:
-		dev->scratch[addr] = val;
+		dev->scratch[~addr & 0x01] = val;
 		break;
     }
 }
@@ -176,7 +176,7 @@ opti495_read(uint16_t addr, void *priv)
 		break;
 	case 0xe1:
 	case 0xe2:
-		ret = dev->scratch[addr];
+		ret = dev->scratch[~addr & 0x01];
 		break;
     }
 
@@ -236,22 +236,30 @@ opti495_init(const device_t *info)
     return dev;
 }
 
-
 const device_t opti493_device = {
-    "OPTi 82C493",
-    0,
-    0,
-    opti495_init, opti495_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "OPTi 82C493",
+    .internal_name = "opti493",
+    .flags = 0,
+    .local = 0,
+    .init = opti495_init,
+    .close = opti495_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
 const device_t opti495_device = {
-    "OPTi 82C495",
-    0,
-    1,
-    opti495_init, opti495_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "OPTi 82C495",
+    .internal_name = "opti495",
+    .flags = 0,
+    .local = 1,
+    .init = opti495_init,
+    .close = opti495_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

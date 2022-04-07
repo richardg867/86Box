@@ -84,7 +84,7 @@ static uint8_t rtl8019as_pnp_rom[] = {
     0x4a, 0x8c, 0x80, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00, /* RTL8019, dummy checksum (filled in by isapnp_add_card) */
     0x0a, 0x10, 0x10, /* PnP version 1.0, vendor version 1.0 */
     0x82, 0x22, 0x00, 'R', 'E', 'A', 'L', 'T', 'E', 'K', ' ', 'P', 'L', 'U', 'G', ' ', '&', ' ', 'P', 'L', 'A', 'Y', ' ', 'E', 'T', 'H', 'E', 'R', 'N', 'E', 'T', ' ', 'C', 'A', 'R', 'D', 0x00, /* ANSI identifier */
-	
+
     0x16, 0x4a, 0x8c, 0x80, 0x19, 0x02, 0x00, /* logical device RTL8019 */
 	0x1c, 0x41, 0xd0, 0x80, 0xd6, /* compatible device PNP80D6 */
 	0x47, 0x00, 0x20, 0x02, 0x80, 0x03, 0x20, 0x20, /* I/O 0x220-0x380, decodes 10-bit, 32-byte alignment, 32 addresses */
@@ -124,15 +124,15 @@ typedef struct {
 } nic_t;
 
 
-#ifdef ENABLE_NIC_LOG
-int nic_do_log = ENABLE_NIC_LOG;
+#ifdef ENABLE_NE2K_LOG
+int ne2k_do_log = ENABLE_NE2K_LOG;
 
 static void
 nelog(int lvl, const char *fmt, ...)
 {
     va_list ap;
 
-    if (nic_do_log >= lvl) {
+    if (ne2k_do_log >= lvl) {
 	va_start(ap, fmt);
 	pclog_ex(fmt, ap);
 	va_end(ap);
@@ -303,8 +303,8 @@ asic_write(nic_t *dev, uint32_t off, uint32_t val, unsigned len)
 
 	case 0x0f:  /* Reset register */
 		/* end of reset pulse */
-		break;	
-		
+		break;
+
 	default: /* this is invalid, but happens under win95 device detection */
 		nelog(3, "%s: ASIC write invalid address %04x, ignoring\n",
 						dev->name, (unsigned)off);
@@ -316,7 +316,7 @@ asic_write(nic_t *dev, uint32_t off, uint32_t val, unsigned len)
 /* Writes to this page are illegal. */
 static uint32_t
 page3_read(nic_t *dev, uint32_t off, unsigned int len)
-{ 
+{
     if (dev->board >= NE2K_RTL8019AS) switch(off) {
 	case 0x1:	/* 9346CR */
 		return(dev->_9346cr);
@@ -573,7 +573,7 @@ nic_pnp_write_vendor_reg(uint8_t ld, uint8_t reg, uint8_t val, void *priv)
 
 static void
 nic_ioset(nic_t *dev, uint16_t addr)
-{	
+{
     if (dev->is_pci) {
 	io_sethandler(addr, 32,
 			 nic_readb, nic_readw, nic_readl,
@@ -623,14 +623,14 @@ static void
 nic_update_bios(nic_t *dev)
 {
     int reg_bios_enable;
-	
+
     reg_bios_enable = 1;
 
     if (! dev->has_bios) return;
 
     if (dev->is_pci)
 	reg_bios_enable = dev->pci_bar[1].addr_regs[0] & 0x01;
-	
+
     /* PCI BIOS stuff, just enable_disable. */
     if (reg_bios_enable) {
 	mem_mapping_set_addr(&dev->bios_rom.mapping,
@@ -871,7 +871,7 @@ nic_mca_write(int port, uint8_t val, void *priv)
     /* Save the MCA register value. */
     dev->pos_regs[port & 7] = val;
 
-    nic_ioremove(dev, dev->base_address);	
+    nic_ioremove(dev, dev->base_address);
 
     /* This is always necessary so that the old handler doesn't remain. */
 	/* Get the new assigned I/O base address. */
@@ -894,13 +894,13 @@ nic_mca_write(int port, uint8_t val, void *priv)
     /* Initialize the device if fully configured. */
     if (dev->pos_regs[2] & 0x01) {
 	/* Card enabled; register (new) I/O handler. */
-	
+
 	nic_ioset(dev, dev->base_address);
-	
+
 	nic_reset(dev);
-	
+
 	nelog(2, "EtherNext/MC: Port=%04x, IRQ=%d\n", dev->base_address, dev->base_irq);
-	
+
     }
 }
 
@@ -920,15 +920,6 @@ nic_init(const device_t *info)
     uint32_t mac;
     char *rom;
     nic_t *dev;
-#ifdef ENABLE_NIC_LOG
-    int i;
-#endif
-
-    /* Get the desired debug level. */
-#ifdef ENABLE_NIC_LOG
-    i = device_get_config_int("debug");
-    if (i > 0) nic_do_log = i;
-#endif
 
     dev = malloc(sizeof(nic_t));
     memset(dev, 0x00, sizeof(nic_t));
@@ -956,10 +947,10 @@ nic_init(const device_t *info)
 		} else {
 			dev->bios_addr = 0x00000;
 			dev->has_bios = 0;
-		}		
+		}
 	}
 	else {
-		mca_add(nic_mca_read, nic_mca_write, nic_mca_feedb, NULL, dev);	
+		mca_add(nic_mca_read, nic_mca_write, nic_mca_feedb, NULL, dev);
 	}
     }
 
@@ -1006,7 +997,7 @@ nic_init(const device_t *info)
 				    DP8390_FLAG_CLEAR_IRQ);
 		dp8390_mem_alloc(dev->dp8390, 0x4000, 0x4000);
 		break;
-		
+
 	case NE2K_ETHERNEXT_MC:
 		dev->maclocal[0] = 0x00;  /* 00:00:D8 (Networth Inc. OID) */
 		dev->maclocal[1] = 0x00;
@@ -1148,227 +1139,158 @@ nic_close(void *priv)
     free(dev);
 }
 
-
-static const device_config_t ne1000_config[] =
-{
-	{
-		"base", "Address", CONFIG_HEX16, "", 0x300, "", { 0 },
-		{
-			{
-				"0x280", 0x280
-			},
-			{
-				"0x300", 0x300
-			},
-			{
-				"0x320", 0x320
-			},
-			{
-				"0x340", 0x340
-			},
-			{
-				"0x360", 0x360
-			},
-			{
-				"0x380", 0x380
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"irq", "IRQ", CONFIG_SELECTION, "", 3, "", { 0 },
-		{
-			{
-				"IRQ 2", 2
-			},
-			{
-				"IRQ 3", 3
-			},
-			{
-				"IRQ 5", 5
-			},
-			{
-				"IRQ 7", 7
-			},
-			{
-				"IRQ 10", 10
-			},
-			{
-				"IRQ 11", 11
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"mac", "MAC Address", CONFIG_MAC, "", -1
-	},
-	{
-		"", "", -1
-	}
+// clang-format off
+static const device_config_t ne1000_config[] = {
+    {
+        "base", "Address", CONFIG_HEX16, "", 0x300, "", { 0 },
+        {
+            { "0x280", 0x280 },
+            { "0x300", 0x300 },
+            { "0x320", 0x320 },
+            { "0x340", 0x340 },
+            { "0x360", 0x360 },
+            { "0x380", 0x380 },
+            { ""             }
+        },
+    },
+    {
+        "irq", "IRQ", CONFIG_SELECTION, "", 3, "", { 0 },
+        {
+            { "IRQ 2",   2 },
+            { "IRQ 3",   3 },
+            { "IRQ 5",   5 },
+            { "IRQ 7",   7 },
+            { "IRQ 10", 10 },
+            { "IRQ 11", 11 },
+            { ""           }
+        },
+    },
+    { "mac", "MAC Address", CONFIG_MAC, "", -1 },
+    { "",    "",                            -1 }
 };
 
-static const device_config_t ne2000_config[] =
-{
-	{
-		"base", "Address", CONFIG_HEX16, "", 0x300, "", { 0 },
-		{
-			{
-				"0x280", 0x280
-			},
-			{
-				"0x300", 0x300
-			},
-			{
-				"0x320", 0x320
-			},
-			{
-				"0x340", 0x340
-			},
-			{
-				"0x360", 0x360
-			},
-			{
-				"0x380", 0x380
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"irq", "IRQ", CONFIG_SELECTION, "", 10, "", { 0 },
-		{
-			{
-				"IRQ 2", 2
-			},
-			{
-				"IRQ 3", 3
-			},
-			{
-				"IRQ 5", 5
-			},
-			{
-				"IRQ 7", 7
-			},
-			{
-				"IRQ 10", 10
-			},
-			{
-				"IRQ 11", 11
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"mac", "MAC Address", CONFIG_MAC, "", -1
-	},
-	{
-		"bios_addr", "BIOS address", CONFIG_HEX20, "", 0, "", { 0 },
-		{
-			{
-				"Disabled", 0x00000
-			},
-			{
-				"D000", 0xD0000
-			},
-			{
-				"D800", 0xD8000
-			},
-			{
-				"C800", 0xC8000
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"", "", -1
-	}
+static const device_config_t ne2000_config[] = {
+    {
+        "base", "Address", CONFIG_HEX16, "", 0x300, "", { 0 },
+        {
+            { "0x280", 0x280 },
+            { "0x300", 0x300 },
+            { "0x320", 0x320 },
+            { "0x340", 0x340 },
+            { "0x360", 0x360 },
+            { "0x380", 0x380 },
+            { ""             }
+        },
+    },
+    {
+        "irq", "IRQ", CONFIG_SELECTION, "", 10, "", { 0 },
+        {
+            { "IRQ 2",   2 },
+            { "IRQ 3",   3 },
+            { "IRQ 5",   5 },
+            { "IRQ 7",   7 },
+            { "IRQ 10", 10 },
+            { "IRQ 11", 11 },
+            { ""           }
+        },
+    },
+    { "mac", "MAC Address", CONFIG_MAC, "", -1 },
+    {
+        "bios_addr", "BIOS address", CONFIG_HEX20, "", 0, "", { 0 },
+        {
+            { "Disabled", 0x00000 },
+            { "D000",     0xD0000 },
+            { "D800",     0xD8000 },
+            { "C800",     0xC8000 },
+            { ""                  }
+        },
+    },
+    { "", "", -1 }
 };
 
-static const device_config_t rtl8019as_config[] =
-{
-	{
-		"mac", "MAC Address", CONFIG_MAC, "", -1
-	},
-	{
-		"", "", -1
-	}
+static const device_config_t rtl8019as_config[] = {
+    { "mac", "MAC Address", CONFIG_MAC, "", -1 },
+    { "",    "",                            -1 }
 };
 
-static const device_config_t rtl8029as_config[] =
-{
-	{
-		"bios", "Enable BIOS", CONFIG_BINARY, "", 0
-	},
-	{
-		"mac", "MAC Address", CONFIG_MAC, "", -1
-	},
-	{
-		"", "", -1
-	}
+static const device_config_t rtl8029as_config[] = {
+    { "bios", "Enable BIOS", CONFIG_BINARY, "",  0 },
+    { "mac",  "MAC Address", CONFIG_MAC, "",    -1 },
+    { "",     "",                               -1 }
 };
 
-static const device_config_t mca_mac_config[] =
-{
-	{
-		"mac", "MAC Address", CONFIG_MAC, "", -1
-	},
-	{
-		"", "", -1
-	}
+static const device_config_t mca_mac_config[] = {
+    { "mac", "MAC Address", CONFIG_MAC, "", -1 },
+    { "",    "",                            -1 }
 };
-
-
+// clang-format on
 
 const device_t ne1000_device = {
-    "Novell NE1000",
-    DEVICE_ISA,
-    NE2K_NE1000,
-    nic_init, nic_close, NULL,
-    { NULL }, NULL, NULL,
-    ne1000_config
+    .name = "Novell NE1000",
+    .internal_name = "ne1k",
+    .flags = DEVICE_ISA,
+    .local = NE2K_NE1000,
+    .init = nic_init,
+    .close = nic_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = ne1000_config
 };
 
 const device_t ne2000_device = {
-    "Novell NE2000",
-    DEVICE_ISA | DEVICE_AT,
-    NE2K_NE2000,
-    nic_init, nic_close, NULL,
-    { NULL }, NULL, NULL,
-    ne2000_config
+    .name = "Novell NE2000",
+    .internal_name = "ne2k",
+    .flags = DEVICE_ISA | DEVICE_AT,
+    .local = NE2K_NE2000,
+    .init = nic_init,
+    .close = nic_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = ne2000_config
 };
 
 const device_t ethernext_mc_device = {
-    "NetWorth EtherNext/MC",
-    DEVICE_MCA,
-    NE2K_ETHERNEXT_MC,
-    nic_init, nic_close, NULL,
-    { NULL }, NULL, NULL,
-    mca_mac_config
+    .name = "NetWorth EtherNext/MC",
+    .internal_name = "ethernextmc",
+    .flags = DEVICE_MCA,
+    .local = NE2K_ETHERNEXT_MC,
+    .init = nic_init,
+    .close = nic_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = mca_mac_config
 };
 
 const device_t rtl8019as_device = {
-    "Realtek RTL8019AS",
-    DEVICE_ISA | DEVICE_AT,
-    NE2K_RTL8019AS,
-    nic_init, nic_close, NULL,
-    { NULL }, NULL, NULL,
-    rtl8019as_config
+    .name = "Realtek RTL8019AS",
+    .internal_name = "ne2kpnp",
+    .flags = DEVICE_ISA | DEVICE_AT,
+    .local = NE2K_RTL8019AS,
+    .init = nic_init,
+    .close = nic_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = rtl8019as_config
 };
 
 const device_t rtl8029as_device = {
-    "Realtek RTL8029AS",
-    DEVICE_PCI,
-    NE2K_RTL8029AS,
-    nic_init, nic_close, NULL,
-    { NULL }, NULL, NULL,
-    rtl8029as_config
+    .name = "Realtek RTL8029AS",
+    .internal_name = "ne2kpci",
+    .flags = DEVICE_PCI,
+    .local = NE2K_RTL8029AS,
+    .init = nic_init,
+    .close = nic_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = rtl8029as_config
 };

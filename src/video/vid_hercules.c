@@ -31,45 +31,9 @@
 #include <86box/pit.h>
 #include <86box/device.h>
 #include <86box/video.h>
+#include <86box/vid_hercules.h>
 #include <86box/cli.h>
 
-
-typedef struct {
-    mem_mapping_t	mapping;
-
-    uint8_t	crtc[32], charbuffer[4096];
-    int		crtcreg;
-
-    uint8_t	ctrl,
-		ctrl2,
-		stat;
-
-    uint64_t	dispontime,
-		dispofftime;
-    pc_timer_t	timer;
-
-    int		firstline,
-		lastline;
-
-    int		linepos,
-		displine;
-    int		vc,
-		sc;
-    uint16_t	ma,
-		maback;
-    int		con, coff,
-		cursoron;
-    int		dispon,
-		blink;
-    int	vsynctime;
-    int		vadj;
-
-    int		lp_ff;
-
-    int		cols[256][2][2];
-
-    uint8_t	*vram;
-} hercules_t;
 
 static video_timings_t timing_hercules = {VIDEO_ISA, 8, 16, 32,   8, 16, 32};
 
@@ -91,7 +55,7 @@ recalc_timings(hercules_t *dev)
 }
 
 
-static uint8_t crtcmask[32] = 
+static uint8_t crtcmask[32] =
 {
 	0xff, 0xff, 0xff, 0xff, 0x7f, 0x1f, 0x7f, 0x7f, 0xf3, 0x1f, 0x7f, 0x1f, 0x3f, 0xff, 0x3f, 0xff,
 	0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
@@ -340,7 +304,7 @@ hercules_poll(void *priv)
 	dev->linepos = 1;
 	oldsc = dev->sc;
 
-	if ((dev->crtc[8] & 3) == 3) 
+	if ((dev->crtc[8] & 3) == 3)
 		dev->sc = (dev->sc << 1) & 7;
 
 	if (dev->dispon) {
@@ -421,7 +385,7 @@ hercules_poll(void *priv)
 	if (dev->vc == dev->crtc[7] && !dev->sc)
 		dev->stat |= 8;
 	dev->displine++;
-	if (dev->displine >= 500) 
+	if (dev->displine >= 500)
 		dev->displine = 0;
     } else {
 	timer_advance_u64(&dev->timer, dev->dispontime);
@@ -438,8 +402,8 @@ hercules_poll(void *priv)
 
 	if (dev->sc == (dev->crtc[11] & 31) ||
 	    ((dev->crtc[8] & 3)==3 && dev->sc == ((dev->crtc[11] & 31) >> 1))) {
-		dev->con = 0; 
-		dev->coff = 1; 
+		dev->con = 0;
+		dev->coff = 1;
 	}
 
 	if (dev->vadj) {
@@ -459,7 +423,7 @@ hercules_poll(void *priv)
 		dev->vc++;
 		dev->vc &= 127;
 
-		if (dev->vc == dev->crtc[6]) 
+		if (dev->vc == dev->crtc[6])
 			dev->dispon = 0;
 
 		if (oldvc == dev->crtc[4]) {
@@ -651,47 +615,38 @@ static void
 speed_changed(void *priv)
 {
     hercules_t *dev = (hercules_t *)priv;
-	
+
     recalc_timings(dev);
 }
 
 
 static const device_config_t hercules_config[] = {
+// clang-format off
     {
-	"rgb_type", "Display type", CONFIG_SELECTION, "", 0, "", { 0 },
-	{
-		{
-			"Default", 0
-		},
-		{
-			"Green", 1
-		},
-		{
-			"Amber", 2
-		},
-		{
-			"Gray", 3
-		},
-		{
-			""
-		}
-	}
+        "rgb_type", "Display type", CONFIG_SELECTION, "", 0, "", { 0 },
+        {
+            { "Default", 0 },
+            { "Green",   1 },
+            { "Amber",   2 },
+            { "Gray",    3 },
+            { ""           }
+        }
     },
-    {
-	"blend", "Blend", CONFIG_BINARY, "", 1
-    },
-    {
-	"", "", -1
-    }
+    { "blend", "Blend", CONFIG_BINARY, "",  1 },
+    { "",      "",                         -1 }
+// clang-format on
 };
 
 const device_t hercules_device = {
-    "Hercules",
-    DEVICE_ISA,
-    0,
-    hercules_init, hercules_close, NULL,
-    { NULL },
-    speed_changed,
-    NULL,
-    hercules_config
+    .name = "Hercules",
+    .internal_name = "hercules",
+    .flags = DEVICE_ISA,
+    .local = 0,
+    .init = hercules_init,
+    .close = hercules_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = speed_changed,
+    .force_redraw = NULL,
+    .config = hercules_config
 };

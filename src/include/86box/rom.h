@@ -13,9 +13,9 @@
  * Author:	Fred N. van Kempen, <decwiz@yahoo.com>
  *		Copyright 2018,2019 Fred N. van Kempen.
  */
+
 #ifndef EMU_ROM_H
 # define EMU_ROM_H
-
 
 #define FLAG_INT	1
 #define FLAG_INV	2
@@ -40,6 +40,15 @@ typedef struct {
     mem_mapping_t	mapping;
 } rom_t;
 
+
+typedef struct rom_path_t {
+    char rom_path[1024];
+    struct rom_path_t* next;
+} rom_path_t;
+
+extern rom_path_t rom_paths;
+
+extern void add_rom_path(const char* path);
 
 extern uint8_t	rom_read(uint32_t addr, void *p);
 extern uint16_t	rom_readw(uint32_t addr, void *p);

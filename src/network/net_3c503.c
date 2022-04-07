@@ -129,7 +129,7 @@ threec503_interrupt(void *priv, int set)
 	case 5:
 		dev->regs.idcfr = 0x80;
 		break;
-    }	
+    }
 
     if (set)
 	picint(1 << dev->base_irq);
@@ -177,7 +177,7 @@ threec503_set_drq(threec503_t *dev)
 	case 3:
 		dev->regs.idcfr = 4;
 		break;
-    }	
+    }
 }
 
 
@@ -195,7 +195,7 @@ threec503_reset(void *priv)
 
     memset(&dev->regs, 0, sizeof(dev->regs));
 
-    dev->regs.ctrl = 0x0a;	
+    dev->regs.ctrl = 0x0a;
 }
 
 
@@ -399,7 +399,7 @@ threec503_nic_hi_read(uint16_t addr, void *priv)
 		if (!(dev->regs.ctrl & 0x80))
 			return 0xff;
 
-		threec503_set_drq(dev); 
+		threec503_set_drq(dev);
 
 		return dp8390_chipmem_read(dev->dp8390, dev->regs.da++, 1);
     }
@@ -529,7 +529,7 @@ threec503_nic_hi_write(uint16_t addr, uint8_t val, void *priv)
 		if (!(dev->regs.ctrl & 0x80))
 			return;
 
-		threec503_set_drq(dev); 
+		threec503_set_drq(dev);
 
 		dp8390_chipmem_write(dev->dp8390, dev->regs.da++, val, 1);
 		break;
@@ -542,7 +542,7 @@ threec503_nic_ioset(threec503_t *dev, uint16_t addr)
 {
     io_sethandler(addr, 0x10,
 		  threec503_nic_lo_read, NULL, NULL,
-		  threec503_nic_lo_write, NULL, NULL, dev);	
+		  threec503_nic_lo_write, NULL, NULL, dev);
 
     io_sethandler(addr+0x400, 0x10,
 		  threec503_nic_hi_read, NULL, NULL,
@@ -575,7 +575,7 @@ threec503_nic_init(const device_t *info)
      * PnP and PCI devices start with address spaces inactive.
      */
     threec503_nic_ioset(dev, dev->base_address);
-	
+
     /* Set up our BIA. */
     if (mac & 0xff000000) {
 	/* Generate new local MAC. */
@@ -597,7 +597,7 @@ threec503_nic_init(const device_t *info)
     dev->dp8390->interrupt = threec503_interrupt;
     dp8390_set_defaults(dev->dp8390, DP8390_FLAG_CHECK_CR | DP8390_FLAG_CLEAR_IRQ);
     dp8390_mem_alloc(dev->dp8390, 0x2000, 0x2000);
-	
+
     memcpy(dev->dp8390->physaddr, dev->maclocal, sizeof(dev->maclocal));
 
     threec503_log("I/O=%04x, IRQ=%d, MAC=%02x:%02x:%02x:%02x:%02x:%02x\n",
@@ -636,116 +636,71 @@ threec503_nic_close(void *priv)
 }
 
 
-static const device_config_t threec503_config[] =
-{
+static const device_config_t threec503_config[] = {
+// clang-format off
     {
-	"base", "Address", CONFIG_HEX16, "", 0x300, "", { 0 },
-	{
-		{
-			"0x250", 0x250
-		},
-		{
-			"0x280", 0x280
-		},
-		{
-			"0x2a0", 0x2a0
-		},
-		{
-			"0x2e0", 0x2e0
-		},
-		{
-			"0x300", 0x300
-		},
-		{
-			"0x310", 0x310
-		},
-		{
-			"0x330", 0x330
-		},
-		{
-			"0x350", 0x350
-		},
-		{
-			"", 0
-		}
-	},
+        "base", "Address", CONFIG_HEX16, "", 0x300, "", { 0 },
+        {
+            { "0x250", 0x250 },
+            { "0x280", 0x280 },
+            { "0x2a0", 0x2a0 },
+            { "0x2e0", 0x2e0 },
+            { "0x300", 0x300 },
+            { "0x310", 0x310 },
+            { "0x330", 0x330 },
+            { "0x350", 0x350 },
+            { "", 0 }
+        },
     },
     {
-	"irq", "IRQ", CONFIG_SELECTION, "", 3, "", { 0 },
-	{
-		{
-			"IRQ 2", 2
-		},
-		{
-			"IRQ 3", 3
-		},
-		{
-			"IRQ 4", 4
-		},
-		{
-			"IRQ 5", 5
-		},
-		{
-			"", 0
-		}
-	},
+        "irq", "IRQ", CONFIG_SELECTION, "", 3, "", { 0 },
+        {
+            { "IRQ 2", 2 },
+            { "IRQ 3", 3 },
+            { "IRQ 4", 4 },
+            { "IRQ 5", 5 },
+            { "", 0 }
+        },
     },
     {
-	"dma", "DMA", CONFIG_SELECTION, "", 3, "", { 0 },
-	{
-		{
-			"DMA 1", 1
-		},
-		{
-			"DMA 2", 2
-		},
-		{
-			"DMA 3", 3
-		},
-		{
-			"", 0
-		}
-	},
+        "dma", "DMA", CONFIG_SELECTION, "", 3, "", { 0 },
+        {
+            { "DMA 1", 1 },
+            { "DMA 2", 2 },
+            { "DMA 3", 3 },
+            { "", 0 }
+        },
     },
     {
-	"mac", "MAC Address", CONFIG_MAC, "", -1, "", { 0 },
-	{
-		{
-			"", 0
-		}
-	},
+        "mac", "MAC Address", CONFIG_MAC, "", -1, "", { 0 },
+        {
+            { "", 0 }
+        },
     },
     {
-	"bios_addr", "BIOS address", CONFIG_HEX20, "", 0xCC000, "", { 0 },
-	{
-		{
-			"DC00", 0xDC000
-		},
-		{
-			"D800", 0xD8000
-		},
-		{
-			"C800", 0xC8000
-		},
-		{
-			"CC00", 0xCC000
-		},
-		{
-			"", 0
-		}
-	},
+        "bios_addr", "BIOS address", CONFIG_HEX20, "", 0xCC000, "", { 0 },
+        {
+            { "DC00", 0xDC000 },
+            { "D800", 0xD8000 },
+            { "C800", 0xC8000 },
+            { "CC00", 0xCC000 },
+            { "", 0 }
+        },
     },
-    {
-	"", "", -1
-    }
+    { "", "", -1 }
+// clang-format off
 };
 
-
 const device_t threec503_device = {
-    "3Com EtherLink II",
-    DEVICE_ISA,
-    0,
-    threec503_nic_init, threec503_nic_close, NULL,
-    { NULL }, NULL, NULL,
-    threec503_config
+    .name = "3Com EtherLink II",
+    .internal_name = "3c503",
+    .flags = DEVICE_ISA,
+    .local = 0,
+    .init = threec503_nic_init,
+    .close = threec503_nic_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = threec503_config
 };

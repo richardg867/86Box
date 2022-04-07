@@ -193,7 +193,7 @@ io_removehandler_common(uint16_t base, int size,
 
 
 void
-io_handler_common(int set, uint16_t base, int size, 
+io_handler_common(int set, uint16_t base, int size,
 		  uint8_t (*inb)(uint16_t addr, void *priv),
 		  uint16_t (*inw)(uint16_t addr, void *priv),
 		  uint32_t (*inl)(uint16_t addr, void *priv),
@@ -210,7 +210,7 @@ io_handler_common(int set, uint16_t base, int size,
 
 
 void
-io_sethandler(uint16_t base, int size, 
+io_sethandler(uint16_t base, int size,
 	      uint8_t (*inb)(uint16_t addr, void *priv),
 	      uint16_t (*inw)(uint16_t addr, void *priv),
 	      uint32_t (*inl)(uint16_t addr, void *priv),
@@ -238,7 +238,7 @@ io_removehandler(uint16_t base, int size,
 
 
 void
-io_handler(int set, uint16_t base, int size, 
+io_handler(int set, uint16_t base, int size,
 	   uint8_t (*inb)(uint16_t addr, void *priv),
 	   uint16_t (*inw)(uint16_t addr, void *priv),
 	   uint32_t (*inl)(uint16_t addr, void *priv),
@@ -252,7 +252,7 @@ io_handler(int set, uint16_t base, int size,
 
 
 void
-io_sethandler_interleaved(uint16_t base, int size, 
+io_sethandler_interleaved(uint16_t base, int size,
 			  uint8_t (*inb)(uint16_t addr, void *priv),
 			  uint16_t (*inw)(uint16_t addr, void *priv),
 			  uint32_t (*inl)(uint16_t addr, void *priv),
@@ -280,7 +280,7 @@ io_removehandler_interleaved(uint16_t base, int size,
 
 
 void
-io_handler_interleaved(int set, uint16_t base, int size, 
+io_handler_interleaved(int set, uint16_t base, int size,
 		       uint8_t (*inb)(uint16_t addr, void *priv),
 		       uint16_t (*inw)(uint16_t addr, void *priv),
 		       uint32_t (*inl)(uint16_t addr, void *priv),
@@ -314,13 +314,17 @@ inb(uint16_t port)
 
     if (port & 0x80)
 	amstrad_latch = AMSTRAD_NOLATCH;
-    else if (port & 0x4000)   
+    else if (port & 0x4000)
 	amstrad_latch = AMSTRAD_SW10;
     else
 	amstrad_latch = AMSTRAD_SW9;
 
     if (!found)
 	cycles -= io_delay;
+
+    /* TriGem 486-BIOS MHz output. */
+    if (port == 0x1ed)
+	ret = 0xfe;
 
     io_log("[%04X:%08X] (%i, %i, %04i) in b(%04X) = %02X\n", CS, cpu_state.pc, in_smm, found, qfound, port, ret);
 
@@ -345,7 +349,7 @@ outb(uint16_t port, uint8_t val)
 	}
 	p = q;
     }
-	
+
     if (!found) {
 	cycles -= io_delay;
 #ifdef USE_DYNAREC
@@ -399,7 +403,7 @@ inw(uint16_t port)
 
     if (port & 0x80)
 	amstrad_latch = AMSTRAD_NOLATCH;
-    else if (port & 0x4000)   
+    else if (port & 0x4000)
 	amstrad_latch = AMSTRAD_SW10;
     else
 	amstrad_latch = AMSTRAD_SW9;
@@ -517,7 +521,7 @@ inl(uint16_t port)
 
     if (port & 0x80)
 	amstrad_latch = AMSTRAD_NOLATCH;
-    else if (port & 0x4000)   
+    else if (port & 0x4000)
 	amstrad_latch = AMSTRAD_SW10;
     else
 	amstrad_latch = AMSTRAD_SW9;
@@ -669,7 +673,7 @@ io_trap_remap(void *handle, int enable, uint16_t addr, uint16_t size)
 	   trap->base, trap->base + trap->size - 1, trap->enable, addr, addr + size - 1, enable);
 
     /* Remove old I/O mapping. */
-    if (trap->enable && trap->base && trap->size) {
+    if (trap->enable && trap->size) {
 	io_removehandler(trap->base, trap->size,
 			 io_trap_readb, io_trap_readw, io_trap_readl,
 			 io_trap_writeb, io_trap_writew, io_trap_writel,
@@ -682,8 +686,8 @@ io_trap_remap(void *handle, int enable, uint16_t addr, uint16_t size)
     trap->size = size;
 
     /* Add new I/O mapping. */
-    if (trap->enable && trap->base && trap->size) {
-    	io_sethandler(trap->base, trap->size,
+    if (trap->enable && trap->size) {
+	io_sethandler(trap->base, trap->size,
 		      io_trap_readb, io_trap_readw, io_trap_readl,
 		      io_trap_writeb, io_trap_writew, io_trap_writel,
 		      trap);

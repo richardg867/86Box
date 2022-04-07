@@ -742,7 +742,7 @@ mfm_init(const device_t *info)
     io_sethandler(0x03f6, 1,
 		  NULL,     NULL,      NULL, mfm_write, NULL,       NULL, mfm);
 
-    timer_add(&mfm->callback_timer, do_callback, mfm, 0);	
+    timer_add(&mfm->callback_timer, do_callback, mfm, 0);
 
     ui_sb_update_icon(SB_HDD|HDD_BUS_MFM, 0);
 
@@ -759,7 +759,7 @@ mfm_close(void *priv)
     for (d=0; d<2; d++) {
 	drive_t *drive = &mfm->drives[d];
 
-	hdd_image_close(drive->hdd_num);		
+	hdd_image_close(drive->hdd_num);
     }
 
     free(mfm);
@@ -769,9 +769,15 @@ mfm_close(void *priv)
 
 
 const device_t st506_at_wd1003_device = {
-    "WD1003 AT MFM/RLL Controller",
-    DEVICE_ISA | DEVICE_AT,
-    0,
-    mfm_init, mfm_close, NULL,
-    { NULL }, NULL, NULL, NULL
+    .name = "WD1003 AT MFM/RLL Controller",
+    .internal_name = "st506_at",
+    .flags = DEVICE_ISA | DEVICE_AT,
+    .local = 0,
+    .init = mfm_init,
+    .close = mfm_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

@@ -197,7 +197,7 @@ aha154x_eeprom(x54x_t *dev, uint8_t cmd,uint8_t arg,uint8_t len,uint8_t off,uint
 	if (dev->type == AHA_154xCF) {
 		if (dev->fdc_address > 0) {
 			fdc_remove(dev->fdc);
-			fdc_set_base(dev->fdc, (dev->nvr[0] & EE0_ALTFLOP) ? 0x370 : 0x3f0);
+			fdc_set_base(dev->fdc, (dev->nvr[0] & EE0_ALTFLOP) ? FDC_SECONDARY_ADDR : FDC_PRIMARY_ADDR);
 		}
 	}
     }
@@ -301,7 +301,7 @@ aha_param_len(void *p)
 
 	case CMD_SHADOW_RAM:
 		return 1;
-		break;	
+		break;
 
 	case CMD_WRITE_EEPROM:
 		return 35;
@@ -407,7 +407,7 @@ aha_cmds(void *p)
 			dev->DataBuf[1] = dev->Lock;
 			dev->DataReplyLeft = 2;
 			break;
-					
+
 		case CMD_MBENABLE: /* Mailbox interface enable Command */
 			dev->DataReplyLeft = 0;
 			if (dev->CmdBuf[1] == dev->Lock) {
@@ -549,7 +549,7 @@ aha_mca_write(int port, uint8_t val, void *priv)
 
     /* Save the new IRQ and DMA channel values. */
     dev->Irq = (dev->pos_regs[4] & 0x07) + 8;
-    dev->DmaChannel = dev->pos_regs[5] & 0x0f;	
+    dev->DmaChannel = dev->pos_regs[5] & 0x0f;
 
     /* Extract the BIOS ROM address info. */
     if (! (dev->pos_regs[2] & 0x80)) switch(dev->pos_regs[3] & 0x38) {
@@ -901,7 +901,7 @@ aha_initnvr(x54x_t *dev)
     /* Initialize the on-board EEPROM. */
     dev->nvr[0] = dev->HostID;			/* SCSI ID 7 */
     dev->nvr[0] |= (0x10 | 0x20 | 0x40);
-    if (dev->fdc_address == 0x370)
+    if (dev->fdc_address == FDC_SECONDARY_ADDR)
 	dev->nvr[0] |= EE0_ALTFLOP;
     dev->nvr[1] = dev->Irq-9;			/* IRQ15 */
     dev->nvr[1] |= (dev->DmaChannel<<4);	/* DMA6 */
@@ -939,7 +939,7 @@ aha_setnvr(x54x_t *dev)
     if (dev->type == AHA_154xCF) {
 	if (dev->fdc_address > 0) {
 		fdc_remove(dev->fdc);
-		fdc_set_base(dev->fdc, (dev->nvr[0] & EE0_ALTFLOP) ? 0x370 : 0x3f0);
+		fdc_set_base(dev->fdc, (dev->nvr[0] & EE0_ALTFLOP) ? FDC_SECONDARY_ADDR : FDC_PRIMARY_ADDR);
 	}
     }
 }
@@ -1013,7 +1013,7 @@ aha_init(const device_t *info)
 		dev->rom_shramsz = 128;		/* size of shadow RAM */
 		dev->ha_bps = 5000000.0;	/* normal SCSI */
 		break;
-		
+
 	case AHA_154xB:
 		strcpy(dev->name, "AHA-154xB");
 		switch(dev->Base) {
@@ -1107,11 +1107,11 @@ aha_init(const device_t *info)
 
 		/* Enable MCA. */
 		dev->pos_regs[0] = 0x1F;	/* MCA board ID */
-		dev->pos_regs[1] = 0x0F;	
+		dev->pos_regs[1] = 0x0F;
 		mca_add(aha_mca_read, aha_mca_write, aha_mca_feedb, NULL, dev);
 		dev->ha_bps = 5000000.0;	/* normal SCSI */
 		break;
-    }	
+    }
 
     /* Initialize ROM BIOS if needed. */
     aha_setbios(dev);
@@ -1138,402 +1138,267 @@ aha_init(const device_t *info)
     return(dev);
 }
 
-
+// clang-format off
 static const device_config_t aha_154xb_config[] = {
+    {
+        "base", "Address", CONFIG_HEX16, "", 0x334, "", { 0 },
         {
-		"base", "Address", CONFIG_HEX16, "", 0x334, "", { 0 },
-                {
-                        {
-                                "None",      0
-                        },
-                        {
-                                "0x330", 0x330
-                        },
-                        {
-                                "0x334", 0x334
-                        },
-                        {
-                                "0x230", 0x230
-                        },
-                        {
-                                "0x234", 0x234
-                        },
-                        {
-                                "0x130", 0x130
-                        },
-                        {
-                                "0x134", 0x134
-                        },
-                        {
-                                ""
-                        }
-                },
+            { "None",      0 },
+            { "0x330", 0x330 },
+            { "0x334", 0x334 },
+            { "0x230", 0x230 },
+            { "0x234", 0x234 },
+            { "0x130", 0x130 },
+            { "0x134", 0x134 },
+            { ""             }
         },
+    },
+    {
+        "irq", "IRQ", CONFIG_SELECTION, "", 11, "", { 0 },
         {
-		"irq", "IRQ", CONFIG_SELECTION, "", 11, "", { 0 },
-                {
-                        {
-                                "IRQ 9", 9
-                        },
-                        {
-                                "IRQ 10", 10
-                        },
-                        {
-                                "IRQ 11", 11
-                        },
-                        {
-                                "IRQ 12", 12
-                        },
-                        {
-                                "IRQ 14", 14
-                        },
-                        {
-                                "IRQ 15", 15
-                        },
-                        {
-                                ""
-                        }
-                },
+            { "IRQ 9", 9 },
+            { "IRQ 10", 10 },
+            { "IRQ 11", 11 },
+            { "IRQ 12", 12 },
+            { "IRQ 14", 14 },
+            { "IRQ 15", 15 },
+            { ""           }
         },
+    },
+    {
+        "dma", "DMA channel", CONFIG_SELECTION, "", 6, "", { 0 },
         {
-		"dma", "DMA channel", CONFIG_SELECTION, "", 6, "", { 0 },
-                {
-                        {
-                                "DMA 5", 5
-                        },
-                        {
-                                "DMA 6", 6
-                        },
-                        {
-                                "DMA 7", 7
-                        },
-                        {
-                                ""
-                        }
-                },
+            { "DMA 5", 5 },
+            { "DMA 6", 6 },
+            { "DMA 7", 7 },
+            { ""         }
         },
+    },
+    {
+        "hostid", "Host ID", CONFIG_SELECTION, "", 7, "", { 0 },
         {
-		"hostid", "Host ID", CONFIG_SELECTION, "", 7, "", { 0 },
-                {
-                        {
-                                "0", 0
-                        },
-                        {
-                                "1", 1
-                        },
-                        {
-                                "2", 2
-                        },
-                        {
-                                "3", 3
-                        },
-                        {
-                                "4", 4
-                        },
-                        {
-                                "5", 5
-                        },
-                        {
-                                "6", 6
-                        },
-                        {
-                                "7", 7
-                        },
-                        {
-                                ""
-                        }
-                },
+            { "0", 0 },
+            { "1", 1 },
+            { "2", 2 },
+            { "3", 3 },
+            { "4", 4 },
+            { "5", 5 },
+            { "6", 6 },
+            { "7", 7 },
+            { ""     }
         },
+    },
+    {
+        "bios_addr", "BIOS Address", CONFIG_HEX20, "", 0, "", { 0 },
         {
-                "bios_addr", "BIOS Address", CONFIG_HEX20, "", 0, "", { 0 },
-                {
-                        {
-                                "Disabled", 0
-                        },
-                        {
-                                "C800H", 0xc8000
-                        },
-                        {
-                                "D000H", 0xd0000
-                        },
-                        {
-                                "D800H", 0xd8000
-                        },
-                        {
-                                ""
-                        }
-                },
+            { "Disabled", 0 },
+            { "C800H", 0xc8000 },
+            { "D000H", 0xd0000 },
+            { "D800H", 0xd8000 },
+            { "DC00H", 0xdc000 },
+            { ""               }
         },
-	{
-		"", "", -1
-	}
+    },
+    {
+        "", "", -1
+    }
 };
 
 static const device_config_t aha_154x_config[] = {
+    {
+        "base", "Address", CONFIG_HEX16, "", 0x334, "", { 0 },
         {
-		"base", "Address", CONFIG_HEX16, "", 0x334, "", { 0 },
-                {
-                        {
-                                "None",      0
-                        },
-                        {
-                                "0x330", 0x330
-                        },
-                        {
-                                "0x334", 0x334
-                        },
-                        {
-                                "0x230", 0x230
-                        },
-                        {
-                                "0x234", 0x234
-                        },
-                        {
-                                "0x130", 0x130
-                        },
-                        {
-                                "0x134", 0x134
-                        },
-                        {
-                                ""
-                        }
-                },
+            { "None",      0 },
+            { "0x330", 0x330 },
+            { "0x334", 0x334 },
+            { "0x230", 0x230 },
+            { "0x234", 0x234 },
+            { "0x130", 0x130 },
+            { "0x134", 0x134 },
+            { ""             }
         },
+    },
+    {
+        "irq", "IRQ", CONFIG_SELECTION, "", 11, "", { 0 },
         {
-		"irq", "IRQ", CONFIG_SELECTION, "", 11, "", { 0 },
-                {
-                        {
-                                "IRQ 9", 9
-                        },
-                        {
-                                "IRQ 10", 10
-                        },
-                        {
-                                "IRQ 11", 11
-                        },
-                        {
-                                "IRQ 12", 12
-                        },
-                        {
-                                "IRQ 14", 14
-                        },
-                        {
-                                "IRQ 15", 15
-                        },
-                        {
-                                ""
-                        }
-                },
+            { "IRQ 9", 9 },
+            { "IRQ 10", 10 },
+            { "IRQ 11", 11 },
+            { "IRQ 12", 12 },
+            { "IRQ 14", 14 },
+            { "IRQ 15", 15 },
+            { ""           }
         },
+    },
+    {
+        "dma", "DMA channel", CONFIG_SELECTION, "", 6, "", { 0 },
         {
-		"dma", "DMA channel", CONFIG_SELECTION, "", 6, "", { 0 },
-                {
-                        {
-                                "DMA 5", 5
-                        },
-                        {
-                                "DMA 6", 6
-                        },
-                        {
-                                "DMA 7", 7
-                        },
-                        {
-                                ""
-                        }
-                },
+            { "DMA 5", 5 },
+            { "DMA 6", 6 },
+            { "DMA 7", 7 },
+            { ""         }
         },
+    },
+    {
+        "bios_addr", "BIOS Address", CONFIG_HEX20, "", 0, "", { 0 },
         {
-                "bios_addr", "BIOS Address", CONFIG_HEX20, "", 0, "", { 0 },
-                {
-                        {
-                                "Disabled", 0
-                        },
-                        {
-                                "C800H", 0xc8000
-                        },
-                        {
-                                "D000H", 0xd0000
-                        },
-                        {
-                                "D800H", 0xd8000
-                        },
-                        {
-                                ""
-                        }
-                },
+            { "Disabled", 0 },
+            { "C800H", 0xc8000 },
+            { "D000H", 0xd0000 },
+            { "D800H", 0xd8000 },
+            { "DC00H", 0xdc000 },
+            { ""               }
+            },
         },
-	{
-		"", "", -1
-	}
+    {
+        "", "", -1
+    }
 };
 
 
 static const device_config_t aha_154xcf_config[] = {
+    {
+        "base", "Address", CONFIG_HEX16, "", 0x334, "", { 0 },
         {
-		"base", "Address", CONFIG_HEX16, "", 0x334, "", { 0 },
-                {
-                        {
-                                "None",      0
-                        },
-                        {
-                                "0x330", 0x330
-                        },
-                        {
-                                "0x334", 0x334
-                        },
-                        {
-                                "0x230", 0x230
-                        },
-                        {
-                                "0x234", 0x234
-                        },
-                        {
-                                "0x130", 0x130
-                        },
-                        {
-                                "0x134", 0x134
-                        },
-                        {
-                                ""
-                        }
-                },
+            { "None",      0 },
+            { "0x330", 0x330 },
+            { "0x334", 0x334 },
+            { "0x230", 0x230 },
+            { "0x234", 0x234 },
+            { "0x130", 0x130 },
+            { "0x134", 0x134 },
+            { ""             }
         },
+    },
+    {
+        "irq", "IRQ", CONFIG_SELECTION, "", 11, "", { 0 },
         {
-		"irq", "IRQ", CONFIG_SELECTION, "", 11, "", { 0 },
-                {
-                        {
-                                "IRQ 9", 9
-                        },
-                        {
-                                "IRQ 10", 10
-                        },
-                        {
-                                "IRQ 11", 11
-                        },
-                        {
-                                "IRQ 12", 12
-                        },
-                        {
-                                "IRQ 14", 14
-                        },
-                        {
-                                "IRQ 15", 15
-                        },
-                        {
-                                ""
-                        }
-                },
+            { "IRQ 9", 9 },
+            { "IRQ 10", 10 },
+            { "IRQ 11", 11 },
+            { "IRQ 12", 12 },
+            { "IRQ 14", 14 },
+            { "IRQ 15", 15 },
+            { ""           }
         },
+    },
+    {
+        "dma", "DMA channel", CONFIG_SELECTION, "", 6, "", { 0 },
         {
-		"dma", "DMA channel", CONFIG_SELECTION, "", 6, "", { 0 },
-                {
-                        {
-                                "DMA 5", 5
-                        },
-                        {
-                                "DMA 6", 6
-                        },
-                        {
-                                "DMA 7", 7
-                        },
-                        {
-                                ""
-                        }
-                },
+            { "DMA 5", 5 },
+            { "DMA 6", 6 },
+            { "DMA 7", 7 },
+            { ""         }
         },
+    },
+    {
+        "bios_addr", "BIOS Address", CONFIG_HEX20, "", 0, "", { 0 },
         {
-                "bios_addr", "BIOS Address", CONFIG_HEX20, "", 0, "", { 0 },
-                {
-                        {
-                                "Disabled", 0
-                        },
-                        {
-                                "C800H", 0xc8000
-                        },
-                        {
-                                "D000H", 0xd0000
-                        },
-                        {
-                                "D800H", 0xd8000
-                        },
-                        {
-                                ""
-                        }
-                },
+            { "Disabled", 0 },
+            { "C800H", 0xc8000 },
+            { "CC00H", 0xcc000 },
+            { "D000H", 0xd0000 },
+            { "D400H", 0xd4000 },
+            { "D800H", 0xd8000 },
+            { "DC00H", 0xdc000 },
+            { ""               }
         },
+    },
+    {
+        "fdc_addr", "FDC address", CONFIG_HEX16, "", 0, "", { 0 },
         {
-		"fdc_addr", "FDC address", CONFIG_HEX16, "", 0, "", { 0 },
-                {
-                        {
-                                "None",      0
-                        },
-                        {
-                                "0x3f0", 0x3f0
-                        },
-                        {
-                                "0x370", 0x370
-                        },
-                        {
-                                ""
-                        }
-                },
+            { "None",  0                  },
+            { "0x3f0", FDC_PRIMARY_ADDR   },
+            { "0x370", FDC_SECONDARY_ADDR },
+            { ""                          }
         },
-	{
-		"", "", -1
-	}
+    },
+    {
+        "", "", -1
+    }
 };
-
+// clang-format on
 
 const device_t aha154xa_device = {
-    "Adaptec AHA-154xA",
-    DEVICE_ISA | DEVICE_AT,
-    AHA_154xA,
-    aha_init, x54x_close, NULL,
-    { NULL }, NULL, NULL,
-    aha_154xb_config
+    .name = "Adaptec AHA-154xA",
+    .internal_name = "aha154xa",
+    .flags = DEVICE_ISA | DEVICE_AT,
+    .local = AHA_154xA,
+    .init = aha_init,
+    .close = x54x_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = aha_154xb_config
 };
 
 const device_t aha154xb_device = {
-    "Adaptec AHA-154xB",
-    DEVICE_ISA | DEVICE_AT,
-    AHA_154xB,
-    aha_init, x54x_close, NULL,
-    { NULL }, NULL, NULL,
-    aha_154xb_config
+    .name = "Adaptec AHA-154xB",
+    .internal_name = "aha154xb",
+    .flags = DEVICE_ISA | DEVICE_AT,
+    .local = AHA_154xB,
+    .init = aha_init,
+    .close = x54x_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = aha_154xb_config
 };
 
 const device_t aha154xc_device = {
-    "Adaptec AHA-154xC",
-    DEVICE_ISA | DEVICE_AT,
-    AHA_154xC,
-    aha_init, x54x_close, NULL,
-    { NULL }, NULL, NULL,
-    aha_154x_config
+    .name = "Adaptec AHA-154xC",
+    .internal_name = "aha154xc",
+    .flags = DEVICE_ISA | DEVICE_AT,
+    .local = AHA_154xC,
+    .init = aha_init,
+    .close = x54x_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = aha_154x_config
 };
 
 const device_t aha154xcf_device = {
-    "Adaptec AHA-154xCF",
-    DEVICE_ISA | DEVICE_AT,
-    AHA_154xCF,
-    aha_init, x54x_close, NULL,
-    { NULL }, NULL, NULL,
-    aha_154xcf_config
+    .name = "Adaptec AHA-154xCF",
+    .internal_name = "aha154xcf",
+    .flags = DEVICE_ISA | DEVICE_AT,
+    .local = AHA_154xCF,
+    .init = aha_init,
+    .close = x54x_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = aha_154xcf_config
 };
 
 const device_t aha154xcp_device = {
-    "Adaptec AHA-154xCP",
-    DEVICE_ISA | DEVICE_AT,
-    AHA_154xCP,
-    aha_init, aha1542cp_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "Adaptec AHA-154xCP",
+    .internal_name = "aha154xcp",
+    .flags = DEVICE_ISA | DEVICE_AT,
+    .local = AHA_154xCP,
+    .init = aha_init,
+    .close = aha1542cp_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t aha1640_device = {
-    "Adaptec AHA-1640",
-    DEVICE_MCA,
-    AHA_1640,
-    aha_init, x54x_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "Adaptec AHA-1640",
+    .internal_name = "aha1640",
+    .flags = DEVICE_MCA,
+    .local = AHA_1640,
+    .init = aha_init,
+    .close = x54x_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

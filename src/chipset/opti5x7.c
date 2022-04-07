@@ -7,7 +7,7 @@
  *		This file is part of the 86Box distribution.
  *
  *		Implementation of the OPTi 82C546/82C547(Python) & 82C596/82C597(Cobra) chipsets.
- 
+
  * Authors:	plant/nerd73,
  *          Miran Grca, <mgrca8@gmail.com>
  *          Tiseno100
@@ -176,13 +176,15 @@ opti5x7_init(const device_t *info)
 }
 
 const device_t opti5x7_device = {
-    "OPTi 82C5x6/82C5x7",
-    0,
-    0,
-    opti5x7_init,
-    opti5x7_close,
-    NULL,
-    {NULL},
-    NULL,
-    NULL,
-    NULL};
+    .name = "OPTi 82C5x6/82C5x7",
+    .internal_name = "opti5x7",
+    .flags = 0,
+    .local = 0,
+    .init = opti5x7_init,
+    .close = opti5x7_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
+};

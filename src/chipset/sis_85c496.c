@@ -143,6 +143,8 @@ sis_85c496_recalcmapping(sis_85c496_t *dev)
 	} else
 		mem_set_mem_state_both(base, 0x8000, MEM_READ_EXTANY | MEM_WRITE_EXTANY);
     }
+
+    flushmmucache_nopc();
 }
 
 
@@ -240,13 +242,8 @@ sis_85c49x_pci_write(int func, int addr, uint8_t val, void *priv)
 		break;
 	case 0x45:	/* Shadow Configure */
 		dev->pci_conf[addr] = val & 0x0f;
-		if (valxor & 0x03) {
+		if (valxor & 0x03)
 			sis_85c496_recalcmapping(dev);
-			if ((old == 0x0a) && (val == 0x09))
-				flushmmucache_nopc();
-			else
-				flushmmucache();
-		}
 		break;
 	case 0x46:	/* Cacheable Control */
 		dev->pci_conf[addr] = val;
@@ -471,7 +468,7 @@ sis_85c49x_pci_read(int func, int addr, void *priv)
 
     return ret;
 }
- 
+
 
 static void
 sis_85c496_rmsmiblk_count(void *priv)
@@ -608,7 +605,7 @@ static void
     ide_sec_disable();
 
     if (info->local)
-	dev->nvr = device_add(&ls486e_nvr_device);
+	dev->nvr = device_add(&ami_1994_nvr_device);
     else
 	dev->nvr = device_add(&at_nvr_device);
 
@@ -621,32 +618,30 @@ static void
     return dev;
 }
 
-
-const device_t sis_85c496_device =
-{
-    "SiS 85c496/85c497",
-    DEVICE_PCI,
-    0,
-    sis_85c496_init, 
-    sis_85c496_close, 
-    sis_85c496_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+const device_t sis_85c496_device = {
+    .name = "SiS 85c496/85c497",
+    .internal_name = "sis_85c496",
+    .flags = DEVICE_PCI,
+    .local = 0,
+    .init = sis_85c496_init,
+    .close = sis_85c496_close,
+    .reset = sis_85c496_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
-const device_t sis_85c496_ls486e_device =
-{
-    "SiS 85c496/85c497 (Lucky Star LS-486E)",
-    DEVICE_PCI,
-    1,
-    sis_85c496_init, 
-    sis_85c496_close, 
-    sis_85c496_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+const device_t sis_85c496_ls486e_device = {
+    .name = "SiS 85c496/85c497 (Lucky Star LS-486E)",
+    .internal_name = "sis_85c496_ls486e",
+    .flags = DEVICE_PCI,
+    .local = 1,
+    .init = sis_85c496_init,
+    .close = sis_85c496_close,
+    .reset = sis_85c496_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

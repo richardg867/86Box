@@ -1,4 +1,4 @@
-﻿/*
+/*
  * VARCem	Virtual ARchaeological Computer EMulator.
  *		An emulator of (mostly) x86-based PC systems and devices,
  *		using the ISA,EISA,VLB,MCA  and PCI system buses, roughly
@@ -46,6 +46,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING  IN ANY  WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 #ifndef EMU_NVR_H
 # define EMU_NVR_H
 
@@ -67,7 +68,7 @@
 typedef struct _nvr_ {
     char	*fn;			/* pathname of image file */
     uint16_t	size;			/* device configuration */
-    int8_t	irq, new;
+    int8_t	irq, is_new;
 
     uint8_t	onesec_cnt;
     pc_timer_t	onesec_time;
@@ -92,9 +93,11 @@ extern const device_t ps_nvr_device;
 extern const device_t amstrad_nvr_device;
 extern const device_t ibmat_nvr_device;
 extern const device_t piix4_nvr_device;
-extern const device_t ls486e_nvr_device;
-extern const device_t ami_apollo_nvr_device;
+extern const device_t ami_1992_nvr_device;
+extern const device_t ami_1994_nvr_device;
+extern const device_t ami_1995_nvr_device;
 extern const device_t via_nvr_device;
+extern const device_t p6rp4_nvr_device;
 #endif
 
 
@@ -110,6 +113,7 @@ extern int	nvr_save(void);
 
 extern int	nvr_is_leap(int year);
 extern int	nvr_get_days(int month, int year);
+extern void	nvr_time_sync();
 extern void	nvr_time_get(struct tm *);
 extern void	nvr_time_set(struct tm *);
 

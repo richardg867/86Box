@@ -53,9 +53,9 @@ thread_create(void (*thread_rout)(void *param), void *param)
 
 
 int
-thread_wait(thread_t *arg, int timeout)
+thread_wait(thread_t *arg)
 {
-    return pthread_join(*(pthread_t*)(arg), NULL) != 0;
+    return pthread_join(*(pthread_t*)(arg), NULL);
 }
 
 
@@ -101,11 +101,7 @@ thread_wait_event(event_t *handle, int timeout)
     event_pthread_t *event = (event_pthread_t *)handle;
     struct timespec abstime;
 
-#ifdef HAS_TIMESPEC_GET
-    timespec_get(&abstime, TIME_UTC);
-#else
     clock_gettime(CLOCK_REALTIME, &abstime);
-#endif
     abstime.tv_nsec += (timeout % 1000) * 1000000;
     abstime.tv_sec += (timeout / 1000);
     if (abstime.tv_nsec > 1000000000) {
@@ -145,14 +141,6 @@ thread_create_mutex(void)
     pthread_mutex_init(&mutex->mutex, NULL);
 
     return mutex;
-}
-
-
-mutex_t *
-thread_create_mutex_with_spin_count(unsigned int spin_count)
-{
-    /* Setting spin count of a mutex is not possible with pthreads. */
-    return thread_create_mutex();
 }
 
 

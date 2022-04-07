@@ -60,7 +60,7 @@
 #include <86box/device.h>
 #include <86box/timer.h>
 #include <86box/pit.h>
-#include <86box/plat.h> 
+#include <86box/plat.h>
 #include <86box/lpt.h>
 #include <86box/printer.h>
 #include <86box/prt_devs.h>
@@ -112,7 +112,7 @@ typedef struct {
     double	page_width,	/* all in inches */
 		page_height,
 		left_margin,
-		top_margin, 
+		top_margin,
 		right_margin,
 		bot_margin;
 
@@ -140,7 +140,7 @@ typedef struct {
 
 
 /* Dump the current page into a formatted file. */
-static void 
+static void
 dump_page(prnt_t *dev)
 {
     char path[1024];
@@ -502,12 +502,13 @@ prnt_close(void *priv)
 
 
 const lpt_device_t lpt_prt_text_device = {
-    "Generic Text Printer",
-    prnt_init,
-    prnt_close,
-    write_data,
-    write_ctrl,
-    NULL,
-    read_status,
-    NULL
+    .name = "Generic Text Printer",
+    .internal_name = "text_prt",
+    .init = prnt_init,
+    .close = prnt_close,
+    .write_data = write_data,
+    .write_ctrl = write_ctrl,
+    .read_data = NULL,
+    .read_status = read_status,
+    .read_ctrl = NULL
 };

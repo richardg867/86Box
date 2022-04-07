@@ -1,4 +1,4 @@
-﻿/*
+/*
  * 86Box	A hypervisor and IBM PC system emulator that specializes in
  *		running old operating systems and software designed for IBM
  *		PC systems and compatibles from 1981 through fairly recent
@@ -26,6 +26,8 @@
 #include "cpu.h"
 #include "x86.h"
 #include <86box/machine.h>
+#include <86box/device.h>
+#include <86box/dma.h>
 #include <86box/io.h>
 #include <86box/mem.h>
 #include <86box/rom.h>
@@ -239,8 +241,16 @@ reset_common(int hard)
 	leave_smm();
 
     /* Needed for the ALi M1533. */
-    if (soft_reset_pci && !hard)
+    if (is486 && (hard || soft_reset_pci)) {
 	pci_reset();
+	if (!hard && soft_reset_pci) {
+		dma_reset();
+		/* TODO: Hack, but will do for time being, because all AT machines currently are 286+,
+			 and vice-versa. */
+		dma_set_at(is286);
+		device_reset_all();
+	}
+    }
 
     use32 = 0;
     cpu_cur_status = 0;
@@ -257,15 +267,9 @@ reset_common(int hard)
     cpu_state.eflags = 0;
     cgate32 = 0;
     if (is286) {
-	if (AT) {
-		loadcs(0xF000);
-		cpu_state.pc = 0xFFF0;
-		rammask = cpu_16bitbus ? 0xFFFFFF : 0xFFFFFFFF;
-	} else {
-		loadcs(0xFFFF);
-		cpu_state.pc = 0;
-		rammask = 0xfffff;
-	}
+	loadcs(0xF000);
+	cpu_state.pc = 0xFFF0;
+	rammask = cpu_16bitbus ? 0xFFFFFF : 0xFFFFFFFF;
     }
     idt.base = 0;
     cpu_state.flags = 2;
@@ -299,7 +303,8 @@ reset_common(int hard)
     smi_block = 0;
 
     if (hard) {
-	smbase = is_am486dxl ? 0x00060000 : 0x00030000;
+	if (is486)
+		smbase = is_am486dxl ? 0x00060000 : 0x00030000;
 	ppi_reset();
     }
     in_sys = 0;
@@ -307,8 +312,12 @@ reset_common(int hard)
     shadowbios = shadowbios_write = 0;
     alt_access = cpu_end_block_after_ins = 0;
 
-    if (hard)
+    if (hard) {
     	reset_on_hlt = hlt_reset_pending = 0;
+	cache_index = 0;
+	memset(_tr, 0x00, sizeof(_tr));
+	memset(_cache, 0x00, sizeof(_cache));
+    }
 
     if (!is286)
 	reset_808x(hard);
@@ -333,4 +342,25 @@ softresetx86(void)
 	return;
 
     reset_common(0);
+}
+
+
+/* Actual hard reset. */
+void
+hardresetx86(void)
+{
+    dma_reset();
+    /* TODO: Hack, but will do for time being, because all AT machines currently are 286+,
+       and vice-versa. */
+    dma_set_at(is286);
+    device_reset_all();
+
+    cpu_alt_reset = 0;
+
+    mem_a20_alt = 0;
+    mem_a20_recalc();
+
+    flushmmucache();
+
+    resetx86();
 }

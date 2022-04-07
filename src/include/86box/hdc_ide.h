@@ -19,6 +19,18 @@
 #ifndef EMU_IDE_H
 # define EMU_IDE_H
 
+#define HDC_PRIMARY_BASE    0x01F0
+#define HDC_PRIMARY_SIDE    0x03F6
+#define HDC_PRIMARY_IRQ	    14
+#define HDC_SECONDARY_BASE  0x0170
+#define HDC_SECONDARY_SIDE  0x0376
+#define HDC_SECONDARY_IRQ   15
+#define HDC_TERTIARY_BASE   0x0168
+#define HDC_TERTIARY_SIDE   0x036E
+#define HDC_TERTIARY_IRQ    10
+#define HDC_QUATERNARY_BASE 0x01E8
+#define HDC_QUATERNARY_SIDE 0x03EE
+#define HDC_QUATERNARY_IRQ  11
 
 enum
 {
@@ -152,6 +164,9 @@ extern void	ide_padstr8(uint8_t *buf, int buf_size, const char *src);
 extern int	(*ide_bus_master_dma)(int channel, uint8_t *data, int transfer_length, int out, void *priv);
 extern void	(*ide_bus_master_set_irq)(int channel, void *priv);
 extern void	*ide_bus_master_priv[2];
+
+extern uint8_t	ide_read_ali_75(void);
+extern uint8_t	ide_read_ali_76(void);
 
 
 #endif	/*EMU_IDE_H*/

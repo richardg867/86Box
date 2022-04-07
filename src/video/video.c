@@ -141,7 +141,7 @@ PALETTE		cgapal = {
     {42,0,21},  {21,10,21}, {42,0,42},  {42,0,63},
     {21,21,21}, {21,63,21}, {42,21,42}, {21,63,63},
     {63,0,0},   {42,42,0},  {63,21,42}, {41,41,41},
-        
+
     {0,0,0},   {0,42,42},   {42,0,0},   {42,42,42},
     {0,0,0},   {0,42,42},   {42,0,0},   {42,42,42},
     {0,0,0},   {0,63,63},   {63,0,0},   {63,63,63},
@@ -846,13 +846,13 @@ video_init(void)
     }
 
     /* Account for overscan. */
-    buffer32 = create_bitmap(2048 + 64, 2048 + 64);
+    buffer32 = create_bitmap(2048, 2048);
 
     for (c = 0; c < 64; c++) {
 	cgapal[c + 64].r = (((c & 4) ? 2 : 0) | ((c & 0x10) ? 1 : 0)) * 21;
 	cgapal[c + 64].g = (((c & 2) ? 2 : 0) | ((c & 0x10) ? 1 : 0)) * 21;
 	cgapal[c + 64].b = (((c & 1) ? 2 : 0) | ((c & 0x10) ? 1 : 0)) * 21;
-	if ((c & 0x17) == 6) 
+	if ((c & 0x17) == 6)
 		cgapal[c + 64].g >>= 1;
     }
     for (c = 0; c < 64; c++) {
@@ -904,7 +904,7 @@ video_close(void)
 {
     thread_run = 0;
     thread_set_event(blit_data.wake_blit_thread);
-    thread_wait(blit_data.blit_thread, -1);
+    thread_wait(blit_data.blit_thread);
     thread_destroy_event(blit_data.buffer_not_in_use);
     thread_destroy_event(blit_data.blit_complete);
     thread_destroy_event(blit_data.wake_blit_thread);
@@ -946,7 +946,7 @@ void
 loadfont_common(FILE *f, int format)
 {
     int c, d;
-	
+
 	switch (format) {
 	case 0:		/* MDA */
 		for (c=0; c<256; c++)
@@ -1060,7 +1060,7 @@ loadfont_common(FILE *f, int format)
 		for (c = 0; c < 256; c++)
 			fread(&fontdat12x18[c][0], 1, 36, f);
 		break;
-		
+
 	}
 
     (void)fclose(f);
@@ -1070,7 +1070,7 @@ void
 loadfont_ex(char *s, int format, int offset)
 {
 	FILE *f;
-    
+
     f = rom_fopen(s, "rb");
     if (f == NULL)
 		return;

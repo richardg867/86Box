@@ -14,45 +14,55 @@
 #include <86box/net_plip.h>
 
 
-lpt_port_t	lpt_ports[3];
+lpt_port_t	lpt_ports[PARALLEL_MAX];
 
+const lpt_device_t lpt_none_device = {
+    .name = "None",
+    .internal_name = "none",
+    .init = NULL,
+    .close = NULL,
+    .write_data = NULL,
+    .write_ctrl = NULL,
+    .read_data = NULL,
+    .read_status = NULL,
+    .read_ctrl = NULL
+};
 
 static const struct {
     const char *internal_name;
     const lpt_device_t *device;
 } lpt_devices[] = {
-    {"none",		NULL},
-    {"dss",		&dss_device},
-    {"lpt_dac",		&lpt_dac_device},
-    {"lpt_dac_stereo",	&lpt_dac_stereo_device},
-    {"text_prt",	&lpt_prt_text_device},
-    {"dot_matrix",	&lpt_prt_escp_device},
-    {"postscript",	&lpt_prt_ps_device},
-    {"plip",		&lpt_plip_device},
-    {"dongle_savquest",	&lpt_hasp_savquest_device},
-    {"", NULL}
+// clang-format off
+    {"none",            &lpt_none_device          },
+    {"dss",             &dss_device               },
+    {"lpt_dac",         &lpt_dac_device           },
+    {"lpt_dac_stereo",  &lpt_dac_stereo_device    },
+    {"text_prt",        &lpt_prt_text_device      },
+    {"dot_matrix",      &lpt_prt_escp_device      },
+    {"postscript",      &lpt_prt_ps_device        },
+    {"plip",            &lpt_plip_device          },
+    {"dongle_savquest",	&lpt_hasp_savquest_device },
+    {"",                NULL                      }
+// clang-format on
 };
-
 
 char *
 lpt_device_get_name(int id)
 {
     if (strlen((char *) lpt_devices[id].internal_name) == 0)
-	return NULL;
+        return NULL;
     if (!lpt_devices[id].device)
-	return "None";
+        return "None";
     return (char *) lpt_devices[id].device->name;
 }
-
 
 char *
 lpt_device_get_internal_name(int id)
 {
     if (strlen((char *) lpt_devices[id].internal_name) == 0)
-	return NULL;
+        return NULL;
     return (char *) lpt_devices[id].internal_name;
 }
-
 
 int
 lpt_device_get_from_internal_name(char *s)
@@ -60,9 +70,9 @@ lpt_device_get_from_internal_name(char *s)
     int c = 0;
 
     while (strlen((char *) lpt_devices[c].internal_name) != 0) {
-	if (strcmp(lpt_devices[c].internal_name, s) == 0)
-		return c;
-	c++;
+        if (strcmp(lpt_devices[c].internal_name, s) == 0)
+            return c;
+        c++;
     }
 
     return 0;
@@ -74,10 +84,10 @@ lpt_devices_init(void)
 {
     int i = 0;
 
-    for (i = 0; i < 3; i++) {
+    for (i = 0; i < PARALLEL_MAX; i++) {
 	lpt_ports[i].dt = (lpt_device_t *) lpt_devices[lpt_ports[i].device].device;
 
-	if (lpt_ports[i].dt)
+	if (lpt_ports[i].dt && lpt_ports[i].dt->init)
 		lpt_ports[i].priv = lpt_ports[i].dt->init(&lpt_ports[i]);
     }
 }
@@ -89,10 +99,10 @@ lpt_devices_close(void)
     int i = 0;
     lpt_port_t *dev;
 
-    for (i = 0; i < 3; i++) {
+    for (i = 0; i < PARALLEL_MAX; i++) {
 	dev = &lpt_ports[i];
 
-	if (dev->dt)
+	if (lpt_ports[i].dt && lpt_ports[i].dt->close)
 		dev->dt->close(dev->priv);
 
         dev->dt = NULL;
@@ -176,10 +186,10 @@ void
 lpt_init(void)
 {
     int i;
-    uint16_t default_ports[3] = { 0x378, 0x278, 0x3bc };
-    uint8_t default_irqs[3] = { 7, 5, 7 };
+    uint16_t default_ports[PARALLEL_MAX] = { LPT1_ADDR, LPT2_ADDR, LPT_MDA_ADDR, LPT4_ADDR };
+    uint8_t  default_irqs[PARALLEL_MAX]  = { LPT1_IRQ,  LPT2_IRQ,  LPT_MDA_IRQ,  LPT4_IRQ  };
 
-    for (i = 0; i < 3; i++) {
+    for (i = 0; i < PARALLEL_MAX; i++) {
 	lpt_ports[i].addr = 0xffff;
 	lpt_ports[i].irq = 0xff;
 	lpt_ports[i].enable_irq = 0x10;

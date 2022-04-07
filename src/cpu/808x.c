@@ -1,4 +1,4 @@
-﻿/*
+/*
  * 86Box	A hypervisor and IBM PC system emulator that specializes in
  *		running old operating systems and software designed for IBM
  *		PC systems and compatibles from 1981 through fairly recent
@@ -34,6 +34,7 @@
 #include <86box/pic.h>
 #include <86box/ppi.h>
 #include <86box/timer.h>
+#include <86box/gdbstub.h>
 
 /* Is the CPU 8088 or 8086. */
 int is8086 = 0;
@@ -89,10 +90,45 @@ static int refresh = 0, cycdiff;
 		wait(val, 0);	\
 	}
 
+#define CLOCK_CYCLES_ALWAYS(val)		\
+	{			\
+		wait(val, 0);	\
+	}
+
+#if 0
+#define CLOCK_CYCLES_FPU(val)		\
+	{			\
+		wait(val, 0);	\
+	}
+
+
+#define CLOCK_CYCLES(val) \
+	{	\
+		if (fpu_cycles > 0) {	\
+			fpu_cycles -= (val);	\
+			if (fpu_cycles < 0) {	\
+				wait(val, 0);	\
+			}	\
+		} else {	\
+			wait(val, 0);	\
+		}	\
+	}
+
+#define CONCURRENCY_CYCLES(c) fpu_cycles = (c)
+#else
 #define CLOCK_CYCLES(val)		\
 	{			\
 		wait(val, 0);	\
 	}
+
+#define CLOCK_CYCLES_FPU(val)		\
+	{			\
+		wait(val, 0);	\
+	}
+
+#define CONCURRENCY_CYCLES(c)
+#endif
+
 
 typedef	int (*OpFn)(uint32_t fetchdat);
 
@@ -570,15 +606,9 @@ reset_808x(int hard)
 	pfq_clear();
     }
 
-    if (AT) {
-	load_cs(0xF000);
-	cpu_state.pc = 0xFFF0;
-	rammask = cpu_16bitbus ? 0xFFFFFF : 0xFFFFFFFF;
-    } else {
-	load_cs(0xFFFF);
-	cpu_state.pc = 0;
-	rammask = 0xfffff;
-    }
+    load_cs(0xFFFF);
+    cpu_state.pc = 0;
+    rammask = 0xfffff;
 
     prefetching = 1;
     cpu_alu_op = 0;
@@ -2803,5 +2833,10 @@ execx86(int cycs)
 
 		cpu_alu_op = 0;
 	}
+
+#ifdef USE_GDBSTUB
+	if (gdbstub_instruction())
+		return;
+#endif
     }
 }

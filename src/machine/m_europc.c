@@ -23,7 +23,7 @@
  *		f000:db3e 0x8..0xc
  *		f000:d7f8
  *		f000:db5f
- *		f000:e172 
+ *		f000:e172
  *		f000:ecc5	801a video setup error
  *		f000:d6c9	copyright output
  *		f000:e1b7
@@ -58,7 +58,7 @@
  *				read low 4 nibble at jim 0xa
  *				read low 4 nibble at jim 0xa
  *				return first nibble<<4|second nibble in ah
- *		  f000:f046	seldom compares ret 
+ *		  f000:f046	seldom compares ret
  *		  f000:fe87	0 -> ds
  *
  *		Memory:
@@ -67,7 +67,7 @@
  *		  0000:046a:	00 jim 250 01 jim 350
  *
  * WARNING	THIS IS A WORK-IN-PROGRESS MODULE. USE AT OWN RISK.
- *		
+ *
  *
  *
  * Author:	Fred N. van Kempen, <decwiz@yahoo.com>
@@ -666,36 +666,37 @@ europc_close(void *priv)
 	free(nvr->fn);
 }
 
-
 static const device_config_t europc_config[] = {
     {
-	"js9", "JS9 Jumper (JIM)", CONFIG_INT, "", 0, "", { 0 },
-	{
-		{
-			"Disabled (250h)", 0
-		},
-		{
-			"Enabled (350h)", 1
-		},
-		{
-			""
-		}
-	},
+        .name = "js9",
+        .description = "JS9 Jumper (JIM)",
+        .type = CONFIG_INT,
+        .default_string = "",
+        .default_int = 0,
+        .file_filter = "",
+        .spinner = { 0 },
+        .selection = {
+            { .description = "Disabled (250h)", .value = 0 },
+            { .description = "Enabled (350h)",  .value = 1 },
+            { ""                                           }
+        },
     },
-    {
-	"", "", -1
-    }
+    { .name = "", .description = "", .type = -1 }
 };
-
 
 const device_t europc_device = {
-    "EuroPC System Board",
-    0, 0,
-    europc_boot, europc_close, NULL,
-    { NULL }, NULL, NULL,
-    europc_config
+    .name = "EuroPC System Board",
+    .internal_name = "europc",
+    .flags = 0,
+    .local = 0,
+    .init = europc_boot,
+    .close = europc_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = europc_config
 };
-
 
 /*
  * This function sets up the Scheider EuroPC machine.

@@ -23,7 +23,7 @@
  *		disk drives for this bus commonly have an 'A' suffix to
  *		identify them as 'ATBUS'.
  *
- *		In XTA-IDE, which is slightly older, the programming 
+ *		In XTA-IDE, which is slightly older, the programming
  *		interface of the IBM PC/XT (which used the MFM controller
  *		from Xebec) was kept, and, so, it uses an 8bit data path.
  *		Disk drives for this bus commonly have the 'X' suffix to
@@ -38,7 +38,7 @@
  *		data byte per transfer.  XTIDE uses regular IDE drives,
  *		and uses the regular ATA/IDE programming interface, just
  *		with the extra register.
- * 
+ *
  * NOTE:	We should probably find a nicer way to integrate our Disk
  *		Type table with the main code, so the user can only select
  *		items from that list...
@@ -847,7 +847,7 @@ do_send:
 					}
 				}
 				break;
-			
+
 			case STATE_SDATA:
 				if (! no_data) {
 					/* Perform DMA. */
@@ -1040,7 +1040,7 @@ do_recv:
 	case CMD_FORMAT_TRACK:
 		do_format(dev, drive, ccb);
 		break;
-		
+
 	case CMD_SEEK:
 		if (! drive->present) {
 			dev->ssb.not_ready = 1;
@@ -1150,7 +1150,7 @@ hdc_read(uint16_t port, void *priv)
 		break;
     }
 
-    return(ret);	
+    return(ret);
 }
 
 
@@ -1349,16 +1349,19 @@ ps1_hdc_close(void *priv)
     free(dev);
 }
 
-
 const device_t ps1_hdc_device = {
-    "PS/1 2011 Fixed Disk Controller",
-    DEVICE_ISA | DEVICE_PS2,
-    0,
-    ps1_hdc_init, ps1_hdc_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "PS/1 2011 Fixed Disk Controller",
+    .internal_name = "ps1_hdc",
+    .flags = DEVICE_ISA | DEVICE_PS2,
+    .local = 0,
+    .init = ps1_hdc_init,
+    .close = ps1_hdc_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
-
 
 /*
  * Very nasty.

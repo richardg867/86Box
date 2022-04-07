@@ -57,8 +57,6 @@
 #define STAT_IFULL		0x02
 #define STAT_OFULL		0x01
 
-#define PS2_REFRESH_TIME	(16 * TIMER_USEC)
-
 #define RESET_DELAY_TIME	(100 * 10)	/* 600ms */
 
 #define CCB_UNUSED		0x80
@@ -97,8 +95,8 @@
 typedef struct {
     uint8_t	command, status, old_status, out, old_out, secr_phase,
 		mem_addr, input_port, output_port, old_output_port,
-		key_command, output_locked, ami_stat,  want60,
-		wantirq, key_wantdata, refresh, first_write;
+		key_command, output_locked, ami_stat, want60,
+		wantirq, key_wantdata, ami_flags, first_write;
 
     uint8_t	mem[0x100];
 
@@ -108,7 +106,7 @@ typedef struct {
 
     uint32_t	flags;
 
-    pc_timer_t	refresh_time, pulse_cb;
+    pc_timer_t	pulse_cb;
 
     uint8_t	(*write60_ven)(void *p, uint8_t val);
     uint8_t	(*write64_ven)(void *p, uint8_t val);
@@ -681,17 +679,21 @@ add_to_kbc_queue_front(atkbd_t *dev, uint8_t val, uint8_t channel, uint8_t stat_
     if (channel == 2) {
 	if (dev->mem[0] & 0x02)
 		picint(0x1000);
-	dev->last_irq = 0x1000;
+	if (kbc_ven != KBC_VEN_OLIVETTI)
+		dev->last_irq = 0x1000;
     } else {
 	if (dev->mem[0] & 0x01)
 		picint(2);
-	dev->last_irq = 2;
+	if (kbc_ven != KBC_VEN_OLIVETTI)
+		dev->last_irq = 2;
     }
     dev->out = val;
     if (channel == 2)
 	dev->status = (dev->status & ~STAT_IFULL) | (STAT_OFULL | STAT_MFULL) | stat_hi;
     else
 	dev->status = (dev->status & ~(STAT_IFULL | STAT_MFULL)) | STAT_OFULL | stat_hi;
+    if (kbc_ven == KBC_VEN_OLIVETTI)
+	dev->last_irq = 0x0000;
 }
 
 
@@ -1053,38 +1055,48 @@ add_data_kbd(uint16_t val)
 static void
 write_output(atkbd_t *dev, uint8_t val)
 {
-    uint8_t kbc_ven = dev->flags & KBC_VEN_MASK;
+    uint8_t old = dev->output_port;
     kbd_log("ATkbc: write output port: %02X (old: %02X)\n", val, dev->output_port);
 
-    if ((kbc_ven == KBC_VEN_AMI) || ((dev->flags & KBC_TYPE_MASK) < KBC_TYPE_PS2_NOREF))
+    uint8_t kbc_ven = dev->flags & KBC_VEN_MASK;
+    if ((kbc_ven != KBC_VEN_OLIVETTI) && ((kbc_ven == KBC_VEN_AMI) || ((dev->flags & KBC_TYPE_MASK) < KBC_TYPE_PS2_NOREF)))
 	val |= ((dev->mem[0] << 4) & 0x10);
 
-    if ((dev->output_port ^ val) & 0x20) { /*IRQ 12*/
+    /*IRQ 12*/
+    if ((old ^ val) & 0x20) {
 	if (val & 0x20)
 		picint(1 << 12);
 	else
 		picintc(1 << 12);
     }
-    if ((dev->output_port ^ val) & 0x10) { /*IRQ 1*/
+
+    /*IRQ 1*/
+    if ((old ^ val) & 0x10) {
 	if (val & 0x10)
 		picint(1 << 1);
 	else
 		picintc(1 << 1);
     }
-    if ((dev->output_port ^ val) & 0x02) { /*A20 enable change*/
+
+    if ((old ^ val) & 0x02) { /*A20 enable change*/
 	mem_a20_key = val & 0x02;
 	mem_a20_recalc();
 	flushmmucache();
     }
-    if ((dev->output_port ^ val) & 0x01) { /*Reset*/
-	if (! (val & 0x01)) {
+
+    /* 0 holds the CPU in the RESET state, 1 releases it. To simplify this,
+       we just do everything on release. */
+    if ((old ^ val) & 0x01) { /*Reset*/
+	if (! (val & 0x01)) {		/* Pin 0 selected. */
 		/* Pin 0 selected. */
-		softresetx86(); /*Pulse reset!*/
+		kbd_log("write_output(): Pulse reset!\n");
+		softresetx86();		/*Pulse reset!*/
 		cpu_set_edx();
-		smbase = is_am486dxl ? 0x00060000 : 0x00030000;
+		flushmmucache();
 	}
     }
-    /* Mask off the A20 stuff because we use mem_a20_key directly for that. */
+
+    /* Do this here to avoid an infinite reset loop. */
     dev->output_port = val;
 }
 
@@ -1249,8 +1261,12 @@ write64_generic(void *priv, uint8_t val)
 		} else {
 			if (((dev->flags & KBC_TYPE_MASK) >= KBC_TYPE_PS2_NOREF) &&
 			    ((dev->flags & KBC_VEN_MASK) != KBC_VEN_INTEL_AMI))
+#if 0
 				add_to_kbc_queue_front(dev, (dev->input_port | fixed_bits) &
 						       (((dev->flags & KBC_VEN_MASK) == KBC_VEN_ACER) ? 0xeb : 0xef), 0, 0x00);
+#else
+				add_to_kbc_queue_front(dev, ((dev->input_port | fixed_bits) & 0xf0) | (((dev->flags & KBC_VEN_MASK) == KBC_VEN_ACER) ? 0x08 : 0x0c), 0, 0x00);
+#endif
 			else
 				add_to_kbc_queue_front(dev, dev->input_port | fixed_bits, 0, 0x00);
 			dev->input_port = ((dev->input_port + 1) & 3) |
@@ -1318,8 +1334,14 @@ write60_ami(void *priv, uint8_t val)
 		}
 		return 0;
 
+	case 0xc1:
+		kbd_log("ATkbc: AMI MegaKey - write %02X to input port\n", val);
+		dev->input_port = val;
+		return 0;
+
 	case 0xcb:	/* set keyboard mode */
 		kbd_log("ATkbc: AMI - set keyboard mode\n");
+		dev->ami_flags = val;
 		return 0;
     }
 
@@ -1361,7 +1383,7 @@ write64_ami(void *priv, uint8_t val)
 		add_data(dev, 0x28);
 		add_data(dev, 0x00);
 		break;
-		
+
 	case 0xa1:	/* get controller version */
 		kbd_log("ATkbc: AMI - get controller version\n");
 		add_data(dev, 'H');
@@ -1442,7 +1464,7 @@ write64_ami(void *priv, uint8_t val)
 	case 0xb0: case 0xb1: case 0xb2: case 0xb3:
 		/* set KBC lines P10-P13 (input port bits 0-3) low */
 		kbd_log("ATkbc: set KBC lines P10-P13 (input port bits 0-3) low\n");
-		if (!PCI || (val > 0xb1))
+		if (!(dev->flags & DEVICE_PCI) || (val > 0xb1))
 			dev->input_port &= ~(1 << (val & 0x03));
 		add_data(dev, 0x00);
 		return 0;
@@ -1450,7 +1472,7 @@ write64_ami(void *priv, uint8_t val)
 	case 0xb4: case 0xb5:
 		/* set KBC lines P22-P23 (output port bits 2-3) low */
 		kbd_log("ATkbc: set KBC lines P22-P23 (output port bits 2-3) low\n");
-		if (! PCI)
+		if (! (dev->flags & DEVICE_PCI))
 			write_output(dev, dev->output_port & ~(4 << (val & 0x01)));
 		add_data(dev, 0x00);
 		return 0;
@@ -1458,7 +1480,7 @@ write64_ami(void *priv, uint8_t val)
 	case 0xb8: case 0xb9: case 0xba: case 0xbb:
 		/* set KBC lines P10-P13 (input port bits 0-3) high */
 		kbd_log("ATkbc: set KBC lines P10-P13 (input port bits 0-3) high\n");
-		if (!PCI || (val > 0xb9)) {
+		if (!(dev->flags & DEVICE_PCI) || (val > 0xb9)) {
 			dev->input_port |= (1 << (val & 0x03));
 			add_data(dev, 0x00);
 		}
@@ -1467,8 +1489,26 @@ write64_ami(void *priv, uint8_t val)
 	case 0xbc: case 0xbd:
 		/* set KBC lines P22-P23 (output port bits 2-3) high */
 		kbd_log("ATkbc: set KBC lines P22-P23 (output port bits 2-3) high\n");
-		if (! PCI)
+		if (! (dev->flags & DEVICE_PCI))
 			write_output(dev, dev->output_port | (4 << (val & 0x01)));
+		add_data(dev, 0x00);
+		return 0;
+
+	case 0xc1:	/* write input port */
+		kbd_log("ATkbc: AMI MegaKey - write input port\n");
+		dev->want60 = 1;
+		return 0;
+
+	case 0xc4:
+		/* set KBC line P14 low */
+		kbd_log("ATkbc: set KBC line P14 (input port bit 4) low\n");
+		dev->input_port &= 0xef;
+		add_data(dev, 0x00);
+		return 0;
+	case 0xc5:
+		/* set KBC line P15 low */
+		kbd_log("ATkbc: set KBC line P15 (input port bit 5) low\n");
+		dev->input_port &= 0xdf;
 		add_data(dev, 0x00);
 		return 0;
 
@@ -1488,6 +1528,19 @@ write64_ami(void *priv, uint8_t val)
 		 */
 		kbd_log("ATkbc: AMI - block KBC lines P22 and P23\n");
 		dev->output_locked = 1;
+		return 0;
+
+	case 0xcc:
+		/* set KBC line P14 high */
+		kbd_log("ATkbc: set KBC line P14 (input port bit 4) high\n");
+		dev->input_port |= 0x10;
+		add_data(dev, 0x00);
+		return 0;
+	case 0xcd:
+		/* set KBC line P15 high */
+		kbd_log("ATkbc: set KBC line P15 (input port bit 5) high\n");
+		dev->input_port |= 0x20;
+		add_data(dev, 0x00);
 		return 0;
 
 	case 0xef:	/* ??? - sent by AMI486 */
@@ -1704,11 +1757,6 @@ kbd_write(uint16_t port, uint8_t val, void *priv)
     uint8_t mask, kbc_ven = 0x0;
     kbc_ven = dev->flags & KBC_VEN_MASK;
 
-    if ((kbc_ven == KBC_VEN_XI8088) && (port == 0x63))
-	port = 0x61;
-
-    kbd_log((port == 0x61) ? "" : "ATkbc: write(%04X, %02X)\n", port, val);
-
     switch (port) {
 	case 0x60:
 		dev->status &= ~STAT_CD;
@@ -1825,7 +1873,7 @@ kbd_write(uint16_t port, uint8_t val, void *priv)
 					case 0xf3: /* set typematic rate/delay */
 						add_data_kbd_direct(dev, 0xfa);
 						break;
-					
+
 					default:
 						kbd_log("ATkbd: bad keyboard 0060 write %02X command %02X\n", val, dev->key_command);
 						add_data_kbd_direct(dev, 0xfe);
@@ -1970,20 +2018,6 @@ kbd_write(uint16_t port, uint8_t val, void *priv)
 		}
 		break;
 
-	case 0x61:
-		ppi.pb = (ppi.pb & 0x10) | (val & 0x0f);
-
-		speaker_update();
-		speaker_gated = val & 1;
-		speaker_enable = val & 2;
-		if (speaker_enable) 
-			was_speaker_enable = 1;
-		pit_ctr_set_gate(&pit->counters[2], val & 1);
-
-		if (kbc_ven == KBC_VEN_XI8088)
-			xi8088_turbo_set(!!(val & 0x04));
-		break;
-
 	case 0x64:
 		/* Controller command. */
 		dev->want60 = 0;
@@ -2063,7 +2097,7 @@ kbd_write(uint16_t port, uint8_t val, void *priv)
 
 			case 0xca:	/* read keyboard mode */
 				kbd_log("ATkbc: AMI - read keyboard mode\n");
-				add_data(dev, ((dev->flags & KBC_TYPE_MASK) >= KBC_TYPE_PS2_NOREF) ? 0x01 : 0x00); /*ISA mode*/
+				add_data(dev, dev->ami_flags);
 				break;
 
 			case 0xcb:	/* set keyboard mode */
@@ -2074,7 +2108,7 @@ kbd_write(uint16_t port, uint8_t val, void *priv)
 			case 0xd0:	/* read output port */
 				kbd_log("ATkbc: read output port\n");
 				mask = 0xff;
-				if (((dev->flags & KBC_TYPE_MASK) < KBC_TYPE_PS2_NOREF) && (dev->mem[0] & 0x10))
+				if ((kbc_ven != KBC_VEN_OLIVETTI) && ((dev->flags & KBC_TYPE_MASK) < KBC_TYPE_PS2_NOREF) && (dev->mem[0] & 0x10))
 					mask &= 0xbf;
 				add_to_kbc_queue_front(dev, dev->output_port & mask, 0, 0x00);
 				break;
@@ -2133,9 +2167,6 @@ kbd_read(uint16_t port, void *priv)
     if ((dev->flags & KBC_TYPE_MASK) >= KBC_TYPE_PS2_NOREF)
 	cycles -= ISA_CYCLES(8);
 
-    if ((kbc_ven == KBC_VEN_XI8088) && (port == 0x63))
-	port = 0x61;
-
     switch (port) {
 	case 0x60:
                 ret = dev->out;
@@ -2144,56 +2175,6 @@ kbd_read(uint16_t port, void *priv)
                 dev->last_irq = 0;
 		break;
 
-	case 0x61:
-		ret = ppi.pb & ~0xe0;
-		if (ppispeakon)
-			ret |= 0x20;
-		if ((dev->flags & KBC_TYPE_MASK) > KBC_TYPE_PS2_NOREF) {
-			if (dev->refresh)
-				ret |= 0x10;
-			else
-				ret &= ~0x10;
-		}
-		if (kbc_ven == KBC_VEN_XI8088) {
-			if (xi8088_turbo_get())
-					ret |= 0x04;
-				else
-					ret &= ~0x04;
-		}
-		break;
-
-	case 0x62:
-		ret = 0xff;
-		if (kbc_ven == KBC_VEN_OLIVETTI) {
-			/* SWA on Olivetti M240 mainboard (off=1) */
-			ret = 0x00;
-			if (ppi.pb & 0x8) {
-				/* Switches 4, 5 - floppy drives (number) */
-				int i, fdd_count = 0;
-				for (i = 0; i < FDD_NUM; i++) {
-				    if (fdd_get_flags(i))
-				        fdd_count++;
-				}
-				if (!fdd_count)
-					ret |= 0x00;
-				else
-					ret |= ((fdd_count - 1) << 2);
-				/* Switches 6, 7 - monitor type */
-				if (video_is_mda())
-					ret |= 0x3;
-				else if (video_is_cga())
-					ret |= 0x2;	/* 0x10 would be 40x25 */
-				else
-					ret |= 0x0;
-			} else {
-				/* bit 2 always on */
-				ret |= 0x4;
-				/* Switch 8 - 8087 FPU. */
-				if (hasfpu)
-	            	ret |= 0x02;
-			}
-		}
-		break;
 	case 0x64:
 		ret = (dev->status & 0xfb);
 		if (dev->mem[0] & STAT_SYSFLAG)
@@ -2201,7 +2182,7 @@ kbd_read(uint16_t port, void *priv)
 		/* Only clear the transmit timeout flag on non-PS/2 controllers, as on
 		   PS/2 controller, it is the keyboard/mouse output source bit. */
 		// dev->status &= ~STAT_RTIMEOUT;
-		if (((dev->flags & KBC_TYPE_MASK) > KBC_TYPE_PS2_NOREF) && 
+		if (((dev->flags & KBC_TYPE_MASK) > KBC_TYPE_PS2_NOREF) &&
 		   (kbc_ven != KBC_VEN_IBM_MCA))
 			dev->status &= ~STAT_TTIMEOUT;
 		break;
@@ -2218,22 +2199,11 @@ kbd_read(uint16_t port, void *priv)
 
 
 static void
-kbd_refresh(void *priv)
-{
-    atkbd_t *dev = (atkbd_t *)priv;
-
-    dev->refresh = !dev->refresh;
-    timer_advance_u64(&dev->refresh_time, PS2_REFRESH_TIME);
-}
-
-
-static void
 kbd_reset(void *priv)
 {
     atkbd_t *dev = (atkbd_t *)priv;
     int i;
-	uint8_t kbc_ven = 0x0;
-	kbc_ven = dev->flags & KBC_VEN_MASK;
+    uint8_t kbc_ven = dev->flags & KBC_VEN_MASK;
 
     dev->first_write = 1;
     // dev->status = STAT_UNLOCKED | STAT_CD;
@@ -2271,6 +2241,8 @@ kbd_reset(void *priv)
     memset(keyboard_set3_flags, 0, 512);
 
     set_scancode_map(dev);
+
+    dev->ami_flags = ((dev->flags & KBC_TYPE_MASK) >= KBC_TYPE_PS2_NOREF) ? 0x01 : 0x00;
 }
 
 
@@ -2292,7 +2264,6 @@ kbd_close(void *priv)
 
     /* Stop timers. */
     timer_disable(&dev->send_delay_timer);
-    timer_disable(&dev->refresh_time);
 
     keyboard_scan = 0;
     keyboard_send = NULL;
@@ -2318,15 +2289,11 @@ kbd_init(const device_t *info)
     video_reset(gfxcard);
     kbd_reset(dev);
 
-    io_sethandler(0x0060, 5,
-		  kbd_read, NULL, NULL, kbd_write, NULL, NULL, dev);
+    io_sethandler(0x0060, 1, kbd_read, NULL, NULL, kbd_write, NULL, NULL, dev);
+    io_sethandler(0x0064, 1, kbd_read, NULL, NULL, kbd_write, NULL, NULL, dev);
     keyboard_send = add_data_kbd;
 
-    timer_add(&dev->send_delay_timer, kbd_poll, dev, 1); 
-
-    if ((dev->flags & KBC_TYPE_MASK) > KBC_TYPE_PS2_NOREF)
-	timer_add(&dev->refresh_time, kbd_refresh, dev, 1);
-
+    timer_add(&dev->send_delay_timer, kbd_poll, dev, 1);
     timer_add(&dev->pulse_cb, pulse_poll, dev, 0);
 
     dev->write60_ven = NULL;
@@ -2373,207 +2340,285 @@ kbd_init(const device_t *info)
     return(dev);
 }
 
-
 const device_t keyboard_at_device = {
-    "PC/AT Keyboard",
-    0,
-    KBC_TYPE_ISA | KBC_VEN_GENERIC,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PC/AT Keyboard",
+    .internal_name = "keyboard_at",
+    .flags = 0,
+    .local = KBC_TYPE_ISA | KBC_VEN_GENERIC,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_at_ami_device = {
-    "PC/AT Keyboard (AMI)",
-    0,
-    KBC_TYPE_ISA | KBC_VEN_AMI,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PC/AT Keyboard (AMI)",
+    .internal_name = "keyboard_at_ami",
+    .flags = 0,
+    .local = KBC_TYPE_ISA | KBC_VEN_AMI,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_at_samsung_device = {
-    "PC/AT Keyboard (Samsung)",
-    0,
-    KBC_TYPE_ISA | KBC_VEN_SAMSUNG,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PC/AT Keyboard (Samsung)",
+    .internal_name = "keyboard_at_samsung",
+    .flags = 0,
+    .local = KBC_TYPE_ISA | KBC_VEN_SAMSUNG,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_at_toshiba_device = {
-    "PC/AT Keyboard (Toshiba)",
-    0,
-    KBC_TYPE_ISA | KBC_VEN_TOSHIBA,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PC/AT Keyboard (Toshiba)",
+    .internal_name = "keyboard_at_toshiba",
+    .flags = 0,
+    .local = KBC_TYPE_ISA | KBC_VEN_TOSHIBA,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_at_olivetti_device = {
-    "PC/AT Keyboard (Olivetti)",
-    0,
-    KBC_TYPE_ISA | KBC_VEN_OLIVETTI,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PC/AT Keyboard (Olivetti)",
+    .internal_name = "keyboard_at_olivetti",
+    .flags = 0,
+    .local = KBC_TYPE_ISA | KBC_VEN_OLIVETTI,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_at_ncr_device = {
-    "PC/AT Keyboard (NCR)",
-    0,
-    KBC_TYPE_ISA | KBC_VEN_NCR,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PC/AT Keyboard (NCR)",
+    .internal_name = "keyboard_at_ncr",
+    .flags = 0,
+    .local = KBC_TYPE_ISA | KBC_VEN_NCR,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_ps2_device = {
-    "PS/2 Keyboard",
-    0,
-    KBC_TYPE_PS2_NOREF | KBC_VEN_GENERIC,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PS/2 Keyboard",
+    .internal_name = "keyboard_ps2",
+    .flags = 0,
+    .local = KBC_TYPE_PS2_NOREF | KBC_VEN_GENERIC,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_ps2_ps2_device = {
-    "PS/2 Keyboard",
-    0,
-    KBC_TYPE_PS2_1 | KBC_VEN_GENERIC,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PS/2 Keyboard",
+    .internal_name = "keyboard_ps2_ps2",
+    .flags = 0,
+    .local = KBC_TYPE_PS2_1 | KBC_VEN_GENERIC,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_ps2_ps1_device = {
-    "PS/2 Keyboard (IBM PS/1)",
-    0,
-    KBC_TYPE_PS2_NOREF | KBC_VEN_IBM_PS1,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PS/2 Keyboard (IBM PS/1)",
+    .internal_name = "keyboard_ps2_ps1",
+    .flags = 0,
+    .local = KBC_TYPE_PS2_NOREF | KBC_VEN_IBM_PS1,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_ps2_ps1_pci_device = {
-    "PS/2 Keyboard (IBM PS/1)",
-    DEVICE_PCI,
-    KBC_TYPE_PS2_NOREF | KBC_VEN_IBM_PS1,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PS/2 Keyboard (IBM PS/1)",
+    .internal_name = "keyboard_ps2_ps1_pci",
+    .flags = DEVICE_PCI,
+    .local = KBC_TYPE_PS2_NOREF | KBC_VEN_IBM_PS1,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_ps2_xi8088_device = {
-    "PS/2 Keyboard (Xi8088)",
-    0,
-    KBC_TYPE_PS2_1 | KBC_VEN_XI8088,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PS/2 Keyboard (Xi8088)",
+    .internal_name = "keyboard_ps2_xi8088",
+    .flags = 0,
+    .local = KBC_TYPE_PS2_1 | KBC_VEN_XI8088,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_ps2_ami_device = {
-    "PS/2 Keyboard (AMI)",
-    0,
-    KBC_TYPE_PS2_NOREF | KBC_VEN_AMI,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PS/2 Keyboard (AMI)",
+    .internal_name = "keyboard_ps2_ami",
+    .flags = 0,
+    .local = KBC_TYPE_PS2_NOREF | KBC_VEN_AMI,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_ps2_olivetti_device = {
-    "PS/2 Keyboard (Olivetti)",
-    0,
-    KBC_TYPE_PS2_NOREF | KBC_VEN_OLIVETTI,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PS/2 Keyboard (Olivetti)",
+    .internal_name = "keyboard_ps2_olivetti",
+    .flags = 0,
+    .local = KBC_TYPE_PS2_NOREF | KBC_VEN_OLIVETTI,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_ps2_mca_device = {
-    "PS/2 Keyboard",
-    0,
-    KBC_TYPE_PS2_1 | KBC_VEN_IBM_MCA,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PS/2 Keyboard",
+    .internal_name = "keyboard_ps2_mca",
+    .flags = 0,
+    .local = KBC_TYPE_PS2_1 | KBC_VEN_IBM_MCA,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_ps2_mca_2_device = {
-    "PS/2 Keyboard",
-    0,
-    KBC_TYPE_PS2_2 | KBC_VEN_IBM_MCA,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PS/2 Keyboard",
+    .internal_name = "keyboard_ps2_mca_2",
+    .flags = 0,
+    .local = KBC_TYPE_PS2_2 | KBC_VEN_IBM_MCA,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_ps2_quadtel_device = {
-    "PS/2 Keyboard (Quadtel/MegaPC)",
-    0,
-    KBC_TYPE_PS2_NOREF | KBC_VEN_QUADTEL,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PS/2 Keyboard (Quadtel/MegaPC)",
+    .internal_name = "keyboard_ps2_quadtel",
+    .flags = 0,
+    .local = KBC_TYPE_PS2_NOREF | KBC_VEN_QUADTEL,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_ps2_pci_device = {
-    "PS/2 Keyboard",
-    DEVICE_PCI,
-    KBC_TYPE_PS2_NOREF | KBC_VEN_GENERIC,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PS/2 Keyboard",
+    .internal_name = "keyboard_ps2_pci",
+    .flags = DEVICE_PCI,
+    .local = KBC_TYPE_PS2_NOREF | KBC_VEN_GENERIC,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_ps2_ami_pci_device = {
-    "PS/2 Keyboard (AMI)",
-    DEVICE_PCI,
-    KBC_TYPE_PS2_NOREF | KBC_VEN_AMI,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PS/2 Keyboard (AMI)",
+    .internal_name = "keyboard_ps2_ami_pci",
+    .flags = DEVICE_PCI,
+    .local = KBC_TYPE_PS2_NOREF | KBC_VEN_AMI,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_ps2_intel_ami_pci_device = {
-    "PS/2 Keyboard (AMI)",
-    DEVICE_PCI,
-    KBC_TYPE_PS2_NOREF | KBC_VEN_INTEL_AMI,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PS/2 Keyboard (AMI)",
+    .internal_name = "keyboard_ps2_intel_ami_pci",
+    .flags = DEVICE_PCI,
+    .local = KBC_TYPE_PS2_NOREF | KBC_VEN_INTEL_AMI,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t keyboard_ps2_acer_pci_device = {
-    "PS/2 Keyboard (Acer 90M002A)",
-    DEVICE_PCI,
-    KBC_TYPE_PS2_NOREF | KBC_VEN_ACER,
-    kbd_init,
-    kbd_close,
-    kbd_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PS/2 Keyboard (Acer 90M002A)",
+    .internal_name = "keyboard_ps2_acer_pci",
+    .flags = DEVICE_PCI,
+    .local = KBC_TYPE_PS2_NOREF | KBC_VEN_ACER,
+    .init = kbd_init,
+    .close = kbd_close,
+    .reset = kbd_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
-
 
 void
 keyboard_at_set_mouse(void (*func)(uint8_t val, void *priv), void *priv)

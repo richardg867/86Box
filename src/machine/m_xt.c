@@ -26,9 +26,9 @@ machine_xt_common_init(const machine_t *model)
 
     pit_ctr_set_out_func(&pit->counters[1], pit_refresh_timer_xt);
 
-    if (fdc_type == FDC_INTERNAL)	
+    if (fdc_type == FDC_INTERNAL)
 	    device_add(&fdc_xt_device);
-    
+
     nmi_init();
     standalone_gameport_type = &gameport_device;
 }
@@ -217,6 +217,22 @@ machine_xt_amixt_init(const machine_t *model)
     return ret;
 }
 
+int
+machine_xt_znic_init(const machine_t *model)
+{
+    int ret;
+
+    ret = bios_load_linear("roms/machines/znic/ibmzen.rom",
+			   0x000fe000, 8192, 0);
+
+    if (bios_only || !ret)
+	return ret;
+
+    machine_xt_clone_init(model);
+
+    return ret;
+}
+
 
 int
 machine_xt_dtk_init(const machine_t *model)
@@ -290,28 +306,6 @@ machine_xt_pcxt_init(const machine_t *model)
 }
 
 
-#if defined(DEV_BRANCH) && defined(USE_HEDAKA)
-int
-machine_xt_hed919_init(const machine_t *model)
-{
-    int ret;
-
-    ret = bios_load_linear("roms/machines/hed919/Hedaka_HED-919_bios_version_3.28f.bin",
-			   0x000fe000, 8192, 0);
-
-    if (bios_only || !ret)
-	return ret;
-
-    machine_xt_clone_init(model);
-
-    if (mem_size > 640)
-	mem_remap_top(mem_size - 640);
-
-    return ret;
-}
-#endif
-
-
 int
 machine_xt_pxxt_init(const machine_t *model)
 {
@@ -352,7 +346,7 @@ machine_xt_pc4i_init(const machine_t *model)
 {
     int ret;
 
-    ret = bios_load_linear("roms/machines/pc4i/NCR_PC4i_BIOSROM_1985.bin",
+    ret = bios_load_linear("roms/machines/pc4i/NCR_PC4i_BIOSROM_1985.BIN",
 			   0x000fc000, 16384, 0);
 
     if (bios_only || !ret)
@@ -371,7 +365,7 @@ machine_xt_mpc1600_init(const machine_t *model)
 
     ret = bios_load_linear("roms/machines/mpc1600/mpc4.34_merged.bin",
 			   0x000fc000, 16384, 0);
-    
+
     if (bios_only || !ret)
 	return ret;
 
@@ -390,7 +384,7 @@ machine_xt_pcspirit_init(const machine_t *model)
 
     ret = bios_load_linear("roms/machines/pcspirit/u1101.bin",
 			   0x000fe000, 16384, 0);
-    
+
     if (ret) {
 	bios_load_aux_linear("roms/machines/pcspirit/u1103.bin",
 			     0x000fc000, 8192, 0);
@@ -440,6 +434,25 @@ machine_xt_pc500_init(const machine_t* model)
     device_add(&keyboard_pc_device);
 
     machine_xt_common_init(model);
+
+    return ret;
+}
+
+int
+machine_xt_vendex_init(const machine_t *model)
+{
+    int ret;
+
+    ret = bios_load_linear("roms/machines/vendex/Vendex Turbo 888 XT - ROM BIOS - VER 2.03C.bin",
+			   0x000fc000, 16384, 0);
+
+    if (bios_only || !ret)
+	return ret;
+
+    machine_xt_clone_init(model);
+
+    /* On-board FDC cannot be disabled */
+	device_add(&fdc_xt_device);
 
     return ret;
 }

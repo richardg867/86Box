@@ -101,18 +101,34 @@ fdc_log(const char *fmt, ...)
 #endif
 
 
+const device_t fdc_internal_device = {
+    .name = "Internal",
+    .internal_name = "internal",
+    .flags = 0,
+    .local = 0,
+    .init = NULL,
+    .close = NULL,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
+};
+
+
 typedef const struct {
-    const char  *internal_name;
     const device_t    *device;
 } fdc_cards_t;
 
 /* All emulated machines have at least one integrated FDC controller */
 static fdc_cards_t fdc_cards[] = {
-    { "internal",	NULL			},
-    { "b215",	&fdc_b215_device	},
-    { "dtk_pii151b",	&fdc_pii151b_device	},
-    { "dtk_pii158b",	&fdc_pii158b_device	},
-    { "",		NULL			},
+// clang-format off
+    { &fdc_internal_device },
+    { &fdc_b215_device     },
+    { &fdc_pii151b_device  },
+    { &fdc_pii158b_device  },
+    { NULL                 }
+// clang-format on
 };
 
 
@@ -138,14 +154,14 @@ fdc_card_has_config(int card)
 {
     if (! fdc_cards[card].device) return(0);
 
-    return(fdc_cards[card].device->config ? 1 : 0);
+    return(device_has_config(fdc_cards[card].device) ? 1 : 0);
 }
 
 
 char *
 fdc_card_get_internal_name(int card)
 {
-    return((char *) fdc_cards[card].internal_name);
+    return device_get_internal_name(fdc_cards[card].device);
 }
 
 
@@ -154,12 +170,12 @@ fdc_card_get_from_internal_name(char *s)
 {
     int c = 0;
 
-    while (strlen((char *) fdc_cards[c].internal_name)) {
-	if (!strcmp((char *) fdc_cards[c].internal_name, s))
+    while (fdc_cards[c].device != NULL) {
+	if (!strcmp((char *) fdc_cards[c].device->internal_name, s))
 		return(c);
 	c++;
     }
-	
+
     return(0);
 }
 
@@ -1089,7 +1105,7 @@ fdc_write(uint16_t addr, uint8_t val, void *priv)
 						}
 						fdd_readsector(real_drive(fdc, fdc->drive), fdc->sector, fdc->params[1], fdc->head, fdc->rate, fdc->params[4]);
                                         	break;
-                                        
+
                                         case 0x07:	/* Recalibrate */
 						fdc->rw_drive = fdc->params[0] & 3;
 						fdc->stat =  (1 << real_drive(fdc, fdc->drive));
@@ -1124,7 +1140,7 @@ fdc_write(uint16_t addr, uint8_t val, void *priv)
 						break;
 					case 0x0a: /* Read sector ID */
 						fdc_rate(fdc, fdc->drive);
-						fdc->head = (fdc->params[0] & 4) ? 1 : 0;                                        
+						fdc->head = (fdc->params[0] & 4) ? 1 : 0;
 						fdd_set_head(real_drive(fdc, fdc->drive), (fdc->params[0] & 4) ? 1 : 0);
 						if ((real_drive(fdc, fdc->drive) != 1) || fdc->drv2en) {
 							fdd_readaddress(real_drive(fdc, fdc->drive), fdc->head, fdc->rate);
@@ -2311,7 +2327,7 @@ fdc_reset(void *priv)
     fdc->max_track = (fdc->flags & FDC_FLAG_MORE_TRACKS) ? 85 : 79;
 
     fdc_remove(fdc);
-    fdc_set_base(fdc, (fdc->flags & FDC_FLAG_PCJR) ? 0x00f0 : 0x03f0);
+    fdc_set_base(fdc, (fdc->flags & FDC_FLAG_PCJR) ? FDC_PRIMARY_PCJR_ADDR : FDC_PRIMARY_ADDR);
 
     current_drive = 0;
 
@@ -2342,12 +2358,12 @@ fdc_init(const device_t *info)
 
     fdc->flags = info->local;
 
-    fdc->irq = 6;
+    fdc->irq = FDC_PRIMARY_IRQ;
 
     if (fdc->flags & FDC_FLAG_PCJR)
 	timer_add(&fdc->watchdog_timer, fdc_watchdog_poll, fdc, 0);
     else
-	fdc->dma_ch = 2;
+	fdc->dma_ch = FDC_PRIMARY_DMA;
 
     fdc_log("FDC added: %04X (flags: %08X)\n", fdc->base_address, fdc->flags);
 
@@ -2372,134 +2388,184 @@ fdc_3f1_enable(fdc_t *fdc, int enable)
     fdc->enable_3f1 = enable;
 }
 
-
 const device_t fdc_xt_device = {
-    "PC/XT Floppy Drive Controller",
-    0,
-    0,
-    fdc_init,
-    fdc_close,
-    fdc_reset,
-    { NULL }, NULL, NULL
+    .name = "PC/XT Floppy Drive Controller",
+    .internal_name = "fdc_xt",
+    .flags = 0,
+    .local = 0,
+    .init = fdc_init,
+    .close = fdc_close,
+    .reset = fdc_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t fdc_xt_t1x00_device = {
-    "PC/XT Floppy Drive Controller (Toshiba)",
-    0,
-    FDC_FLAG_TOSHIBA,
-    fdc_init,
-    fdc_close,
-    fdc_reset,
-    { NULL }, NULL, NULL
+    .name = "PC/XT Floppy Drive Controller (Toshiba)",
+    .internal_name = "fdc_xt_t1x00",
+    .flags = 0,
+    .local = FDC_FLAG_TOSHIBA,
+    .init = fdc_init,
+    .close = fdc_close,
+    .reset = fdc_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t fdc_xt_amstrad_device = {
-    "PC/XT Floppy Drive Controller (Amstrad)",
-    0,
-    FDC_FLAG_DISKCHG_ACTLOW | FDC_FLAG_AMSTRAD,
-    fdc_init,
-    fdc_close,
-    fdc_reset,
-    { NULL }, NULL, NULL
+    .name = "PC/XT Floppy Drive Controller (Amstrad)",
+    .internal_name = "fdc_xt_amstrad",
+    .flags = 0,
+    .local = FDC_FLAG_DISKCHG_ACTLOW | FDC_FLAG_AMSTRAD,
+    .init = fdc_init,
+    .close = fdc_close,
+    .reset = fdc_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t fdc_xt_tandy_device = {
-    "PC/XT Floppy Drive Controller (Tandy)",
-    0,
-    FDC_FLAG_AMSTRAD,
-    fdc_init,
-    fdc_close,
-    fdc_reset,
-    { NULL }, NULL, NULL
+    .name = "PC/XT Floppy Drive Controller (Tandy)",
+    .internal_name = "fdc_xt_tandy",
+    .flags = 0,
+    .local = FDC_FLAG_AMSTRAD,
+    .init = fdc_init,
+    .close = fdc_close,
+    .reset = fdc_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
 const device_t fdc_pcjr_device = {
-    "PCjr Floppy Drive Controller",
-    0,
-    FDC_FLAG_PCJR,
-    fdc_init,
-    fdc_close,
-    fdc_reset,
-    { NULL }, NULL, NULL
+    .name = "PCjr Floppy Drive Controller",
+    .internal_name = "fdc_pcjr",
+    .flags = 0,
+    .local = FDC_FLAG_PCJR,
+    .init = fdc_init,
+    .close = fdc_close,
+    .reset = fdc_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t fdc_at_device = {
-    "PC/AT Floppy Drive Controller",
-    0,
-    FDC_FLAG_AT,
-    fdc_init,
-    fdc_close,
-    fdc_reset,
-    { NULL }, NULL, NULL
+    .name = "PC/AT Floppy Drive Controller",
+    .internal_name = "fdc_at",
+    .flags = 0,
+    .local = FDC_FLAG_AT,
+    .init = fdc_init,
+    .close = fdc_close,
+    .reset = fdc_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t fdc_at_actlow_device = {
-    "PC/AT Floppy Drive Controller (Active low)",
-    0,
-    FDC_FLAG_DISKCHG_ACTLOW | FDC_FLAG_AT,
-    fdc_init,
-    fdc_close,
-    fdc_reset,
-    { NULL }, NULL, NULL
+    .name = "PC/AT Floppy Drive Controller (Active low)",
+    .internal_name = "fdc_at_actlow",
+    .flags = 0,
+    .local = FDC_FLAG_DISKCHG_ACTLOW | FDC_FLAG_AT,
+    .init = fdc_init,
+    .close = fdc_close,
+    .reset = fdc_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t fdc_at_ps1_device = {
-    "PC/AT Floppy Drive Controller (PS/1, PS/2 ISA)",
-    0,
-    FDC_FLAG_DISKCHG_ACTLOW | FDC_FLAG_AT | FDC_FLAG_PS1,
-    fdc_init,
-    fdc_close,
-    fdc_reset,
-    { NULL }, NULL, NULL
+    .name = "PC/AT Floppy Drive Controller (PS/1, PS/2 ISA)",
+    .internal_name = "fdc_at_ps1",
+    .flags = 0,
+    .local = FDC_FLAG_DISKCHG_ACTLOW | FDC_FLAG_AT | FDC_FLAG_PS1,
+    .init = fdc_init,
+    .close = fdc_close,
+    .reset = fdc_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t fdc_at_smc_device = {
-    "PC/AT Floppy Drive Controller (SM(s)C FDC37Cxxx)",
-    0,
-    FDC_FLAG_AT | FDC_FLAG_SUPERIO,
-    fdc_init,
-    fdc_close,
-    fdc_reset,
-    { NULL }, NULL, NULL
+    .name = "PC/AT Floppy Drive Controller (SM(s)C FDC37Cxxx)",
+    .internal_name = "fdc_at_smc",
+    .flags = 0,
+    .local = FDC_FLAG_AT | FDC_FLAG_SUPERIO,
+    .init = fdc_init,
+    .close = fdc_close,
+    .reset = fdc_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t fdc_at_winbond_device = {
-    "PC/AT Floppy Drive Controller (Winbond W83x77F)",
-    0,
-    FDC_FLAG_AT | FDC_FLAG_SUPERIO | FDC_FLAG_START_RWC_1 | FDC_FLAG_MORE_TRACKS,
-    fdc_init,
-    fdc_close,
-    fdc_reset,
-    { NULL }, NULL, NULL
+    .name = "PC/AT Floppy Drive Controller (Winbond W83x77F)",
+    .internal_name = "fdc_at_winbond",
+    .flags = 0,
+    .local = FDC_FLAG_AT | FDC_FLAG_SUPERIO | FDC_FLAG_START_RWC_1 | FDC_FLAG_MORE_TRACKS,
+    .init = fdc_init,
+    .close = fdc_close,
+    .reset = fdc_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t fdc_at_nsc_device = {
-    "PC/AT Floppy Drive Controller (NSC PC8730x)",
-    0,
-    FDC_FLAG_AT | FDC_FLAG_MORE_TRACKS | FDC_FLAG_NSC,
-    fdc_init,
-    fdc_close,
-    fdc_reset,
-    { NULL }, NULL, NULL
+    .name = "PC/AT Floppy Drive Controller (NSC PC8730x)",
+    .internal_name = "fdc_at_nsc",
+    .flags = 0,
+    .local = FDC_FLAG_AT | FDC_FLAG_MORE_TRACKS | FDC_FLAG_NSC,
+    .init = fdc_init,
+    .close = fdc_close,
+    .reset = fdc_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t fdc_dp8473_device = {
-    "NS DP8473 Floppy Drive Controller",
-    0,
-    FDC_FLAG_AT | FDC_FLAG_NSC,
-    fdc_init,
-    fdc_close, 
-    fdc_reset,
-    { NULL }, NULL, NULL
+    .name = "NS DP8473 Floppy Drive Controller",
+    .internal_name = "fdc_dp8473",
+    .flags = 0,
+    .local = FDC_FLAG_AT | FDC_FLAG_NSC,
+    .init = fdc_init,
+    .close = fdc_close,
+    .reset = fdc_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t fdc_um8398_device = {
-    "UMC UM8398 Floppy Drive Controller",
-    0,
-    FDC_FLAG_UMC,
-    fdc_init,
-    fdc_close, 
-    fdc_reset,
-    { NULL }, NULL, NULL
+    .name = "UMC UM8398 Floppy Drive Controller",
+    .internal_name = "fdc_um8398",
+    .flags = 0,
+    .local = FDC_FLAG_UMC,
+    .init = fdc_init,
+    .close = fdc_close,
+    .reset = fdc_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

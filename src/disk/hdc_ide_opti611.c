@@ -7,7 +7,7 @@
  *		This file is part of the 86Box distribution.
  *
  *		Implementation of the OPTi 82C611/611A VLB IDE controller.
- 
+
  * Authors:	Miran Grca, <mgrca8@gmail.com>
  *
  *              Copyright 2020 Miran Grca.
@@ -47,7 +47,7 @@ opti611_cfg_write(uint16_t addr, uint8_t val, void *priv)
     opti611_t *dev = (opti611_t *) priv;
 
     addr &= 0x0007;
-    
+
     switch (addr) {
 	case 0x0000:
 	case 0x0001:
@@ -56,11 +56,11 @@ opti611_cfg_write(uint16_t addr, uint8_t val, void *priv)
 	case 0x0002:
 		dev->regs[0x12] = (val & 0xc1) | 0x02;
 		if (val & 0xc0) {
+			if (val & 0x40)
+				dev->cfg_locked = 1;
 			dev->in_cfg = 0;
 			opti611_ide_handler(dev);
 		}
-		if (val & 0x40)
-			dev->cfg_locked = 1;
 		break;
 	case 0x0003:
 		dev->regs[0x03] = (val & 0xdf);
@@ -313,10 +313,15 @@ opti611_init(const device_t *info)
 
 
 const device_t ide_opti611_vlb_device = {
-    "OPTi 82C611/82C611A VLB",
-    0,
-    0,
-    opti611_init, opti611_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "OPTi 82C611/82C611A VLB",
+    .internal_name = "ide_opti611_vlb",
+    .flags = DEVICE_VLB,
+    .local = 0,
+    .init = opti611_init,
+    .close = opti611_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

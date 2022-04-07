@@ -308,7 +308,7 @@ double
 ide_atapi_get_period(uint8_t channel)
 {
     ide_t *ide = ide_drives[channel];
- 
+
     ide_log("ide_atapi_get_period(%i)\n", channel);
 
     if (!ide) {
@@ -445,7 +445,7 @@ ide_get_max(ide_t *ide, int type)
     switch(type) {
 	case TYPE_PIO:	/* PIO */
 		if (!ide_boards[ide->board]->force_ata3 && (ide_bm[ide->board] != NULL))
-			return 1;
+			return 4;
 
 		return 0;	/* Maximum PIO 0 for legacy PIO-only drive. */
 	case TYPE_SDMA:	/* SDMA */
@@ -536,6 +536,7 @@ static void ide_hd_identify(ide_t *ide)
     ide_padstr((char *) (ide->buffer + 10), "", 20); /* Serial Number */
     ide_padstr((char *) (ide->buffer + 23), EMU_VERSION_EX, 8); /* Firmware */
     ide_padstr((char *) (ide->buffer + 27), device_identify, 40); /* Model */
+	ide->buffer[0] = (1 << 6); /*Fixed drive*/
     ide->buffer[20] = 3;   /*Buffer type*/
     ide->buffer[21] = 512; /*Buffer size*/
     ide->buffer[50] = 0x4000; /* Capabilities */
@@ -916,12 +917,13 @@ ide_atapi_attach(ide_t *ide)
 void
 ide_set_callback(ide_t *ide, double callback)
 {
-    ide_log("ide_set_callback(%i)\n", ide->channel);
 
     if (!ide) {
-	ide_log("Set callback failed\n");
+	ide_log("ide_set_callback(NULL): Set callback failed\n");
 	return;
     }
+
+    ide_log("ide_set_callback(%i)\n", ide->channel);
 
     if (callback == 0.0)
 	timer_stop(&ide->timer);
@@ -1355,7 +1357,7 @@ ide_write_devctl(uint16_t addr, uint8_t val, void *priv)
 		return;
 
     dev->diag = 0;
- 
+
     if ((val & 4) && !(ide->fdisk & 4)) {
 	/* Reset toggled from 0 to 1, initiate reset procedure. */
 	if (ide->type == IDE_ATAPI)
@@ -1573,7 +1575,7 @@ ide_writeb(uint16_t addr, uint8_t val, void *priv)
 				return;
 			}
 		}
-                                
+
 		ide->head = val & 0xF;
 		ide->lba = val & 0x40;
 		ide_other->head = val & 0xF;
@@ -1600,7 +1602,7 @@ ide_writeb(uint16_t addr, uint8_t val, void *priv)
 			if (ide->type == IDE_ATAPI)
 				ide->sc->status = DRDY_STAT;
 			else
-				ide->atastat = BSY_STAT;
+				ide->atastat = READY_STAT | BSY_STAT;
 
 			if (ide->type == IDE_ATAPI)
 				ide->sc->callback = 100.0 * IDE_TIME;
@@ -1615,7 +1617,7 @@ ide_writeb(uint16_t addr, uint8_t val, void *priv)
 					ide->sc->callback = 100.0 * IDE_TIME;
 				} else
 					ide->atastat = DRDY_STAT;
-				
+
 				ide_set_callback(ide, 100.0 * IDE_TIME);
 				return;
 
@@ -2105,6 +2107,23 @@ ide_board_callback(void *priv)
 
 
 static void
+atapi_error_no_ready(ide_t *ide)
+{
+    ide->command = 0;
+    if (ide->type == IDE_ATAPI) {
+	ide->sc->status = ERR_STAT | DSC_STAT;
+	ide->sc->error = ABRT_ERR;
+	ide->sc->pos = 0;
+    } else {
+	ide->atastat = ERR_STAT | DSC_STAT;
+	ide->error = ABRT_ERR;
+	ide->pos = 0;
+    }
+    ide_irq_raise(ide);
+}
+
+
+static void
 ide_callback(void *priv)
 {
     int snum, ret = 0;
@@ -2115,8 +2134,10 @@ ide_callback(void *priv)
 
     if (((ide->command >= WIN_RECAL) && (ide->command <= 0x1F)) ||
 	((ide->command >= WIN_SEEK) && (ide->command <= 0x7F))) {
-	if (ide->type != IDE_HDD)
-		goto abort_cmd;
+	if (ide->type != IDE_HDD) {
+		atapi_error_no_ready(ide);
+		return;
+	}
 	if ((ide->command >= WIN_SEEK) && (ide->command <= 0x7F) && !ide->lba) {
 		if ((ide->cylinder >= ide->tracks) || (ide->head >= ide->hpc) ||
 		    !ide->sector || (ide->sector > ide->spt))
@@ -2135,7 +2156,7 @@ ide_callback(void *priv)
 		ide->atastat = DRDY_STAT | DSC_STAT;
 		ide->error = 1; /*Device passed*/
 		ide->secount = 1;
-		ide->sector = 1;		
+		ide->sector = 1;
 
 		ide_set_signature(ide);
 
@@ -2408,7 +2429,7 @@ ide_callback(void *priv)
 			ide->cfg_spt = ide->secount;
 			ide->cfg_hpc = ide->head + 1;
 		}
-		ide->command = 0x00;	
+		ide->command = 0x00;
 		ide->atastat = DRDY_STAT | DSC_STAT;
 		ide->error = 1;
 		ide_irq_raise(ide);
@@ -2501,6 +2522,60 @@ id_not_found:
     ide->error = IDNF_ERR;
     ide->pos = 0;
     ide_irq_raise(ide);
+}
+
+
+uint8_t
+ide_read_ali_75(void)
+{
+    ide_t *ide0, *ide1;
+    int ch0, ch1;
+    uint8_t ret = 0x00;
+
+    ch0 = ide_boards[0]->cur_dev;
+    ch1 = ide_boards[1]->cur_dev;
+    ide0 = ide_drives[ch0];
+    ide1 = ide_drives[ch1];
+
+    if (ch1)
+	ret |= 0x08;
+    if (ch0)
+	ret |= 0x04;
+    if (ide1->irqstat)
+	ret |= 0x02;
+    if (ide0->irqstat)
+	ret |= 0x01;
+
+    return ret;
+}
+
+
+uint8_t
+ide_read_ali_76(void)
+{
+    ide_t *ide0, *ide1;
+    int ch0, ch1;
+    uint8_t ret = 0x00;
+
+    ch0 = ide_boards[0]->cur_dev;
+    ch1 = ide_boards[1]->cur_dev;
+    ide0 = ide_drives[ch0];
+    ide1 = ide_drives[ch1];
+
+    if (ide1->atastat & BSY_STAT)
+	ret |= 0x40;
+    if (ide1->atastat & DRQ_STAT)
+	ret |= 0x20;
+    if (ide1->atastat & ERR_STAT)
+	ret |= 0x10;
+    if (ide0->atastat & BSY_STAT)
+	ret |= 0x04;
+    if (ide0->atastat & DRQ_STAT)
+	ret |= 0x02;
+    if (ide0->atastat & ERR_STAT)
+	ret |= 0x01;
+
+    return ret;
 }
 
 
@@ -2962,8 +3037,11 @@ ide_reset(void *p)
 {
     ide_log("Resetting IDE...\n");
 
-    ide_board_reset(0);
-    ide_board_reset(1);
+    if (ide_boards[0] != NULL)
+	ide_board_reset(0);
+
+    if (ide_boards[1] != NULL)
+	ide_board_reset(1);
 }
 
 
@@ -2973,181 +3051,196 @@ ide_close(void *priv)
 {
     ide_log("Closing IDE...\n");
 
-    ide_board_close(0);
-    ide_board_close(1);
+    if (ide_boards[0] != NULL) {
+	ide_board_close(0);
+	ide_boards[0] = NULL;
+    }
+
+    if (ide_boards[1] != NULL) {
+	ide_board_close(1);
+	ide_boards[1] = NULL;
+    }
 }
 
 
 const device_t ide_isa_device = {
-    "ISA PC/AT IDE Controller",
-    DEVICE_ISA | DEVICE_AT,
-    0,
-    ide_init, ide_close, ide_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "ISA PC/AT IDE Controller",
+    .internal_name = "ide_isa",
+    .flags = DEVICE_ISA | DEVICE_AT,
+    .local = 0,
+    .init = ide_init,
+    .close = ide_close,
+    .reset = ide_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t ide_isa_2ch_device = {
-    "ISA PC/AT IDE Controller (Dual-Channel)",
-    DEVICE_ISA | DEVICE_AT,
-    1,
-    ide_init, ide_close, ide_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "ISA PC/AT IDE Controller (Dual-Channel)",
+    .internal_name = "ide_isa_2ch",
+    .flags = DEVICE_ISA | DEVICE_AT,
+    .local = 1,
+    .init = ide_init,
+    .close = ide_close,
+    .reset = ide_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t ide_vlb_device = {
-    "VLB IDE Controller",
-    DEVICE_VLB | DEVICE_AT,
-    2,
-    ide_init, ide_close, ide_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "VLB IDE Controller",
+    .internal_name = "ide_vlb",
+    .flags = DEVICE_VLB | DEVICE_AT,
+    .local = 2,
+    .init = ide_init,
+    .close = ide_close,
+    .reset = ide_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t ide_vlb_2ch_device = {
-    "VLB IDE Controller (Dual-Channel)",
-    DEVICE_VLB | DEVICE_AT,
-    3,
-    ide_init, ide_close, ide_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "VLB IDE Controller (Dual-Channel)",
+    .internal_name = "ide_vlb_2ch",
+    .flags = DEVICE_VLB | DEVICE_AT,
+    .local = 3,
+    .init = ide_init,
+    .close = ide_close,
+    .reset = ide_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t ide_pci_device = {
-    "PCI IDE Controller",
-    DEVICE_PCI | DEVICE_AT,
-    4,
-    ide_init, ide_close, ide_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PCI IDE Controller",
+    .internal_name = "ide_pci",
+    .flags = DEVICE_PCI | DEVICE_AT,
+    .local = 4,
+    .init = ide_init,
+    .close = ide_close,
+    .reset = ide_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t ide_pci_2ch_device = {
-    "PCI IDE Controller (Dual-Channel)",
-    DEVICE_PCI | DEVICE_AT,
-    5,
-    ide_init, ide_close, ide_reset,
-    { NULL }, NULL, NULL, NULL
+    .name = "PCI IDE Controller (Dual-Channel)",
+    .internal_name = "ide_pci_2ch",
+    .flags = DEVICE_PCI | DEVICE_AT,
+    .local = 5,
+    .init = ide_init,
+    .close = ide_close,
+    .reset = ide_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-static const device_config_t ide_ter_config[] =
-{
+// clang-format off
+static const device_config_t ide_ter_config[] = {
+    {
+        "irq", "IRQ", CONFIG_SELECTION, "", 10, "", { 0 },
         {
-                "irq", "IRQ", CONFIG_SELECTION, "", 10, "", { 0 },
-                {
-                        {
-                                "Plug and Play", -1
-                        },
-                        {
-                                "IRQ 2", 2
-                        },
-                        {
-                                "IRQ 3", 3
-                        },
-                        {
-                                "IRQ 4", 4
-                        },
-                        {
-                                "IRQ 5", 5
-                        },
-                        {
-                                "IRQ 7", 7
-                        },
-                        {
-                                "IRQ 9", 9
-                        },
-                        {
-                                "IRQ 10", 10
-                        },
-                        {
-                                "IRQ 11", 11
-                        },
-                        {
-                                "IRQ 12", 12
-                        },
-                        {
-                                ""
-                        }
-                }
-        },
-        {
-                "", "", -1
+            { "Plug and Play", -1 },
+            { "IRQ 2",          2 },
+            { "IRQ 3",          3 },
+            { "IRQ 4",          4 },
+            { "IRQ 5",          5 },
+            { "IRQ 7",          7 },
+            { "IRQ 9",          9 },
+            { "IRQ 10",        10 },
+            { "IRQ 11",        11 },
+            { "IRQ 12",        12 },
+            { ""                  }
         }
+    },
+    { "", "", -1 }
 };
 
-static const device_config_t ide_qua_config[] =
-{
+static const device_config_t ide_qua_config[] = {
+    {
+        "irq", "IRQ", CONFIG_SELECTION, "", 11, "", { 0 },
         {
-                "irq", "IRQ", CONFIG_SELECTION, "", 11, "", { 0 },
-                {
-                        {
-                                "Plug and Play", -1
-                        },
-                        {
-                                "IRQ 2", 2
-                        },
-                        {
-                                "IRQ 3", 3
-                        },
-                        {
-                                "IRQ 4", 4
-                        },
-                        {
-                                "IRQ 5", 5
-                        },
-                        {
-                                "IRQ 7", 7
-                        },
-                        {
-                                "IRQ 9", 9
-                        },
-                        {
-                                "IRQ 10", 10
-                        },
-                        {
-                                "IRQ 11", 11
-                        },
-                        {
-                                "IRQ 12", 12
-                        },
-                        {
-                                ""
-                        }
-                }
-        },
-        {
-                "", "", -1
+            { "Plug and Play", -1 },
+            { "IRQ 2",          2 },
+            { "IRQ 3",          3 },
+            { "IRQ 4",          4 },
+            { "IRQ 5",          5 },
+            { "IRQ 7",          7 },
+            { "IRQ 9",          9 },
+            { "IRQ 10",        10 },
+            { "IRQ 11",        11 },
+            { "IRQ 12",        12 },
+            { ""                  }
         }
+    },
+    { "", "", -1 }
 };
+// clang-format on
 
 const device_t ide_ter_device = {
-    "Tertiary IDE Controller",
-    DEVICE_AT,
-    0,
-    ide_ter_init, ide_ter_close, NULL,
-    { NULL }, NULL, NULL,
-    ide_ter_config
+    .name = "Tertiary IDE Controller",
+    .internal_name = "ide_ter",
+    .flags = DEVICE_AT,
+    .local = 0,
+    .init = ide_ter_init,
+    .close = ide_ter_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = ide_ter_config
 };
 
 const device_t ide_ter_pnp_device = {
-    "Tertiary IDE Controller (Plug and Play only)",
-    DEVICE_AT,
-    1,
-    ide_ter_init, ide_ter_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "Tertiary IDE Controller (Plug and Play only)",
+    .internal_name = "ide_ter_pnp",
+    .flags = DEVICE_AT,
+    .local = 1,
+    .init = ide_ter_init,
+    .close = ide_ter_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t ide_qua_device = {
-    "Quaternary IDE Controller",
-    DEVICE_AT,
-    0,
-    ide_qua_init, ide_qua_close, NULL,
-    { NULL }, NULL, NULL,
-    ide_qua_config
+    .name = "Quaternary IDE Controller",
+    .internal_name = "ide_qua",
+    .flags = DEVICE_AT,
+    .local = 0,
+    .init = ide_qua_init,
+    .close = ide_qua_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = ide_qua_config
 };
 
 const device_t ide_qua_pnp_device = {
-    "Quaternary IDE Controller (Plug and Play only)",
-    DEVICE_AT,
-    1,
-    ide_qua_init, ide_qua_close, NULL,
-    { NULL }, NULL, NULL,
-    ide_qua_config
+    .name = "Quaternary IDE Controller (Plug and Play only)",
+    .internal_name = "ide_qua_pnp",
+    .flags = DEVICE_AT,
+    .local = 1,
+    .init = ide_qua_init,
+    .close = ide_qua_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = ide_qua_config
 };

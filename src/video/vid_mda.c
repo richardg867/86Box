@@ -117,7 +117,7 @@ void mda_poll(void *p)
                 mda->stat |= 1;
                 mda->linepos = 1;
                 oldsc = mda->sc;
-                if ((mda->crtc[8] & 3) == 3) 
+                if ((mda->crtc[8] & 3) == 3)
                         mda->sc = (mda->sc << 1) & 7;
                 if (mda->dispon)
                 {
@@ -166,7 +166,7 @@ void mda_poll(void *p)
                         mda->stat |= 8;
                 }
                 mda->displine++;
-                if (mda->displine >= 500) 
+                if (mda->displine >= 500)
                         mda->displine=0;
         }
         else
@@ -182,10 +182,10 @@ void mda_poll(void *p)
                                 mda->stat&=~8;
                         }
                 }
-                if (mda->sc == (mda->crtc[11] & 31) || ((mda->crtc[8] & 3) == 3 && mda->sc == ((mda->crtc[11] & 31) >> 1))) 
-                { 
-                        mda->con = 0; 
-                        mda->coff = 1; 
+                if (mda->sc == (mda->crtc[11] & 31) || ((mda->crtc[8] & 3) == 3 && mda->sc == ((mda->crtc[11] & 31) >> 1)))
+                {
+                        mda->con = 0;
+                        mda->coff = 1;
                 }
                 if (mda->vadj)
                 {
@@ -207,7 +207,7 @@ void mda_poll(void *p)
                         oldvc = mda->vc;
                         mda->vc++;
                         mda->vc &= 127;
-                        if (mda->vc == mda->crtc[6]) 
+                        if (mda->vc == mda->crtc[6])
                                 mda->dispon=0;
                         if (oldvc == mda->crtc[4])
                         {
@@ -292,7 +292,7 @@ void mda_init(mda_t *mda)
 	{
 		cga_palette = 0;
 	}
-	cgapal_rebuild();	
+	cgapal_rebuild();
 
         timer_add(&mda->timer, mda_poll, mda, 1);
 }
@@ -331,45 +331,36 @@ void mda_close(void *p)
 void mda_speed_changed(void *p)
 {
         mda_t *mda = (mda_t *)p;
-        
+
         mda_recalctimings(mda);
 }
 
-static const device_config_t mda_config[] =
-{
+static const device_config_t mda_config[] = {
+// clang-format off
+    {
+        "rgb_type", "Display type", CONFIG_SELECTION, "", 0, "", { 0 },
         {
-                "rgb_type", "Display type", CONFIG_SELECTION, "", 0, "", { 0 },
-                {
-                        {
-                                "Default", 0
-                        },
-                        {
-                                "Green", 1
-                        },
-                        {
-                                "Amber", 2
-                        },
-                        {
-                                "Gray", 3
-                        },
-                        {
-                                ""
-                        }
-                }
-        },
-        {
-                "", "", -1
+            { "Default", 0 },
+            { "Green", 1 },
+            { "Amber", 2 },
+            { "Gray", 3 },
+            { "" }
         }
+    },
+    { "", "", -1 }
+// clang-format on
 };
 
-
-const device_t mda_device =
-{
-        "MDA",
-        DEVICE_ISA, 0,
-        mda_standalone_init, mda_close, NULL,
-        { NULL },
-        mda_speed_changed,
-        NULL,
-	mda_config
+const device_t mda_device = {
+    .name = "MDA",
+    .internal_name = "mda",
+    .flags = DEVICE_ISA,
+    .local = 0,
+    .init = mda_standalone_init,
+    .close = mda_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = mda_speed_changed,
+    .force_redraw = NULL,
+    .config = mda_config
 };

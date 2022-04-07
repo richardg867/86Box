@@ -192,7 +192,7 @@ get_sector(esdi_t *esdi, off64_t *addr)
 
 	*addr = ((((off64_t)c * drive->real_hpc) + h) * drive->real_spt) + s;
     }
-        
+
     return(0);
 }
 
@@ -528,7 +528,7 @@ esdi_callback(void *priv)
 				irq_raise(esdi);
 				break;
 			}
-			
+
 			hdd_image_read(drive->hdd_num, addr, 1, (uint8_t *)esdi->buffer);
 			esdi->pos = 0;
 			esdi->status = STAT_DRQ|STAT_READY|STAT_DSC;
@@ -550,7 +550,7 @@ esdi_callback(void *priv)
 				irq_raise(esdi);
 				break;
 			}
-			
+
 			hdd_image_write(drive->hdd_num, addr, 1, (uint8_t *)esdi->buffer);
 			irq_raise(esdi);
 			esdi->secount = (esdi->secount - 1) & 0xff;
@@ -605,7 +605,7 @@ esdi_callback(void *priv)
 				irq_raise(esdi);
 				break;
 			}
-			
+
 			hdd_image_zero(drive->hdd_num, addr, esdi->secount);
 			esdi->status = STAT_READY|STAT_DSC;
 			irq_raise(esdi);
@@ -845,11 +845,15 @@ wd1007vse1_available(void)
 
 
 const device_t esdi_at_wd1007vse1_device = {
-    "Western Digital WD1007V-SE1 (ESDI)",
-    DEVICE_ISA | DEVICE_AT,
-    0,
-    wd1007vse1_init, wd1007vse1_close, NULL,
-    { wd1007vse1_available },
-    NULL, NULL,
-    NULL
+    .name = "Western Digital WD1007V-SE1 (ESDI)",
+    .internal_name = "esdi_at",
+    .flags = DEVICE_ISA | DEVICE_AT,
+    .local = 0,
+    .init = wd1007vse1_init,
+    .close = wd1007vse1_close,
+    .reset = NULL,
+    { .available = wd1007vse1_available },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

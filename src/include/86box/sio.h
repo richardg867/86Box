@@ -11,9 +11,9 @@
  * Author:	Fred N. van Kempen, <decwiz@yahoo.com>
  *		Copyright 2017-2020 Fred N. van Kempen.
  */
+
 #ifndef EMU_SIO_H
 # define EMU_SIO_H
-
 
 extern void		vt82c686_sio_write(uint8_t addr, uint8_t val, void *priv);
 
@@ -22,12 +22,14 @@ extern const device_t	acc3221_device;
 extern const device_t	f82c710_device;
 extern const device_t	f82c606_device;
 extern const device_t	fdc37c651_device;
+extern const device_t	fdc37c651_ide_device;
 extern const device_t	fdc37c661_device;
 extern const device_t	fdc37c663_device;
 extern const device_t	fdc37c663_ide_device;
 extern const device_t	fdc37c665_device;
 extern const device_t	fdc37c665_ide_device;
 extern const device_t	fdc37c666_device;
+extern const device_t	fdc37c67x_device;
 extern const device_t	fdc37c669_device;
 extern const device_t	fdc37c669_370_device;
 extern const device_t	fdc37c931apm_device;
@@ -54,6 +56,7 @@ extern const device_t   pc87311_ide_device;
 extern const device_t	pc87332_device;
 extern const device_t	pc87332_398_device;
 extern const device_t	pc87332_398_ide_device;
+extern const device_t	pc87332_398_ide_sec_device;
 extern const device_t	pc87332_398_ide_fdcon_device;
 extern const device_t	pc97307_device;
 extern const device_t   prime3b_device;
@@ -79,6 +82,5 @@ extern const device_t	w83977f_370_device;
 extern const device_t	w83977tf_device;
 extern const device_t	w83977ef_device;
 extern const device_t	w83977ef_370_device;
-
 
 #endif	/*EMU_SIO_H*/

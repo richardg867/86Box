@@ -180,6 +180,7 @@ vt82c505_reset(void *priv)
     }
 
     pic_reset();
+    pic_set_pci_flag(1);
 }
 
 
@@ -215,16 +216,16 @@ vt82c505_init(const device_t *info)
     return dev;
 }
 
-
 const device_t via_vt82c505_device = {
-    "VIA VT82C505",
-    DEVICE_PCI,
-    0,
-    vt82c505_init,
-    vt82c505_close,
-    vt82c505_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+    .name = "VIA VT82C505",
+    .internal_name = "via_vt82c505",
+    .flags = DEVICE_PCI,
+    .local = 0,
+    .init = vt82c505_init,
+    .close = vt82c505_close,
+    .reset = vt82c505_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

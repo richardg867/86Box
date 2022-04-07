@@ -95,8 +95,8 @@ ibm_rgb528_render_4bpp(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] ||  svga->changedvram[(svga->ma >> 12) + 1] || svga->changedvram[(svga->ma >> 12) + 2] || svga->fullchange) {
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
-        
-	if (svga->firstline_draw == 2000) 
+
+	if (svga->firstline_draw == 2000)
 		svga->firstline_draw = svga->displine;
 	svga->lastline_draw = svga->displine;
 
@@ -178,8 +178,8 @@ ibm_rgb528_render_8bpp(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] ||  svga->changedvram[(svga->ma >> 12) + 1] || svga->changedvram[(svga->ma >> 12) + 2] || svga->fullchange) {
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
-        
-	if (svga->firstline_draw == 2000) 
+
+	if (svga->firstline_draw == 2000)
 		svga->firstline_draw = svga->displine;
 	svga->lastline_draw = svga->displine;
 
@@ -262,8 +262,8 @@ ibm_rgb528_render_15_16bpp(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] ||  svga->changedvram[(svga->ma >> 12) + 1] || svga->changedvram[(svga->ma >> 12) + 2] || svga->fullchange) {
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
-        
-	if (svga->firstline_draw == 2000) 
+
+	if (svga->firstline_draw == 2000)
 		svga->firstline_draw = svga->displine;
 	svga->lastline_draw = svga->displine;
 
@@ -382,8 +382,8 @@ ibm_rgb528_render_24bpp(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] ||  svga->changedvram[(svga->ma >> 12) + 1] || svga->changedvram[(svga->ma >> 12) + 2] || svga->fullchange) {
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
-        
-	if (svga->firstline_draw == 2000) 
+
+	if (svga->firstline_draw == 2000)
 		svga->firstline_draw = svga->displine;
 	svga->lastline_draw = svga->displine;
 
@@ -476,8 +476,8 @@ ibm_rgb528_render_32bpp(svga_t *svga)
 
     if (svga->changedvram[svga->ma >> 12] ||  svga->changedvram[(svga->ma >> 12) + 1] || svga->changedvram[(svga->ma >> 12) + 2] || svga->fullchange) {
 	p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
-        
-	if (svga->firstline_draw == 2000) 
+
+	if (svga->firstline_draw == 2000)
 		svga->firstline_draw = svga->displine;
 	svga->lastline_draw = svga->displine;
 
@@ -953,11 +953,16 @@ ibm_rgb528_ramdac_close(void *priv)
 	free(ramdac);
 }
 
-
-const device_t ibm_rgb528_ramdac_device =
-{
-        "IBM RGB528 RAMDAC",
-        0, 0,
-        ibm_rgb528_ramdac_init, ibm_rgb528_ramdac_close,
-	NULL, { NULL }, NULL, NULL, NULL
+const device_t ibm_rgb528_ramdac_device = {
+    .name = "IBM RGB528 RAMDAC",
+    .internal_name = "ibm_rgb528_ramdac",
+    .flags = 0,
+    .local = 0,
+    .init = ibm_rgb528_ramdac_init,
+    .close = ibm_rgb528_ramdac_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

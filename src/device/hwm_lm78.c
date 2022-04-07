@@ -37,6 +37,7 @@
 #define LM78_AS99127F_REV1	0x040000
 #define LM78_AS99127F_REV2	0x080000
 #define LM78_W83782D		0x100000
+#define LM78_P5A		0x200000
 #define LM78_AS99127F		(LM78_AS99127F_REV1 | LM78_AS99127F_REV2) /* mask covering both _REV1 and _REV2 */
 #define LM78_WINBOND		(LM78_W83781D | LM78_AS99127F | LM78_W83782D) /* mask covering all Winbond variants */
 #define LM78_WINBOND_VENDOR_ID	((dev->local & LM78_AS99127F_REV1) ? 0x12c3 : 0x5ca3)
@@ -72,7 +73,7 @@ typedef struct {
     };
     uint8_t	addr_register, data_register;
 
-    uint8_t	i2c_addr: 7, i2c_state: 1;
+    uint8_t	i2c_addr: 7, i2c_state: 1, i2c_enabled: 1;
 } lm78_t;
 
 
@@ -114,7 +115,7 @@ lm78_nvram(lm78_t *dev, uint8_t save)
 		fread(&dev->as99127f.nvram, sizeof(dev->as99127f.nvram), 1, f);
 	fclose(f);
     }
-    
+
     free(nvr_path);
 }
 
@@ -258,8 +259,13 @@ lm78_reset(void *priv)
     dev->regs[0x46] = 0x40;
     dev->regs[0x47] = 0x50;
     if (dev->local & LM78_I2C) {
-	if (!initialization) /* don't reset main I2C address if the reset was triggered by the INITIALIZATION bit */
-		dev->i2c_addr = 0x2d;
+	if (!initialization) { /* don't reset main I2C address if the reset was triggered by the INITIALIZATION bit */
+		if (dev->local & LM78_P5A)
+			dev->i2c_addr = 0x77;
+		else
+			dev->i2c_addr = 0x2d;
+		dev->i2c_enabled = 1;
+	}
 	dev->regs[0x48] = dev->i2c_addr;
 	if (dev->local & LM78_WINBOND)
 		dev->regs[0x4a] = 0x01;
@@ -315,7 +321,7 @@ lm78_reset(void *priv)
 	dev->regs[0x49] = 0x40;
     }
 
-    lm78_remap(dev, dev->i2c_addr);
+    lm78_remap(dev, dev->i2c_addr | (dev->i2c_enabled ? 0x00 : 0x80));
 }
 
 
@@ -488,7 +494,7 @@ lm78_write(lm78_t *dev, uint8_t reg, uint8_t val, uint8_t bank)
 			return 0;
 		}
 	}
-    } 
+    }
 
     /* regular registers */
     switch (reg) {
@@ -668,12 +674,14 @@ lm78_remap(lm78_t *dev, uint8_t addr)
 
     lm78_log("LM78: remapping to SMBus %02Xh\n", addr);
 
-    i2c_removehandler(i2c_smbus, dev->i2c_addr, 1, lm78_i2c_start, lm78_i2c_read, lm78_i2c_write, NULL, dev);
+    if (dev->i2c_enabled)
+	i2c_removehandler(i2c_smbus, dev->i2c_addr, 1, lm78_i2c_start, lm78_i2c_read, lm78_i2c_write, NULL, dev);
 
     if (addr < 0x80)
 	i2c_sethandler(i2c_smbus, addr, 1, lm78_i2c_start, lm78_i2c_read, lm78_i2c_write, NULL, dev);
 
-    dev->i2c_addr = addr;
+    dev->i2c_addr = addr & 0x7f;
+    dev->i2c_enabled = !(addr & 0x80);
 
     if (dev->local & LM78_AS99127F) {
 	/* Store our handle on the primary LM75 device to ensure reads/writes
@@ -775,58 +783,93 @@ lm78_init(const device_t *info)
     return dev;
 }
 
-
 /* National Semiconductor LM78 on ISA and SMBus. */
 const device_t lm78_device = {
-    "National Semiconductor LM78 Hardware Monitor",
-    DEVICE_ISA,
-    0x290 | LM78_I2C,
-    lm78_init, lm78_close, lm78_reset,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "National Semiconductor LM78 Hardware Monitor",
+    .internal_name = "lm78",
+    .flags = DEVICE_ISA,
+    .local = 0x290 | LM78_I2C,
+    .init = lm78_init,
+    .close = lm78_close,
+    .reset = lm78_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
-
 
 /* Winbond W83781D on ISA and SMBus. */
 const device_t w83781d_device = {
-    "Winbond W83781D Hardware Monitor",
-    DEVICE_ISA,
-    0x290 | LM78_I2C | LM78_W83781D,
-    lm78_init, lm78_close, lm78_reset,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "Winbond W83781D Hardware Monitor",
+    .internal_name = "w83781d",
+    .flags = DEVICE_ISA,
+    .local = 0x290 | LM78_I2C | LM78_W83781D,
+    .init = lm78_init,
+    .close = lm78_close,
+    .reset = lm78_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
+/* Winbond W83781D on ISA and SMBus. */
+const device_t w83781d_p5a_device = {
+    .name = "Winbond W83781D Hardware Monitor (ASUS P5A)",
+    .internal_name = "w83781d_p5a",
+    .flags = DEVICE_ISA,
+    .local = 0x290 | LM78_I2C | LM78_W83781D | LM78_P5A,
+    .init = lm78_init,
+    .close = lm78_close,
+    .reset = lm78_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
+};
 
 /* The AS99127F is an ASIC manufactured by Holtek for ASUS, containing an
    I2C-only W83781D clone with additional voltages, GPIOs and fan control. */
 const device_t as99127f_device = {
-    "ASUS AS99127F Rev. 1 Hardware Monitor",
-    DEVICE_ISA,
-    LM78_I2C | LM78_AS99127F_REV1,
-    lm78_init, lm78_close, lm78_reset,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "ASUS AS99127F Rev. 1 Hardware Monitor",
+    .internal_name = "as99137f",
+    .flags = DEVICE_ISA,
+    .local = LM78_I2C | LM78_AS99127F_REV1,
+    .init = lm78_init,
+    .close = lm78_close,
+    .reset = lm78_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
-
 
 /* Rev. 2 is manufactured by Winbond and differs only in GPI registers. */
 const device_t as99127f_rev2_device = {
-    "ASUS AS99127F Rev. 2 Hardware Monitor",
-    DEVICE_ISA,
-    LM78_I2C | LM78_AS99127F_REV2,
-    lm78_init, lm78_close, lm78_reset,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "ASUS AS99127F Rev. 2 Hardware Monitor",
+    .internal_name = "as99127f_rev2",
+    .flags = DEVICE_ISA,
+    .local = LM78_I2C | LM78_AS99127F_REV2,
+    .init = lm78_init,
+    .close = lm78_close,
+    .reset = lm78_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
-
 
 /* Winbond W83782D on ISA and SMBus. */
 const device_t w83782d_device = {
-    "Winbond W83782D Hardware Monitor",
-    DEVICE_ISA,
-    0x290 | LM78_I2C | LM78_W83782D,
-    lm78_init, lm78_close, lm78_reset,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "Winbond W83782D Hardware Monitor",
+    .internal_name = "w83783d",
+    .flags = DEVICE_ISA,
+    .local = 0x290 | LM78_I2C | LM78_W83782D,
+    .init = lm78_init,
+    .close = lm78_close,
+    .reset = lm78_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

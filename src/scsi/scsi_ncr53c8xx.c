@@ -47,7 +47,7 @@
 
 
 #define NCR53C8XX_SDMS3_ROM	"roms/scsi/ncr53c8xx/NCR307.BIN"
-#define SYM53C8XX_SDMS4_ROM	"roms/scsi/ncr53c8xx/8xx_64.ROM"
+#define SYM53C8XX_SDMS4_ROM	"roms/scsi/ncr53c8xx/8xx_64.rom"
 
 #define HA_ID		  7
 
@@ -286,7 +286,7 @@ typedef struct {
     ncr53c8xx_request *current;
 
     int irq;
-	
+
     uint32_t dsa;
     uint32_t temp;
     uint32_t dnad;
@@ -640,11 +640,11 @@ ncr53c8xx_command_complete(void *priv, uint32_t status)
 {
     ncr53c8xx_t *dev = (ncr53c8xx_t *)priv;
     int out;
-	
+
     out = (dev->sstat1 & PHASE_MASK) == PHASE_DO;
     ncr53c8xx_log("(ID=%02i LUN=%02i) SCSI Command 0x%02x: Command complete status=%d\n", dev->current->tag, dev->current_lun, dev->last_command, (int)status);
     dev->status = status;
-    dev->command_complete = 2;	
+    dev->command_complete = 2;
     if (dev->waiting && dev->dbc != 0) {
 	/* Raise phase mismatch for short transfers.  */
 	ncr53c8xx_bad_phase(dev, out, PHASE_ST);
@@ -667,7 +667,7 @@ ncr53c8xx_do_dma(ncr53c8xx_t *dev, int out, uint8_t id)
 	ncr53c8xx_log("(ID=%02i LUN=%02i) SCSI Command 0x%02x: Device not present when attempting to do DMA\n", id, dev->current_lun, dev->last_command);
 	return;
     }
-	
+
     if (!dev->current->dma_len) {
 	/* Wait until data is available.  */
 	ncr53c8xx_log("(ID=%02i LUN=%02i) SCSI Command 0x%02x: DMA no data available\n", id, dev->current_lun, dev->last_command);
@@ -758,7 +758,7 @@ ncr53c8xx_do_command(ncr53c8xx_t *dev, uint8_t id)
 	ncr53c8xx_bad_selection(dev, id);
 	return 0;
     }
-	
+
     dev->current = (ncr53c8xx_request*)malloc(sizeof(ncr53c8xx_request));
     dev->current->tag = id;
 
@@ -1068,7 +1068,7 @@ again:
     dev->dsps = addr;
     dev->dcmd = insn >> 24;
     dev->dsp += 8;
-			
+
     switch (insn >> 30) {
 	case 0: /* Block move.  */
 		ncr53c8xx_log("00: Block move\n");
@@ -2002,7 +2002,7 @@ ncr53c8xx_io_readw(uint16_t addr, void *p)
 {
     ncr53c8xx_t *dev = (ncr53c8xx_t *)p;
     uint16_t val;
-	
+
     addr &= 0xff;
     val = ncr53c8xx_reg_readb(dev, addr);
     val |= ncr53c8xx_reg_readb(dev, addr + 1) << 8;
@@ -2015,7 +2015,7 @@ ncr53c8xx_io_readl(uint16_t addr, void *p)
 {
     ncr53c8xx_t *dev = (ncr53c8xx_t *)p;
     uint32_t val;
-	
+
     addr &= 0xff;
     val = ncr53c8xx_reg_readb(dev, addr);
     val |= ncr53c8xx_reg_readb(dev, addr + 1) << 8;
@@ -2036,7 +2036,7 @@ ncr53c8xx_io_writeb(uint16_t addr, uint8_t val, void *p)
 static void
 ncr53c8xx_io_writew(uint16_t addr, uint16_t val, void *p)
 {
-    ncr53c8xx_t *dev = (ncr53c8xx_t *)p;	
+    ncr53c8xx_t *dev = (ncr53c8xx_t *)p;
 	addr &= 0xff;
 	ncr53c8xx_reg_writeb(dev, addr, val & 0xff);
 	ncr53c8xx_reg_writeb(dev, addr + 1, (val >> 8) & 0xff);
@@ -2120,7 +2120,7 @@ ncr53c8xx_mmio_readl(uint32_t addr, void *p)
     val = ncr53c8xx_reg_readb(dev, addr);
     val |= ncr53c8xx_reg_readb(dev, addr + 1) << 8;
     val |= ncr53c8xx_reg_readb(dev, addr + 2) << 16;
-    val |= ncr53c8xx_reg_readb(dev, addr + 3) << 24;	
+    val |= ncr53c8xx_reg_readb(dev, addr + 3) << 24;
 
     return val;
 }
@@ -2182,7 +2182,7 @@ ncr53c8xx_ram_readl(uint32_t addr, void *p)
     val = ncr53c8xx_ram_readb(addr, p);
     val |= ncr53c8xx_ram_readb(addr + 1, p) << 8;
     val |= ncr53c8xx_ram_readb(addr + 2, p) << 16;
-    val |= ncr53c8xx_ram_readb(addr + 3, p) << 24;	
+    val |= ncr53c8xx_ram_readb(addr + 3, p) << 24;
 
     return val;
 }
@@ -2392,7 +2392,7 @@ ncr53c8xx_pci_write(int func, int addr, uint8_t val, void *p)
 	return;
     }
 
-    switch (addr) 
+    switch (addr)
 	{
 	case 0x04:
 		valxor = (val & 0x57) ^ ncr53c8xx_pci_regs[addr];
@@ -2458,7 +2458,7 @@ ncr53c8xx_pci_write(int func, int addr, uint8_t val, void *p)
 			if (dev->MMIOBase != 0)
 				ncr53c8xx_mem_set_addr(dev, dev->MMIOBase);
 		}
-		return;	
+		return;
 
 	case 0x19: case 0x1A: case 0x1B:
 		if (!dev->wide)
@@ -2478,7 +2478,7 @@ ncr53c8xx_pci_write(int func, int addr, uint8_t val, void *p)
 			if (dev->RAMBase != 0)
 				ncr53c8xx_ram_set_addr(dev, dev->RAMBase);
 		}
-		return;	
+		return;
 
 	case 0x30: case 0x31: case 0x32: case 0x33:
 		if (dev->has_bios == 0)
@@ -2567,13 +2567,13 @@ ncr53c8xx_init(const device_t *info)
 	dev->wide = 0;
     } else if (dev->chip == CHIP_815) {
 	dev->chip_rev = 0x04;
-	dev->nvr_path = "ncr53c815.nvr";	
+	dev->nvr_path = "ncr53c815.nvr";
 	dev->wide = 0;
     }
 
     ncr53c8xx_pci_bar[0].addr_regs[0] = 1;
-    ncr53c8xx_pci_bar[1].addr_regs[0] = 0;    
-    ncr53c8xx_pci_regs[0x04] = 3;	
+    ncr53c8xx_pci_bar[1].addr_regs[0] = 0;
+    ncr53c8xx_pci_regs[0x04] = 3;
 
     if (dev->has_bios == 2) {
 	ncr53c8xx_pci_bar[3].addr = 0xffff0000;
@@ -2595,7 +2595,7 @@ ncr53c8xx_init(const device_t *info)
 	ncr53c8xx_ram_init(dev, 0x0ffff000);
 	ncr53c8xx_ram_disable(dev);
     }
-    
+
     if (dev->has_bios)
 	ncr53c8xx_bios_disable(dev);
 
@@ -2613,7 +2613,7 @@ ncr53c8xx_init(const device_t *info)
 }
 
 
-static void 
+static void
 ncr53c8xx_close(void *priv)
 {
     ncr53c8xx_t *dev = (ncr53c8xx_t *)priv;
@@ -2634,95 +2634,114 @@ ncr53c8xx_close(void *priv)
 }
 
 static const device_config_t ncr53c8xx_pci_config[] = {
+// clang-format off
+    {
+        "bios", "BIOS", CONFIG_SELECTION, "", 1, "", { 0 },
         {
-		        "bios", "BIOS", CONFIG_SELECTION, "", 1, "", { 0 },
-                {
-                        {
-                                "SDMS 4.x BIOS", 2
-                        },
-                        {
-                                "SDMS 3.x BIOS", 1
-                        },
-                        {
-                                "Disable BIOS", 0
-                        },
-                        {
-                                ""
-                        }
-                },
+            { "SDMS 4.x BIOS", 2 },
+            { "SDMS 3.x BIOS", 1 },
+            { "Disable BIOS",  0 },
+            { ""                 }
         },
-	{
-		"", "", -1
-	}
+    },
+    { "", "", -1 }
+// clang-format on
 };
 
-
-const device_t ncr53c810_pci_device =
-{
-    "NCR 53c810",
-    DEVICE_PCI,
-    CHIP_810,
-    ncr53c8xx_init, ncr53c8xx_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+const device_t ncr53c810_pci_device = {
+    .name = "NCR 53c810",
+    .internal_name = "ncr53c810",
+    .flags = DEVICE_PCI,
+    .local = CHIP_810,
+    .init = ncr53c8xx_init,
+    .close = ncr53c8xx_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-const device_t ncr53c810_onboard_pci_device =
-{
-    "NCR 53c810 On-Board",
-    DEVICE_PCI,
-    0x8001,
-    ncr53c8xx_init, ncr53c8xx_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+const device_t ncr53c810_onboard_pci_device = {
+    .name = "NCR 53c810 On-Board",
+    .internal_name = "ncr53c810_onboard",
+    .flags = DEVICE_PCI,
+    .local = 0x8001,
+    .init = ncr53c8xx_init,
+    .close = ncr53c8xx_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-const device_t ncr53c815_pci_device =
-{
-    "NCR 53c815",
-    DEVICE_PCI,
-    CHIP_815,
-    ncr53c8xx_init, ncr53c8xx_close, NULL,
-    { NULL }, NULL, NULL,
+const device_t ncr53c815_pci_device = {
+    .name = "NCR 53c815",
+    .internal_name = "ncr53c815",
+    .flags = DEVICE_PCI,
+    .local = CHIP_815,
+    .init = ncr53c8xx_init,
+    .close = ncr53c8xx_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
     ncr53c8xx_pci_config
 };
 
-const device_t ncr53c820_pci_device =
-{
-    "NCR 53c820",
-    DEVICE_PCI,
-    CHIP_820,
-    ncr53c8xx_init, ncr53c8xx_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+const device_t ncr53c820_pci_device = {
+    .name = "NCR 53c820",
+    .internal_name = "ncr53c820",
+    .flags = DEVICE_PCI,
+    .local = CHIP_820,
+    .init = ncr53c8xx_init,
+    .close = ncr53c8xx_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-const device_t ncr53c825a_pci_device =
-{
-    "NCR 53c825A",
-    DEVICE_PCI,
-    CHIP_825,
-    ncr53c8xx_init, ncr53c8xx_close, NULL,
-    { NULL }, NULL, NULL,
-    ncr53c8xx_pci_config
+const device_t ncr53c825a_pci_device = {
+    .name = "NCR 53c825A",
+    .internal_name = "ncr53c825a",
+    .flags = DEVICE_PCI,
+    .local = CHIP_825,
+    .init = ncr53c8xx_init,
+    .close = ncr53c8xx_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = ncr53c8xx_pci_config
 };
 
-const device_t ncr53c860_pci_device =
-{
-    "NCR 53c860",
-    DEVICE_PCI,
-    CHIP_860,
-    ncr53c8xx_init, ncr53c8xx_close, NULL,
-    { NULL }, NULL, NULL,
-    ncr53c8xx_pci_config
+const device_t ncr53c860_pci_device = {
+    .name = "NCR 53c860",
+    .internal_name = "ncr53c860",
+    .flags = DEVICE_PCI,
+    .local = CHIP_860,
+    .init = ncr53c8xx_init,
+    .close = ncr53c8xx_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = ncr53c8xx_pci_config
 };
 
-const device_t ncr53c875_pci_device =
-{
-    "NCR 53c875",
-    DEVICE_PCI,
-    CHIP_875,
-    ncr53c8xx_init, ncr53c8xx_close, NULL,
-    { NULL }, NULL, NULL,
-    ncr53c8xx_pci_config
+const device_t ncr53c875_pci_device = {
+    .name = "NCR 53c875",
+    .internal_name = "ncr53c875",
+    .flags = DEVICE_PCI,
+    .local = CHIP_875,
+    .init = ncr53c8xx_init,
+    .close = ncr53c8xx_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = ncr53c8xx_pci_config
 };

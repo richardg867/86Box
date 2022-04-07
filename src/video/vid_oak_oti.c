@@ -28,11 +28,12 @@
 #include <86box/device.h>
 #include <86box/video.h>
 #include <86box/vid_svga.h>
+#include <86box/vid_svga_render.h>
 
 #define BIOS_037C_PATH			"roms/video/oti/bios.bin"
-#define BIOS_067_AMA932J_PATH	"roms/machines/ama932j/oti067.bin"
-#define BIOS_067_M300_08_PATH	"roms/machines/olivetti_m300_08/EVC_BIOS.ROM"
-#define BIOS_067_M300_15_PATH	"roms/machines/olivetti_m300_15/EVC_BIOS.ROM"
+#define BIOS_067_AMA932J_PATH	"roms/machines/ama932j/OTI067.BIN"
+#define BIOS_067_M300_08_PATH	"roms/machines/m30008/EVC_BIOS.ROM"
+#define BIOS_067_M300_15_PATH	"roms/machines/m30015/EVC_BIOS.ROM"
 #define BIOS_077_PATH			"roms/video/oti/oti077.vbi"
 
 
@@ -56,7 +57,7 @@ typedef struct {
     uint8_t pos;
     uint8_t enable_register;
     uint8_t dipswitch_val;
-	
+
     uint32_t vram_size;
     uint32_t vram_mask;
 } oti_t;
@@ -85,6 +86,14 @@ oti_out(uint16_t addr, uint8_t val, void *p)
 			return;
 		} else
 			break;
+		break;
+
+	case 0x3c6: case 0x3c7: case 0x3c8: case 0x3c9:
+		if (oti->chip_id == OTI_077)
+			sc1148x_ramdac_out(addr, 0, val, svga->ramdac, svga);
+		else
+			svga_out(addr, val, svga);
+		return;
 
 	case 0x3D4:
 		if (oti->chip_id)
@@ -118,7 +127,7 @@ oti_out(uint16_t addr, uint8_t val, void *p)
 		}
 		break;
 
-	case 0x3DE: 
+	case 0x3DE:
 		if (oti->chip_id)
 			oti->index = val & 0x1f;
 		else
@@ -194,13 +203,13 @@ oti_in(uint16_t addr, void *p)
     oti_t *oti = (oti_t *)p;
     svga_t *svga = &oti->svga;
     uint8_t idx, temp;
-	
+
     if (!oti->chip_id && !(oti->enable_register & 1) && (addr != 0x3C3))
 	return 0xff;
 
     if ((((addr&0xFFF0) == 0x3D0 || (addr&0xFFF0) == 0x3B0) && addr < 0x3de) &&
 	!(svga->miscout & 1)) addr ^= 0x60;
-	
+
     switch (addr) {
 	case 0x3C2:
 		if ((svga->vgapal[0].r + svga->vgapal[0].g + svga->vgapal[0].b) >= 0x50)
@@ -215,6 +224,11 @@ oti_in(uint16_t addr, void *p)
 		else
 			temp = oti->enable_register;
 		break;
+
+	case 0x3c6: case 0x3c7: case 0x3c8: case 0x3c9:
+		if (oti->chip_id == OTI_077)
+			return sc1148x_ramdac_in(addr, 0, svga->ramdac, svga);
+		return svga_in(addr, svga);
 
                 case 0x3CF:
                 return svga->gdcreg[svga->gdcaddr & 0xf];
@@ -280,12 +294,12 @@ oti_in(uint16_t addr, void *p)
 		temp = oti->index;
 		if (oti->chip_id)
 			temp |= (oti->chip_id << 5);
-		break;	       
+		break;
 
 	case 0x3DF:
 		idx = oti->index;
 		if (!oti->chip_id)
-			idx &= 0x1f; 
+			idx &= 0x1f;
 		if (idx == 0x10)
 			temp = oti->dipswitch_val;
 		else
@@ -325,7 +339,7 @@ oti_pos_in(uint16_t addr, void *p)
     oti_t *oti = (oti_t *)p;
 
     return(oti->pos);
-}	
+}
 
 
 static void
@@ -343,6 +357,14 @@ oti_recalctimings(svga_t *svga)
     if ((oti->regs[0x0d] & 0x0c) && !(oti->regs[0x0d] & 0x10)) svga->rowoffset <<= 1;
 
     svga->interlace = oti->regs[0x14] & 0x80;
+
+	if (svga->bpp == 16) {
+		svga->render = svga_render_16bpp_highres;
+		svga->hdisp >>= 1;
+	} else if (svga->bpp == 15) {
+		svga->render = svga_render_15bpp_highres;
+		svga->hdisp >>= 1;
+	}
 }
 
 
@@ -364,7 +386,7 @@ oti_init(const device_t *info)
 		oti->regs[0] = 0x08; /* FIXME: The BIOS wants to read this at index 0? This index is undocumented. */
 		/* io_sethandler(0x03c0, 32,
 			      oti_in, NULL, NULL, oti_out, NULL, NULL, oti); */
-		break;		
+		break;
 
 	case OTI_067_AMA932J:
 		romfn = BIOS_067_AMA932J_PATH;
@@ -406,6 +428,9 @@ oti_init(const device_t *info)
     svga_init(info, &oti->svga, oti, oti->vram_size << 10,
 	      oti_recalctimings, oti_in, oti_out, NULL, NULL);
 
+	if (oti->chip_id == OTI_077)
+		oti->svga.ramdac = device_add(&sc11487_ramdac_device); /*Actually a 82c487, probably a clone.*/
+
     io_sethandler(0x03c0, 32,
 		  oti_in, NULL, NULL, oti_out, NULL, NULL, oti);
 
@@ -434,7 +459,7 @@ oti_speed_changed(void *p)
 
     svga_recalctimings(&oti->svga);
 }
-	
+
 
 static void
 oti_force_redraw(void *p)
@@ -451,11 +476,13 @@ oti037c_available(void)
     return(rom_present(BIOS_037C_PATH));
 }
 
+
 static int
 oti067_ama932j_available(void)
 {
     return(rom_present(BIOS_067_AMA932J_PATH));
 }
+
 
 static int
 oti067_077_available(void)
@@ -463,139 +490,122 @@ oti067_077_available(void)
     return(rom_present(BIOS_077_PATH));
 }
 
+
 static int
 oti067_m300_available(void)
 {
     if (rom_present(BIOS_067_M300_15_PATH))
-		return(rom_present(BIOS_067_M300_15_PATH));
-	else
-		return(rom_present(BIOS_067_M300_08_PATH));
+        return(rom_present(BIOS_067_M300_15_PATH));
+    else
+        return(rom_present(BIOS_067_M300_08_PATH));
 }
 
 
-static const device_config_t oti067_config[] =
-{
-	{
-		"memory", "Memory size", CONFIG_SELECTION, "", 512, "", { 0 },
-		{
-			{
-				"256 kB", 256
-			},
-			{
-				"512 kB", 512
-			},
-			{
-				""
-			}
-		}
-	},
-	{
-		"", "", -1
-	}
+// clang-format off
+static const device_config_t oti067_config[] = {
+    {
+        "memory", "Memory size", CONFIG_SELECTION, "", 512, "", { 0 },
+        {
+            { "256 kB", 256 },
+            { "512 kB", 512 },
+            { ""            }
+        }
+    },
+    { "", "", -1 }
 };
 
-
-static const device_config_t oti067_ama932j_config[] =
-{
-	{
-		"memory", "Memory size", CONFIG_SELECTION, "", 256, "", { 0 },
-		{
-			{
-				"256 kB", 256
-			},
-			{
-				"512 kB", 512
-			},
-			{
-				""
-			}
-		}
-	},
-	{
-		"", "", -1
-	}
+static const device_config_t oti067_ama932j_config[] = {
+    {
+        "memory", "Memory size", CONFIG_SELECTION, "", 256, "", { 0 },
+        {
+            { "256 kB", 256 },
+            { "512 kB", 512 },
+            { ""            }
+        }
+    },
+    { "", "", -1 }
 };
 
+static const device_config_t oti077_config[] = {
+    {
+        "memory", "Memory size", CONFIG_SELECTION, "", 1024, "", { 0 },
+        {
+            { "256 kB", 256 },
+            { "512 kB", 512 },
+            { "1 MB", 1024 },
+            { "" }
+        }
+    },
+    { "", "", -1 }
+};
+// clang-format on
 
-static const device_config_t oti077_config[] =
-{
-	{
-		"memory", "Memory size", CONFIG_SELECTION, "", 1024, "", { 0 },
-		{
-			{
-				"256 kB", 256
-			},
-			{
-				"512 kB", 512
-			},
-			{
-				"1 MB", 1024
-			},
-			{
-				""
-			}
-		}
-	},
-	{
-		"", "", -1
-	}
+const device_t oti037c_device = {
+    .name = "Oak OTI-037C",
+    .internal_name = "oti037c",
+    .flags = DEVICE_ISA,
+    .local = 0,
+    .init = oti_init,
+    .close = oti_close,
+    .reset = NULL,
+    { .available = oti037c_available },
+    .speed_changed = oti_speed_changed,
+    .force_redraw = oti_force_redraw,
+    .config = NULL
 };
 
-const device_t oti037c_device =
-{
-	"Oak OTI-037C",
-	DEVICE_ISA,
-	0,
-	oti_init, oti_close, NULL,
-	{ oti037c_available },
-	oti_speed_changed,
-	oti_force_redraw
+const device_t oti067_device = {
+    .name = "Oak OTI-067",
+    .internal_name = "oti067",
+    .flags = DEVICE_ISA,
+    .local = 2,
+    .init = oti_init,
+    .close = oti_close,
+    .reset = NULL,
+    { .available = oti067_077_available },
+    .speed_changed = oti_speed_changed,
+    .force_redraw = oti_force_redraw,
+    .config = oti067_config
 };
 
-const device_t oti067_device =
-{
-	"Oak OTI-067",
-	DEVICE_ISA,
-	2,
-	oti_init, oti_close, NULL,
-	{ oti067_077_available },
-	oti_speed_changed,
-	oti_force_redraw,
-	oti067_config
+const device_t oti067_m300_device = {
+    .name = "Oak OTI-067 (Olivetti M300-08/15)",
+    .internal_name = "oti067_m300",
+    .flags = DEVICE_ISA,
+    .local = 4,
+    .init = oti_init,
+    .close = oti_close,
+    .reset = NULL,
+    { .available = oti067_m300_available },
+    .speed_changed = oti_speed_changed,
+    .force_redraw = oti_force_redraw,
+    .config = oti067_config
 };
 
-const device_t oti067_m300_device =
-{
-	"Oak OTI-067 (Olivetti M300-08/15)",
-	DEVICE_ISA,
-	4,
-	oti_init, oti_close, NULL,
-	{ oti067_m300_available },
-	oti_speed_changed,
-	oti_force_redraw,
-	oti067_config
+const device_t oti067_ama932j_device = {
+    .name = "Oak OTI-067 (AMA-932J)",
+    .internal_name = "oti067_ama932j",
+    .flags = DEVICE_ISA,
+    .local = 3,
+    .init = oti_init,
+    .close = oti_close,
+    .reset = NULL,
+    { .available = oti067_ama932j_available },
+    .speed_changed = oti_speed_changed,
+    .force_redraw = oti_force_redraw,
+    .config = oti067_ama932j_config
 };
 
-const device_t oti067_ama932j_device =
-{
-	"Oak OTI-067 (AMA-932J)",
-	DEVICE_ISA,
-	3,
-	oti_init, oti_close, NULL,
-	{ oti067_ama932j_available },
-	oti_speed_changed,
-	oti_force_redraw,
-	oti067_ama932j_config
-};
-
-const device_t oti077_device =
-{
-	"Oak OTI-077",
-	DEVICE_ISA,
-	5,
-	oti_init, oti_close, NULL,
-	{ oti067_077_available },
-	oti_speed_changed,
-	oti_force_redraw,
-	oti077_config
+const device_t oti077_device = {
+    .name = "Oak OTI-077",
+    .internal_name = "oti077",
+    .flags = DEVICE_ISA,
+    .local = 5,
+    .init = oti_init,
+    .close = oti_close,
+    .reset = NULL,
+    { .available = oti067_077_available },
+    .speed_changed = oti_speed_changed,
+    .force_redraw = oti_force_redraw,
+    .config = oti077_config
 };

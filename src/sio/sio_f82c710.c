@@ -63,7 +63,7 @@ typedef struct upc_t
 } upc_t;
 
 
-static void 
+static void
 f82c710_update_ports(upc_t *dev, int set)
 {
     uint16_t com_addr = 0;
@@ -81,26 +81,26 @@ f82c710_update_ports(upc_t *dev, int set)
 
     if (dev->regs[0] & 4) {
 	com_addr = dev->regs[4] * 4;
-	if (com_addr == SERIAL1_ADDR)
-		serial_setup(dev->uart[0], com_addr, 4);
-	else if (com_addr == SERIAL2_ADDR)
-		serial_setup(dev->uart[1], com_addr, 3);
+	if (com_addr == COM1_ADDR)
+		serial_setup(dev->uart[0], com_addr, COM1_IRQ);
+	else if (com_addr == COM2_ADDR)
+		serial_setup(dev->uart[1], com_addr, COM2_IRQ);
     }
 
     if (dev->regs[0] & 8) {
 	lpt_addr = dev->regs[6] * 4;
 	lpt1_init(lpt_addr);
-	if ((lpt_addr == 0x378) || (lpt_addr == 0x3bc))
-		lpt1_irq(7);
-	else if (lpt_addr == 0x278)
-		lpt1_irq(5);
+	if ((lpt_addr == LPT1_ADDR) || (lpt_addr == LPT_MDA_ADDR))
+		lpt1_irq(LPT1_IRQ);
+	else if (lpt_addr == LPT2_ADDR)
+		lpt1_irq(LPT2_IRQ);
     }
 
     if (dev->regs[12] & 0x80)
 	ide_pri_enable();
 
     if (dev->regs[12] & 0x20)
-	fdc_set_base(dev->fdc, 0x03f0);
+	fdc_set_base(dev->fdc, FDC_PRIMARY_ADDR);
 }
 
 
@@ -127,26 +127,26 @@ f82c606_update_ports(upc_t *dev, int set)
 
     switch (dev->regs[8] & 0xc0) {
 	case 0x40: nvr_int = 3; break;
-	case 0x80: uart1_int = 3; break;
-	case 0xc0: uart2_int = 3; break;
+	case 0x80: uart1_int = COM2_IRQ; break;
+	case 0xc0: uart2_int = COM2_IRQ; break;
     }
 
     switch (dev->regs[8] & 0x30) {
 	case 0x10: nvr_int = 4; break;
-	case 0x20: uart1_int = 4; break;
-	case 0x30: uart2_int = 4; break;
+	case 0x20: uart1_int = COM1_IRQ; break;
+	case 0x30: uart2_int = COM1_IRQ; break;
     }
 
     switch (dev->regs[8] & 0x0c) {
 	case 0x04: nvr_int = 5; break;
 	case 0x08: uart1_int = 5; break;
-	case 0x0c: lpt1_int = 5; break;
+	case 0x0c: lpt1_int = LPT2_IRQ; break;
     }
 
     switch (dev->regs[8] & 0x03) {
 	case 0x01: nvr_int = 7; break;
 	case 0x02: uart2_int = 7; break;
-	case 0x03: lpt1_int = 7; break;
+	case 0x03: lpt1_int = LPT1_IRQ; break;
     }
 
     if (dev->regs[0] & 1) {
@@ -176,7 +176,7 @@ f82c606_update_ports(upc_t *dev, int set)
 }
 
 
-static uint8_t 
+static uint8_t
 f82c710_config_read(uint16_t port, void *priv)
 {
     upc_t *dev = (upc_t *) priv;
@@ -197,7 +197,7 @@ f82c710_config_read(uint16_t port, void *priv)
 }
 
 
-static void 
+static void
 f82c710_config_write(uint16_t port, uint8_t val, void *priv)
 {
     upc_t *dev = (upc_t *) priv;
@@ -330,7 +330,7 @@ f82c710_init(const device_t *info)
 	dev->fdc = device_add(&fdc_at_device);
 
     dev->uart[0] = device_add_inst(&ns16450_device, 1);
-    dev->uart[1] = device_add_inst(&ns16450_device, 2);	
+    dev->uart[1] = device_add_inst(&ns16450_device, 2);
 
     io_sethandler(0x02fa, 0x0001, NULL, NULL, NULL, f82c710_config_write, NULL, NULL, dev);
     io_sethandler(0x03fa, 0x0001, NULL, NULL, NULL, f82c710_config_write, NULL, NULL, dev);
@@ -340,21 +340,30 @@ f82c710_init(const device_t *info)
     return dev;
 }
 
-
 const device_t f82c606_device = {
-    "82C606 CHIPSpak Multifunction Controller",
-    0,
-    606,
-    f82c710_init, f82c710_close, f82c710_reset,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "82C606 CHIPSpak Multifunction Controller",
+    .internal_name = "f82c606",
+    .flags = 0,
+    .local = 606,
+    .init = f82c710_init,
+    .close = f82c710_close,
+    .reset = f82c710_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t f82c710_device = {
-    "F82C710 UPC Super I/O",
-    0,
-    710,
-    f82c710_init, f82c710_close, f82c710_reset,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "F82C710 UPC Super I/O",
+    .internal_name = "f82c710",
+    .flags = 0,
+    .local = 710,
+    .init = f82c710_init,
+    .close = f82c710_close,
+    .reset = f82c710_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

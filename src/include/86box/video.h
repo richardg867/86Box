@@ -18,6 +18,7 @@
  *		Copyright 2016-2019 Miran Grca.
  *		Copyright 2017-2019 Fred N. van Kempen.
  */
+
 #ifndef EMU_VIDEO_H
 # define EMU_VIDEO_H
 
@@ -177,6 +178,7 @@ extern void	updatewindowsize(int x, int y);
 extern void	video_init(void);
 extern void	video_close(void);
 extern void	video_reset_close(void);
+extern void	video_pre_reset(int card);
 extern void	video_reset(int card);
 extern uint8_t	video_force_resize_get(void);
 extern void	video_force_resize_set(uint8_t res);
@@ -188,11 +190,10 @@ extern void	loadfont(char *s, int format);
 extern int	get_actual_size_x(void);
 extern int	get_actual_size_y(void);
 
-#ifdef ENABLE_VRAM_DUMP
-extern void	svga_dump_vram(void);
-#endif
-
 extern uint32_t	video_color_transform(uint32_t color);
+
+extern void	agpgart_set_aperture(void *handle, uint32_t base, uint32_t size, int enable);
+extern void	agpgart_set_gart(void *handle, uint32_t base);
 
 #ifdef __cplusplus
 }
@@ -223,24 +224,28 @@ extern const device_t compaq_ati28800_device;
 extern const device_t ati28800_wonderxl24_device;
 #endif
 
-/* Cirrus Logic CL-GD 54xx */
+/* Cirrus Logic GD54xx */
 extern const device_t gd5401_isa_device;
 extern const device_t gd5402_isa_device;
 extern const device_t gd5402_onboard_device;
 extern const device_t gd5420_isa_device;
 extern const device_t gd5422_isa_device;
 extern const device_t gd5424_vlb_device;
+extern const device_t gd5426_isa_device;
+extern const device_t gd5426_diamond_speedstar_pro_a1_isa_device;
 extern const device_t gd5426_vlb_device;
 extern const device_t gd5426_onboard_device;
 extern const device_t gd5428_isa_device;
 extern const device_t gd5428_vlb_device;
+extern const device_t gd5428_diamond_speedstar_pro_b1_vlb_device;
 extern const device_t gd5428_mca_device;
 extern const device_t gd5428_onboard_device;
 extern const device_t gd5429_isa_device;
 extern const device_t gd5429_vlb_device;
-extern const device_t gd5430_vlb_device;
+extern const device_t gd5430_diamond_speedstar_pro_se_a8_vlb_device;
 extern const device_t gd5430_pci_device;
 extern const device_t gd5434_isa_device;
+extern const device_t gd5434_diamond_speedstar_64_a3_isa_device;
 extern const device_t gd5434_onboard_pci_device;
 extern const device_t gd5434_vlb_device;
 extern const device_t gd5434_pci_device;
@@ -265,7 +270,11 @@ extern const device_t f82c425_video_device;
 /* NCR NGA */
 extern const device_t nga_device;
 
+/* Tseng ET3000AX */
+extern const device_t et3000_isa_device;
+
 /* Tseng ET4000AX */
+extern const device_t et4000_tc6058af_isa_device;
 extern const device_t et4000_isa_device;
 extern const device_t et4000k_isa_device;
 extern const device_t et4000k_tg286_isa_device;
@@ -277,6 +286,8 @@ extern const device_t et4000w32_device;
 extern const device_t et4000w32_onboard_device;
 extern const device_t et4000w32i_isa_device;
 extern const device_t et4000w32i_vlb_device;
+extern const device_t et4000w32p_videomagic_revb_vlb_device;
+extern const device_t et4000w32p_videomagic_revb_pci_device;
 extern const device_t et4000w32p_revc_vlb_device;
 extern const device_t et4000w32p_revc_pci_device;
 extern const device_t et4000w32p_vlb_device;
@@ -307,7 +318,8 @@ extern const device_t im1024_device;
 extern const device_t pgc_device;
 
 #if defined(DEV_BRANCH) && defined(USE_MGA)
-/* Matrox Mystique */
+/* Matrox MGA */
+extern const device_t millennium_device;
 extern const device_t mystique_device;
 extern const device_t mystique_220_device;
 #endif
@@ -317,7 +329,6 @@ extern const device_t oti037c_device;
 extern const device_t oti067_device;
 extern const device_t oti067_acer386_device;
 extern const device_t oti067_ama932j_device;
-extern const device_t oti067_m300_device;
 extern const device_t oti077_device;
 
 /* Paradise/WD (S)VGA */
@@ -338,6 +349,7 @@ extern const device_t s3_diamond_stealth_vram_isa_device;
 extern const device_t s3_ami_86c924_isa_device;
 extern const device_t s3_metheus_86c928_isa_device;
 extern const device_t s3_metheus_86c928_vlb_device;
+extern const device_t s3_spea_mercury_lite_86c928_pci_device;
 extern const device_t s3_spea_mirage_86c801_isa_device;
 extern const device_t s3_spea_mirage_86c805_vlb_device;
 extern const device_t s3_mirocrystal_8s_805_vlb_device;
@@ -363,6 +375,7 @@ extern const device_t s3_mirocrystal_20sv_964_pci_device;
 extern const device_t s3_mirocrystal_20sd_864_vlb_device;
 extern const device_t s3_phoenix_vision864_pci_device;
 extern const device_t s3_phoenix_vision864_vlb_device;
+extern const device_t s3_9fx_531_pci_device;
 extern const device_t s3_phoenix_vision868_pci_device;
 extern const device_t s3_phoenix_vision868_vlb_device;
 extern const device_t s3_diamond_stealth64_pci_device;
@@ -370,17 +383,20 @@ extern const device_t s3_diamond_stealth64_vlb_device;
 extern const device_t s3_diamond_stealth64_964_pci_device;
 extern const device_t s3_diamond_stealth64_964_vlb_device;
 extern const device_t s3_mirovideo_40sv_ergo_968_pci_device;
+extern const device_t s3_9fx_771_pci_device;
 extern const device_t s3_phoenix_vision968_pci_device;
 extern const device_t s3_phoenix_vision968_vlb_device;
 extern const device_t s3_spea_mercury_p64v_pci_device;
 extern const device_t s3_elsa_winner2000_pro_x_964_pci_device;
 extern const device_t s3_elsa_winner2000_pro_x_pci_device;
 extern const device_t s3_trio64v2_dx_pci_device;
+extern const device_t s3_trio64v2_dx_onboard_pci_device;
 
 /* S3 ViRGE */
 extern const device_t s3_virge_325_pci_device;
 extern const device_t s3_diamond_stealth_2000_pci_device;
 extern const device_t s3_diamond_stealth_3000_pci_device;
+extern const device_t s3_stb_velocity_3d_pci_device;
 extern const device_t s3_virge_375_pci_device;
 extern const device_t s3_diamond_stealth_2000pro_pci_device;
 extern const device_t s3_virge_385_pci_device;
@@ -398,6 +414,7 @@ extern const device_t sigma_device;
 extern const device_t tgui9400cxi_device;
 extern const device_t tgui9440_vlb_device;
 extern const device_t tgui9440_pci_device;
+extern const device_t tgui9440_onboard_pci_device;
 extern const device_t tgui9660_pci_device;
 extern const device_t tgui9680_pci_device;
 
@@ -427,7 +444,9 @@ extern const device_t velocity_100_agp_device;
 
 /* Wyse 700 */
 extern const device_t wy700_device;
-#endif
 
+/* AGP GART */
+extern const device_t agpgart_device;
+#endif
 
 #endif	/*EMU_VIDEO_H*/

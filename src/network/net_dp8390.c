@@ -224,7 +224,7 @@ dp8390_write_cr(dp8390_t *dev, uint32_t val)
 
 	/* Send the packet to the system driver */
 	dev->CR.tx_packet = 1;
-	
+
 	network_tx(&dev->mem[(dev->tx_page_start * 256) - dev->mem_start], dev->tx_bytes);
 
 	/* some more debug */
@@ -835,7 +835,7 @@ dp8390_page2_read(dp8390_t *dev, uint32_t off, unsigned int len)
 {
     dp8390_log("DP8390: Page2 read from register 0x%02x, len=%u\n",
 	       off, len);
-  
+
     switch(off) {
 	case 0x01:	/* PSTART */
 		return(dev->page_start);
@@ -1111,10 +1111,16 @@ dp8390_close(void *priv)
 }
 
 
-const device_t dp8390_device =
-{
-        "DP8390 Network Interface Controller",
-        0, 0,
-        dp8390_init, dp8390_close,
-	NULL, { NULL }, NULL, NULL
+const device_t dp8390_device = {
+    .name = "DP8390 Network Interface Controller",
+    .internal_name = "dp8390",
+    .flags = 0,
+    .local = 0,
+    .init = dp8390_init,
+    .close = dp8390_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

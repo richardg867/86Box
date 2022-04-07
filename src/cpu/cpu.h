@@ -236,7 +236,6 @@ typedef struct {
     uint32_t	cesr;			/* 0x00000011 */
 
     /* Pentium Pro, Pentium II Klamath, and Pentium II Deschutes MSR's */
-    uint64_t	ecx17;			/* 0x00000017 - Only on Pentium II Deschutes */
     uint64_t	apic_base;		/* 0x0000001b - Should the Pentium not also have this? */
     uint64_t	ecx79;			/* 0x00000079 */
 
@@ -263,6 +262,9 @@ typedef struct {
     uint32_t	sysenter_eip;		/* 0x00000176 - SYSENTER/SYSEXIT MSR's */
 
     /* Pentium Pro, Pentium II Klamath, and Pentium II Deschutes MSR's */
+    uint64_t	mcg_ctl;		/* 0x0000017b - Machine Check Architecture */
+
+    /* Pentium Pro, Pentium II Klamath, and Pentium II Deschutes MSR's */
     uint64_t	ecx186, ecx187;		/* 0x00000186, 0x00000187 */
     uint64_t	ecx1e0;			/* 0x000001e0 */
 
@@ -283,10 +285,7 @@ typedef struct {
     uint64_t	mtrr_deftype;		/* 0x000002ff */
 
     /* Pentium Pro, Pentium II Klamath, and Pentium II Deschutes MSR's */
-    uint64_t	ecx404;			/* 0x00000404 - Model Identification MSR's used by some Acer BIOSes */
-    uint64_t	ecx408;			/* 0x00000408 */
-    uint64_t	ecx40c;			/* 0x0000040c */
-    uint64_t	ecx410;			/* 0x00000410 */
+    uint64_t	mca_ctl[5];		/* 0x00000400, 0x00000404, 0x00000408, 0x0000040c, 0x00000410 - Machine Check Architecture */
     uint64_t	ecx570;			/* 0x00000570 */
 
     /* IBM 386SLC, 486SLC, and 486BL MSR's */
@@ -355,7 +354,11 @@ typedef struct {
     uint8_t	ssegs, ismmx,
 		abrt, _smi_line;
 
+#ifdef FPU_CYCLES
+    int		_cycles, _fpu_cycles, _in_smm;
+#else
     int		_cycles, _in_smm;
+#endif
 
     uint16_t	npxs, npxc;
 
@@ -458,6 +461,9 @@ COMPILE_TIME_ASSERT(sizeof(cpu_state_t) <= 128)
 #define DI	cpu_state.regs[7].w
 
 #define cycles	cpu_state._cycles
+#ifdef FPU_CYCLES
+#define fpu_cycles	cpu_state._fpu_cycles
+#endif
 
 #define cpu_rm	cpu_state.rm_data.rm_mod_reg.rm
 #define cpu_mod	cpu_state.rm_data.rm_mod_reg.mod
@@ -542,6 +548,9 @@ extern uint64_t		amd_efer, star;
 #define msw		cpu_state.CR0.w
 extern uint32_t		cr2, cr3, cr4;
 extern uint32_t		dr[8];
+extern uint32_t		_tr[8];
+extern uint32_t		cache_index;
+extern uint8_t		_cache[2048];
 
 
 /*Segments -
@@ -656,6 +665,7 @@ extern void	resetx86(void);
 extern void	refreshread(void);
 extern void	resetreadlookup(void);
 extern void	softresetx86(void);
+extern void	hardresetx86(void);
 extern void	x86_int(int num);
 extern void	x86_int_sw(int num);
 extern int	x86_int_sw_rm(int num);

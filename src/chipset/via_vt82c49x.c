@@ -133,9 +133,9 @@ vt82c49x_recalc(vt82c49x_t *dev)
 			state = (dev->regs[0x33] & 0x10) ? MEM_WRITE_ROMCS : MEM_WRITE_EXTERNAL;
 
 		if ((dev->regs[0x32]) & (1 << (bit + 1)))
-			state = MEM_READ_INTERNAL;
+			state |= MEM_READ_INTERNAL;
 		else
-			state = (dev->regs[0x33] & 0x10) ? MEM_READ_ROMCS : MEM_READ_EXTERNAL;
+			state |= (dev->regs[0x33] & 0x10) ? MEM_READ_ROMCS : MEM_READ_EXTERNAL;
 	} else if ((base >= 0xe8000) && (base <= 0xeffff)) {
 		if (dev->regs[0x40] & 0x20)
 			state = MEM_WRITE_DISABLED;
@@ -354,46 +354,62 @@ vt82c49x_init(const device_t *info)
     pic_elcr_set_enabled(1);
 
     vt82c49x_recalc(dev);
-    
+
     return dev;
 }
 
-
 const device_t via_vt82c49x_device = {
-    "VIA VT82C49X",
-    0,
-    0,
-    vt82c49x_init, vt82c49x_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "VIA VT82C49X",
+    .internal_name = "via_vt82c49x",
+    .flags = 0,
+    .local = 0,
+    .init = vt82c49x_init,
+    .close = vt82c49x_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
-
 
 const device_t via_vt82c49x_pci_device = {
-    "VIA VT82C49X PCI",
-    DEVICE_PCI,
-    0,
-    vt82c49x_init, vt82c49x_close, vt82c49x_reset,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "VIA VT82C49X PCI",
+    .internal_name = "via_vt82c49x_pci",
+    .flags = DEVICE_PCI,
+    .local = 0,
+    .init = vt82c49x_init,
+    .close = vt82c49x_close,
+    .reset = vt82c49x_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
-
 
 const device_t via_vt82c49x_ide_device = {
-    "VIA VT82C49X (With IDE)",
-    0,
-    1,
-    vt82c49x_init, vt82c49x_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "VIA VT82C49X (With IDE)",
+    .internal_name = "via_vt82c49x_ide",
+    .flags = 0,
+    .local = 1,
+    .init = vt82c49x_init,
+    .close = vt82c49x_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
 const device_t via_vt82c49x_pci_ide_device = {
-    "VIA VT82C49X PCI (With IDE)",
-    DEVICE_PCI,
-    1,
-    vt82c49x_init, vt82c49x_close, vt82c49x_reset,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "VIA VT82C49X PCI (With IDE)",
+    .internal_name = "via_vt82c49x_pci_ide",
+    .flags = DEVICE_PCI,
+    .local = 1,
+    .init = vt82c49x_init,
+    .close = vt82c49x_close,
+    .reset = vt82c49x_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

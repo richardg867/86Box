@@ -42,7 +42,7 @@
 
 typedef struct
 {
-	FILE *file; /* Used for HDD_IMAGE_RAW, HDD_IMAGE_HDI, and HDD_IMAGE_HDX. */ 
+	FILE *file; /* Used for HDD_IMAGE_RAW, HDD_IMAGE_HDI, and HDD_IMAGE_HDX. */
 	MVHDMeta* vhd; /* Used for HDD_IMAGE_VHD. */
 	uint32_t base;
 	uint32_t pos, last_sector;
@@ -248,10 +248,14 @@ hdd_image_load(int id)
 	uint64_t s = 0;
 	char *fn = hdd[id].fn;
 	int is_hdx[2] = { 0, 0 };
-	int is_vhd[2] = { 0, 0 };   
-	int vhd_error = 0; 
+	int is_vhd[2] = { 0, 0 };
+	int vhd_error = 0;
 
 	memset(empty_sector, 0, sizeof(empty_sector));
+	if (fn) {
+		plat_path_normalize(fn);
+	}
+
 
 	hdd_images[id].base = 0;
 
@@ -469,7 +473,7 @@ hdd_image_load(int id)
 		hdd_images[id].last_sector = (uint32_t) (full_size >> 9) - 1;
 		hdd_images[id].loaded = 1;
 		ret = 1;
-	}   
+	}
 
 	return ret;
 }

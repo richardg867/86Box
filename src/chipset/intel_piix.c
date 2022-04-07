@@ -47,7 +47,7 @@
 #include <86box/hdc_ide_sff8038i.h>
 #include <86box/usb.h>
 #include <86box/machine.h>
-#include <86box/smbus_piix4.h>
+#include <86box/smbus.h>
 #include <86box/chipset.h>
 
 
@@ -62,6 +62,7 @@ typedef struct _piix_ {
     uint8_t		cur_readout_reg, rev,
 			type, func_shift,
 			max_func, pci_slot,
+			no_mirq0, pad,
 			regs[4][256],
 			readout_regs[256], board_config[2];
     uint16_t		func0_id, nvr_io_base,
@@ -281,7 +282,7 @@ piix_trap_io(int size, uint16_t addr, uint8_t write, uint8_t val, void *priv)
 
     if (*(trap->en_reg) & trap->en_mask) {
 	*(trap->sts_reg) |= trap->sts_mask;
-	acpi_raise_smi(trap->dev->acpi);
+	acpi_raise_smi(trap->dev->acpi, 1);
     }
 }
 
@@ -690,6 +691,8 @@ piix_write(int func, int addr, uint8_t val, void *priv)
 	case 0xab:
 		if (dev->type == 3)
 			fregs[addr] &= (val & 0x01);
+		else if (dev->type < 3)
+			fregs[addr] = val;
 		break;
 	case 0xb0:
 		if (dev->type == 4)
@@ -1278,7 +1281,7 @@ piix_reset_hard(piix_t *dev)
 
     /* Function 3: Power Management */
     if (dev->type > 3) {
-	fregs = (uint8_t *) dev->regs[3];	
+	fregs = (uint8_t *) dev->regs[3];
 	piix_log("PIIX Function 3: %02X%02X:%02X%02X\n", fregs[0x01], fregs[0x00], fregs[0x03], fregs[0x02]);
 	fregs[0x06] = 0x80; fregs[0x07] = 0x02;
 	if (dev->type > 4)
@@ -1406,6 +1409,17 @@ piix_reset(void *p)
 	piix_write(3, 0x91, 0x00, p);
 	piix_write(3, 0xd2, 0x00, p);
     }
+
+    sff_set_irq_mode(dev->bm[0], 0, 0);
+    sff_set_irq_mode(dev->bm[1], 0, 0);
+
+    if (dev->no_mirq0 || (dev->type >= 4)) {
+	sff_set_irq_mode(dev->bm[0], 1, 0);
+	sff_set_irq_mode(dev->bm[1], 1, 0);
+    } else {
+	sff_set_irq_mode(dev->bm[0], 1, 2);
+	sff_set_irq_mode(dev->bm[1], 1, 2);
+    }
 }
 
 
@@ -1445,7 +1459,8 @@ static void
     dev->type = info->local & 0x0f;
     /* If (dev->type == 4) and (dev->rev & 0x08), then this is PIIX4E. */
     dev->rev = (info->local >> 4) & 0x0f;
-    dev->func_shift = info->local >> 8;
+    dev->func_shift = (info->local >> 8) & 0x0f;
+    dev->no_mirq0 = (info->local >> 12) & 0x0f;
     dev->func0_id = info->local >> 16;
 
     dev->pci_slot = pci_add_card(PCI_ADD_SOUTHBRIDGE, piix_read, piix_write, dev);
@@ -1459,6 +1474,17 @@ static void
 	   so set our devices IDE devices to force ATA-3 (no DMA). */
 	ide_board_set_force_ata3(0, 1);
 	ide_board_set_force_ata3(1, 1);
+    }
+
+    sff_set_irq_mode(dev->bm[0], 0, 0);
+    sff_set_irq_mode(dev->bm[1], 0, 0);
+
+    if (dev->no_mirq0 || (dev->type >= 4)) {
+	sff_set_irq_mode(dev->bm[0], 1, 0);
+	sff_set_irq_mode(dev->bm[1], 1, 0);
+    } else {
+	sff_set_irq_mode(dev->bm[0], 1, 2);
+	sff_set_irq_mode(dev->bm[1], 1, 2);
     }
 
     if (dev->type >= 3)
@@ -1573,87 +1599,100 @@ static void
     return dev;
 }
 
-
-const device_t piix_device =
-{
-    "Intel 82371FB (PIIX)",
-    DEVICE_PCI,
-    0x122e0101,
-    piix_init, 
-    piix_close, 
-    piix_reset,
-    { NULL },
-    piix_speed_changed,
-    NULL,
-    NULL
+const device_t piix_device = {
+    .name = "Intel 82371FB (PIIX)",
+    .internal_name = "piix",
+    .flags = DEVICE_PCI,
+    .local = 0x122e0101,
+    .init = piix_init,
+    .close = piix_close,
+    .reset = piix_reset,
+    { .available = NULL },
+    .speed_changed = piix_speed_changed,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-const device_t piix_rev02_device =
-{
-    "Intel 82371FB (PIIX) (Faulty BusMastering!!)",
-    DEVICE_PCI,
-    0x122e0121,
-    piix_init, 
-    piix_close, 
-    piix_reset,
-    { NULL },
-    piix_speed_changed,
-    NULL,
-    NULL
+const device_t piix_rev02_device = {
+    .name = "Intel 82371FB (PIIX) (Faulty BusMastering!!)",
+    .internal_name = "piix_rev02",
+    .flags = DEVICE_PCI,
+    .local = 0x122e0121,
+    .init = piix_init,
+    .close = piix_close,
+    .reset = piix_reset,
+    { .available = NULL },
+    .speed_changed = piix_speed_changed,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-const device_t piix3_device =
-{
-    "Intel 82371SB (PIIX3)",
-    DEVICE_PCI,
-    0x70000403,
-    piix_init, 
-    piix_close, 
-    piix_reset,
-    { NULL },
-    piix_speed_changed,
-    NULL,
-    NULL
+const device_t piix3_device = {
+    .name = "Intel 82371SB (PIIX3)",
+    .internal_name = "piix3",
+    .flags = DEVICE_PCI,
+    .local = 0x70000403,
+    .init = piix_init,
+    .close = piix_close,
+    .reset = piix_reset,
+    { .available = NULL },
+    .speed_changed = piix_speed_changed,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-const device_t piix4_device =
-{
-    "Intel 82371AB/EB (PIIX4/PIIX4E)",
-    DEVICE_PCI,
-    0x71100004,
-    piix_init, 
-    piix_close, 
-    piix_reset,
-    { NULL },
-    piix_speed_changed,
-    NULL,
-    NULL
+const device_t piix3_ioapic_device = {
+    .name = "Intel 82371SB (PIIX3) (Boards with I/O APIC)",
+    .internal_name = "piix3_ioapic",
+    .flags = DEVICE_PCI,
+    .local = 0x70001403,
+    .init = piix_init,
+    .close = piix_close,
+    .reset = piix_reset,
+    { .available = NULL },
+    .speed_changed = piix_speed_changed,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-const device_t piix4e_device =
-{
-    "Intel 82371EB (PIIX4E)",
-    DEVICE_PCI,
-    0x71100094,
-    piix_init, 
-    piix_close, 
-    piix_reset,
-    { NULL },
-    piix_speed_changed,
-    NULL,
-    NULL
+const device_t piix4_device = {
+    .name = "Intel 82371AB/EB (PIIX4/PIIX4E)",
+    .internal_name = "piix4",
+    .flags = DEVICE_PCI,
+    .local = 0x71100004,
+    .init = piix_init,
+    .close = piix_close,
+    .reset = piix_reset,
+    { .available = NULL },
+    .speed_changed = piix_speed_changed,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-const device_t slc90e66_device =
-{
-    "SMSC SLC90E66 (Victory66)",
-    DEVICE_PCI,
-    0x94600005,
-    piix_init, 
-    piix_close, 
-    piix_reset,
-    { NULL },
-    piix_speed_changed,
-    NULL,
-    NULL
+const device_t piix4e_device = {
+    .name = "Intel 82371EB (PIIX4E)",
+    .internal_name = "piix4e",
+    .flags = DEVICE_PCI,
+    .local = 0x71100094,
+    .init = piix_init,
+    .close = piix_close,
+    .reset = piix_reset,
+    { .available = NULL },
+    .speed_changed = piix_speed_changed,
+    .force_redraw = NULL,
+    .config = NULL
+};
+
+const device_t slc90e66_device = {
+    .name = "SMSC SLC90E66 (Victory66)",
+    .internal_name = "slc90e66",
+    .flags = DEVICE_PCI,
+    .local = 0x94600005,
+    .init = piix_init,
+    .close = piix_close,
+    .reset = piix_reset,
+    { .available = NULL },
+    .speed_changed = piix_speed_changed,
+    .force_redraw = NULL,
+    .config = NULL
 };

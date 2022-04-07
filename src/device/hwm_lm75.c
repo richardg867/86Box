@@ -187,13 +187,14 @@ lm75_remap(lm75_t *dev, uint8_t addr)
 {
     lm75_log("LM75: remapping to SMBus %02Xh\n", addr);
 
-    if (dev->i2c_addr < 0x80)
+    if (dev->i2c_enabled)
 	i2c_removehandler(i2c_smbus, dev->i2c_addr, 1, lm75_i2c_start, lm75_i2c_read, lm75_i2c_write, NULL, dev);
 
     if (addr < 0x80)
 	i2c_sethandler(i2c_smbus, addr, 1, lm75_i2c_start, lm75_i2c_read, lm75_i2c_write, NULL, dev);
 
-    dev->i2c_addr = addr;
+    dev->i2c_addr = addr & 0x7f;
+    dev->i2c_enabled = !(addr & 0x80);
 }
 
 
@@ -203,7 +204,7 @@ lm75_reset(lm75_t *dev)
     dev->regs[0x3] = 0x4b;
     dev->regs[0x5] = 0x50;
 
-    lm75_remap(dev, dev->local & 0x7f);
+    lm75_remap(dev, dev->i2c_addr | (dev->i2c_enabled ? 0x00 : 0x80));
 }
 
 
@@ -231,6 +232,9 @@ lm75_init(const device_t *info)
 	hwm_values.temperatures[dev->local >> 8] = 30;
     dev->values = &hwm_values;
 
+    dev->i2c_addr = dev->local & 0x7f;
+    dev->i2c_enabled = 1;
+
     lm75_reset(dev);
 
     return dev;
@@ -239,22 +243,32 @@ lm75_init(const device_t *info)
 
 /* LM75 on SMBus address 4Ah, reporting temperatures[1]. */
 const device_t lm75_1_4a_device = {
-    "National Semiconductor LM75 Temperature Sensor",
-    DEVICE_ISA,
-    0x14a,
-    lm75_init, lm75_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "National Semiconductor LM75 Temperature Sensor",
+    .internal_name = "lm75_1_4a",
+    .flags = DEVICE_ISA,
+    .local = 0x14a,
+    .init = lm75_init,
+    .close = lm75_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 
 /* LM75 secondary/tertiary temperature sensors built into
    the Winbond W83781D family. Not to be used stand-alone. */
 const device_t lm75_w83781d_device = {
-    "Winbond W83781D Secondary Temperature Sensor",
-    DEVICE_ISA,
-    0,
-    lm75_init, lm75_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "Winbond W83781D Secondary Temperature Sensor",
+    .internal_name = "lm75_w83781d",
+    .flags = DEVICE_ISA,
+    .local = 0,
+    .init = lm75_init,
+    .close = lm75_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

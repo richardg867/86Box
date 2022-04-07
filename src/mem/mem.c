@@ -36,6 +36,7 @@
 #include <86box/mem.h>
 #include <86box/plat.h>
 #include <86box/rom.h>
+#include <86box/gdbstub.h>
 #ifdef USE_DYNAREC
 # include "codegen_public.h"
 #else
@@ -427,7 +428,7 @@ uint64_t
 mmutranslatereal(uint32_t addr, int rw)
 {
     /* Fast path to return invalid without any call if an exception has occurred beforehand. */
-    if (cpu_state.abrt) 
+    if (cpu_state.abrt)
 	return 0xffffffffffffffffULL;
 
     if (cr4 & CR4_PAE)
@@ -442,7 +443,7 @@ uint32_t
 mmutranslatereal32(uint32_t addr, int rw)
 {
     /* Fast path to return invalid without any call if an exception has occurred beforehand. */
-    if (cpu_state.abrt) 
+    if (cpu_state.abrt)
 	return (uint32_t) 0xffffffffffffffffULL;
 
     return (uint32_t) mmutranslatereal(addr, rw);
@@ -455,7 +456,7 @@ mmutranslate_noabrt_normal(uint32_t addr, int rw)
     uint32_t temp,temp2,temp3;
     uint32_t addr2;
 
-    if (cpu_state.abrt) 
+    if (cpu_state.abrt)
 	return 0xffffffffffffffffULL;
 
     addr2 = ((cr3 & ~0xfff) + ((addr >> 20) & 0xffc));
@@ -488,7 +489,7 @@ mmutranslate_noabrt_pae(uint32_t addr, int rw)
     uint64_t temp,temp2,temp3,temp4;
     uint64_t addr2,addr3,addr4;
 
-    if (cpu_state.abrt) 
+    if (cpu_state.abrt)
 	return 0xffffffffffffffffULL;
 
     addr2 = (cr3 & ~0x1f) + ((addr >> 27) & 0x18);
@@ -527,7 +528,7 @@ uint64_t
 mmutranslate_noabrt(uint32_t addr, int rw)
 {
     /* Fast path to return invalid without any call if an exception has occurred beforehand. */
-    if (cpu_state.abrt) 
+    if (cpu_state.abrt)
 	return 0xffffffffffffffffULL;
 
     if (cr4 & CR4_PAE)
@@ -675,7 +676,7 @@ getpccache(uint32_t a)
 		else
 			cpu_prefetch_cycles = cpu_mem_prefetch_cycles;
 	}
-	
+
 	return &_mem_exec[a64 >> MEM_GRANULARITY_BITS][(uintptr_t)(a64 & MEM_GRANULARITY_PAGE) - (uintptr_t)(a2 & ~0xfff)];
     }
 
@@ -783,6 +784,8 @@ readmembl(uint32_t addr)
     mem_mapping_t *map;
     uint64_t a;
 
+    GDBSTUB_MEM_ACCESS(addr, GDBSTUB_MEM_READ, 1);
+
     addr64 = (uint64_t) addr;
     mem_logical_addr = addr;
 
@@ -810,6 +813,8 @@ writemembl(uint32_t addr, uint8_t val)
 {
     mem_mapping_t *map;
     uint64_t a;
+
+    GDBSTUB_MEM_ACCESS(addr, GDBSTUB_MEM_WRITE, 1);
 
     addr64 = (uint64_t) addr;
     mem_logical_addr = addr;
@@ -842,6 +847,8 @@ readmembl_no_mmut(uint32_t addr, uint32_t a64)
 {
     mem_mapping_t *map;
 
+    GDBSTUB_MEM_ACCESS(addr, GDBSTUB_MEM_READ, 1);
+
     mem_logical_addr = addr;
 
     if (cr0 >> 31) {
@@ -865,6 +872,8 @@ void
 writemembl_no_mmut(uint32_t addr, uint32_t a64, uint8_t val)
 {
     mem_mapping_t *map;
+
+    GDBSTUB_MEM_ACCESS(addr, GDBSTUB_MEM_WRITE, 1);
 
     mem_logical_addr = addr;
 
@@ -896,6 +905,7 @@ readmemwl(uint32_t addr)
 
     addr64a[0] = addr;
     addr64a[1] = addr + 1;
+    GDBSTUB_MEM_ACCESS_FAST(addr64a, GDBSTUB_MEM_READ, 2);
 
     mem_logical_addr = addr;
 
@@ -957,6 +967,7 @@ writememwl(uint32_t addr, uint16_t val)
 
     addr64a[0] = addr;
     addr64a[1] = addr + 1;
+    GDBSTUB_MEM_ACCESS_FAST(addr64a, GDBSTUB_MEM_WRITE, 2);
 
     mem_logical_addr = addr;
 
@@ -1029,6 +1040,8 @@ readmemwl_no_mmut(uint32_t addr, uint32_t *a64)
 {
     mem_mapping_t *map;
 
+    GDBSTUB_MEM_ACCESS(addr, GDBSTUB_MEM_READ, 2);
+
     mem_logical_addr = addr;
 
     if (addr & 1) {
@@ -1075,6 +1088,8 @@ void
 writememwl_no_mmut(uint32_t addr, uint32_t *a64, uint16_t val)
 {
     mem_mapping_t *map;
+
+    GDBSTUB_MEM_ACCESS(addr, GDBSTUB_MEM_WRITE, 2);
 
     mem_logical_addr = addr;
 
@@ -1135,6 +1150,7 @@ readmemll(uint32_t addr)
 
     for (i = 0; i < 4; i++)
 	addr64a[i] = (uint64_t) (addr + i);
+    GDBSTUB_MEM_ACCESS_FAST(addr64a, GDBSTUB_MEM_READ, 4);
 
     mem_logical_addr = addr;
 
@@ -1214,6 +1230,7 @@ writememll(uint32_t addr, uint32_t val)
 
     for (i = 0; i < 4; i++)
 	addr64a[i] = (uint64_t) (addr + i);
+    GDBSTUB_MEM_ACCESS_FAST(addr64a, GDBSTUB_MEM_WRITE, 4);
 
     mem_logical_addr = addr;
 
@@ -1305,6 +1322,8 @@ readmemll_no_mmut(uint32_t addr, uint32_t *a64)
 #ifndef NO_MMUT
     mem_mapping_t *map;
 
+    GDBSTUB_MEM_ACCESS(addr, GDBSTUB_MEM_READ, 4);
+
     mem_logical_addr = addr;
 
     if (addr & 3) {
@@ -1360,6 +1379,8 @@ writememll_no_mmut(uint32_t addr, uint32_t *a64, uint32_t val)
 {
 #ifndef NO_MMUT
     mem_mapping_t *map;
+
+    GDBSTUB_MEM_ACCESS(addr, GDBSTUB_MEM_WRITE, 4);
 
     mem_logical_addr = addr;
 
@@ -1429,6 +1450,7 @@ readmemql(uint32_t addr)
 
     for (i = 0; i < 8; i++)
 	addr64a[i] = (uint64_t) (addr + i);
+    GDBSTUB_MEM_ACCESS_FAST(addr64a, GDBSTUB_MEM_READ, 8);
 
     mem_logical_addr = addr;
 
@@ -1496,6 +1518,7 @@ writememql(uint32_t addr, uint64_t val)
 
     for (i = 0; i < 8; i++)
 	addr64a[i] = (uint64_t) (addr + i);
+    GDBSTUB_MEM_ACCESS_FAST(addr64a, GDBSTUB_MEM_WRITE, 8);
 
     mem_logical_addr = addr;
 
@@ -1802,7 +1825,7 @@ mem_read_ram(uint32_t addr, void *priv)
 	mem_log("Read  B       %02X from %08X\n", ram[addr], addr);
 #endif
 
-    if (AT)
+    if (is286)
 	addreadlookup(mem_logical_addr, addr);
 
     return ram[addr];
@@ -1817,7 +1840,7 @@ mem_read_ramw(uint32_t addr, void *priv)
 	mem_log("Read  W     %04X from %08X\n", *(uint16_t *)&ram[addr], addr);
 #endif
 
-    if (AT)
+    if (is286)
 	addreadlookup(mem_logical_addr, addr);
 
     return *(uint16_t *)&ram[addr];
@@ -1832,7 +1855,7 @@ mem_read_raml(uint32_t addr, void *priv)
 	mem_log("Read  L %08X from %08X\n", *(uint32_t *)&ram[addr], addr);
 #endif
 
-    if (AT)
+    if (is286)
 	addreadlookup(mem_logical_addr, addr);
 
     return *(uint32_t *)&ram[addr];
@@ -1919,13 +1942,13 @@ page_remove_from_evict_list(page_t *p)
 void
 mem_write_ramb_page(uint32_t addr, uint8_t val, page_t *p)
 {
-    if ((p != NULL) && (p->mem == page_ff))
+    if (p == NULL)
 	return;
 
 #ifdef USE_DYNAREC
-    if (val != p->mem[addr & 0xfff] || codegen_in_recompile) {
+    if ((p->mem == NULL) || (p->mem == page_ff) || (val != p->mem[addr & 0xfff]) || codegen_in_recompile) {
 #else
-    if (val != p->mem[addr & 0xfff]) {
+    if ((p->mem == NULL) || (p->mem == page_ff) || (val != p->mem[addr & 0xfff])) {
 #endif
 	uint64_t mask = (uint64_t)1 << ((addr >> PAGE_MASK_SHIFT) & PAGE_MASK_MASK);
 	int byte_offset = (addr >> PAGE_BYTE_MASK_SHIFT) & PAGE_BYTE_MASK_OFFSET_MASK;
@@ -1945,13 +1968,13 @@ mem_write_ramb_page(uint32_t addr, uint8_t val, page_t *p)
 void
 mem_write_ramw_page(uint32_t addr, uint16_t val, page_t *p)
 {
-    if ((p != NULL) && (p->mem == page_ff))
+    if (p == NULL)
 	return;
 
 #ifdef USE_DYNAREC
-    if (val != *(uint16_t *)&p->mem[addr & 0xfff] || codegen_in_recompile) {
+    if ((p->mem == NULL) || (p->mem == page_ff) || (val != *(uint16_t *)&p->mem[addr & 0xfff]) || codegen_in_recompile) {
 #else
-    if (val != *(uint16_t *)&p->mem[addr & 0xfff]) {
+    if ((p->mem == NULL) || (p->mem == page_ff) || (val != *(uint16_t *)&p->mem[addr & 0xfff])) {
 #endif
 	uint64_t mask = (uint64_t)1 << ((addr >> PAGE_MASK_SHIFT) & PAGE_MASK_MASK);
 	int byte_offset = (addr >> PAGE_BYTE_MASK_SHIFT) & PAGE_BYTE_MASK_OFFSET_MASK;
@@ -1981,13 +2004,13 @@ mem_write_ramw_page(uint32_t addr, uint16_t val, page_t *p)
 void
 mem_write_raml_page(uint32_t addr, uint32_t val, page_t *p)
 {
-    if ((p != NULL) && (p->mem == page_ff))
+    if (p == NULL)
 	return;
 
 #ifdef USE_DYNAREC
-    if (val != *(uint32_t *)&p->mem[addr & 0xfff] || codegen_in_recompile) {
+    if ((p->mem == NULL) || (p->mem == page_ff) || (val != *(uint32_t *)&p->mem[addr & 0xfff]) || codegen_in_recompile) {
 #else
-    if (val != *(uint32_t *)&p->mem[addr & 0xfff]) {
+    if ((p->mem == NULL) || (p->mem == page_ff) || (val != *(uint32_t *)&p->mem[addr & 0xfff])) {
 #endif
 	uint64_t mask = (uint64_t)1 << ((addr >> PAGE_MASK_SHIFT) & PAGE_MASK_MASK);
 	int byte_offset = (addr >> PAGE_BYTE_MASK_SHIFT) & PAGE_BYTE_MASK_OFFSET_MASK;
@@ -2013,13 +2036,13 @@ mem_write_raml_page(uint32_t addr, uint32_t val, page_t *p)
 void
 mem_write_ramb_page(uint32_t addr, uint8_t val, page_t *p)
 {
-    if ((p != NULL) && (p->mem == page_ff))
+    if (p == NULL)
 	return;
 
 #ifdef USE_DYNAREC
-    if ((p == NULL) || (p->mem == NULL) || (val != p->mem[addr & 0xfff]) || codegen_in_recompile) {
+    if ((p->mem == NULL) || (p->mem == page_ff) || (val != p->mem[addr & 0xfff]) || codegen_in_recompile) {
 #else
-    if ((p == NULL) || (p->mem == NULL) || (val != p->mem[addr & 0xfff])) {
+    if ((p->mem == NULL) || (p->mem == page_ff) || (val != p->mem[addr & 0xfff])) {
 #endif
 	uint64_t mask = (uint64_t)1 << ((addr >> PAGE_MASK_SHIFT) & PAGE_MASK_MASK);
 	p->dirty_mask[(addr >> PAGE_MASK_INDEX_SHIFT) & PAGE_MASK_INDEX_MASK] |= mask;
@@ -2031,13 +2054,13 @@ mem_write_ramb_page(uint32_t addr, uint8_t val, page_t *p)
 void
 mem_write_ramw_page(uint32_t addr, uint16_t val, page_t *p)
 {
-    if ((p != NULL) && (p->mem == page_ff))
+    if (p == NULL)
 	return;
 
 #ifdef USE_DYNAREC
-    if ((p == NULL) || (p->mem == NULL) || (val != *(uint16_t *)&p->mem[addr & 0xfff]) || codegen_in_recompile) {
+    if ((p->mem == NULL) || (p->mem == page_ff) || (val != *(uint16_t *)&p->mem[addr & 0xfff]) || codegen_in_recompile) {
 #else
-    if ((p == NULL) || (p->mem == NULL) || (val != *(uint16_t *)&p->mem[addr & 0xfff])) {
+    if ((p->mem == NULL) || (p->mem == page_ff) || (val != *(uint16_t *)&p->mem[addr & 0xfff])) {
 #endif
 	uint64_t mask = (uint64_t)1 << ((addr >> PAGE_MASK_SHIFT) & PAGE_MASK_MASK);
 	if ((addr & 0xf) == 0xf)
@@ -2051,13 +2074,13 @@ mem_write_ramw_page(uint32_t addr, uint16_t val, page_t *p)
 void
 mem_write_raml_page(uint32_t addr, uint32_t val, page_t *p)
 {
-    if ((p != NULL) && (p->mem == page_ff))
+    if (p == NULL)
 	return;
 
 #ifdef USE_DYNAREC
-    if ((p == NULL) || (p->mem == NULL) || (val != *(uint32_t *)&p->mem[addr & 0xfff]) || codegen_in_recompile) {
+    if ((p->mem == NULL) || (p->mem == page_ff) || (val != *(uint32_t *)&p->mem[addr & 0xfff]) || codegen_in_recompile) {
 #else
-    if ((p == NULL) || (p->mem == NULL) || (val != *(uint32_t *)&p->mem[addr & 0xfff])) {
+    if ((p->mem == NULL) || (p->mem == page_ff) || (val != *(uint32_t *)&p->mem[addr & 0xfff])) {
 #endif
 	uint64_t mask = (uint64_t)1 << ((addr >> PAGE_MASK_SHIFT) & PAGE_MASK_MASK);
 	if ((addr & 0xf) >= 0xd)
@@ -2076,7 +2099,7 @@ mem_write_ram(uint32_t addr, uint8_t val, void *priv)
     if ((addr >= 0xa0000) && (addr <= 0xbffff))
 	mem_log("Write B       %02X to   %08X\n", val, addr);
 #endif
-    if (AT) {	
+    if (is286) {
 	addwritelookup(mem_logical_addr, addr);
 	mem_write_ramb_page(addr, val, &pages[addr >> 12]);
     } else
@@ -2091,7 +2114,7 @@ mem_write_ramw(uint32_t addr, uint16_t val, void *priv)
     if ((addr >= 0xa0000) && (addr <= 0xbffff))
 	mem_log("Write W     %04X to   %08X\n", val, addr);
 #endif
-    if (AT) {
+    if (is286) {
 	addwritelookup(mem_logical_addr, addr);
 	mem_write_ramw_page(addr, val, &pages[addr >> 12]);
     } else
@@ -2106,7 +2129,7 @@ mem_write_raml(uint32_t addr, uint32_t val, void *priv)
     if ((addr >= 0xa0000) && (addr <= 0xbffff))
 	mem_log("Write L %08X to   %08X\n", val, addr);
 #endif
-    if (AT) {
+    if (is286) {
 	addwritelookup(mem_logical_addr, addr);
 	mem_write_raml_page(addr, val, &pages[addr >> 12]);
     } else
@@ -2118,7 +2141,7 @@ static uint8_t
 mem_read_remapped(uint32_t addr, void *priv)
 {
     addr = 0xA0000 + (addr - remap_start_addr);
-    if (AT)
+    if (is286)
 	addreadlookup(mem_logical_addr, addr);
     return ram[addr];
 }
@@ -2128,7 +2151,7 @@ static uint16_t
 mem_read_remappedw(uint32_t addr, void *priv)
 {
     addr = 0xA0000 + (addr - remap_start_addr);
-    if (AT)
+    if (is286)
 	addreadlookup(mem_logical_addr, addr);
     return *(uint16_t *)&ram[addr];
 }
@@ -2138,7 +2161,7 @@ static uint32_t
 mem_read_remappedl(uint32_t addr, void *priv)
 {
     addr = 0xA0000 + (addr - remap_start_addr);
-    if (AT)
+    if (is286)
 	addreadlookup(mem_logical_addr, addr);
     return *(uint32_t *)&ram[addr];
 }
@@ -2149,7 +2172,7 @@ mem_write_remapped(uint32_t addr, uint8_t val, void *priv)
 {
     uint32_t oldaddr = addr;
     addr = 0xA0000 + (addr - remap_start_addr);
-    if (AT) {
+    if (is286) {
 	addwritelookup(mem_logical_addr, addr);
 	mem_write_ramb_page(addr, val, &pages[oldaddr >> 12]);
     } else
@@ -2162,7 +2185,7 @@ mem_write_remappedw(uint32_t addr, uint16_t val, void *priv)
 {
     uint32_t oldaddr = addr;
     addr = 0xA0000 + (addr - remap_start_addr);
-    if (AT) {
+    if (is286) {
 	addwritelookup(mem_logical_addr, addr);
 	mem_write_ramw_page(addr, val, &pages[oldaddr >> 12]);
     } else
@@ -2175,7 +2198,7 @@ mem_write_remappedl(uint32_t addr, uint32_t val, void *priv)
 {
     uint32_t oldaddr = addr;
     addr = 0xA0000 + (addr - remap_start_addr);
-    if (AT) {
+    if (is286) {
 	addwritelookup(mem_logical_addr, addr);
 	mem_write_raml_page(addr, val, &pages[oldaddr >> 12]);
     } else
@@ -2186,57 +2209,40 @@ mem_write_remappedl(uint32_t addr, uint32_t val, void *priv)
 void
 mem_invalidate_range(uint32_t start_addr, uint32_t end_addr)
 {
-    uint64_t mask;
 #ifdef USE_NEW_DYNAREC
     int byte_offset;
     uint64_t byte_mask;
-    uint32_t i;
     page_t *p;
 
     start_addr &= ~PAGE_MASK_MASK;
-    end_addr = (end_addr + PAGE_MASK_MASK) & ~PAGE_MASK_MASK;        
+    end_addr = (end_addr + PAGE_MASK_MASK) & ~PAGE_MASK_MASK;
 
-    for (; start_addr <= end_addr; start_addr += (1 << PAGE_MASK_SHIFT)) {
+    for (; start_addr <= end_addr; start_addr += 0x1000) {
 	if ((start_addr >> 12) >= pages_sz)
 		continue;
 
-	mask = (uint64_t)1 << ((start_addr >> PAGE_MASK_SHIFT) & PAGE_MASK_MASK);
-
 	p = &pages[start_addr >> 12];
-	p->dirty_mask |= mask;
-	if ((p->code_present_mask & mask) && !page_in_evict_list(p))
-		page_add_to_evict_list(p);
+	if (p) {
+		p->dirty_mask = 0xffffffffffffffffULL;
 
-	for (i = start_addr; (i <= end_addr) && (i < (start_addr + (1 << PAGE_MASK_SHIFT))); i++) {
-		/* Do not look at the byte stuff if start_addr >= (mem_size * 1024), as we do not allocate the
-		   byte dirty and code present mask arrays beyond the end of RAM. */
-		if (i < (mem_size << 10)) {
-			byte_offset = (i >> PAGE_BYTE_MASK_SHIFT) & PAGE_BYTE_MASK_OFFSET_MASK;
-			byte_mask = (uint64_t)1 << (i & PAGE_BYTE_MASK_MASK);
+		if (p->byte_dirty_mask)
+			memset(p->byte_dirty_mask, 0xff, 64 * sizeof(uint64_t));
 
-			if (p) {
-				if (p->byte_dirty_mask)
-					p->byte_dirty_mask[byte_offset] |= byte_mask;
-				if (p->byte_code_present_mask && (p->byte_code_present_mask[byte_offset] & byte_mask) &&
-				    !page_in_evict_list(p))
-					page_add_to_evict_list(p);
-			}
-		}
+		if (!page_in_evict_list(p))
+			page_add_to_evict_list(p);
 	}
     }
 #else
     uint32_t cur_addr;
     start_addr &= ~PAGE_MASK_MASK;
-    end_addr = (end_addr + PAGE_MASK_MASK) & ~PAGE_MASK_MASK;	
+    end_addr = (end_addr + PAGE_MASK_MASK) & ~PAGE_MASK_MASK;
 
-    for (; start_addr <= end_addr; start_addr += (1 << PAGE_MASK_SHIFT)) {
-	mask = (uint64_t)1 << ((start_addr >> PAGE_MASK_SHIFT) & PAGE_MASK_MASK);
-
+    for (; start_addr <= end_addr; start_addr += 0x1000) {
 	/* Do nothing if the pages array is empty or DMA reads/writes to/from PCI device memory addresses
 	   may crash the emulator. */
 	cur_addr = (start_addr >> 12);
 	if (cur_addr < pages_sz)
-		pages[cur_addr].dirty_mask[(start_addr >> PAGE_MASK_INDEX_SHIFT) & PAGE_MASK_INDEX_MASK] |= mask;
+		memset(pages[cur_addr].dirty_mask, 0xff, sizeof(pages[cur_addr].dirty_mask));
     }
 #endif
 }
@@ -2264,6 +2270,12 @@ mem_mapping_access_allowed(uint32_t flags, uint16_t access)
 		ret = ret && !(flags & MEM_MAPPING_INTERNAL) && !(flags & MEM_MAPPING_SMRAM);
 	} else
 		ret = !(flags & MEM_MAPPING_EXTERNAL) && !(flags & MEM_MAPPING_SMRAM);
+    } else {
+	/* Still allow SMRAM if access is DISABLED but also has CACHE and/or SMRAM flags set. */
+	if (access & ACCESS_CACHE)
+		ret = (flags & MEM_MAPPING_CACHE);
+	else if (access & ACCESS_SMRAM)
+		ret = (flags & MEM_MAPPING_SMRAM);
     }
 
     return ret;
@@ -2334,8 +2346,8 @@ mem_mapping_recalc(uint64_t base, uint64_t size)
 
 void
 mem_mapping_set(mem_mapping_t *map,
-		uint32_t base, 
-		uint32_t size, 
+		uint32_t base,
+		uint32_t size,
 		uint8_t  (*read_b)(uint32_t addr, void *p),
 		uint16_t (*read_w)(uint32_t addr, void *p),
 		uint32_t (*read_l)(uint32_t addr, void *p),
@@ -2372,8 +2384,8 @@ mem_mapping_set(mem_mapping_t *map,
 
 void
 mem_mapping_add(mem_mapping_t *map,
-		uint32_t base, 
-		uint32_t size, 
+		uint32_t base,
+		uint32_t size,
 		uint8_t  (*read_b)(uint32_t addr, void *p),
 		uint16_t (*read_w)(uint32_t addr, void *p),
 		uint32_t (*read_l)(uint32_t addr, void *p),
@@ -2501,6 +2513,7 @@ mem_set_access(uint8_t bitmap, int mode, uint32_t base, uint32_t size, uint16_t 
     uint16_t mask, smstate = 0x0000;
     const uint16_t smstates[4] = {	0x0000, (MEM_READ_SMRAM | MEM_WRITE_SMRAM),
 					MEM_READ_SMRAM_EX, (MEM_READ_DISABLED_EX | MEM_WRITE_DISABLED_EX)	};
+
     int i;
 
     if (mode)
@@ -2512,7 +2525,15 @@ mem_set_access(uint8_t bitmap, int mode, uint32_t base, uint32_t size, uint16_t 
 	if (mode == 1)
 		access = !!access;
 
-	smstate = smstates[access & 0x03];
+	if (mode == 3) {
+		if (access & ACCESS_SMRAM_X)
+			smstate |= MEM_EXEC_SMRAM;
+		if (access & ACCESS_SMRAM_R)
+			smstate |= MEM_READ_SMRAM_2;
+		if (access & ACCESS_SMRAM_W)
+			smstate |= MEM_WRITE_SMRAM;
+	} else
+		smstate = smstates[access & 0x07];
     } else
 	smstate = access & 0x6f7b;
 
@@ -2539,7 +2560,7 @@ mem_set_access(uint8_t bitmap, int mode, uint32_t base, uint32_t size, uint16_t 
 void
 mem_a20_init(void)
 {
-    if (AT) {
+    if (is286) {
 	rammask = cpu_16bitbus ? 0xefffff : 0xffefffff;
 	flushmmucache();
 	mem_a20_state = mem_a20_key | mem_a20_alt;
@@ -2667,12 +2688,12 @@ mem_reset(void)
      * We re-allocate the table on each (hard) reset, as the
      * memory amount could have changed.
      */
-    if (AT) {
+    if (is286) {
 	if (cpu_16bitbus) {
-		/* 80186/286; maximum address space is 16MB. */
+		/* 80286/386SX; maximum address space is 16MB. */
 		m = 4096;
 	} else {
-		/* 80386+; maximum address space is 4GB. */
+		/* 80386DX+; maximum address space is 4GB. */
 		m = 1048576;
 	}
     } else {
@@ -2703,6 +2724,7 @@ mem_reset(void)
 	if ((c << 12) >= (mem_size << 10))
 		pages[c].mem = page_ff;
 	else {
+#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
 	        if (mem_size > 1048576) {
 			if ((c << 12) < (1 << 30))
 				pages[c].mem = &ram[c << 12];
@@ -2710,6 +2732,9 @@ mem_reset(void)
 				pages[c].mem = &ram2[(c << 12) - (1 << 30)];
 		} else
 			pages[c].mem = &ram[c << 12];
+#else
+		pages[c].mem = &ram[c << 12];
+#endif
 	}
 	if (c < m) {
 		pages[c].write_b = mem_write_ramb_page;
@@ -2809,7 +2834,7 @@ mem_remap_top(int kb)
 	set = 0;
     } else
 	old_kb = kb;
-	
+
     if (size > kb)
 	size = kb;
 
@@ -2870,7 +2895,7 @@ mem_a20_recalc(void)
 {
     int state;
 
-    if (! AT) {
+    if (! is286) {
 	rammask = 0xfffff;
 	flushmmucache();
 	mem_a20_key = mem_a20_alt = mem_a20_state = 0;
@@ -2880,10 +2905,10 @@ mem_a20_recalc(void)
 
     state = mem_a20_key | mem_a20_alt;
     if (state && !mem_a20_state) {
-	rammask = (AT && cpu_16bitbus) ? 0xffffff : 0xffffffff;
+	rammask = (cpu_16bitbus) ? 0xffffff : 0xffffffff;
 	flushmmucache();
     } else if (!state && mem_a20_state) {
-	rammask = (AT && cpu_16bitbus) ? 0xefffff : 0xffefffff;
+	rammask = (cpu_16bitbus) ? 0xefffff : 0xffefffff;
 	flushmmucache();
     }
 

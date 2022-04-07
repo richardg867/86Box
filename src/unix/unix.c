@@ -18,8 +18,11 @@
 #include <inttypes.h>
 #include <dlfcn.h>
 #include <wchar.h>
+#include <stdatomic.h>
 
 #include <86box/86box.h>
+#include <86box/mem.h>
+#include <86box/rom.h>
 #include <86box/keyboard.h>
 #include <86box/mouse.h>
 #include <86box/config.h>
@@ -31,6 +34,7 @@
 #include <86box/timer.h>
 #include <86box/nvr.h>
 #include <86box/ui.h>
+#include <86box/gdbstub.h>
 
 static int	first_use = 1;
 static uint64_t	StartingTime;
@@ -39,6 +43,7 @@ int rctrl_is_lalt;
 int	update_icons;
 int	kbd_req_capture;
 int hide_status_bar;
+int hide_tool_bar;
 int fixed_size_x = 640;
 int fixed_size_y = 480;
 extern int title_set;
@@ -50,6 +55,8 @@ SDL_mutex *blitmtx;
 SDL_threadID eventthread;
 static int exit_event = 0;
 static int fullscreen_pending = 0;
+uint32_t lang_id = 0x0409, lang_sys = 0x0409; // Multilangual UI variables, for now all set to LCID of en-US
+char  icon_set[256] = "";  /* name of the iconset to be used */
 
 static const uint16_t sdl_to_xt[0x200] =
 {
@@ -225,19 +232,23 @@ wchar_t* plat_get_string(int i)
     switch (i)
     {
         case IDS_2077:
-            return L"Click to capture mouse.";
+            return L"Click to capture mouse";
         case IDS_2078:
             return L"Press CTRL-END to release mouse";
         case IDS_2079:
             return L"Press CTRL-END or middle button to release mouse";
         case IDS_2080:
             return L"Failed to initialize FluidSynth";
+        case IDS_2130:
+            return L"Invalid configuration";
         case IDS_4099:
             return L"MFM/RLL or ESDI CD-ROM drives never existed";
         case IDS_2093:
             return L"Failed to set up PCap";
         case IDS_2094:
             return L"No PCap devices found";
+        case IDS_2095:
+            return L"Invalid PCap device";
         case IDS_2110:
             return L"Unable to initialize FreeType";
         case IDS_2111:
@@ -246,6 +257,8 @@ wchar_t* plat_get_string(int i)
             return L"libfreetype is required for ESC/P printer emulation.";
         case IDS_2132:
             return L"libgs is required for automatic conversion of PostScript files to PDF.\n\nAny documents sent to the generic PostScript printer will be saved as PostScript (.ps) files.";
+        case IDS_2133:
+            return L"libfluidsynth is required for FluidSynth MIDI output.";
         case IDS_2129:
             return L"Make sure libpcap is installed and that you are on a libpcap-compatible network connection.";
         case IDS_2114:
@@ -256,6 +269,8 @@ wchar_t* plat_get_string(int i)
             return L"Video card \"%hs\" is not available due to missing ROMs in the roms/video directory. Switching to an available video card.";
         case IDS_2128:
             return L"Hardware not available";
+        case IDS_2142:
+            return L"Monitor in sleep mode";
     }
     return L"";
 }
@@ -279,11 +294,18 @@ plat_path_abs(char *path)
 }
 
 void
+plat_path_normalize(char* path)
+{
+    /* No-op. */
+}
+
+void
 plat_path_slash(char *path)
 {
     if ((path[strlen(path)-1] != '/')) {
 	strcat(path, "/");
     }
+    plat_path_normalize(path);
 }
 
 void
@@ -371,9 +393,9 @@ void *
 plat_mmap(size_t size, uint8_t executable)
 {
 #if defined __APPLE__ && defined MAP_JIT
-    void *ret = mmap(0, size, PROT_READ | PROT_WRITE | (executable ? PROT_EXEC : 0), MAP_ANON | MAP_PRIVATE | (executable ? MAP_JIT : 0), 0, 0);
+    void *ret = mmap(0, size, PROT_READ | PROT_WRITE | (executable ? PROT_EXEC : 0), MAP_ANON | MAP_PRIVATE | (executable ? MAP_JIT : 0), -1, 0);
 #else
-    void *ret = mmap(0, size, PROT_READ | PROT_WRITE | (executable ? PROT_EXEC : 0), MAP_ANON | MAP_PRIVATE, 0, 0);
+    void *ret = mmap(0, size, PROT_READ | PROT_WRITE | (executable ? PROT_EXEC : 0), MAP_ANON | MAP_PRIVATE, -1, 0);
 #endif
     return (ret < 0) ? NULL : ret;
 }
@@ -452,6 +474,12 @@ ui_sb_update_panes()
 }
 
 void
+ui_sb_update_text()
+{
+
+}
+
+void
 plat_get_dirname(char *dest, const char *path)
 {
     int c = (int)strlen(path);
@@ -502,6 +530,11 @@ main_thread(void *param)
     while (!is_quit && cpu_thread_run) {
 	/* See if it is time to run a frame of code. */
 	new_time = SDL_GetTicks();
+#ifdef USE_GDBSTUB
+	if (gdbstub_next_asap && (drawits <= 0))
+		drawits = 10;
+	else
+#endif
 	drawits += (new_time - old_time);
 	old_time = new_time;
 	if (drawits > 0 && !dopause) {
@@ -523,12 +556,11 @@ main_thread(void *param)
 		SDL_Delay(1);
 
 	/* If needed, handle a screen resize. */
-	if (doresize && !video_fullscreen && !is_quit) {
+	if (!atomic_flag_test_and_set(&doresize) && !video_fullscreen && !is_quit) {
 		if (vid_resize & 2)
 			plat_resize(fixed_size_x, fixed_size_y);
 		else
 			plat_resize(scrnsz_x, scrnsz_y);
-		doresize = 0;
 	}
     }
 
@@ -654,7 +686,7 @@ plat_power_off(void)
 
 void ui_sb_bugui(char *str)
 {
-    
+
 }
 
 extern void     sdl_blit(int x, int y, int w, int h);
@@ -700,15 +732,78 @@ plat_pause(int p)
     static wchar_t oldtitle[512];
     wchar_t title[512];
 
+    if ((p == 0) && (time_sync & TIME_SYNC_ENABLED))
+	nvr_time_sync();
+
     dopause = p;
     if (p) {
 	wcsncpy(oldtitle, ui_window_title(NULL), sizeof_w(oldtitle) - 1);
 	wcscpy(title, oldtitle);
-	wcscat(title, L" - PAUSED -");
+	wcscat(title, L" - PAUSED");
 	ui_window_title(title);
     } else {
 	ui_window_title(oldtitle);
     }
+}
+
+void
+plat_init_rom_paths()
+{
+#ifndef __APPLE__
+    if (getenv("XDG_DATA_HOME")) {
+        char xdg_rom_path[1024] = { 0 };
+        strncpy(xdg_rom_path, getenv("XDG_DATA_HOME"), 1024);
+        plat_path_slash(xdg_rom_path);
+        strncat(xdg_rom_path, "86Box/", 1024);
+
+        if (!plat_dir_check(xdg_rom_path))
+            plat_dir_create(xdg_rom_path);
+        strcat(xdg_rom_path, "roms/");
+
+        if (!plat_dir_check(xdg_rom_path))
+            plat_dir_create(xdg_rom_path);
+        add_rom_path(xdg_rom_path);
+    } else {
+        char home_rom_path[1024] = { 0 };
+        snprintf(home_rom_path, 1024, "%s/.local/share/86Box/", getenv("HOME") ? getenv("HOME") : getpwuid(getuid())->pw_dir);
+
+        if (!plat_dir_check(home_rom_path))
+            plat_dir_create(home_rom_path);
+        strcat(home_rom_path, "roms/");
+
+        if (!plat_dir_check(home_rom_path))
+            plat_dir_create(home_rom_path);
+        add_rom_path(home_rom_path);
+    }
+    if (getenv("XDG_DATA_DIRS")) {
+        char* xdg_rom_paths = strdup(getenv("XDG_DATA_DIRS"));
+        char* xdg_rom_paths_orig = xdg_rom_paths;
+        char* cur_xdg_rom_path = NULL;
+        if (xdg_rom_paths) {
+            while (xdg_rom_paths[strlen(xdg_rom_paths) - 1] == ':') {
+                xdg_rom_paths[strlen(xdg_rom_paths) - 1] = '\0';
+            }
+            while ((cur_xdg_rom_path = local_strsep(&xdg_rom_paths, ";")) != NULL) {
+                char real_xdg_rom_path[1024] = { '\0' };
+                strcat(real_xdg_rom_path, cur_xdg_rom_path);
+                plat_path_slash(real_xdg_rom_path);
+                strcat(real_xdg_rom_path, "86Box/roms/");
+                add_rom_path(real_xdg_rom_path);
+            }
+        }
+        free(xdg_rom_paths_orig);
+    } else {
+        add_rom_path("/usr/local/share/86Box/roms/");
+        add_rom_path("/usr/share/86Box/roms/");
+    }
+#else
+    char home_rom_path[1024] = { '\0' };
+    snprintf(home_rom_path, 1024, "%s/Documents/86Box/", getenv("HOME") ? getenv("HOME") : getpwuid(getuid())->pw_dir);
+    plat_dir_create(home_rom_path);
+    strcat(home_rom_path, "roms/");
+    plat_dir_create(home_rom_path);
+    add_rom_path(home_rom_path);
+#endif
 }
 
 bool process_media_commands_3(uint8_t* id, char* fn, uint8_t* wp, int cmdargc)
@@ -802,7 +897,7 @@ void monitor_thread(void* param)
                 }
                 if (f_add_history) f_add_history(line);
                 memset(xargv, 0, sizeof(xargv));
-                while(1) 
+                while(1)
                 {
                     xargv[cmdargc++] = local_strsep(&linecpy, " ");
                     if (xargv[cmdargc - 1] == NULL || cmdargc >= 512) break;
@@ -832,7 +927,7 @@ void monitor_thread(void* param)
                 }
                 else if (strncasecmp(xargv[0], "fullscreen", 10) == 0)
                 {
-                    video_fullscreen = 1;
+                    video_fullscreen = video_fullscreen ? 0 : 1;
                     fullscreen_pending = 1;
                 }
                 else if (strncasecmp(xargv[0], "pause", 5) == 0)
@@ -849,7 +944,7 @@ void monitor_thread(void* param)
                     uint8_t id;
                     bool err = false;
                     char fn[PATH_MAX];
-                    
+
                     if (!xargv[2] || !xargv[1])
                     {
                         free(line);
@@ -1027,7 +1122,7 @@ int main(int argc, char** argv)
         SDL_Quit();
         return 6;
     }
-    
+
     eventthread = SDL_ThreadID();
     blitmtx = SDL_CreateMutex();
     if (!blitmtx)
@@ -1148,7 +1243,7 @@ int main(int argc, char** argv)
                 }
                 case SDL_RENDER_DEVICE_RESET:
                 case SDL_RENDER_TARGETS_RESET:
-                    {    
+                    {
                         extern void sdl_reinit_texture();
                         sdl_reinit_texture();
                         break;
@@ -1182,7 +1277,7 @@ int main(int argc, char** argv)
         if (mouse_capture && keyboard_ismsexit())
         {
             plat_mouse_capture(0);
-        }        
+        }
         if (blitreq)
         {
             extern void sdl_blit(int x, int y, int w, int h);
@@ -1220,6 +1315,29 @@ char* plat_vidapi_name(int i)
 {
     return "default";
 }
+
+void
+set_language(uint32_t id)
+{
+    lang_id = id;
+}
+
+
+/* Sets up the program language before initialization. */
+uint32_t plat_language_code(char* langcode)
+{
+    /* or maybe not */
+    return 0;
+}
+
+/* Converts back the language code to LCID */
+void
+plat_language_code_r(uint32_t lcid, char* outbuf, int len)
+{
+    /* or maybe not */
+    return;
+}
+
 void joystick_init(void) {}
 void joystick_close(void) {}
 void joystick_process(void) {}
@@ -1231,4 +1349,10 @@ void startblit()
 void endblit()
 {
     SDL_UnlockMutex(blitmtx);
+}
+
+/* API */
+void
+ui_sb_mt32lcd(char* str)
+{
 }

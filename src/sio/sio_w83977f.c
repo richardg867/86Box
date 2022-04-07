@@ -60,12 +60,12 @@ static uint8_t	w83977f_read(uint16_t port, void *priv);
 static void
 w83977f_remap(w83977f_t *dev)
 {
-    io_removehandler(0x3f0, 0x0002,
+    io_removehandler(FDC_PRIMARY_ADDR, 0x0002,
 		     w83977f_read, NULL, NULL, w83977f_write, NULL, NULL, dev);
-    io_removehandler(0x370, 0x0002,
+    io_removehandler(FDC_SECONDARY_ADDR, 0x0002,
 		     w83977f_read, NULL, NULL, w83977f_write, NULL, NULL, dev);
 
-    dev->base_address = (HEFRAS ? 0x370 : 0x3f0);
+    dev->base_address = (HEFRAS ? FDC_SECONDARY_ADDR : FDC_PRIMARY_ADDR);
 
     io_sethandler(dev->base_address, 0x0002,
 		  w83977f_read, NULL, NULL, w83977f_write, NULL, NULL, dev);
@@ -268,11 +268,11 @@ w83977f_write(uint16_t port, uint8_t val, void *priv)
 				if (dev->id == 1)
 					break;
 
-				if (valxor & 0x20)
+				if (!dev->id && (valxor & 0x20))
 					fdc_update_drv2en(dev->fdc, (val & 0x20) ? 0 : 1);
-				if (valxor & 0x10)
+				if (!dev->id && (valxor & 0x10))
 					fdc_set_swap(dev->fdc, (val & 0x10) ? 1 : 0);
-				if (valxor & 0x01)
+				if (!dev->id && (valxor & 0x01))
 					fdc_update_enh_mode(dev->fdc, (val & 0x01) ? 1 : 0);
 				break;
 			case 0x01:
@@ -291,13 +291,13 @@ w83977f_write(uint16_t port, uint8_t val, void *priv)
 				if (dev->id == 1)
 					break;
 
-				if (valxor & 0xc0)
+				if (!dev->id && (valxor & 0xc0))
 					fdc_update_boot_drive(dev->fdc, (val & 0xc0) >> 6);
-				if (valxor & 0x0c)
+				if (!dev->id && (valxor & 0x0c))
 					fdc_update_densel_force(dev->fdc, (val & 0x0c) >> 2);
-				if (valxor & 0x02)
+				if (!dev->id && (valxor & 0x02))
 					fdc_set_diswr(dev->fdc, (val & 0x02) ? 1 : 0);
-				if (valxor & 0x01)
+				if (!dev->id && (valxor & 0x01))
 					fdc_set_swwp(dev->fdc, (val & 0x01) ? 1 : 0);
 				break;
 		}
@@ -308,13 +308,13 @@ w83977f_write(uint16_t port, uint8_t val, void *priv)
 				if (dev->id == 1)
 					break;
 
-				if (valxor & 0xc0)
+				if (!dev->id && (valxor & 0xc0))
 					fdc_update_rwc(dev->fdc, 3, (val & 0xc0) >> 6);
-				if (valxor & 0x30)
+				if (!dev->id && (valxor & 0x30))
 					fdc_update_rwc(dev->fdc, 2, (val & 0x30) >> 4);
-				if (valxor & 0x0c)
+				if (!dev->id && (valxor & 0x0c))
 					fdc_update_rwc(dev->fdc, 1, (val & 0x0c) >> 2);
-				if (valxor & 0x03)
+				if (!dev->id && (valxor & 0x03))
 					fdc_update_rwc(dev->fdc, 0, val & 0x03);
 				break;
 		}
@@ -325,7 +325,7 @@ w83977f_write(uint16_t port, uint8_t val, void *priv)
 				if (dev->id == 1)
 					break;
 
-				if (valxor & 0x18)
+				if (!dev->id && (valxor & 0x18))
 					fdc_update_drvrate(dev->fdc, dev->cur_reg & 0x03, (val & 0x18) >> 3);
 				break;
 		}
@@ -347,7 +347,7 @@ w83977f_read(uint16_t port, void *priv)
 		ret = dev->cur_reg;
 	else {
 		if (!dev->rw_locked) {
-			if ((dev->cur_reg == 0xf2) && (ld == 0x00))
+			if (!dev->id && ((dev->cur_reg == 0xf2) && (ld == 0x00)))
 				ret = (fdc_get_rwc(dev->fdc, 0) | (fdc_get_rwc(dev->fdc, 1) << 2) | (fdc_get_rwc(dev->fdc, 2) << 4) | (fdc_get_rwc(dev->fdc, 3) << 6));
 			else if (dev->cur_reg >= 0x30)
 				ret = dev->dev_regs[ld][dev->cur_reg - 0x30];
@@ -506,14 +506,14 @@ w83977f_reset(w83977f_t *dev)
 	dev->dev_regs[10][0xc0] = 0x8f;
     }
 
-    if (next_id == 1) {
-	serial_setup(dev->uart[0], SERIAL3_ADDR, SERIAL3_IRQ);
-	serial_setup(dev->uart[1], SERIAL4_ADDR, SERIAL4_IRQ);
+    if (dev->id == 1) {
+	serial_setup(dev->uart[0], COM3_ADDR, COM3_IRQ);
+	serial_setup(dev->uart[1], COM4_ADDR, COM4_IRQ);
     } else {
 	fdc_reset(dev->fdc);
 
-	serial_setup(dev->uart[0], SERIAL1_ADDR, SERIAL1_IRQ);
-	serial_setup(dev->uart[1], SERIAL2_ADDR, SERIAL2_IRQ);
+	serial_setup(dev->uart[0], COM1_ADDR, COM1_IRQ);
+	serial_setup(dev->uart[1], COM2_ADDR, COM2_IRQ);
 
 	w83977f_fdc_handler(dev);
     }
@@ -566,52 +566,72 @@ w83977f_init(const device_t *info)
     return dev;
 }
 
-
 const device_t w83977f_device = {
-    "Winbond W83977F Super I/O",
-    0,
-    0,
-    w83977f_init, w83977f_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "Winbond W83977F Super I/O",
+    .internal_name = "w83977f",
+    .flags = 0,
+    .local = 0,
+    .init = w83977f_init,
+    .close = w83977f_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
-
 
 const device_t w83977f_370_device = {
-    "Winbond W83977F Super I/O (Port 370h)",
-    0,
-    0x40,
-    w83977f_init, w83977f_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "Winbond W83977F Super I/O (Port 370h)",
+    .internal_name = "w83977f_370",
+    .flags = 0,
+    .local = 0x40,
+    .init = w83977f_init,
+    .close = w83977f_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
-
 
 const device_t w83977tf_device = {
-    "Winbond W83977TF Super I/O",
-    0,
-    1,
-    w83977f_init, w83977f_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "Winbond W83977TF Super I/O",
+    .internal_name = "w83977tf",
+    .flags = 0,
+    .local = 1,
+    .init = w83977f_init,
+    .close = w83977f_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
-
 
 const device_t w83977ef_device = {
-    "Winbond W83977TF Super I/O",
-    0,
-    2,
-    w83977f_init, w83977f_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "Winbond W83977TF Super I/O",
+    .internal_name = "w83977ef",
+    .flags = 0,
+    .local = 2,
+    .init = w83977f_init,
+    .close = w83977f_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
 const device_t w83977ef_370_device = {
-    "Winbond W83977TF Super I/O (Port 370h)",
-    0,
-    0x42,
-    w83977f_init, w83977f_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "Winbond W83977TF Super I/O (Port 370h)",
+    .internal_name = "w83977ef_370",
+    .flags = 0,
+    .local = 0x42,
+    .init = w83977f_init,
+    .close = w83977f_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

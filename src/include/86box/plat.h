@@ -15,10 +15,14 @@
  *
  *		Copyright 2016-2019 Miran Grca.
  *		Copyright 2017-2019 Fred N. van Kempen.
+ *		Copyright 2021 Laci bá'
  */
+
 #ifndef EMU_PLAT_H
 # define EMU_PLAT_H
 
+#include "86box/device.h"
+#include "86box/machine.h"
 #ifndef GLOBAL
 # define GLOBAL extern
 #endif
@@ -36,7 +40,7 @@ extern int stricmp(const char* s1, const char* s2);
 extern int strnicmp(const char* s1, const char* s2, size_t n);
 #endif
 
-#if (defined(__unix__) || defined(__APPLE__)) && !defined(__linux__)
+#if (defined(__HAIKU__) || defined(__unix__) || defined(__APPLE__)) && !defined(__linux__)
 /* FreeBSD has largefile by default. */
 # define fopen64        fopen
 # define fseeko64       fseeko
@@ -62,13 +66,18 @@ extern int strnicmp(const char* s1, const char* s2, size_t n);
 
 
 #ifdef __cplusplus
+#include <atomic>
+#define atomic_flag_t std::atomic_flag
 extern "C" {
+#else
+#include <stdatomic.h>
+#define atomic_flag_t atomic_flag
 #endif
 
 /* Global variables residing in the platform module. */
 extern int	dopause,			/* system is paused */
-		doresize,			/* screen resize requested */
 		mouse_capture;			/* mouse is captured in app */
+extern atomic_flag_t doresize;			/* screen resize requested */
 extern volatile int	is_quit;				/* system exit requested */
 
 #ifdef MTR_ENABLED
@@ -84,7 +93,7 @@ extern int	update_icons;
 extern int	unscaled_size_x,		/* current unscaled size X */
 		unscaled_size_y;		/* current unscaled size Y */
 
-extern int	kbd_req_capture, hide_status_bar;
+extern int	kbd_req_capture, hide_status_bar, hide_tool_bar;
 
 /* System-related functions. */
 extern char	*fix_exe_path(char *str);
@@ -95,6 +104,7 @@ extern int	plat_getcwd(char *bufp, int max);
 extern int	plat_chdir(char *path);
 extern void	plat_tempfile(char *bufp, char *prefix, char *suffix);
 extern void	plat_get_exe_name(char *s, int size);
+extern void plat_init_rom_paths();
 extern char	*plat_get_basename(const char *path);
 extern void	plat_get_dirname(char *dest, const char *path);
 extern char	*plat_get_filename(char *s);
@@ -102,6 +112,7 @@ extern char	*plat_get_extension(char *s);
 extern void	plat_append_filename(char *dest, const char *s1, const char *s2);
 extern void	plat_put_backslash(char *s);
 extern void	plat_path_slash(char *path);
+extern void plat_path_normalize(char *path);
 extern int	plat_path_abs(char *path);
 extern int	plat_dir_check(char *path);
 extern int	plat_dir_create(char *path);
@@ -120,10 +131,13 @@ extern void	plat_vidsize(int x, int y);
 extern void	plat_setfullscreen(int on);
 extern void	plat_resize(int x, int y);
 extern void	plat_vidapi_enable(int enabled);
+extern void	plat_vidapi_reload(void);
 extern void	plat_vid_reload_options(void);
+extern uint32_t plat_language_code(char* langcode);
+extern void plat_language_code_r(uint32_t lcid, char* outbuf, int len);
 
 /* Resource management. */
-extern void	set_language(int id);
+extern void	set_language(uint32_t id);
 extern wchar_t	*plat_get_string(int id);
 
 
@@ -155,6 +169,25 @@ extern int      ioctl_open(uint8_t id, char d);
 extern void     ioctl_reset(uint8_t id);
 extern void     ioctl_close(uint8_t id);
 
+#ifdef __APPLE__
+#define thread_t plat_thread_t
+#define event_t plat_event_t
+#define mutex_t plat_mutex_t
+
+#define thread_create plat_thread_create
+#define thread_wait plat_thread_wait
+#define thread_create_event plat_thread_create_event
+#define thread_set_event plat_thread_set_event
+#define thread_reset_event plat_thread_reset_event
+#define thread_wait_event plat_thread_wait_event
+#define thread_destroy_event plat_thread_destroy_event
+
+#define thread_create_mutex plat_thread_create_mutex
+#define thread_create_mutex_with_spin_count plat_thread_create_mutex_with_spin_count
+#define thread_close_mutex plat_thread_close_mutex
+#define thread_wait_mutex plat_thread_wait_mutex
+#define thread_release_mutex plat_thread_release_mutex
+#endif
 
 /* Thread support. */
 typedef void thread_t;
@@ -162,7 +195,7 @@ typedef void event_t;
 typedef void mutex_t;
 
 extern thread_t	*thread_create(void (*thread_func)(void *param), void *param);
-extern int	thread_wait(thread_t *arg, int timeout);
+extern int	thread_wait(thread_t *arg);
 extern event_t	*thread_create_event(void);
 extern void	thread_set_event(event_t *arg);
 extern void	thread_reset_event(event_t *arg);
@@ -172,8 +205,8 @@ extern void	thread_destroy_event(event_t *arg);
 #define MUTEX_DEFAULT_SPIN_COUNT 1024
 
 extern mutex_t	*thread_create_mutex(void);
-extern mutex_t	*thread_create_mutex_with_spin_count(unsigned int spin_count);
 extern void	thread_close_mutex(mutex_t *arg);
+extern int	thread_test_mutex(mutex_t *arg);
 extern int	thread_wait_mutex(mutex_t *arg);
 extern int	thread_release_mutex(mutex_t *mutex);
 

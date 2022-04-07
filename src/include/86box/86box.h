@@ -15,6 +15,7 @@
  *
  *		Copyright 2016-2020 Miran Grca.
  *		Copyright 2017-2020 Fred N. van Kempen.
+ *		Copyright 2021 Laci bá'
  */
 #ifndef EMU_86BOX_H
 # define EMU_86BOX_H
@@ -22,7 +23,7 @@
 
 /* Configuration values. */
 #define SERIAL_MAX	4
-#define PARALLEL_MAX	3
+#define PARALLEL_MAX	4
 #define SCREEN_RES_X	640
 #define SCREEN_RES_Y	480
 
@@ -32,18 +33,8 @@
 #define SCREENSHOT_PATH "screenshots"
 
 
-#if defined(ENABLE_BUSLOGIC_LOG) || \
-    defined(ENABLE_CDROM_LOG) || \
-    defined(ENABLE_D86F_LOG) || \
-    defined(ENABLE_FDC_LOG) || \
-    defined(ENABLE_IDE_LOG) || \
-    defined(ENABLE_NIC_LOG)
-# define ENABLE_LOG_TOGGLES	1
-#endif
-
-#if defined(ENABLE_LOG_BREAKPOINT) || defined(ENABLE_VRAM_DUMP)
-# define ENABLE_LOG_COMMANDS	1
-#endif
+/* Default language 0xFFFF = from system, 0x409 = en-US */
+#define DEFAULT_LANGUAGE 0x0409
 
 #ifdef MIN
 #undef MIN
@@ -64,6 +55,8 @@ extern "C" {
 #endif
 
 /* Global variables. */
+extern uint32_t	lang_sys;	/* (-) system language code */
+
 extern int	dump_on_exit;			/* (O) dump regs on exit*/
 extern int	do_dump_config;			/* (O) dump cfg after load */
 extern int	start_in_fullscreen;		/* (O) start in fullscreen */
@@ -90,6 +83,8 @@ extern int	window_w, window_h,		/* (C) window size and */
 		vid_resize,			/* (C) allow resizing */
 		invert_display,			/* (C) invert the display */
 		suppress_overscan;		/* (C) suppress overscans */
+extern uint32_t	lang_id;	/* (C) language code identifier */
+extern char  icon_set[256]; /* (C) iconset identifier */
 extern int	scale;				/* (C) screen scale factor */
 extern int  dpi_scale;      /* (C) DPI scaling of the emulated screen */
 extern int	vid_api;			/* (C) video renderer */
@@ -114,7 +109,8 @@ extern int	sound_is_float,			/* (C) sound uses FP values */
 		GUS, GUSMAX,			/* (C) sound option */
 		SSI2001,			/* (C) sound option */
 		voodoo_enabled;			/* (C) video option */
-extern uint32_t	mem_size;			/* (C) memory size */
+extern uint32_t	mem_size;			/* (C) memory size (Installed on system board) */
+extern uint32_t	isa_mem_size;		/* (C) memory size (ISA Memory Cards) */
 extern int	cpu,				/* (C) cpu type */
 		cpu_use_dynarec,		/* (C) cpu uses/needs Dyna */
 		fpu_type;			/* (C) fpu type */
@@ -126,25 +122,13 @@ extern int	hdd_format_type;		/* (C) hard disk file format */
 extern int	confirm_reset,			/* (C) enable reset confirmation */
 		confirm_exit,			/* (C) enable exit confirmation */
 		confirm_save;			/* (C) enable save confirmation */
-#ifdef USE_DISCORD
 extern int	enable_discord;			/* (C) enable Discord integration */
-#endif
 extern int	enable_crashdump;		/* (C) enable crash dump */
 
 extern int	is_pentium;			/* TODO: Move back to cpu/cpu.h when it's figured out,
 							 how to remove that hack from the ET4000/W32p. */
 extern int	fixed_size_x, fixed_size_y;
 
-
-#ifdef ENABLE_LOG_TOGGLES
-extern int	buslogic_do_log;
-extern int	cdrom_do_log;
-extern int	d86f_do_log;
-extern int	fdc_do_log;
-extern int	ide_do_log;
-extern int	serial_do_log;
-extern int	nic_do_log;
-#endif
 
 extern char	exe_path[2048];			/* path (dir) of executable */
 extern char	usr_path[1024];			/* path (dir) of user data */
@@ -169,6 +153,7 @@ extern void	fatal(const char *fmt, ...);
 extern void	set_screen_size(int x, int y);
 extern void	reset_screen_size(void);
 extern void	set_screen_size_natural(void);
+extern void update_mouse_msg();
 #if 0
 extern void	pc_reload(wchar_t *fn);
 #endif

@@ -45,7 +45,7 @@ machine_at_p65up5_cpknd_init(const machine_t *model)
 {
     int ret;
 
-    ret = bios_load_linear("roms/machines/p65up5/ndkn0218.awd",
+    ret = bios_load_linear("roms/machines/p65up5/NDKN0218.AWD",
 			   0x000e0000, 131072, 0);
 
     if (bios_only || !ret)
@@ -86,7 +86,7 @@ machine_at_kn97_init(const machine_t *model)
     device_add(&lm78_device); /* fans: Chassis, CPU, Power; temperature: MB */
     for (uint8_t i = 0; i < 3; i++)
 	hwm_values.fans[i] *= 2; /* BIOS reports fans with the wrong divisor for some reason */
-	
+
     return ret;
 }
 
@@ -118,7 +118,7 @@ machine_at_lx6_init(const machine_t *model)
     device_add(&w83977tf_device);
     device_add(&sst_flash_29ee010_device);
     spd_register(SPD_TYPE_SDRAM, 0xF, 256);
-	
+
     return ret;
 }
 
@@ -293,7 +293,7 @@ machine_at_bf6_init(const machine_t *model)
     device_add(&keyboard_ps2_pci_device);
     device_add(&w83977ef_device);
     device_add(&sst_flash_39sf020_device);
-    spd_register(SPD_TYPE_SDRAM, 0x7, 256);    
+    spd_register(SPD_TYPE_SDRAM, 0x7, 256);
 
     return ret;
 }
@@ -362,7 +362,7 @@ machine_at_atc6310bxii_init(const machine_t *model)
     device_add(&sst_flash_39sf020_device);
     spd_register(SPD_TYPE_SDRAM, 0x7, 256);
 
-    return ret;	
+    return ret;
 }
 
 
@@ -444,11 +444,11 @@ machine_at_p6sba_init(const machine_t *model)
 
 
 int
-machine_at_tsunamiatx_init(const machine_t *model)
+machine_at_s1846_init(const machine_t *model)
 {
     int ret;
 
-    ret = bios_load_linear("roms/machines/tsunamiatx/bx46200f.rom",
+    ret = bios_load_linear("roms/machines/s1846/bx46200f.rom",
 			   0x000c0000, 262144, 0);
 
     if (bios_only || !ret)
@@ -468,58 +468,26 @@ machine_at_tsunamiatx_init(const machine_t *model)
     pci_register_slot(0x01, PCI_CARD_AGPBRIDGE,   1, 2, 3, 4);
     device_add(&i440bx_device);
     device_add(&piix4e_device);
+    device_add(&pc87309_device);
+    device_add(&keyboard_ps2_ami_pci_device);
+    device_add(&intel_flash_bxt_device);
+    spd_register(SPD_TYPE_SDRAM, 0x7, 256);
 
     if (sound_card_current == SOUND_INTERNAL) {
 	device_add(&es1371_onboard_device);
 	device_add(&cs4297_device); /* found on other Tyan boards around the same time */
     }
 
-    device_add(&pc87309_device);
-    device_add(&keyboard_ps2_ami_pci_device);
-    device_add(&intel_flash_bxt_device);
-    spd_register(SPD_TYPE_SDRAM, 0x7, 256);
-
     return ret;
 }
 
 
 const device_t *
-at_tsunamiatx_get_device(void)
+at_s1846_get_device(void)
 {
     return &es1371_onboard_device;
 }
 
-#if defined(DEV_BRANCH) && defined(NO_SIO)
-int
-machine_at_ergox365_init(const machine_t *model)
-{
-    int ret;
-
-    ret = bios_load_linear("roms/machines/ergox365/M63v115.rom",
-			   0x00080000, 524288, 0);
-
-    if (bios_only || !ret)
-	return ret;
-
-    machine_at_common_init_ex(model, 2);
-
-    pci_init(PCI_CONFIG_TYPE_1);
-    pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
-    pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 1, 2, 3, 4);
-    pci_register_slot(0x01, PCI_CARD_AGPBRIDGE,   1, 2, 3, 4);
-    pci_register_slot(0x14, PCI_CARD_NORMAL,      1, 2, 3, 4);
-    pci_register_slot(0x12, PCI_CARD_NORMAL,      2, 3, 4, 1);
-    pci_register_slot(0x08, PCI_CARD_VIDEO,       3, 0, 0, 0);
-    device_add(&i440bx_device);
-    device_add(&piix4e_device);
-	device_add(&keyboard_ps2_ami_pci_device);
-    device_add(&fdc37c665_device); /* Placeholder for the SM(S)C FDC37C675 */
-    device_add(&sst_flash_39sf040_device); /* Placeholder for the Intel 28F004 flash chip */
-    spd_register(SPD_TYPE_SDRAM, 0xF, 256);
-
-    return ret;
-}
-#endif
 
 int
 machine_at_ficka6130_init(const machine_t *model)
@@ -651,8 +619,10 @@ machine_at_vei8_init(const machine_t *model)
     device_add(&piix4e_device);
     device_add(&fdc37m60x_370_device);
     device_add(&keyboard_ps2_ami_pci_device);
+    device_add(ics9xxx_get(ICS9250_08));
     device_add(&sst_flash_39sf020_device);
     spd_register(SPD_TYPE_SDRAM, 0x3, 512);
+    device_add(&as99127f_device); /* fans: Chassis, CPU, Power; temperatures: MB, JTPWR, CPU */
 
     return ret;
 }
@@ -667,19 +637,20 @@ machine_at_ms6168_common_init(const machine_t *model)
     pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
     pci_register_slot(0x14, PCI_CARD_SOUND,       3, 4, 1, 2);
     pci_register_slot(0x0E, PCI_CARD_NORMAL,	  1, 2, 3, 4);
-    pci_register_slot(0x10, PCI_CARD_NORMAL,      2, 3, 4, 1);	
+    pci_register_slot(0x10, PCI_CARD_NORMAL,      2, 3, 4, 1);
     pci_register_slot(0x12, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 1, 2, 3, 4);
     pci_register_slot(0x01, PCI_CARD_AGPBRIDGE,   1, 2, 3, 4);
     device_add(&i440zx_device);
     device_add(&piix4e_device);
     device_add(&w83977ef_device);
-    device_add(&keyboard_ps2_ami_pci_device);
-    device_add(&intel_flash_bxt_device);
-    spd_register(SPD_TYPE_SDRAM, 0x3, 256);
 
     if (gfxcard == VID_INTERNAL)
     	device_add(&voodoo_3_2000_agp_onboard_8m_device);
+
+    device_add(&keyboard_ps2_ami_pci_device);
+    device_add(&intel_flash_bxt_device);
+    spd_register(SPD_TYPE_SDRAM, 0x3, 256);
 
     if (sound_card_current == SOUND_INTERNAL) {
 	device_add(&es1371_onboard_device);
@@ -688,13 +659,16 @@ machine_at_ms6168_common_init(const machine_t *model)
 }
 
 
+const device_t *
+at_ms6168_get_device(void)
+{
+    return &voodoo_3_2000_agp_onboard_8m_device;
+}
+
+
 int
 machine_at_borapro_init(const machine_t *model)
 {
-    /* AMI 440ZX Board. Packard Bell OEM of the MSI MS-6168
-       MIGHT REQUIRE MORE EXCESSIVE TESTING!
-       Reports emmersive amounts of RAM like few Intel OEM boards
-       we have. */
     int ret;
 
     ret = bios_load_linear("roms/machines/borapro/MS6168V2.50",
@@ -721,6 +695,39 @@ machine_at_ms6168_init(const machine_t *model)
 	return ret;
 
     machine_at_ms6168_common_init(model);
+
+    return ret;
+}
+
+
+int
+machine_at_m729_init(const machine_t *model)
+{
+    int ret;
+
+    ret = bios_load_linear("roms/machines/m729/M729NEW.BIN",
+			   0x000e0000, 131072, 0);
+
+    if (bios_only || !ret)
+	return ret;
+
+    machine_at_common_init_ex(model, 2);
+
+    pci_init(PCI_CONFIG_TYPE_1);
+    pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
+    pci_register_slot(0x01, PCI_CARD_AGPBRIDGE, 1, 2, 0, 0);
+    pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 1, 2, 3, 4);
+    pci_register_slot(0x0F, PCI_CARD_SOUTHBRIDGE, 1, 2, 3, 4);
+    pci_register_slot(0x03, PCI_CARD_SOUTHBRIDGE, 1, 2, 3, 4);
+    pci_register_slot(0x02, PCI_CARD_SOUTHBRIDGE, 1, 2, 3, 4);
+    pci_register_slot(0x14, PCI_CARD_NORMAL, 1, 2, 3, 4);
+    pci_register_slot(0x12, PCI_CARD_NORMAL, 2, 3, 4, 1);
+    pci_register_slot(0x10, PCI_CARD_NORMAL, 3, 4, 1, 2);
+    device_add(&ali1621_device);
+    device_add(&ali1543c_device);
+    device_add(&keyboard_ps2_ami_pci_device);
+    device_add(&sst_flash_29ee010_device);
+    spd_register(SPD_TYPE_SDRAM, 0x7, 512);
 
     return ret;
 }

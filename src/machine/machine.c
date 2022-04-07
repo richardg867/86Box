@@ -40,11 +40,12 @@
 #include "cpu.h"
 #include <86box/video.h>
 #include <86box/machine.h>
+#include <86box/isamem.h>
 
 
 int bios_only = 0;
 int machine;
-int AT, PCI;
+// int AT, PCI;
 
 
 #ifdef ENABLE_MACHINE_LOG
@@ -81,8 +82,8 @@ machine_init_ex(int m)
 	gameport_instance_id = 0;
 
 	/* Set up the architecture flags. */
-	AT = IS_AT(machine);
-	PCI = IS_ARCH(machine, MACHINE_BUS_PCI);
+	// AT = IS_AT(machine);
+	// PCI = IS_ARCH(machine, MACHINE_BUS_PCI);
 
 	cpu_set();
 	pc_speed_changed();
@@ -97,6 +98,13 @@ machine_init_ex(int m)
 		device_add(&cassette_device);
 
 	cart_reset();
+
+	/* Prepare some video-related things if we're using internal
+	   or no video. */
+	video_pre_reset(gfxcard);
+
+	/* Reset any ISA memory cards. */
+	isamem_reset();
     }
 
     /* All good, boot the machine! */
@@ -142,5 +150,5 @@ machine_common_init(const machine_t *model)
     pic_init();
     dma_init();
 
-    pit_common_init(!!AT, pit_irq0_timer, NULL);
+    pit_common_init(!!IS_AT(machine), pit_irq0_timer, NULL);
 }

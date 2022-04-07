@@ -39,14 +39,11 @@
 #include <86box/nvr.h>
 #include <86box/video.h>
 #include <86box/vid_ega.h>		// for update_overscan
-#include <86box/plat_midi.h>
 #include <86box/plat_dynld.h>
 #include <86box/ui.h>
 #include <86box/win.h>
 #include <86box/version.h>
-#ifdef USE_DISCORD
-# include <86box/win_discord.h>
-#endif
+#include <86box/discord.h>
 
 #ifdef MTR_ENABLED
 #include <minitrace/minitrace.h>
@@ -56,12 +53,12 @@
 
 
 /* Platform Public data, specific. */
-HWND		hwndMain,		/* application main window */
-		hwndRender;		/* machine render window */
+HWND		hwndMain = NULL,	/* application main window */
+		hwndRender = NULL;	/* machine render window */
 HMENU		menuMain;		/* application main menu */
-HICON		hIcon[256];		/* icon data loaded from resources */
 RECT		oldclip;		/* mouse rect */
 int		sbar_height = 23;	/* statusbar height */
+int		tbar_height = 23;	/* toolbar height */
 int		minimized = 0;
 int		infocus = 1, button_down = 0;
 int		rctrl_is_lalt = 0;
@@ -69,16 +66,16 @@ int		user_resize = 0;
 int		fixed_size_x = 0, fixed_size_y = 0;
 int		kbd_req_capture = 0;
 int		hide_status_bar = 0;
+int		hide_tool_bar = 0;
+int		dpi = 96;
 
 extern char	openfilestring[512];
 extern WCHAR	wopenfilestring[512];
 
 
 /* Local data. */
-static wchar_t	wTitle[512];
 static int	manager_wm = 0;
 static int	save_window_pos = 0, pause_state = 0;
-static int	dpi = 96;
 static int	padded_frame = 0;
 static int	vis = -1;
 
@@ -94,6 +91,14 @@ static dllimp_t user32_imports[] = {
 { "GetWindowDpiAwarenessContext", &pGetWindowDpiAwarenessContext },
 { "AreDpiAwarenessContextsEqual", &pAreDpiAwarenessContextsEqual },
 { NULL,		NULL		}
+};
+
+/* Taskbar application ID API, Windows 7+ */
+void* shell32_handle = NULL;
+static HRESULT (WINAPI *pSetCurrentProcessExplicitAppUserModelID)(PCWSTR AppID);
+static dllimp_t shell32_imports[]= {
+{ "SetCurrentProcessExplicitAppUserModelID", &pSetCurrentProcessExplicitAppUserModelID },
+{ NULL, NULL }
 };
 
 int
@@ -153,15 +158,6 @@ show_cursor(int val)
     vis = val;
 }
 
-
-HICON
-LoadIconEx(PCTSTR pszIconName)
-{
-    return((HICON)LoadImage(hinstance, pszIconName, IMAGE_ICON,
-						16, 16, LR_SHARED));
-}
-
-
 static void
 video_toggle_option(HMENU h, int *val, int id)
 {
@@ -173,7 +169,6 @@ video_toggle_option(HMENU h, int *val, int id)
     device_force_redraw();
 }
 
-#if defined(DEV_BRANCH) && defined(USE_OPENGL)
 /* Recursively finds and deletes target submenu */
 static int
 delete_submenu(HMENU parent, HMENU target)
@@ -201,15 +196,13 @@ delete_submenu(HMENU parent, HMENU target)
 
 	return 0;
 }
-#endif
+
+static int menu_vidapi = -1;
+static HMENU cur_menu = NULL;
 
 static void
 show_render_options_menu()
 {
-#if defined(DEV_BRANCH) && defined(USE_OPENGL)
-	static int menu_vidapi = -1;
-	static HMENU cur_menu = NULL;
-	
 	if (vid_api == menu_vidapi)
 		return;
 
@@ -225,7 +218,7 @@ show_render_options_menu()
 		{
 		case IDM_VID_OPENGL_CORE:
 			cur_menu = LoadMenu(hinstance, VID_GL_SUBMENU);
-			InsertMenu(GetSubMenu(menuMain, 1), 4, MF_BYPOSITION | MF_STRING | MF_POPUP, (UINT_PTR)cur_menu, plat_get_string(IDS_2144));
+			InsertMenu(GetSubMenu(menuMain, 1), 6, MF_BYPOSITION | MF_STRING | MF_POPUP, (UINT_PTR)cur_menu, plat_get_string(IDS_2144));
 			CheckMenuItem(menuMain, IDM_VID_GL_FPS_BLITTER, video_framerate == -1 ? MF_CHECKED : MF_UNCHECKED);
 			CheckMenuItem(menuMain, IDM_VID_GL_FPS_25, video_framerate == 25 ? MF_CHECKED : MF_UNCHECKED);
 			CheckMenuItem(menuMain, IDM_VID_GL_FPS_30, video_framerate == 30 ? MF_CHECKED : MF_UNCHECKED);
@@ -239,11 +232,10 @@ show_render_options_menu()
 	}
 
 	menu_vidapi = vid_api;
-#endif
 }
 
 static void
-video_set_filter_menu(HMENU menu) 
+video_set_filter_menu(HMENU menu)
 {
 	CheckMenuItem(menu, IDM_VID_FILTER_NEAREST, vid_api == 0 || video_filter_method == 0 ? MF_CHECKED : MF_UNCHECKED);
 	CheckMenuItem(menu, IDM_VID_FILTER_LINEAR, vid_api != 0 && video_filter_method == 1 ? MF_CHECKED : MF_UNCHECKED);
@@ -251,7 +243,7 @@ video_set_filter_menu(HMENU menu)
 	EnableMenuItem(menu, IDM_VID_FILTER_LINEAR, vid_api == 0 ? MF_GRAYED : MF_ENABLED);
 }
 
-static void
+void
 ResetAllMenus(void)
 {
     CheckMenuItem(menuMain, IDM_ACTION_RCTRL_IS_LALT, MF_UNCHECKED);
@@ -259,31 +251,8 @@ ResetAllMenus(void)
 
     CheckMenuItem(menuMain, IDM_UPDATE_ICONS, MF_UNCHECKED);
 
-#ifdef ENABLE_LOG_TOGGLES
-# ifdef ENABLE_BUSLOGIC_LOG
-    CheckMenuItem(menuMain, IDM_LOG_BUSLOGIC, MF_UNCHECKED);
-# endif
-# ifdef ENABLE_CDROM_LOG
-    CheckMenuItem(menuMain, IDM_LOG_CDROM, MF_UNCHECKED);
-# endif
-# ifdef ENABLE_D86F_LOG
-    CheckMenuItem(menuMain, IDM_LOG_D86F, MF_UNCHECKED);
-# endif
-# ifdef ENABLE_FDC_LOG
-    CheckMenuItem(menuMain, IDM_LOG_FDC, MF_UNCHECKED);
-# endif
-# ifdef ENABLE_IDE_LOG
-    CheckMenuItem(menuMain, IDM_LOG_IDE, MF_UNCHECKED);
-# endif
-# ifdef ENABLE_SERIAL_LOG
-    CheckMenuItem(menuMain, IDM_LOG_SERIAL, MF_UNCHECKED);
-# endif
-# ifdef ENABLE_NIC_LOG
-    CheckMenuItem(menuMain, IDM_LOG_NIC, MF_UNCHECKED);
-# endif
-#endif
-
     CheckMenuItem(menuMain, IDM_VID_HIDE_STATUS_BAR, MF_UNCHECKED);
+    CheckMenuItem(menuMain, IDM_VID_HIDE_TOOLBAR, MF_UNCHECKED);
     CheckMenuItem(menuMain, IDM_VID_FORCE43, MF_UNCHECKED);
     CheckMenuItem(menuMain, IDM_VID_OVERSCAN, MF_UNCHECKED);
     CheckMenuItem(menuMain, IDM_VID_INVERT, MF_UNCHECKED);
@@ -292,10 +261,11 @@ ResetAllMenus(void)
     CheckMenuItem(menuMain, IDM_VID_SDL_SW, MF_UNCHECKED);
     CheckMenuItem(menuMain, IDM_VID_SDL_HW, MF_UNCHECKED);
     CheckMenuItem(menuMain, IDM_VID_SDL_OPENGL, MF_UNCHECKED);
-#if defined(DEV_BRANCH) && defined(USE_OPENGL)
     CheckMenuItem(menuMain, IDM_VID_OPENGL_CORE, MF_UNCHECKED);
+
+    menu_vidapi = -1;
+    cur_menu = NULL;
     show_render_options_menu();
-#endif
 #ifdef USE_VNC
     CheckMenuItem(menuMain, IDM_VID_VNC, MF_UNCHECKED);
 #endif
@@ -326,31 +296,8 @@ ResetAllMenus(void)
 
     CheckMenuItem(menuMain, IDM_UPDATE_ICONS, update_icons ? MF_CHECKED : MF_UNCHECKED);
 
-#ifdef ENABLE_LOG_TOGGLES
-# ifdef ENABLE_BUSLOGIC_LOG
-    CheckMenuItem(menuMain, IDM_LOG_BUSLOGIC, buslogic_do_log?MF_CHECKED:MF_UNCHECKED);
-# endif
-# ifdef ENABLE_CDROM_LOG
-    CheckMenuItem(menuMain, IDM_LOG_CDROM, cdrom_do_log?MF_CHECKED:MF_UNCHECKED);
-# endif
-# ifdef ENABLE_D86F_LOG
-    CheckMenuItem(menuMain, IDM_LOG_D86F, d86f_do_log?MF_CHECKED:MF_UNCHECKED);
-# endif
-# ifdef ENABLE_FDC_LOG
-    CheckMenuItem(menuMain, IDM_LOG_FDC, fdc_do_log?MF_CHECKED:MF_UNCHECKED);
-# endif
-# ifdef ENABLE_IDE_LOG
-    CheckMenuItem(menuMain, IDM_LOG_IDE, ide_do_log?MF_CHECKED:MF_UNCHECKED);
-# endif
-# ifdef ENABLE_SERIAL_LOG
-    CheckMenuItem(menuMain, IDM_LOG_SERIAL, serial_do_log?MF_CHECKED:MF_UNCHECKED);
-# endif
-# ifdef ENABLE_NIC_LOG
-    CheckMenuItem(menuMain, IDM_LOG_NIC, nic_do_log?MF_CHECKED:MF_UNCHECKED);
-# endif
-#endif
-
     CheckMenuItem(menuMain, IDM_VID_HIDE_STATUS_BAR, hide_status_bar ? MF_CHECKED : MF_UNCHECKED);
+    CheckMenuItem(menuMain, IDM_VID_HIDE_TOOLBAR, hide_tool_bar ? MF_CHECKED : MF_UNCHECKED);
     CheckMenuItem(menuMain, IDM_VID_FORCE43, force_43?MF_CHECKED:MF_UNCHECKED);
     CheckMenuItem(menuMain, IDM_VID_OVERSCAN, enable_overscan?MF_CHECKED:MF_UNCHECKED);
     CheckMenuItem(menuMain, IDM_VID_INVERT, invert_display ? MF_CHECKED : MF_UNCHECKED);
@@ -369,12 +316,10 @@ ResetAllMenus(void)
 
     video_set_filter_menu(menuMain);
 
-#ifdef USE_DISCORD
     if (discord_loaded)
 	CheckMenuItem(menuMain, IDM_DISCORD, enable_discord ? MF_CHECKED : MF_UNCHECKED);
     else
 	EnableMenuItem(menuMain, IDM_DISCORD, MF_DISABLED);
-#endif
 #ifdef MTR_ENABLED
     EnableMenuItem(menuMain, IDM_ACTION_END_TRACE, MF_DISABLED);
 #endif
@@ -629,7 +574,7 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 				break;
 
 			case IDM_DOCS:
-				ShellExecute(hwnd, L"open", EMU_DOCS_URL, NULL, NULL, SW_SHOW);
+				ShellExecute(hwnd, L"open", EMU_DOCS_URL_W, NULL, NULL, SW_SHOW);
 				break;
 
 			case IDM_UPDATE_ICONS:
@@ -647,6 +592,21 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 					MoveWindow(hwnd, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top - sbar_height, TRUE);
 				else
 					MoveWindow(hwnd, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top + sbar_height, TRUE);
+				config_save();
+				break;
+
+			case IDM_VID_HIDE_TOOLBAR:
+				hide_tool_bar ^= 1;
+				CheckMenuItem(hmenu, IDM_VID_HIDE_TOOLBAR, hide_tool_bar ? MF_CHECKED : MF_UNCHECKED);
+				ShowWindow(hwndRebar, hide_tool_bar ? SW_HIDE : SW_SHOW);
+				GetWindowRect(hwnd, &rect);
+				if (hide_tool_bar) {
+					MoveWindow(hwnd, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top - tbar_height, TRUE);
+					SetWindowPos(hwndRender, NULL, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+				} else {
+					MoveWindow(hwnd, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top + tbar_height, TRUE);
+					SetWindowPos(hwndRender, NULL, 0, tbar_height, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+				}
 				config_save();
 				break;
 
@@ -668,10 +628,7 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 					temp_y = unscaled_size_y;
 				}
 
-				if (hide_status_bar)
-					ResizeWindowByClientArea(hwnd, temp_x, temp_y);
-				else
-					ResizeWindowByClientArea(hwnd, temp_x, temp_y + sbar_height);
+				ResizeWindowByClientArea(hwnd, temp_x, temp_y + (hide_status_bar ? 0 : sbar_height) + (hide_tool_bar ? 0 : tbar_height));
 
 				if (mouse_capture) {
 					ClipCursor(&rect);
@@ -689,7 +646,7 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 				scrnsz_x = unscaled_size_x;
 				scrnsz_y = unscaled_size_y;
-				doresize = 1;
+				atomic_flag_clear(&doresize);
 				config_save();
 				break;
 
@@ -711,9 +668,7 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 			case IDM_VID_SDL_SW:
 			case IDM_VID_SDL_HW:
 			case IDM_VID_SDL_OPENGL:
-#if defined(DEV_BRANCH) && defined(USE_OPENGL)
 			case IDM_VID_OPENGL_CORE:
-#endif
 #ifdef USE_VNC
 			case IDM_VID_VNC:
 #endif
@@ -725,7 +680,6 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 				show_render_options_menu();
 				break;
 
-#if defined(DEV_BRANCH) && defined(USE_OPENGL)
 			case IDM_VID_GL_FPS_BLITTER:
 			case IDM_VID_GL_FPS_25:
 			case IDM_VID_GL_FPS_30:
@@ -764,7 +718,6 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 				EnableMenuItem(menuMain, IDM_VID_GL_NOSHADER, MF_DISABLED);
 				plat_vid_reload_options();
 				break;
-#endif
 
 			case IDM_VID_FULLSCREEN:
 				plat_setfullscreen(1);
@@ -792,12 +745,12 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 				reset_screen_size();
 				device_force_redraw();
 				video_force_resize_set(1);
-				doresize = 1;
+				atomic_flag_clear(&doresize);
 				config_save();
 				break;
 
 			case IDM_VID_FILTER_NEAREST:
-			case IDM_VID_FILTER_LINEAR:				
+			case IDM_VID_FILTER_LINEAR:
 				video_filter_method = LOWORD(wParam) - IDM_VID_FILTER_NEAREST;
 				video_set_filter_menu(hmenu);
 				plat_vid_reload_options();
@@ -807,8 +760,12 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 			case IDM_VID_HIDPI:
 				dpi_scale = !dpi_scale;
 				CheckMenuItem(hmenu, IDM_VID_HIDPI, dpi_scale ? MF_CHECKED : MF_UNCHECKED);
-				doresize = 1;
+				atomic_flag_clear(&doresize);
 				config_save();
+				break;
+
+			case IDM_PREFERENCES:
+				PreferencesDlgCreate(hwnd);
 				break;
 
 			case IDM_VID_SPECIFY_DIM:
@@ -823,6 +780,7 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 			case IDM_VID_INVERT:
 				video_toggle_option(hmenu, &invert_display, IDM_VID_INVERT);
 				video_copy = (video_grayscale || invert_display) ? video_transform_copy : memcpy;
+				plat_vidapi_reload();
 				break;
 
 			case IDM_VID_OVERSCAN:
@@ -856,12 +814,12 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 				CheckMenuItem(hmenu, IDM_VID_GRAY_RGB+video_grayscale, MF_UNCHECKED);
 				video_grayscale = LOWORD(wParam) - IDM_VID_GRAY_RGB;
 				video_copy = (video_grayscale || invert_display) ? video_transform_copy : memcpy;
+				plat_vidapi_reload();
 				CheckMenuItem(hmenu, IDM_VID_GRAY_RGB+video_grayscale, MF_CHECKED);
 				device_force_redraw();
 				config_save();
 				break;
 
-#ifdef USE_DISCORD
 			case IDM_DISCORD:
 				if (! discord_loaded) break;
 				enable_discord ^= 1;
@@ -872,70 +830,7 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 				} else
 					discord_close();
 				break;
-#endif
 
-#ifdef ENABLE_LOG_TOGGLES
-# ifdef ENABLE_BUSLOGIC_LOG
-			case IDM_LOG_BUSLOGIC:
-				buslogic_do_log ^= 1;
-				CheckMenuItem(hmenu, IDM_LOG_BUSLOGIC, buslogic_do_log ? MF_CHECKED : MF_UNCHECKED);
-				break;
-# endif
-
-# ifdef ENABLE_CDROM_LOG
-			case IDM_LOG_CDROM:
-				cdrom_do_log ^= 1;
-				CheckMenuItem(hmenu, IDM_LOG_CDROM, cdrom_do_log ? MF_CHECKED : MF_UNCHECKED);
-				break;
-# endif
-
-# ifdef ENABLE_D86F_LOG
-			case IDM_LOG_D86F:
-				d86f_do_log ^= 1;
-				CheckMenuItem(hmenu, IDM_LOG_D86F, d86f_do_log ? MF_CHECKED : MF_UNCHECKED);
-				break;
-# endif
-
-# ifdef ENABLE_FDC_LOG
-			case IDM_LOG_FDC:
-				fdc_do_log ^= 1;
-				CheckMenuItem(hmenu, IDM_LOG_FDC, fdc_do_log ? MF_CHECKED : MF_UNCHECKED);
-				break;
-# endif
-
-# ifdef ENABLE_IDE_LOG
-			case IDM_LOG_IDE:
-				ide_do_log ^= 1;
-				CheckMenuItem(hmenu, IDM_LOG_IDE, ide_do_log ? MF_CHECKED : MF_UNCHECKED);
-				break;
-# endif
-
-# ifdef ENABLE_SERIAL_LOG
-			case IDM_LOG_SERIAL:
-				serial_do_log ^= 1;
-				CheckMenuItem(hmenu, IDM_LOG_SERIAL, serial_do_log ? MF_CHECKED : MF_UNCHECKED);
-				break;
-# endif
-
-# ifdef ENABLE_NIC_LOG
-			case IDM_LOG_NIC:
-				nic_do_log ^= 1;
-				CheckMenuItem(hmenu, IDM_LOG_NIC, nic_do_log ? MF_CHECKED : MF_UNCHECKED);
-				break;
-# endif
-#endif
-
-#ifdef ENABLE_LOG_BREAKPOINT
-			case IDM_LOG_BREAKPOINT:
-				pclog("---- LOG BREAKPOINT ----\n");
-				break;
-#endif
-
-#ifdef ENABLE_VRAM_DUMP
-			case IDM_DUMP_VRAM:
-				svga_dump_vram();
-				break;
-#endif
 			default:
 				media_menu_proc(hwnd, message, wParam, lParam);
 				break;
@@ -949,6 +844,8 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 		dpi = HIWORD(wParam);
 		GetWindowRect(hwndSBAR, &rect);
 		sbar_height = rect.bottom - rect.top;
+		GetWindowRect(hwndRebar, &rect);
+		tbar_height = rect.bottom - rect.top;
 		rect_p = (RECT*)lParam;
 		if (vid_resize == 1)
 			MoveWindow(hwnd, rect_p->left, rect_p->top, rect_p->right - rect_p->left, rect_p->bottom - rect_p->top, TRUE);
@@ -961,15 +858,15 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 			}
 
 			/* Main Window. */
-			if (hide_status_bar)
-				ResizeWindowByClientArea(hwndMain, temp_x, temp_y);
-			else
-				ResizeWindowByClientArea(hwndMain, temp_x, temp_y + sbar_height);
+			ResizeWindowByClientArea(hwndMain, temp_x, temp_y + (hide_status_bar ? 0 : sbar_height) + (hide_tool_bar ? 0 : tbar_height));
 		} else if (!user_resize)
-			doresize = 1;
+			atomic_flag_clear(&doresize);
 		break;
 
 	case WM_WINDOWPOSCHANGED:
+		if (video_fullscreen & 1)
+			PostMessage(hwndMain, WM_LEAVEFULLSCREEN, 0, 0);
+
 		pos = (WINDOWPOS*)lParam;
 		GetClientRect(hwndMain, &rect);
 
@@ -996,12 +893,13 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 		if (!(pos->flags & SWP_NOSIZE) || !user_resize) {
 			plat_vidapi_enable(0);
 
-			if (hide_status_bar)
-				MoveWindow(hwndRender, 0, 0, rect.right, rect.bottom, TRUE);
-			else {
+			if (!hide_status_bar)
 				MoveWindow(hwndSBAR, 0, rect.bottom - sbar_height, sbar_height, rect.right, TRUE);
-				MoveWindow(hwndRender, 0, 0, rect.right, rect.bottom - sbar_height, TRUE);
-			}
+
+			if (!hide_tool_bar)
+				MoveWindow(hwndRebar, 0, 0, rect.right, tbar_height, TRUE);
+
+			MoveWindow(hwndRender, 0, hide_tool_bar ? 0 : tbar_height, rect.right, rect.bottom - (hide_status_bar ? 0 : sbar_height) - (hide_tool_bar ? 0 : tbar_height), TRUE);
 
 			GetClientRect(hwndRender, &rect);
 			if (dpi_scale) {
@@ -1011,13 +909,13 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 				if (temp_x != scrnsz_x || temp_y != scrnsz_y) {
 					scrnsz_x = temp_x;
 					scrnsz_y = temp_y;
-					doresize = 1;
+					atomic_flag_clear(&doresize);
 				}
 			} else {
 				if (rect.right != scrnsz_x || rect.bottom != scrnsz_y) {
 					scrnsz_x = rect.right;
 					scrnsz_y = rect.bottom;
-					doresize = 1;
+					atomic_flag_clear(&doresize);
 				}
 			}
 
@@ -1070,6 +968,7 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 		break;
 
 	case WM_DESTROY:
+		win_clear_icon_set();
 		KillTimer(hwnd, TIMER_1SEC);
 		PostQuitMessage(0);
 		break;
@@ -1113,21 +1012,29 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 	case WM_SHUTDOWN:
 		if (manager_wm)
 			break;
-		win_notify_dlg_open();
-		if (confirm_exit && confirm_exit_cmdl)
-			i = ui_msgbox_ex(MBX_QUESTION_YN | MBX_DONTASK, (wchar_t *) IDS_2113, NULL, (wchar_t *) IDS_2119, (wchar_t *) IDS_2136, NULL);
-		else
-			i = 0;
-		if ((i % 10) == 0) {
-			if (i == 10) {
-				confirm_exit = 0;
-				nvr_save();
-				config_save();
-			}
+		if (LOWORD(wParam) == 1) {
+			confirm_exit = 0;
+			nvr_save();
+			config_save();
 			KillTimer(hwnd, TIMER_1SEC);
 			PostQuitMessage(0);
+		} else {
+			win_notify_dlg_open();
+			if (confirm_exit && confirm_exit_cmdl)
+				i = ui_msgbox_ex(MBX_QUESTION_YN | MBX_DONTASK, (wchar_t *) IDS_2113, NULL, (wchar_t *) IDS_2119, (wchar_t *) IDS_2136, NULL);
+			else
+				i = 0;
+			if ((i % 10) == 0) {
+				if (i == 10) {
+					confirm_exit = 0;
+					nvr_save();
+					config_save();
+				}
+				KillTimer(hwnd, TIMER_1SEC);
+				PostQuitMessage(0);
+			}
+			win_notify_dlg_closed();
 		}
-		win_notify_dlg_closed();
 		break;
 
 	case WM_CTRLALTDEL:
@@ -1168,6 +1075,13 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 		}
 		break;
 
+	case WM_ACTIVATEAPP:
+		/* Leave full screen on switching application except
+		   for OpenGL Core and VNC renderers. */
+		if (video_fullscreen & 1 && wParam == FALSE && vid_api < 3)
+			PostMessage(hwndMain, WM_LEAVEFULLSCREEN, 0, 0);
+		break;
+
 	case WM_ENTERSIZEMOVE:
 		user_resize = 1;
 		break;
@@ -1178,7 +1092,7 @@ MainWindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 		/* If window is not resizable, then tell the main thread to
 		   resize it, as sometimes, moves can mess up the window size. */
 		if (!vid_resize)
-			doresize = 1;
+			atomic_flag_clear(&doresize);
 		break;
     }
 
@@ -1253,13 +1167,19 @@ ui_init(int nCmdShow)
     MSG messages = {0};			/* received-messages buffer */
     HWND hwnd = NULL;			/* handle for our window */
     HACCEL haccel;			/* handle to accelerator table */
-    RECT sbar_rect;			/* RECT of the status bar */
+    RECT rect;
     int bRet;
     TASKDIALOGCONFIG tdconfig = {0};
     TASKDIALOG_BUTTON tdbuttons[] = {{IDCANCEL, MAKEINTRESOURCE(IDS_2119)}};
+    uint32_t helper_lang;
 
     /* Load DPI related Windows 10 APIs */
     user32_handle = dynld_module("user32.dll", user32_imports);
+
+    /* Set the application ID for the taskbar. */
+    shell32_handle = dynld_module("shell32.dll", shell32_imports);
+    if (shell32_handle)
+	pSetCurrentProcessExplicitAppUserModelID(L"86Box.86Box");
 
     /* Set up TaskDialog configuration. */
     tdconfig.cbSize = sizeof(tdconfig);
@@ -1272,6 +1192,9 @@ ui_init(int nCmdShow)
     tdconfig.pButtons = tdbuttons;
     tdconfig.pfCallback = TaskDialogProcedure;
 
+    /* Load the desired iconset */
+    win_load_icon_set();
+
     /* Start settings-only mode if requested. */
     if (settings_only) {
 	if (! pc_init_modules()) {
@@ -1282,11 +1205,16 @@ ui_init(int nCmdShow)
 		return(6);
 	}
 
+
+	/* Load the desired language */
+	helper_lang = lang_id;
+	lang_id = 0;
+	set_language(helper_lang);
+
 	win_settings_open(NULL);
 	return(0);
     }
 
-#ifdef USE_DISCORD
     if(! discord_load()) {
 	enable_discord = 0;
     } else if (enable_discord) {
@@ -1296,7 +1224,6 @@ ui_init(int nCmdShow)
 	/* Update Discord status */
 	discord_update_activity(dopause);
     }
-#endif
 
     /* Create our main window's class and register it. */
     wincl.hInstance = hinstance;
@@ -1332,11 +1259,8 @@ ui_init(int nCmdShow)
     if (! RegisterClassEx(&wincl))
 			return(2);
 
-    /* Load the Window Menu(s) from the resources. */
-    menuMain = LoadMenu(hinstance, MENU_NAME);
-
     /* Now create our main window. */
-    mbstowcs(title, emu_version, sizeof_w(title));
+    swprintf_s(title, sizeof_w(title), L"%hs - %s %s", vm_name, EMU_NAME_W, EMU_VERSION_FULL_W);
     hwnd = CreateWindowEx (
 		0,			/* no extended possibilites */
 		CLASS_NAME,		/* class name */
@@ -1347,7 +1271,7 @@ ui_init(int nCmdShow)
 		scrnsz_x+(GetSystemMetrics(SM_CXFIXEDFRAME)*2),	/* width */
 		scrnsz_y+(GetSystemMetrics(SM_CYFIXEDFRAME)*2)+GetSystemMetrics(SM_CYMENUSIZE)+GetSystemMetrics(SM_CYCAPTION)+1,	/* and height in pixels */
 		HWND_DESKTOP,		/* window is a child to desktop */
-		menuMain,		/* menu */
+		NULL,			/* no menu (yet) */
 		hinstance,		/* Program Instance handler */
 		NULL);			/* no Window Creation data */
     hwndMain = tdconfig.hwndParent = hwnd;
@@ -1364,10 +1288,19 @@ ui_init(int nCmdShow)
     StatusBarCreate(hwndMain, IDC_STATUS, hinstance);
 
     /* Get the actual height of the status bar */
-    GetWindowRect(hwndSBAR, &sbar_rect);
-    sbar_height = sbar_rect.bottom - sbar_rect.top;
+    GetWindowRect(hwndSBAR, &rect);
+    sbar_height = rect.bottom - rect.top;
     if (hide_status_bar)
 	ShowWindow(hwndSBAR, SW_HIDE);
+
+    /* Create the toolbar window. */
+    ToolBarCreate(hwndMain, hinstance);
+
+    /* Get the actual height of the toolbar */
+    GetWindowRect(hwndRebar, &rect);
+    tbar_height = rect.bottom - rect.top;
+    if (hide_tool_bar)
+	ShowWindow(hwndRebar, SW_HIDE);
 
     /* Set up main window for resizing if configured. */
     if (vid_resize == 1)
@@ -1391,15 +1324,13 @@ ui_init(int nCmdShow)
 		scrnsz_x = fixed_size_x;
 		scrnsz_y = fixed_size_y;
 	}
-	if (hide_status_bar)
-		ResizeWindowByClientArea(hwndMain, scrnsz_x, scrnsz_y);
-	else
-		ResizeWindowByClientArea(hwndMain, scrnsz_x, scrnsz_y + sbar_height);
+	ResizeWindowByClientArea(hwnd, scrnsz_x, scrnsz_y + (hide_status_bar ? 0 : sbar_height) + (hide_tool_bar ? 0 : tbar_height));
     }
 
-    /* Reset all menus to their defaults. */
-    ResetAllMenus();
-    media_menu_init();
+    /* Load the desired language */
+    helper_lang = lang_id;
+    lang_id = 0;
+    set_language(helper_lang);
 
     /* Make the window visible on the screen. */
     ShowWindow(hwnd, nCmdShow);
@@ -1528,11 +1459,9 @@ ui_init(int nCmdShow)
 		plat_setfullscreen(0);
 	}
 
-#ifdef USE_DISCORD
 	/* Run Discord API callbacks */
 	if (enable_discord)
 		discord_run_callbacks();
-#endif
     }
 
     timeEndPeriod(1);
@@ -1550,34 +1479,13 @@ ui_init(int nCmdShow)
 
     win_mouse_close();
 
-#ifdef USE_DISCORD
     /* Shut down the Discord integration */
     discord_close();
-#endif
 
-	if (user32_handle != NULL)
-    	dynld_close(user32_handle);
+    if (user32_handle != NULL)
+	dynld_close(user32_handle);
 
     return(messages.wParam);
-}
-
-
-wchar_t *
-ui_window_title(wchar_t *s)
-{
-    if (! video_fullscreen) {
-	if (s != NULL) {
-		wcsncpy(wTitle, s, sizeof_w(wTitle) - 1);
-	} else
-		s = wTitle;
-
-       	SetWindowText(hwndMain, s);
-    } else {
-	if (s == NULL)
-		s = wTitle;
-    }
-
-    return(s);
 }
 
 
@@ -1604,11 +1512,15 @@ plat_pause(int p)
     if (p) {
 	wcsncpy(oldtitle, ui_window_title(NULL), sizeof_w(oldtitle) - 1);
 	wcscpy(title, oldtitle);
-	wcscat(title, L" - PAUSED -");
+	wcscat(title, plat_get_string(IDS_2051));
 	ui_window_title(title);
     } else {
 	ui_window_title(oldtitle);
     }
+
+    /* If un-pausing, synchronize the internal clock with the host's time. */
+    if ((p == 0) && (time_sync & TIME_SYNC_ENABLED))
+	nvr_time_sync();
 
     dopause = p;
 
@@ -1616,11 +1528,12 @@ plat_pause(int p)
     CheckMenuItem(menuMain, IDM_ACTION_PAUSE,
 		  (dopause) ? MF_CHECKED : MF_UNCHECKED);
 
-#if USE_DISCORD
     /* Update Discord status */
-    if(enable_discord)
+    if (enable_discord)
 	discord_update_activity(dopause);
-#endif
+
+    /* Update the toolbar */
+    ToolBarUpdatePause(p);
 
     /* Send the WM to a manager if needed. */
     if (source_hwnd)
@@ -1639,10 +1552,7 @@ plat_resize(int x, int y)
 		x = MulDiv(x, dpi, 96);
 		y = MulDiv(y, dpi, 96);
 	}
-	if (hide_status_bar)
-		ResizeWindowByClientArea(hwndMain, x, y);
-	else
-		ResizeWindowByClientArea(hwndMain, x, y + sbar_height);
+	ResizeWindowByClientArea(hwndMain, x, y + (hide_status_bar ? 0 : sbar_height) + (hide_tool_bar ? 0 : tbar_height));
     }
 }
 

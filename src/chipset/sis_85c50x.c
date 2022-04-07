@@ -89,7 +89,7 @@ sis_85c50x_shadow_recalc(sis_85c50x_t *dev)
 	mem_set_mem_state_both(base, 0x4000, (dev->pci_conf[0x56] & (1 << (7 - i))) ? (can_read | can_write) : (MEM_READ_EXTANY | MEM_WRITE_EXTANY));
     }
 
-    flushmmucache();
+    flushmmucache_nopc();
 }
 
 
@@ -107,8 +107,7 @@ sis_85c50x_smm_recalc(sis_85c50x_t *dev)
 
     switch ((dev->pci_conf[0x65] & 0xe0) >> 5) {
 	case 0x00:
-		if (!(dev->pci_conf[0x54] & 0xc0))
-			smram_enable(dev->smram, 0xe0000, 0xe0000, 0x8000, (dev->pci_conf[0x65] & 0x10), 1);
+		smram_enable(dev->smram, 0xe0000, 0xe0000, 0x8000, (dev->pci_conf[0x65] & 0x10), 1);
 		break;
 	case 0x01:
 		smram_enable(dev->smram, 0xb0000, ram_base, 0x10000, (dev->pci_conf[0x65] & 0x10), 1);
@@ -305,7 +304,7 @@ sis_85c50x_isa_read(uint16_t addr, void *priv)
 			ret = dev->regs[dev->index];
 		break;
     }
-    
+
     sis_85c50x_log("85C501-ISA: dev->regs[%02x] (%02x)\n", dev->index, ret);
 
     return ret;
@@ -391,13 +390,16 @@ sis_85c50x_init(const device_t *info)
     return dev;
 }
 
-
 const device_t sis_85c50x_device = {
-    "SiS 85C50x",
-    DEVICE_PCI,
-    0,
-    sis_85c50x_init, sis_85c50x_close,
-    sis_85c50x_reset, { NULL },
-    NULL, NULL,
-    NULL
+    .name = "SiS 85C50x",
+    .internal_name = "sis_85c50x",
+    .flags = DEVICE_PCI,
+    .local = 0,
+    .init = sis_85c50x_init,
+    .close = sis_85c50x_close,
+    .reset = sis_85c50x_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

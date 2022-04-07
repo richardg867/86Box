@@ -15,6 +15,7 @@
 #include <86box/nvr.h>
 #include <86box/keyboard.h>
 #include <86box/lpt.h>
+#include <86box/port_6x.h>
 #include <86box/port_92.h>
 #include <86box/serial.h>
 #include <86box/hdc.h>
@@ -72,7 +73,7 @@ static uint8_t ps2_read(uint16_t port, void *p)
                 temp = 0xff;
                 break;
         }
-        
+
         return temp;
 }
 
@@ -89,21 +90,21 @@ static void ps2_write(uint16_t port, uint8_t val, void *p)
 					serial_remove(ps2_uart);
 					if (val & 0x04) {
 						if (val & 0x08)
-							serial_setup(ps2_uart, SERIAL1_ADDR, SERIAL1_IRQ);
+							serial_setup(ps2_uart, COM1_ADDR, COM1_IRQ);
 						else
-							serial_setup(ps2_uart, SERIAL2_ADDR, SERIAL2_IRQ);
+							serial_setup(ps2_uart, COM2_ADDR, COM2_IRQ);
 					}
 					if (val & 0x10) {
 						switch ((val >> 5) & 3)
 						{
 							case 0:
-							lpt1_init(0x3bc);
+							lpt1_init(LPT_MDA_ADDR);
 							break;
 							case 1:
-							lpt1_init(0x378);
+							lpt1_init(LPT1_ADDR);
 							break;
 							case 2:
-							lpt1_init(0x278);
+							lpt1_init(LPT2_ADDR);
 							break;
 						}
 					}
@@ -158,8 +159,8 @@ static void ps2board_init(void)
 
 	ps2_uart = device_add_inst(&ns16450_device, 1);
 
-        lpt1_init(0x3bc);
-        
+        lpt1_init(LPT_MDA_ADDR);
+
         memset(&ps2_hd, 0, sizeof(ps2_hd));
 }
 
@@ -186,7 +187,8 @@ machine_ps2_m30_286_init(const machine_t *model)
 	refresh_at_enable = 1;
         pit_ctr_set_out_func(&pit->counters[1], pit_refresh_timer_at);
         dma16_init();
-	device_add(&keyboard_ps2_ps2_device);
+	device_add(&keyboard_ps2_device);
+	device_add(&port_6x_ps2_device);
 	device_add(&ps_nvr_device);
         pic2_init();
         ps2board_init();

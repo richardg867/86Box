@@ -101,7 +101,7 @@ b215_init(const device_t *info)
     rom_init(&dev->rom, ROM_B215, ROM_ADDR, 0x2000, 0x1fff, 0, MEM_MAPPING_EXTERNAL);
 
     dev->fdc_controller = device_add(&fdc_um8398_device);
-    io_sethandler(0x03f0, 1, b215_read, NULL, NULL, NULL, NULL, NULL, dev);
+    io_sethandler(FDC_PRIMARY_ADDR, 1, b215_read, NULL, NULL, NULL, NULL, NULL, dev);
 
     return dev;
 }
@@ -112,33 +112,30 @@ static int b215_available(void)
 }
 
 static const device_config_t b215_config[] = {
+// clang-format off
     {
-	"bios_addr", "BIOS Address:", CONFIG_HEX20, "", 0xca000, "", { 0 },
-	{
-		{
-			"CA00H", 0xca000
-		},
-		{
-			"CC00H", 0xcc000
-		},
-		{
-			""
-		}
-	}
+        "bios_addr", "BIOS Address:", CONFIG_HEX20, "", 0xca000, "", { 0 },
+        {
+            { "CA00H", 0xca000 },
+            { "CC00H", 0xcc000 },
+            { "" }
+        }
     },
-    {
-	"", "", -1
-    }
+    { "", "", -1 }
+// clang-format on
 };
 
 const device_t fdc_b215_device = {
-    "Magitronic B215",
-    DEVICE_ISA,
-    0,
-    b215_init,
-    b215_close,
-    NULL,
-    {b215_available},
-    NULL,
-    NULL,
-    b215_config};
+    .name = "Magitronic B215",
+    .internal_name = "b215",
+    .flags = DEVICE_ISA,
+    .local = 0,
+    .init = b215_init,
+    .close = b215_close,
+    .reset = NULL,
+    { .available = b215_available },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = b215_config
+};
+

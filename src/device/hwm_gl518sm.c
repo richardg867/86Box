@@ -14,6 +14,7 @@
  *
  *		Copyright 2020 RichardG.
  */
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -27,11 +28,13 @@
 #include <86box/i2c.h>
 #include <86box/hwm.h>
 
- 
-#define CLAMP(a, min, max)		(((a)< (min)) ? (min) : (((a) > (max)) ? (max) : (a)))
-#define GL518SM_RPM_TO_REG(r, d)	((r) ? CLAMP(480000 / (r * d), 1, 255) : 0)
-#define GL518SM_VOLTAGE_TO_REG(v)	(((v) / 19) & 0xff)
-#define GL518SM_VDD_TO_REG(v)		((((v) * 4) / 95) & 0xff)
+
+#define CLAMP(a, min, max)		(((a) < (min)) ? (min) : (((a) > (max)) ? (max) : (a)))
+/* Formulas and factors derived from Linux's gl518sm.c driver. */
+#define GL518SM_RPMDIV(r, d)		(CLAMP((r), 1, 960000) * (d))
+#define GL518SM_RPM_TO_REG(r, d)	((r) ? CLAMP((480000 + GL518SM_RPMDIV(r, d) / 2) / GL518SM_RPMDIV(r, d), 1, 255) : 0)
+#define GL518SM_VOLTAGE_TO_REG(v)	((uint8_t) round((v) / 19.0))
+#define GL518SM_VDD_TO_REG(v)		((uint8_t) (((v) * 4) / 95.0))
 
 
 typedef struct {
@@ -41,7 +44,7 @@ typedef struct {
     uint16_t regs[32];
     uint8_t addr_register: 5;
 
-    uint8_t i2c_addr: 7, i2c_state: 2;
+    uint8_t i2c_addr: 7, i2c_state: 2, i2c_enabled: 1;
 } gl518sm_t;
 
 
@@ -78,12 +81,14 @@ gl518sm_remap(gl518sm_t *dev, uint8_t addr)
 {
     gl518sm_log("GL518SM: remapping to SMBus %02Xh\n", addr);
 
-    i2c_removehandler(i2c_smbus, dev->i2c_addr, 1, gl518sm_i2c_start, gl518sm_i2c_read, gl518sm_i2c_write, NULL, dev);
+    if (dev->i2c_enabled)
+	i2c_removehandler(i2c_smbus, dev->i2c_addr, 1, gl518sm_i2c_start, gl518sm_i2c_read, gl518sm_i2c_write, NULL, dev);
 
     if (addr < 0x80)
 	i2c_sethandler(i2c_smbus, addr, 1, gl518sm_i2c_start, gl518sm_i2c_read, gl518sm_i2c_write, NULL, dev);
 
-    dev->i2c_addr = addr;
+    dev->i2c_addr = addr & 0x7f;
+    dev->i2c_enabled = !(addr & 0x80);
 }
 
 
@@ -137,20 +142,20 @@ gl518sm_read(gl518sm_t *dev, uint8_t reg)
 		ret |= GL518SM_RPM_TO_REG(dev->values->fans[1], 1 << ((dev->regs[0x0f] >> 4) & 0x3));
 		break;
 
-	case 0x0d: /* VIN3 - AOpen System Monitor requires an approximate voltage offset of 13 at least here */
-		ret = 13 + GL518SM_VOLTAGE_TO_REG(dev->values->voltages[2]);
+	case 0x0d: /* VIN3 */
+		ret = GL518SM_VOLTAGE_TO_REG(dev->values->voltages[2]);
 		break;
 
 	case 0x13: /* VIN2 */
-		ret = 13 + GL518SM_VOLTAGE_TO_REG(dev->values->voltages[1]);
+		ret = GL518SM_VOLTAGE_TO_REG(dev->values->voltages[1]);
 		break;
 
 	case 0x14: /* VIN1 */
-		ret = 13 + GL518SM_VOLTAGE_TO_REG(dev->values->voltages[0]);
+		ret = GL518SM_VOLTAGE_TO_REG(dev->values->voltages[0]);
 		break;
 
 	case 0x15: /* VDD */
-		ret = 13 + GL518SM_VDD_TO_REG(dev->values->voltages[3]);
+		ret = GL518SM_VDD_TO_REG(dev->values->voltages[3]);
 		break;
 
 	default: /* other registers */
@@ -243,7 +248,9 @@ gl518sm_reset(gl518sm_t *dev)
     dev->regs[0x0a] = 0xdac5;
     dev->regs[0x0b] = 0xdac5;
     dev->regs[0x0c] = 0xdac5;
-    dev->regs[0x0f] = 0xf8;
+    dev->regs[0x0f] = 0x00;
+
+    gl518sm_remap(dev, dev->i2c_addr | (dev->i2c_enabled ? 0x00 : 0x80));
 }
 
 
@@ -265,7 +272,7 @@ gl518sm_init(const device_t *info)
     memset(dev, 0, sizeof(gl518sm_t));
 
     dev->local = info->local;
-    
+
     /* Set default values. */
     hwm_values_t defaults = {
 	{    /* fan speeds */
@@ -289,23 +296,32 @@ gl518sm_init(const device_t *info)
     return dev;
 }
 
-
 /* GL518SM on SMBus address 2Ch */
 const device_t gl518sm_2c_device = {
-    "Genesys Logic GL518SM Hardware Monitor",
-    DEVICE_ISA,
-    0x2c,
-    gl518sm_init, gl518sm_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "Genesys Logic GL518SM Hardware Monitor",
+    .internal_name = "gl518sm_2c",
+    .flags = DEVICE_ISA,
+    .local = 0x2c,
+    .init = gl518sm_init,
+    .close = gl518sm_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 /* GL518SM on SMBus address 2Dh */
 const device_t gl518sm_2d_device = {
-    "Genesys Logic GL518SM Hardware Monitor",
-    DEVICE_ISA,
-    0x2d,
-    gl518sm_init, gl518sm_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "Genesys Logic GL518SM Hardware Monitor",
+    .internal_name = "gl518sm_2d",
+    .flags = DEVICE_ISA,
+    .local = 0x2d,
+    .init = gl518sm_init,
+    .close = gl518sm_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

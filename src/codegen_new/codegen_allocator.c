@@ -1,4 +1,4 @@
-#if defined(__linux__) || defined(__APPLE__)
+#if defined(__unix__) || defined(__APPLE__) || defined(__HAIKU__)
 #include <sys/mman.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -39,9 +39,9 @@ void codegen_allocator_init()
         /* TODO: check deployment target: older Intel-based versions of macOS don't play
            nice with MAP_JIT. */
 #elif defined(__APPLE__) && defined(MAP_JIT)
-        mem_block_alloc = mmap(0, MEM_BLOCK_NR * MEM_BLOCK_SIZE, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANON|MAP_PRIVATE|MAP_JIT, 0, 0);
+        mem_block_alloc = mmap(0, MEM_BLOCK_NR * MEM_BLOCK_SIZE, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANON|MAP_PRIVATE|MAP_JIT, -1, 0);
 #else
-        mem_block_alloc = mmap(0, MEM_BLOCK_NR * MEM_BLOCK_SIZE, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANON|MAP_PRIVATE, 0, 0);
+        mem_block_alloc = mmap(0, MEM_BLOCK_NR * MEM_BLOCK_SIZE, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANON|MAP_PRIVATE, -1, 0);
 #endif
 
         for (c = 0; c < MEM_BLOCK_NR; c++)
@@ -60,13 +60,13 @@ mem_block_t *codegen_allocator_allocate(mem_block_t *parent, int code_block)
 {
         mem_block_t *block;
         uint32_t block_nr;
-        
+
         while (!mem_block_free_list)
         {
                 /*Pick a random memory block and free the owning code block*/
                 block_nr = rand() & MEM_BLOCK_MASK;
                 block = &mem_blocks[block_nr];
-                
+
                 if (block->code_block && block->code_block != code_block)
                         codegen_delete_block(&codeblock[block->code_block]);
         }
@@ -75,7 +75,7 @@ mem_block_t *codegen_allocator_allocate(mem_block_t *parent, int code_block)
         block_nr = mem_block_free_list;
         block = &mem_blocks[block_nr-1];
         mem_block_free_list = block->next;
-        
+
         block->code_block = code_block;
         if (parent)
         {
@@ -97,12 +97,12 @@ void codegen_allocator_free(mem_block_t *block)
         {
                 int next_block_nr = block->next;
                 codegen_allocator_usage--;
-                
+
                 block->next = mem_block_free_list;
                 block->code_block = BLOCK_INVALID;
                 mem_block_free_list = block_nr;
                 block_nr = next_block_nr;
-                
+
                 if (block_nr)
                         block = &mem_blocks[block_nr - 1];
                 else

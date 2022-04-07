@@ -39,6 +39,9 @@ extern const device_t	st506_xt_st11_r_device;		/* st506_xt_st11_m */
 extern const device_t	st506_xt_wd1002a_wx1_device;	/* st506_xt_wd1002a_wx1 */
 extern const device_t	st506_xt_wd1002a_27x_device;	/* st506_xt_wd1002a_27x */
 extern const device_t	st506_at_wd1003_device;		/* st506_at_wd1003 */
+extern const device_t	st506_xt_wd1004a_wx1_device;	/* st506_xt_wd1004a_wx1 */
+extern const device_t	st506_xt_wd1004_27x_device;	/* st506_xt_wd1004_27x */
+extern const device_t	st506_xt_wd1004a_27x_device;	/* st506_xt_wd1004a_27x */
 
 extern const device_t	esdi_at_wd1007vse1_device;	/* esdi_at */
 extern const device_t	esdi_ps2_device;		/* esdi_mca */
@@ -56,6 +59,9 @@ extern const device_t	ide_cmd640_vlb_178_device;		/* CMD PCI-640B VLB (Port 178h
 extern const device_t	ide_cmd640_pci_device;			/* CMD PCI-640B PCI */
 extern const device_t	ide_cmd640_pci_legacy_only_device;	/* CMD PCI-640B PCI (Legacy Mode Only) */
 extern const device_t	ide_cmd640_pci_single_channel_device;	/* CMD PCI-640B PCI (Only primary channel) */
+extern const device_t	ide_cmd646_device;			/* CMD PCI-646 */
+extern const device_t	ide_cmd646_legacy_only_device;		/* CMD PCI-646 (Legacy Mode Only) */
+extern const device_t	ide_cmd646_single_channel_device;	/* CMD PCI-646 (Only primary channel) */
 
 extern const device_t	ide_opti611_vlb_device;		/* OPTi 82c611/611A VLB */
 

@@ -13,7 +13,7 @@
  * Author:	Miran Grca, <mgrca8@gmail.com>
  *      Tiseno100
  *      EngiNerd <webmaster.crrc@yahoo.it>
- * 
+ *
  *		Copyright 2020 Miran Grca.
  *      Copyright 2020 Tiseno100
  *      Copyright 2021 EngiNerd.
@@ -73,8 +73,8 @@ static void
 lpt1_handler(pc87310_t *dev)
 {
     int temp;
-    uint16_t lpt_port = 0x378;
-    uint8_t lpt_irq = 7;
+    uint16_t lpt_port = LPT1_ADDR;
+    uint8_t lpt_irq = LPT1_IRQ;
 
     /* bits 0-1:
      * 00 378h
@@ -86,13 +86,13 @@ lpt1_handler(pc87310_t *dev)
 
     switch (temp) {
 	case 0:
-		lpt_port = 0x378;
+		lpt_port = LPT1_ADDR;
 		break;
 	case 1:
-		lpt_port = 0x3bc;
+		lpt_port = LPT_MDA_ADDR;
 		break;
 	case 2:
-		lpt_port = 0x278;
+		lpt_port = LPT2_ADDR;
 		break;
 	case 3:
 		lpt_port = 0x000;
@@ -121,10 +121,10 @@ serial_handler(pc87310_t *dev, int uart)
     if (!temp){
         //configure serial port as COM2
         if (((dev->reg >> 4) & 1) ^ uart)
-            serial_setup(dev->uart[uart], 0x2f8, 3);
+            serial_setup(dev->uart[uart], COM2_ADDR, COM2_IRQ);
         // configure serial port as COM1
         else
-            serial_setup(dev->uart[uart], 0x3f8, 4);
+            serial_setup(dev->uart[uart], COM1_ADDR, COM1_IRQ);
     }
 }
 
@@ -147,7 +147,7 @@ pc87310_write(uint16_t port, uint8_t val, void *priv)
 	}
 
     pc87310_log("SIO: written %01X\n", val);
-    
+
     /* reconfigure parallel port */
     if (valxor & 0x03) {
         lpt1_remove();
@@ -185,7 +185,7 @@ pc87310_write(uint16_t port, uint8_t val, void *priv)
         /* bit 6: 1 disable fdc */
         if (!(val & 0x40)) {
             pc87310_log("SIO: FDC enabled\n");
-            fdc_set_base(dev->fdc, 0x3f0);
+            fdc_set_base(dev->fdc, FDC_PRIMARY_ADDR);
         }
     }
     return;
@@ -203,7 +203,7 @@ pc87310_read(uint16_t port, void *priv)
     ret = dev->reg;
 
     pc87310_log("SIO: read %01X\n", ret);
-    
+
     return ret;
 }
 
@@ -247,7 +247,7 @@ pc87310_init(const device_t *info)
     HAS_IDE_FUNCTIONALITY = info->local;
 
     dev->fdc = device_add(&fdc_at_nsc_device);
-    
+
     dev->uart[0] = device_add_inst(&ns16550_device, 1);
     dev->uart[1] = device_add_inst(&ns16550_device, 2);
 
@@ -258,26 +258,35 @@ pc87310_init(const device_t *info)
 
     io_sethandler(0x3f3, 0x0001,
 		      pc87310_read, NULL, NULL, pc87310_write, NULL, NULL, dev);
-     
+
 
     return dev;
 }
 
-
 const device_t pc87310_device = {
-    "National Semiconductor PC87310 Super I/O",
-    0,
-    0,
-    pc87310_init, pc87310_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "National Semiconductor PC87310 Super I/O",
+    .internal_name = "pc87310",
+    .flags = 0,
+    .local = 0,
+    .init = pc87310_init,
+    .close = pc87310_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t pc87310_ide_device = {
-    "National Semiconductor PC87310 Super I/O with IDE functionality",
-    0,
-    1,
-    pc87310_init, pc87310_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "National Semiconductor PC87310 Super I/O with IDE functionality",
+    .internal_name = "pc87310_ide",
+    .flags = 0,
+    .local = 1,
+    .init = pc87310_init,
+    .close = pc87310_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

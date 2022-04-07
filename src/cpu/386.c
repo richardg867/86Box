@@ -22,6 +22,7 @@
 #include <86box/fdd.h>
 #include <86box/fdc.h>
 #include <86box/machine.h>
+#include <86box/gdbstub.h>
 #include "386_common.h"
 #ifdef USE_NEW_DYNAREC
 #include "codegen.h"
@@ -81,7 +82,27 @@ x386_log(const char *fmt, ...)
 
 #define OP_TABLE(name) ops_ ## name
 
+#if 0
+#define CLOCK_CYCLES(c) \
+	{\
+		if (fpu_cycles > 0) {\
+			fpu_cycles -= (c);\
+			if (fpu_cycles < 0) {\
+				cycles += fpu_cycles;\
+			}\
+		} else {\
+			cycles -= (c);\
+		}\
+	}
+
+#define CLOCK_CYCLES_FPU(c) cycles -= (c)
+#define CONCURRENCY_CYCLES(c) fpu_cycles = (c)
+#else
 #define CLOCK_CYCLES(c) cycles -= (c)
+#define CLOCK_CYCLES_FPU(c) cycles -= (c)
+#define CONCURRENCY_CYCLES(c)
+#endif
+
 #define CLOCK_CYCLES_ALWAYS(c) cycles -= (c)
 
 #include "x86_ops.h"
@@ -189,7 +210,7 @@ exec386(int cycs)
 				loadcs(readmemw(0, addr + 2));
 			}
 		} else if (nmi && nmi_enable && nmi_mask) {
-			if (AT && (cpu_fast_off_flags & 0x20000000))
+			if (is486 && (cpu_fast_off_flags & 0x20000000))
 				cpu_fast_off_count = cpu_fast_off_val + 1;
 
 			cpu_state.oldpc = cpu_state.pc;
@@ -236,6 +257,11 @@ exec386(int cycs)
 
 		if (TIMER_VAL_LESS_THAN_VAL(timer_target, (uint32_t) tsc))
 			timer_process_inline();
+
+#ifdef USE_GDBSTUB
+		if (gdbstub_instruction())
+			return;
+#endif
 	}
     }
 }

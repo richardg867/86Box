@@ -17,6 +17,7 @@
  *		Copyright 2008-2019 Sarah Walker.
  *		Copyright 2016-2019 Miran Grca.
  *		Copyright 2017-2019 Fred N. van Kempen.
+ *		Copyright 2021 Laci bá'
  */
 #define UNICODE
 #define NTDDI_VERSION 0x06010000
@@ -34,6 +35,7 @@
 #include <direct.h>
 #include <wchar.h>
 #include <io.h>
+#include <stdatomic.h>
 #define HAVE_STDARG_H
 #include <86box/86box.h>
 #include <86box/config.h>
@@ -43,9 +45,10 @@
 #include <86box/timer.h>
 #include <86box/nvr.h>
 #include <86box/video.h>
+#include <86box/mem.h>
+#include <86box/rom.h>
 #define GLOBAL
 #include <86box/plat.h>
-#include <86box/plat_midi.h>
 #include <86box/ui.h>
 #ifdef USE_VNC
 # include <86box/vnc.h>
@@ -54,19 +57,20 @@
 #include <86box/win_opengl.h>
 #include <86box/win.h>
 #include <86box/version.h>
+#include <86box/gdbstub.h>
 #ifdef MTR_ENABLED
 #include <minitrace/minitrace.h>
 #endif
 
 typedef struct {
-    WCHAR str[512];
+    WCHAR str[1024];
 } rc_str_t;
 
 
 /* Platform Public data, specific. */
 HINSTANCE	hinstance;		/* application instance */
 HANDLE		ghMutex;
-LCID		lang_id;		/* current language ID used */
+uint32_t		lang_id, lang_sys;		/* current and system language ID */
 DWORD		dwSubLangID;
 int		acp_utf8;		/* Windows supports UTF-8 codepage */
 volatile int	cpu_thread_run = 1;
@@ -74,16 +78,16 @@ volatile int	cpu_thread_run = 1;
 
 /* Local data. */
 static HANDLE	thMain;
-static rc_str_t	*lpRCstr2048,
-		*lpRCstr4096,
-		*lpRCstr4352,
-		*lpRCstr4608,
-		*lpRCstr5120,
-		*lpRCstr5376,
-		*lpRCstr5632,
-		*lpRCstr5888,
-		*lpRCstr6144,
-		*lpRCstr7168;
+static rc_str_t	*lpRCstr2048 = NULL,
+		*lpRCstr4096 = NULL,
+		*lpRCstr4352 = NULL,
+		*lpRCstr4608 = NULL,
+		*lpRCstr5120 = NULL,
+		*lpRCstr5376 = NULL,
+		*lpRCstr5632 = NULL,
+		*lpRCstr5888 = NULL,
+		*lpRCstr6144 = NULL,
+		*lpRCstr7168 = NULL;
 static int	vid_api_inited = 0;
 static char	*argbuf;
 static int	first_use = 1;
@@ -105,11 +109,7 @@ static const struct {
   {	"SDL_Software", 1, (int(*)(void*))sdl_inits, sdl_close, NULL, sdl_pause, sdl_enable, sdl_set_fs, sdl_reload	},
   {	"SDL_Hardware", 1, (int(*)(void*))sdl_inith, sdl_close, NULL, sdl_pause, sdl_enable, sdl_set_fs, sdl_reload	},
   {	"SDL_OpenGL", 1, (int(*)(void*))sdl_initho, sdl_close, NULL, sdl_pause, sdl_enable, sdl_set_fs, sdl_reload	}
-#if defined(DEV_BRANCH) && defined(USE_OPENGL)
  ,{	"OpenGL_Core", 1, (int(*)(void*))opengl_init, opengl_close, opengl_resize, opengl_pause, NULL, opengl_set_fs, opengl_reload}
-#else
- ,{	"OpenGL_Core", 1, (int(*)(void*))sdl_initho, sdl_close, NULL, sdl_pause, sdl_enable, sdl_set_fs, NULL		} /* fall back to SDL_OpenGL */
-#endif
 #ifdef USE_VNC
  ,{	"VNC", 0, vnc_init, vnc_close, vnc_resize, vnc_pause, NULL, NULL						}
 #endif
@@ -138,56 +138,76 @@ win_log(const char *fmt, ...)
 #define win_log(fmt, ...)
 #endif
 
+void
+free_string(rc_str_t **str)
+{
+    if (*str != NULL) {
+	free(*str);
+	*str = NULL;
+    }
+}
+
 
 static void
 LoadCommonStrings(void)
 {
     int i;
 
-    lpRCstr2048 = (rc_str_t *)malloc(STR_NUM_2048*sizeof(rc_str_t));
-    lpRCstr4096 = (rc_str_t *)malloc(STR_NUM_4096*sizeof(rc_str_t));
-    lpRCstr4352 = (rc_str_t *)malloc(STR_NUM_4352*sizeof(rc_str_t));
-    lpRCstr4608 = (rc_str_t *)malloc(STR_NUM_4608*sizeof(rc_str_t));
-    lpRCstr5120 = (rc_str_t *)malloc(STR_NUM_5120*sizeof(rc_str_t));
-    lpRCstr5376 = (rc_str_t *)malloc(STR_NUM_5376*sizeof(rc_str_t));
-    lpRCstr5632 = (rc_str_t *)malloc(STR_NUM_5632*sizeof(rc_str_t));
-    lpRCstr5888 = (rc_str_t *)malloc(STR_NUM_5888*sizeof(rc_str_t));
-    lpRCstr6144 = (rc_str_t *)malloc(STR_NUM_6144*sizeof(rc_str_t));
-    lpRCstr7168 = (rc_str_t *)malloc(STR_NUM_7168*sizeof(rc_str_t));
+    free_string(&lpRCstr7168);
+    free_string(&lpRCstr6144);
+    free_string(&lpRCstr5888);
+    free_string(&lpRCstr5632);
+    free_string(&lpRCstr5376);
+    free_string(&lpRCstr5120);
+    free_string(&lpRCstr4608);
+    free_string(&lpRCstr4352);
+    free_string(&lpRCstr4096);
+    free_string(&lpRCstr2048);
+
+    lpRCstr2048 = calloc(STR_NUM_2048, sizeof(rc_str_t));
+    lpRCstr4096 = calloc(STR_NUM_4096, sizeof(rc_str_t));
+    lpRCstr4352 = calloc(STR_NUM_4352, sizeof(rc_str_t));
+    lpRCstr4608 = calloc(STR_NUM_4608, sizeof(rc_str_t));
+    lpRCstr5120 = calloc(STR_NUM_5120, sizeof(rc_str_t));
+    lpRCstr5376 = calloc(STR_NUM_5376, sizeof(rc_str_t));
+    lpRCstr5632 = calloc(STR_NUM_5632, sizeof(rc_str_t));
+    lpRCstr5888 = calloc(STR_NUM_5888, sizeof(rc_str_t));
+    lpRCstr6144 = calloc(STR_NUM_6144, sizeof(rc_str_t));
+    lpRCstr7168 = calloc(STR_NUM_7168, sizeof(rc_str_t));
 
     for (i=0; i<STR_NUM_2048; i++)
-	LoadString(hinstance, 2048+i, lpRCstr2048[i].str, 512);
+	LoadString(hinstance, 2048+i, lpRCstr2048[i].str, 1024);
 
     for (i=0; i<STR_NUM_4096; i++)
-	LoadString(hinstance, 4096+i, lpRCstr4096[i].str, 512);
+	LoadString(hinstance, 4096+i, lpRCstr4096[i].str, 1024);
 
     for (i=0; i<STR_NUM_4352; i++)
-	LoadString(hinstance, 4352+i, lpRCstr4352[i].str, 512);
+	LoadString(hinstance, 4352+i, lpRCstr4352[i].str, 1024);
 
     for (i=0; i<STR_NUM_4608; i++)
-	LoadString(hinstance, 4608+i, lpRCstr4608[i].str, 512);
+	LoadString(hinstance, 4608+i, lpRCstr4608[i].str, 1024);
 
     for (i=0; i<STR_NUM_5120; i++)
-	LoadString(hinstance, 5120+i, lpRCstr5120[i].str, 512);
+	LoadString(hinstance, 5120+i, lpRCstr5120[i].str, 1024);
 
     for (i=0; i<STR_NUM_5376; i++) {
 	if ((i == 0) || (i > 3))
-		LoadString(hinstance, 5376+i, lpRCstr5376[i].str, 512);
+		LoadString(hinstance, 5376+i, lpRCstr5376[i].str, 1024);
     }
 
     for (i=0; i<STR_NUM_5632; i++) {
 	if ((i == 0) || (i > 3))
-		LoadString(hinstance, 5632+i, lpRCstr5632[i].str, 512);
+		LoadString(hinstance, 5632+i, lpRCstr5632[i].str, 1024);
     }
 
     for (i=0; i<STR_NUM_5888; i++)
-	LoadString(hinstance, 5888+i, lpRCstr5888[i].str, 512);
+	LoadString(hinstance, 5888+i, lpRCstr5888[i].str, 1024);
 
     for (i=0; i<STR_NUM_6144; i++)
-	LoadString(hinstance, 6144+i, lpRCstr6144[i].str, 512);
+	LoadString(hinstance, 6144+i, lpRCstr6144[i].str, 1024);
 
     for (i=0; i<STR_NUM_7168; i++)
-	LoadString(hinstance, 7168+i, lpRCstr7168[i].str, 512);
+	LoadString(hinstance, 7168+i, lpRCstr7168[i].str, 1024);
 }
 
 
@@ -221,20 +241,39 @@ size_t c16stombs(char dst[], const uint16_t src[], int len)
 }
 
 
+int
+has_language_changed(uint32_t id)
+{
+    return (lang_id != id);
+}
+
+
 /* Set (or re-set) the language for the application. */
 void
-set_language(int id)
+set_language(uint32_t id)
 {
-    LCID lcidNew = MAKELCID(id, dwSubLangID);
+    if (id == 0xFFFF) {
+	set_language(lang_sys);
+	lang_id = id;
+	return;
+    }
 
-    if (lang_id != lcidNew) {
+    if (lang_id != id) {
 	/* Set our new language ID. */
-	lang_id = lcidNew;
-
-	SetThreadLocale(lang_id);
+	lang_id = id;
+	SetThreadUILanguage(lang_id);
 
 	/* Load the strings table for this ID. */
 	LoadCommonStrings();
+
+	/* Reload main menu */
+	menuMain = LoadMenu(hinstance, L"MainMenu");
+	if (hwndMain != NULL)
+		SetMenu(hwndMain, menuMain);
+
+	/* Re-init all the menus */
+	ResetAllMenus();
+	media_menu_init();
     }
 }
 
@@ -414,9 +453,6 @@ WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpszArg, int nCmdShow)
 {
     char **argv = NULL;
     int	argc, i;
-    wchar_t * AppID = L"86Box.86Box\0";
-
-    SetCurrentProcessExplicitAppUserModelID(AppID);
 
     /* Initialize the COM library for the main thread. */
     CoInitializeEx(NULL, COINIT_MULTITHREADED);
@@ -434,10 +470,11 @@ WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpszArg, int nCmdShow)
     hinstance = hInst;
 
     /* Set the application version ID string. */
-    sprintf(emu_version, "%s v%s", EMU_NAME, EMU_VERSION);
+    sprintf(emu_version, "%s v%s", EMU_NAME, EMU_VERSION_FULL);
 
-    /* First, set our (default) language. */
-    set_language(0x0409);
+	/* First, set our (default) language. */
+	lang_sys = GetThreadUILanguage();
+    set_language(DEFAULT_LANGUAGE);
 
     /* Process the command line for options. */
     argc = ProcessCommandLine(&argv);
@@ -491,6 +528,11 @@ main_thread(void *param)
     while (!is_quit && cpu_thread_run) {
 	/* See if it is time to run a frame of code. */
 	new_time = GetTickCount();
+#ifdef USE_GDBSTUB
+	if (gdbstub_next_asap && (drawits <= 0))
+		drawits = 10;
+	else
+#endif
 	drawits += (new_time - old_time);
 	old_time = new_time;
 	if (drawits > 0 && !dopause) {
@@ -509,15 +551,15 @@ main_thread(void *param)
 			frames = 0;
 		}
 	} else	/* Just so we dont overload the host OS. */
-		Sleep(1);
+		Sleep((drawits < -1) ? 1 : 0);
+		// Sleep(1);
 
 	/* If needed, handle a screen resize. */
-	if (doresize && !video_fullscreen && !is_quit) {
+	if (!atomic_flag_test_and_set(&doresize) && !video_fullscreen && !is_quit) {
 		if (vid_resize & 2)
 			plat_resize(fixed_size_x, fixed_size_y);
 		else
 			plat_resize(scrnsz_x, scrnsz_y);
-		doresize = 0;
 	}
     }
 
@@ -697,6 +739,11 @@ plat_remove(char *path)
     }
 }
 
+void
+plat_path_normalize(char* path)
+{
+    /* No-op */
+}
 
 /* Make sure a path ends with a trailing (back)slash. */
 void
@@ -818,8 +865,8 @@ plat_dir_check(char *path)
     DWORD dwAttrib;
     int len;
     wchar_t *temp;
-    
-    if (acp_utf8) 
+
+    if (acp_utf8)
 	dwAttrib = GetFileAttributesA(path);
     else {
 	len = mbstoc16s(NULL, path, 0) + 1;
@@ -841,7 +888,7 @@ plat_dir_create(char *path)
 {
     int ret, len;
     wchar_t *temp;
-    
+
     if (acp_utf8)
 	return (int)SHCreateDirectoryExA(NULL, path, NULL);
     else {
@@ -864,6 +911,30 @@ plat_mmap(size_t size, uint8_t executable)
     return VirtualAlloc(NULL, size, MEM_COMMIT, executable ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE);
 }
 
+
+void
+plat_init_rom_paths()
+{
+    wchar_t appdata_dir[1024] = { L'\0' };
+
+    if (_wgetenv("LOCALAPPDATA") && _wgetenv("LOCALAPPDATA")[0] != L'\0') {
+        char appdata_dir_a[1024] = { '\0' };
+        size_t len = 0;
+        wcsncpy(appdata_dir, _wgetenv("LOCALAPPDATA"), 1024);
+        len = wcslen(appdata_dir);
+        if (appdata_dir[len - 1] != L'\\') {
+            appdata_dir[len] = L'\\';
+            appdata_dir[len + 1] = L'\0';
+        }
+        wcscat(appdata_dir, "86box");
+        CreateDirectoryW(appdata_dir, NULL);
+        wcscat(appdata_dir, "\\roms");
+        CreateDirectoryW(appdata_dir, NULL);
+        wcscat(appdata_dir, "\\");
+        c16stombs(appdata_dir_a, appdata_dir, 1024);
+        add_rom_path(appdata_dir_a);
+    }
+}
 
 void
 plat_munmap(void *ptr, size_t size)
@@ -963,15 +1034,9 @@ plat_vidapi_name(int api)
 	case 2:
 		name = "sdl_opengl";
 		break;
-#if defined(DEV_BRANCH) && defined(USE_OPENGL)
 	case 3:
 		name = "opengl_core";
 		break;
-#else
-	case 3:
-		name = "sdl_opengl"; /* fall back to SDL_OpenGL */
-		break;
-#endif
 #ifdef USE_VNC
 	case 4:
 		name = "vnc";
@@ -1090,10 +1155,7 @@ plat_setfullscreen(int on)
 			GetClientRect(hwndMain, &rect);
 
 			temp_x = rect.right - rect.left + 1;
-			if (hide_status_bar)
-				temp_y = rect.bottom - rect.top + 1;
-			else
-				temp_y = rect.bottom - rect.top + 1 - sbar_height;
+			temp_y = rect.bottom - rect.top + 1 - (hide_status_bar ? 0 : sbar_height) - (hide_tool_bar ? 0 : tbar_height);
 		} else {
 			if (dpi_scale) {
 				temp_x = MulDiv((vid_resize & 2) ? fixed_size_x : unscaled_size_x, dpi, 96);
@@ -1107,18 +1169,18 @@ plat_setfullscreen(int on)
 			if (vid_resize >= 2)
 				MoveWindow(hwndMain, window_x, window_y, window_w, window_h, TRUE);
 
-			if (hide_status_bar)
-				ResizeWindowByClientArea(hwndMain, temp_x, temp_y);
-			else
-				ResizeWindowByClientArea(hwndMain, temp_x, temp_y + sbar_height);
+			ResizeWindowByClientArea(hwndMain, temp_x, temp_y + (hide_status_bar ? 0 : sbar_height) + (hide_tool_bar ? 0 : tbar_height));
 		}
 
+		/* Toolbar. */
+		MoveWindow(hwndRebar, 0, 0, temp_x, tbar_height, TRUE);
+
 		/* Render window. */
-		MoveWindow(hwndRender, 0, 0, temp_x, temp_y, TRUE);
-		GetWindowRect(hwndRender, &rect);
+		MoveWindow(hwndRender, 0, hide_tool_bar ? 0 : tbar_height, temp_x, temp_y, TRUE);
 
 		/* Status bar. */
-		MoveWindow(hwndSBAR, 0, rect.bottom, temp_x, 17, TRUE);
+		GetClientRect(hwndMain, &rect);
+		MoveWindow(hwndSBAR, 0, rect.bottom - sbar_height, temp_x, sbar_height, TRUE);
 
 		if (mouse_capture)
 			ClipCursor(&rect);
@@ -1130,7 +1192,7 @@ plat_setfullscreen(int on)
     video_fullscreen &= 1;
     video_force_resize_set(1);
     if (!(on & 1))
-	doresize = 1;
+        atomic_flag_clear(&doresize);
 
     win_mouse_init();
 
@@ -1163,6 +1225,46 @@ plat_vid_reload_options(void)
 	vid_apis[vid_api].reload();
 }
 
+
+void
+plat_vidapi_reload(void)
+{
+    vid_apis[vid_api].reload();
+}
+
+
+/* Sets up the program language before initialization. */
+uint32_t
+plat_language_code(char* langcode)
+{
+	if (!strcmp(langcode, "system"))
+		return 0xFFFF;
+
+	int len = mbstoc16s(NULL, langcode, 0) + 1;
+	wchar_t *temp = malloc(len * sizeof(wchar_t));
+	mbstoc16s(temp, langcode, len);
+
+	LCID lcid = LocaleNameToLCID((LPWSTR)temp, 0);
+
+	free(temp);
+	return lcid;
+}
+
+/* Converts back the language code to LCID */
+void
+plat_language_code_r(uint32_t lcid, char* outbuf, int len)
+{
+	if (lcid == 0xFFFF)
+	{
+		strcpy(outbuf, "system");
+		return;
+	}
+
+	wchar_t buffer[LOCALE_NAME_MAX_LENGTH + 1];
+	LCIDToLocaleName(lcid, buffer, LOCALE_NAME_MAX_LENGTH, 0);
+
+	c16stombs(outbuf, buffer, len);
+}
 
 void
 take_screenshot(void)

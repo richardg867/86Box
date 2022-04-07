@@ -18,9 +18,9 @@
  *		Copyright 2017-2020 Fred N. van Kempen.
  *		Copyright 2008-2020 Sarah Walker.
  */
+
 #ifndef EMU_PCI_H
 # define EMU_PCI_H
-
 
 #define PCI_REG_COMMAND 0x04
 
@@ -45,8 +45,14 @@
 #define PCI_MIRQ1 1
 #define PCI_MIRQ2 2
 #define PCI_MIRQ3 3
+#define PCI_MIRQ4 4
+#define PCI_MIRQ5 5
+#define PCI_MIRQ6 6
+#define PCI_MIRQ7 7
 
 #define PCI_IRQ_DISABLED -1
+
+#define PCI_ADD_STRICT	0x80
 
 enum {
     PCI_CARD_NORTHBRIDGE = 0,
@@ -92,8 +98,6 @@ extern void	pci_set_irq_level(int pci_int, int level);
 extern void	pci_enable_mirq(int mirq);
 extern void	pci_set_mirq_routing(int mirq, int irq);
 
-extern uint8_t	pci_use_mirq(uint8_t mirq);
-
 extern int	pci_irq_is_level(int irq);
 
 extern void	pci_set_mirq(uint8_t mirq, int level);
@@ -119,10 +123,16 @@ extern void     trc_init(void);
 extern uint8_t	trc_read(uint16_t port, void *priv);
 extern void	trc_write(uint16_t port, uint8_t val, void *priv);
 
+extern void	pci_bridge_set_ctl(void *priv, uint8_t ctl);
+
+extern void	pci_pic_reset(void);
+
 
 #ifdef EMU_DEVICE_H
 extern const device_t dec21150_device;
 
+extern const device_t ali5243_agp_device;
+extern const device_t ali5247_agp_device;
 extern const device_t i440lx_agp_device;
 extern const device_t i440bx_agp_device;
 extern const device_t i440gx_agp_device;

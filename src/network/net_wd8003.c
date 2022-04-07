@@ -63,6 +63,8 @@
 #include <86box/net_wd8003.h>
 #include <86box/bswap.h>
 
+#include "cpu.h"
+
 /* Board type codes in card ID */
 #define WE_TYPE_WD8003		0x01
 #define WE_TYPE_WD8003S		0x02
@@ -118,7 +120,7 @@ typedef struct {
 
 
 #ifdef ENABLE_WD_LOG
-int WE_do_log = ENABLE_WD_LOG;
+int wd_do_log = ENABLE_WD_LOG;
 
 static void
 wdlog(const char *fmt, ...)
@@ -179,7 +181,7 @@ static uint8_t
 wd_ram_read(uint32_t addr, void *priv)
 {
     wd_t *dev = (wd_t *)priv;
-	
+
     wdlog("WD80x3: RAM Read: addr=%06x, val=%02x\n", addr & (dev->ram_size - 1), dev->dp8390->mem[addr & (dev->ram_size - 1)]);
     return dev->dp8390->mem[addr & (dev->ram_size - 1)];
 }
@@ -188,7 +190,7 @@ static void
 wd_ram_write(uint32_t addr, uint8_t val, void *priv)
 {
     wd_t *dev = (wd_t *)priv;
-    
+
     dev->dp8390->mem[addr & (dev->ram_size - 1)] = val;
     wdlog("WD80x3: RAM Write: addr=%06x, val=%02x\n", addr & (dev->ram_size - 1), val);
 }
@@ -244,7 +246,7 @@ wd_smc_read(wd_t *dev, uint32_t off)
 		if (dev->board_chip & WE_ID_SOFT_CONFIG)
 			retval = dev->laar;
 		break;
-		
+
 	case 0x07:
 		if (dev->board_chip & WE_ID_SOFT_CONFIG)
 			retval = dev->if_chip;
@@ -252,32 +254,32 @@ wd_smc_read(wd_t *dev, uint32_t off)
 
 	case 0x08:
 		retval = dev->dp8390->physaddr[0];
-		break;	
-	
+		break;
+
 	case 0x09:
 		retval = dev->dp8390->physaddr[1];
-		break;	
-	
+		break;
+
 	case 0x0a:
 		retval = dev->dp8390->physaddr[2];
-		break;	
-	
+		break;
+
 	case 0x0b:
 		retval = dev->dp8390->physaddr[3];
-		break;	
-	
+		break;
+
 	case 0x0c:
 		retval = dev->dp8390->physaddr[4];
 		break;
-		
+
 	case 0x0d:
 		retval = dev->dp8390->physaddr[5];
 		break;
-	
+
 	case 0x0e:
 		retval = dev->board_chip;
 		break;
-		
+
 	case 0x0f:
 		/*This has to return the byte that adds up to 0xFF*/
 		checksum = (dev->dp8390->physaddr[0] + dev->dp8390->physaddr[1] + dev->dp8390->physaddr[2] +
@@ -352,7 +354,7 @@ wd_smc_write(wd_t *dev, uint32_t off, uint32_t val)
 			wdlog("WD80x3: Memory now %sabled (addr = %08X)\n", (val & WE_MSR_ENABLE_RAM) ? "en" : "dis", dev->ram_addr);
 		}
 		break;
-		
+
 	/* Bit 1: 0 = 8-bit slot, 1 = 16-bit slot;
 	   Bit 3: 0 = 8k RAM, 1 = 32k RAM (only on revision < 2). */
 	case 0x01:
@@ -361,7 +363,7 @@ wd_smc_write(wd_t *dev, uint32_t off, uint32_t val)
 		else
 			dev->icr = val;
 		break;
-		
+
 	/* Bit 5: Bit 0 of encoded IRQ;
 	   Bit 6: Bit 1 of encoded IRQ;
 	   Bit 7: Enable interrupts. */
@@ -388,7 +390,7 @@ wd_smc_write(wd_t *dev, uint32_t off, uint32_t val)
 		if (dev->board_chip & WE_ID_SOFT_CONFIG)
 			dev->if_chip = val;
 		break;
-		
+
 	default:
 		/* This is invalid, but happens under win95 device detection:
 		   maybe some clone cards implement writing for some other
@@ -413,7 +415,7 @@ wd_read(uint16_t addr, void *priv, int len)
     if (off == 0x10)
 	retval = dp8390_read_cr(dev->dp8390);
     else if ((off >= 0x00) && (off <= 0x0f))
-	retval = wd_smc_read(dev, off);	
+	retval = wd_smc_read(dev, off);
     else {
 	switch(dev->dp8390->CR.pgsel) {
 		case 0x00:
@@ -429,7 +431,7 @@ wd_read(uint16_t addr, void *priv, int len)
 			wdlog("%s: unknown value of pgsel in read - %d\n",
 							dev->name, dev->dp8390->CR.pgsel);
 			break;
-	}		
+	}
     }
 
     return(retval);
@@ -465,7 +467,7 @@ wd_write(uint16_t addr, uint8_t val, void *priv, unsigned int len)
     if (off == 0x10)
 	dp8390_write_cr(dev->dp8390, val);
     else if ((off >= 0x00) && (off <= 0x0f))
-	wd_smc_write(dev, off, val);	
+	wd_smc_write(dev, off, val);
     else {
 	switch(dev->dp8390->CR.pgsel) {
 		case 0x00:
@@ -478,7 +480,7 @@ wd_write(uint16_t addr, uint8_t val, void *priv, unsigned int len)
 			wdlog("%s: unknown value of pgsel in write - %d\n",
 							dev->name, dev->dp8390->CR.pgsel);
 			break;
-	}			
+	}
     }
 }
 
@@ -499,7 +501,7 @@ wd_writew(uint16_t addr, uint16_t val, void *priv)
 
 static void
 wd_io_set(wd_t *dev, uint16_t addr)
-{	
+{
     if (dev->bit16 & 1) {
 	io_sethandler(addr, 0x20,
 		      wd_readb, wd_readw, NULL,
@@ -514,7 +516,7 @@ wd_io_set(wd_t *dev, uint16_t addr)
 
 static void
 wd_io_remove(wd_t *dev, uint16_t addr)
-{	
+{
     if (dev->bit16 & 1) {
 	io_removehandler(addr, 0x20,
 			 wd_readb, wd_readw, NULL,
@@ -594,12 +596,6 @@ wd_init(const device_t *info)
     uint32_t mac;
     wd_t *dev;
 
-    /* Get the desired debug level. */
-#ifdef ENABLE_NIC_LOG
-    i = device_get_config_int("debug");
-    if (i > 0) WE_do_log = i;
-#endif
-
     dev = malloc(sizeof(wd_t));
     memset(dev, 0x00, sizeof(wd_t));
     dev->name = info->name;
@@ -668,7 +664,7 @@ wd_init(const device_t *info)
 			dev->board_chip |= WE_ID_EXTRA_RAM;
 
 		dev->bit16 = 2;
-		if (AT)
+		if (is286)
 			dev->bit16 |= 1;
 		else {
 			dev->bit16 |= 0;
@@ -715,14 +711,14 @@ wd_init(const device_t *info)
 	wd_ram_write, NULL, NULL,
 	NULL, MEM_MAPPING_EXTERNAL, dev);
 
-    mem_mapping_disable(&dev->ram_mapping);		
+    mem_mapping_disable(&dev->ram_mapping);
 
     /* Attach ourselves to the network module. */
     network_attach(dev->dp8390, dev->dp8390->physaddr, dp8390_rx, NULL, NULL);
 
     if (!(dev->board_chip & WE_ID_BUS_MCA)) {
 	wdlog("%s: attached IO=0x%X IRQ=%d, RAM addr=0x%06x\n", dev->name,
-	      dev->base_address, dev->irq, dev->ram_addr);		
+	      dev->base_address, dev->irq, dev->ram_addr);
     }
 
     return(dev);
@@ -739,377 +735,228 @@ wd_close(void *priv)
     free(dev);
 }
 
-
-static const device_config_t wd8003_config[] =
-{
-	{
-		"base", "Address", CONFIG_HEX16, "", 0x300, "", { 0 },
-		{
-			{
-				"0x240", 0x240
-			},
-			{
-				"0x280", 0x280
-			},
-			{
-				"0x300", 0x300
-			},
-			{
-				"0x380", 0x380
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"irq", "IRQ", CONFIG_SELECTION, "", 3, "", { 0 },
-		{
-			{
-				"IRQ 2", 2
-			},
-			{
-				"IRQ 3", 3
-			},
-			{
-				"IRQ 5", 5
-			},
-			{
-				"IRQ 7", 7
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"ram_addr", "RAM address", CONFIG_HEX20, "", 0xD0000, "", { 0 },
-		{
-			{
-				"C800", 0xC8000
-			},
-			{
-				"CC00", 0xCC000
-			},
-			{
-				"D000", 0xD0000
-			},
-			{
-				"D400", 0xD4000
-			},
-			{
-				"D800", 0xD8000
-			},
-			{
-				"DC00", 0xDC000
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"mac", "MAC Address", CONFIG_MAC, "", -1
-	},
-	{
-		"", "", -1
-	}
+// clang-format off
+static const device_config_t wd8003_config[] = {
+    {
+        "base", "Address", CONFIG_HEX16, "", 0x300, "", { 0 },
+        {
+            { "0x240", 0x240 },
+            { "0x280", 0x280 },
+            { "0x300", 0x300 },
+            { "0x380", 0x380 },
+            { ""             }
+        },
+    },
+    {
+        "irq", "IRQ", CONFIG_SELECTION, "", 3, "", { 0 },
+        {
+            { "IRQ 2", 2 },
+            { "IRQ 3", 3 },
+            { "IRQ 5", 5 },
+            { "IRQ 7", 7 },
+            { ""         }
+        },
+    },
+    {
+        "ram_addr", "RAM address", CONFIG_HEX20, "", 0xD0000, "", { 0 },
+        {
+            { "C800", 0xC8000 },
+            { "CC00", 0xCC000 },
+            { "D000", 0xD0000 },
+            { "D400", 0xD4000 },
+            { "D800", 0xD8000 },
+            { "DC00", 0xDC000 },
+            { ""              }
+        },
+    },
+    { "mac", "MAC Address", CONFIG_MAC, "", -1 },
+    { "",    "",                            -1 }
 };
 
-static const device_config_t wd8003eb_config[] =
-{
-	{
-		"base", "Address", CONFIG_HEX16, "", 0x280, "", { 0 },
-		{
-			{
-				"0x200", 0x200
-			},
-			{
-				"0x220", 0x220
-			},
-			{
-				"0x240", 0x240
-			},
-			{
-				"0x260", 0x260
-			},
-			{
-				"0x280", 0x280
-			},
-			{
-				"0x2A0", 0x2A0
-			},
-			{
-				"0x2C0", 0x2C0
-			},
-			{
-				"0x300", 0x300
-			},
-			{
-				"0x340", 0x340
-			},
-			{
-				"0x380", 0x380
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"irq", "IRQ", CONFIG_SELECTION, "", 3, "", { 0 },
-		{
-			{
-				"IRQ 2/9", 9
-			},
-			{
-				"IRQ 3", 3
-			},
-			{
-				"IRQ 4", 4
-			},
-			{
-				"IRQ 7", 7
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"ram_addr", "RAM address", CONFIG_HEX20, "", 0xD0000, "", { 0 },
-		{
-			{
-				"C000", 0xC0000
-			},
-			{
-				"C400", 0xC4000
-			},
-			{
-				"C800", 0xC8000
-			},
-			{
-				"CC00", 0xCC000
-			},
-			{
-				"D000", 0xD0000
-			},
-			{
-				"D400", 0xD4000
-			},
-			{
-				"D800", 0xD8000
-			},
-			{
-				"DC00", 0xDC000
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"ram_size", "RAM size", CONFIG_SELECTION, "", 8192, "", { 0 },
-		{
-			{
-				"8 kB", 8192
-			},
-			{
-				"32 kB", 32768
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"mac", "MAC Address", CONFIG_MAC, "", -1
-	},
-	{
-		"", "", -1
-	}
+static const device_config_t wd8003eb_config[] = {
+    {
+        "base", "Address", CONFIG_HEX16, "", 0x280, "", { 0 },
+        {
+            { "0x200", 0x200 },
+            { "0x220", 0x220 },
+            { "0x240", 0x240 },
+            { "0x260", 0x260 },
+            { "0x280", 0x280 },
+            { "0x2A0", 0x2A0 },
+            { "0x2C0", 0x2C0 },
+            { "0x300", 0x300 },
+            { "0x340", 0x340 },
+            { "0x380", 0x380 },
+            { ""             }
+        },
+    },
+    {
+        "irq", "IRQ", CONFIG_SELECTION, "", 3, "", { 0 },
+        {
+            { "IRQ 2/9", 9 },
+            { "IRQ 3",   3 },
+            { "IRQ 4",   4 },
+            { "IRQ 7",   7 },
+            { ""           }
+        },
+    },
+    {
+        "ram_addr", "RAM address", CONFIG_HEX20, "", 0xD0000, "", { 0 },
+        {
+            { "C000", 0xC0000 },
+            { "C400", 0xC4000 },
+            { "C800", 0xC8000 },
+            { "CC00", 0xCC000 },
+            { "D000", 0xD0000 },
+            { "D400", 0xD4000 },
+            { "D800", 0xD8000 },
+            { "DC00", 0xDC000 },
+            { ""              }
+        },
+    },
+    {
+        "ram_size", "RAM size", CONFIG_SELECTION, "", 8192, "", { 0 },
+        {
+            { "8 kB",   8192 },
+            { "32 kB", 32768 },
+            { ""             }
+        },
+    },
+    { "mac", "MAC Address", CONFIG_MAC, "", -1 },
+    { "",    "",                            -1 }
 };
 
 /* WD8013EBT configuration and defaults set according to this site:
    http://www.stack.nl/~marcolz/network/wd80x3.html#WD8013EBT */
-static const device_config_t wd8013_config[] =
-{
-	{
-		"base", "Address", CONFIG_HEX16, "", 0x280, "", { 0 },
-		{
-			{
-				"0x200", 0x200
-			},
-			{
-				"0x220", 0x220
-			},
-			{
-				"0x240", 0x240
-			},
-			{
-				"0x260", 0x260
-			},
-			{
-				"0x280", 0x280
-			},
-			{
-				"0x2A0", 0x2A0
-			},
-			{
-				"0x2C0", 0x2C0
-			},
-			{
-				"0x300", 0x300
-			},
-			{
-				"0x340", 0x340
-			},
-			{
-				"0x380", 0x380
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"irq", "IRQ", CONFIG_SELECTION, "", 3, "", { 0 },
-		{
-			{
-				"IRQ 2/9", 9
-			},
-			{
-				"IRQ 3", 3
-			},
-			{
-				"IRQ 4", 4
-			},
-			{
-				"IRQ 5", 5
-			},
-			{
-				"IRQ 7", 7
-			},
-			{
-				"IRQ 10", 10
-			},
-			{
-				"IRQ 11", 11
-			},
-			{
-				"IRQ 15", 15
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"ram_addr", "RAM address", CONFIG_HEX20, "", 0xD0000, "", { 0 },
-		{
-			{
-				"C000", 0xC0000
-			},
-			{
-				"C400", 0xC4000
-			},
-			{
-				"C800", 0xC8000
-			},
-			{
-				"CC00", 0xCC000
-			},
-			{
-				"D000", 0xD0000
-			},
-			{
-				"D400", 0xD4000
-			},
-			{
-				"D800", 0xD8000
-			},
-			{
-				"DC00", 0xDC000
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"ram_size", "RAM size", CONFIG_SELECTION, "", 16384, "", { 0 },
-		{
-			{
-				"16 kB", 16384
-			},
-			{
-				"64 kB", 65536
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"mac", "MAC Address", CONFIG_MAC, "", -1
-	},
-	{
-		"", "", -1
-	}
+static const device_config_t wd8013_config[] = {
+    {
+        "base", "Address", CONFIG_HEX16, "", 0x280, "", { 0 },
+        {
+            { "0x200", 0x200 },
+            { "0x220", 0x220 },
+            { "0x240", 0x240 },
+            { "0x260", 0x260 },
+            { "0x280", 0x280 },
+            { "0x2A0", 0x2A0 },
+            { "0x2C0", 0x2C0 },
+            { "0x300", 0x300 },
+            { "0x340", 0x340 },
+            { "0x380", 0x380 },
+            { ""             }
+        },
+    },
+    {
+        "irq", "IRQ", CONFIG_SELECTION, "", 3, "", { 0 },
+        {
+            { "IRQ 2/9", 9 },
+            { "IRQ 3",   3 },
+            { "IRQ 4",   4 },
+            { "IRQ 5",   5 },
+            { "IRQ 7",   7 },
+            { "IRQ 10", 10 },
+            { "IRQ 11", 11 },
+            { "IRQ 15", 15 },
+            { ""           }
+        },
+    },
+    {
+        "ram_addr", "RAM address", CONFIG_HEX20, "", 0xD0000, "", { 0 },
+        {
+            { "C000", 0xC0000 },
+            { "C400", 0xC4000 },
+            { "C800", 0xC8000 },
+            { "CC00", 0xCC000 },
+            { "D000", 0xD0000 },
+            { "D400", 0xD4000 },
+            { "D800", 0xD8000 },
+            { "DC00", 0xDC000 },
+            { ""              }
+        },
+    },
+    {
+        "ram_size", "RAM size", CONFIG_SELECTION, "", 16384, "", { 0 },
+        {
+            { "16 kB", 16384 },
+            { "64 kB", 65536 },
+            { ""             }
+        },
+    },
+    { "mac", "MAC Address", CONFIG_MAC, "", -1 },
+    { "",    "",                            -1 }
 };
 
-static const device_config_t mca_mac_config[] =
-{
-	{
-		"mac", "MAC Address", CONFIG_MAC, "", -1
-	},
-	{
-		"", "", -1
-	}
+static const device_config_t mca_mac_config[] = {
+    { "mac", "MAC Address", CONFIG_MAC, "", -1 },
+    { "",    "",                            -1 }
 };
-
+// clang-format on
 
 const device_t wd8003e_device = {
-    "Western Digital WD8003E",
-    DEVICE_ISA,
-    WD8003E,
-    wd_init, wd_close, NULL,
-    { NULL }, NULL, NULL,
-    wd8003_config
+    .name = "Western Digital WD8003E",
+    .internal_name = "wd8003e",
+    .flags = DEVICE_ISA,
+    .local = WD8003E,
+    .init = wd_init,
+    .close = wd_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = wd8003_config
 };
 
 const device_t wd8003eb_device = {
-    "Western Digital WD8003EB",
-    DEVICE_ISA,
-    WD8003EB,
-    wd_init, wd_close, NULL,
-    { NULL }, NULL, NULL,
-    wd8003eb_config
+    .name = "Western Digital WD8003EB",
+    .internal_name = "wd8003eb",
+    .flags = DEVICE_ISA,
+    .local = WD8003EB,
+    .init = wd_init,
+    .close = wd_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = wd8003eb_config
 };
 
 const device_t wd8013ebt_device = {
-    "Western Digital WD8013EBT",
-    DEVICE_ISA,
-    WD8013EBT,
-    wd_init, wd_close, NULL,
-    { NULL }, NULL, NULL,
-    wd8013_config
+    .name = "Western Digital WD8013EBT",
+    .internal_name = "wd8013ebt",
+    .flags = DEVICE_ISA,
+    .local = WD8013EBT,
+    .init = wd_init,
+    .close = wd_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = wd8013_config
 };
 
 const device_t wd8003eta_device = {
-    "Western Digital WD8003ET/A",
-    DEVICE_MCA,
-    WD8003ETA,
-    wd_init, wd_close, NULL,
-    { NULL }, NULL, NULL,
-    mca_mac_config
+    .name = "Western Digital WD8003ET/A",
+    .internal_name = "wd8003eta",
+    .flags = DEVICE_MCA,
+    .local = WD8003ETA,
+    .init = wd_init,
+    .close = wd_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = mca_mac_config
 };
 
 const device_t wd8003ea_device = {
-    "Western Digital WD8003E/A",
-    DEVICE_MCA,
-    WD8003EA,
-    wd_init, wd_close, NULL,
-    { NULL }, NULL, NULL,
-    mca_mac_config
+    .name = "Western Digital WD8003E/A",
+    .internal_name = "wd8003ea",
+    .flags = DEVICE_MCA,
+    .local = WD8003EA,
+    .init = wd_init,
+    .close = wd_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = mca_mac_config
 };

@@ -160,7 +160,7 @@ att49x_ramdac_init(const device_t *info)
     memset(ramdac, 0, sizeof(att49x_ramdac_t));
 
     ramdac->type = info->local;
-    
+
     return ramdac;
 }
 
@@ -174,27 +174,44 @@ att49x_ramdac_close(void *priv)
 	free(ramdac);
 }
 
-
-const device_t att490_ramdac_device =
-{
-        "AT&T 20c490 RAMDAC",
-        0, ATT_490,
-        att49x_ramdac_init, att49x_ramdac_close,
-	NULL, { NULL }, NULL, NULL
+const device_t att490_ramdac_device = {
+    .name = "AT&T 20c490 RAMDAC",
+    .internal_name = "att490_ramdac",
+    .flags = 0,
+    .local = ATT_490,
+    .init = att49x_ramdac_init,
+    .close = att49x_ramdac_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-const device_t att491_ramdac_device =
-{
-        "AT&T 20c491 RAMDAC",
-        0, ATT_491,
-        att49x_ramdac_init, att49x_ramdac_close,
-	NULL, { NULL }, NULL, NULL
+const device_t att491_ramdac_device = {
+    .name = "AT&T 20c491 RAMDAC",
+    .internal_name = "att491_ramdac",
+    .flags = 0,
+    .local = ATT_491,
+    .init = att49x_ramdac_init,
+    .close = att49x_ramdac_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-const device_t att492_ramdac_device =
-{
-        "AT&T 20c492 RAMDAC",
-        0, ATT_492,
-        att49x_ramdac_init, att49x_ramdac_close,
-	NULL, { NULL }, NULL, NULL
+const device_t att492_ramdac_device = {
+    .name = "AT&T 20c492 RAMDAC",
+    .internal_name = "att492_ramdac",
+    .flags = 0,
+    .local = ATT_492,
+    .init = att49x_ramdac_init,
+    .close = att49x_ramdac_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

@@ -58,7 +58,7 @@ vl82c480_shflags(uint8_t access)
 }
 
 
-static void 
+static void
 vl82c480_recalc(vl82c480_t *dev)
 {
     int i, j;
@@ -98,8 +98,17 @@ vl82c480_write(uint16_t addr, uint8_t val, void *p)
 				default:
 					dev->regs[dev->idx] = val;
 					break;
+				case 0x04:
+					if (dev->regs[0x00] == 0x98)
+						dev->regs[dev->idx] = (dev->regs[dev->idx] & 0x08) | (val & 0xf7);
+					else
+						dev->regs[dev->idx] = val;
+					break;
 				case 0x05:
 					dev->regs[dev->idx] = (dev->regs[dev->idx] & 0x10) | (val & 0xef);
+					break;
+				case 0x07:
+					dev->regs[dev->idx] = (dev->regs[dev->idx] & 0x40) | (val & 0xbf);
 					break;
 				case 0x0d: case 0x0e: case 0x0f: case 0x10:
 				case 0x11: case 0x12:
@@ -118,7 +127,7 @@ vl82c480_write(uint16_t addr, uint8_t val, void *p)
 }
 
 
-static uint8_t 
+static uint8_t
 vl82c480_read(uint16_t addr, void *p)
 {
     vl82c480_t *dev = (vl82c480_t *)p;
@@ -163,11 +172,13 @@ vl82c480_init(const device_t *info)
     vl82c480_t *dev = (vl82c480_t *)malloc(sizeof(vl82c480_t));
     memset(dev, 0, sizeof(vl82c480_t));
 
-    dev->regs[0x00] = 0x90;
+    dev->regs[0x00] = info->local;
     dev->regs[0x01] = 0xff;
     dev->regs[0x02] = 0x8a;
     dev->regs[0x03] = 0x88;
     dev->regs[0x06] = 0x1b;
+    if (info->local == 0x98)
+	dev->regs[0x07] = 0x21;
     dev->regs[0x08] = 0x38;
 
     io_sethandler(0x00ec, 0x0004,  vl82c480_read, NULL, NULL, vl82c480_write, NULL, NULL,  dev);
@@ -177,12 +188,30 @@ vl82c480_init(const device_t *info)
     return dev;
 }
 
-
 const device_t vl82c480_device = {
-    "VLSI VL82c480",
-    0,
-    0,
-    vl82c480_init, vl82c480_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "VLSI VL82c480",
+    .internal_name = "vl82c480",
+    .flags = 0,
+    .local = 0x90,
+    .init = vl82c480_init,
+    .close = vl82c480_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
+};
+
+const device_t vl82c486_device = {
+    .name = "VLSI VL82c486",
+    .internal_name = "vl82c486",
+    .flags = 0,
+    .local = 0x98,
+    .init = vl82c480_init,
+    .close = vl82c480_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

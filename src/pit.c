@@ -154,6 +154,8 @@ ctr_tick(ctr_t *ctr)
 	/* This is true for all modes */
 	ctr_load_count(ctr);
 	ctr->state = 2;
+	if ((ctr->m & 0x07) == 0x01)
+		ctr_set_out(ctr, 0);
 	return;
     }
 
@@ -839,61 +841,75 @@ pit_init(const device_t *info)
     return dev;
 }
 
-
-const device_t i8253_device =
-{
-        "Intel 8253/8253-5 Programmable Interval Timer",
-        DEVICE_ISA,
-	PIT_8253,
-        pit_init, pit_close, NULL,
-        { NULL }, NULL, NULL,
-	NULL
+const device_t i8253_device = {
+    .name = "Intel 8253/8253-5 Programmable Interval Timer",
+    .internal_name = "i8253",
+    .flags = DEVICE_ISA,
+    .local = PIT_8253,
+    .init = pit_init,
+    .close = pit_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
-const device_t i8254_device =
-{
-        "Intel 8254 Programmable Interval Timer",
-        DEVICE_ISA,
-	PIT_8254,
-        pit_init, pit_close, NULL,
-        { NULL }, NULL, NULL,
-	NULL
+const device_t i8254_device = {
+    .name = "Intel 8254 Programmable Interval Timer",
+    .internal_name = "i8254",
+    .flags = DEVICE_ISA,
+    .local = PIT_8254,
+    .init = pit_init,
+    .close = pit_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
-const device_t i8254_sec_device =
-{
-        "Intel 8254 Programmable Interval Timer (Secondary)",
-        DEVICE_ISA,
-	PIT_8254 | PIT_SECONDARY,
-        pit_init, pit_close, NULL,
-        { NULL }, NULL, NULL,
-	NULL
+const device_t i8254_sec_device = {
+    .name = "Intel 8254 Programmable Interval Timer (Secondary)",
+    .internal_name = "i8254_sec",
+    .flags = DEVICE_ISA,
+    .local = PIT_8254 | PIT_SECONDARY,
+    .init = pit_init,
+    .close = pit_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
-const device_t i8254_ext_io_device =
-{
-        "Intel 8254 Programmable Interval Timer (External I/O)",
-        DEVICE_ISA,
-	PIT_8254 | PIT_EXT_IO,
-        pit_init, pit_close, NULL,
-        { NULL }, NULL, NULL,
-	NULL
+const device_t i8254_ext_io_device = {
+    .name = "Intel 8254 Programmable Interval Timer (External I/O)",
+    .internal_name = "i8254_ext_io",
+    .flags = DEVICE_ISA,
+    .local = PIT_8254 | PIT_EXT_IO,
+    .init = pit_init,
+    .close = pit_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
-const device_t i8254_ps2_device =
-{
-        "Intel 8254 Programmable Interval Timer (PS/2)",
-        DEVICE_ISA,
-	PIT_8254 | PIT_PS2 | PIT_EXT_IO,
-        pit_init, pit_close, NULL,
-        { NULL }, NULL, NULL,
-	NULL
+const device_t i8254_ps2_device = {
+    .name = "Intel 8254 Programmable Interval Timer (PS/2)",
+    .internal_name = "i8254_ps2",
+    .flags = DEVICE_ISA,
+    .local = PIT_8254 | PIT_PS2 | PIT_EXT_IO,
+    .init = pit_init,
+    .close = pit_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
-
 
 pit_t *
 pit_common_init(int type, void (*out0)(int new_out, int old_out), void (*out1)(int new_out, int old_out))
@@ -1031,7 +1047,7 @@ pit_set_clock(int clock)
     if (cpu_64bitbus)
 	bus_timing = (cpuclock / ((double)cpu_busspeed / 2));
     else
-	bus_timing = (cpuclock / (double)cpu_busspeed);	    
+	bus_timing = (cpuclock / (double)cpu_busspeed);
     pci_timing = (cpuclock / (double)cpu_pci_speed);
     agp_timing = (cpuclock / (double)cpu_agp_speed);
 

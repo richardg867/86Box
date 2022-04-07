@@ -591,7 +591,7 @@ smram_restore_state_p5(uint32_t *saved_state)
     smm_seg_load(&cpu_state.seg_gs);
 
     if (SMM_REVISION_ID & SMM_SMBASE_RELOCATION)
-	smbase = saved_state[SMRAM_FIELD_P5_SMBASE_OFFSET] & 0x00ffffff;
+	smbase = saved_state[SMRAM_FIELD_P5_SMBASE_OFFSET];
 
     /* Am486/5x86 stuff */
     if (!is_pentium) {
@@ -1172,7 +1172,7 @@ enter_smm(int in_hlt)
 
 	flushmmucache();
     }
-    
+
     oldcpl = 0;
 
     cpu_cur_status &= ~(CPU_STATUS_PMODE | CPU_STATUS_V86);
@@ -1518,7 +1518,7 @@ idivl(int32_t val)
     int64_t num, quo;
     int32_t rem, quo32;
 
-    if (val == 0)  {       
+    if (val == 0)  {
 	divexcp();
 	return 1;
     }

@@ -161,6 +161,7 @@ file_dlg_w(HWND hwnd, WCHAR *f, WCHAR *fn, WCHAR *title, int save)
     OPENFILENAME ofn;
     BOOL r;
     /* DWORD err; */
+    int old_dopause;
 
     /* Initialize OPENFILENAME */
     ZeroMemory(&ofn, sizeof(ofn));
@@ -172,6 +173,7 @@ file_dlg_w(HWND hwnd, WCHAR *f, WCHAR *fn, WCHAR *title, int save)
      * Set lpstrFile[0] to '\0' so that GetOpenFileName does
      * not use the contents of szFile to initialize itself.
      */
+    memset(ofn.lpstrFile, 0x00, 512 * sizeof(WCHAR));
     memcpy(ofn.lpstrFile, fn, (wcslen(fn) << 1) + 2);
     ofn.nMaxFile = sizeof_w(wopenfilestring);
     ofn.lpstrFilter = f;
@@ -181,15 +183,18 @@ file_dlg_w(HWND hwnd, WCHAR *f, WCHAR *fn, WCHAR *title, int save)
     ofn.lpstrInitialDir = NULL;
     ofn.Flags = OFN_PATHMUSTEXIST;
     if (! save)
-	ofn.Flags |= OFN_FILEMUSTEXIST;    
+	ofn.Flags |= OFN_FILEMUSTEXIST;
     if (title)
     ofn.lpstrTitle = title;
 
     /* Display the Open dialog box. */
+    old_dopause = dopause;
+    plat_pause(1);
     if (save)
 	r = GetSaveFileName(&ofn);
     else
 	r = GetOpenFileName(&ofn);
+    plat_pause(old_dopause);
 
     plat_chdir(usr_path);
 
@@ -243,6 +248,6 @@ file_dlg_w_st(HWND hwnd, int id, WCHAR *fn, char *title, int save)
 
 int
 file_dlg_st(HWND hwnd, int id, char *fn, char *title, int save)
-{    
+{
     return(file_dlg(hwnd, plat_get_string(id), fn, title, save));
 }

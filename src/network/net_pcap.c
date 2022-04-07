@@ -58,8 +58,8 @@
 #include <86box/network.h>
 
 
-typedef int bpf_int32; 
-typedef unsigned int bpf_u_int32; 
+typedef int bpf_int32;
+typedef unsigned int bpf_u_int32;
 
 /*
  * The instruction data structure.
@@ -79,7 +79,7 @@ struct bpf_program {
     struct bpf_insn	*bf_insns;
 };
 
-typedef struct pcap_if	pcap_if_t; 
+typedef struct pcap_if	pcap_if_t;
 
 typedef struct net_timeval {
     long		tv_sec;
@@ -95,11 +95,11 @@ struct pcap_pkthdr {
 };
 
 struct pcap_if {
-    struct pcap_if *next; 
-    char *name;     
-    char *description;  
-    void *addresses; 
-    unsigned int flags;        
+    struct pcap_if *next;
+    char *name;
+    char *description;
+    void *addresses;
+    unsigned int flags;
 };
 
 
@@ -172,6 +172,7 @@ poll_thread(void *arg)
     thread_set_event(poll_state);
 
     /* Create a waitable event. */
+    pcap_log("PCAP: Creating event...\n");
     evt = thread_create_event();
 
     /* As long as the channel is open.. */
@@ -179,14 +180,11 @@ poll_thread(void *arg)
 	/* Request ownership of the device. */
 	network_wait(1);
 
-	/* Wait for a poll request. */
-	network_poll();
-
-	if (pcap == NULL)
+	if (pcap == NULL) {
+		network_wait(0);
 		break;
+	}
 
-	/* Wait for the next packet to arrive. */
-	tx = network_tx_queue_check();
 	if (network_get_wait() || (poll_card->set_link_state && poll_card->set_link_state(poll_card->priv)) || (poll_card->wait && poll_card->wait(poll_card->priv)))
 		data = NULL;
 	else
@@ -208,15 +206,15 @@ poll_thread(void *arg)
 		}
 	}
 
-	if (tx)
-		network_do_tx();
-
-	/* If we did not get anything, wait a while. */
-	if ((data == NULL) && !tx)
-		thread_wait_event(evt, 10);
+	/* Wait for the next packet to arrive - network_do_tx() is called from there. */
+	tx = network_tx_queue_check();
 
 	/* Release ownership of the device. */
 	network_wait(0);
+
+	/* If we did not get anything, wait a while. */
+	if (!tx)
+		thread_wait_event(evt, 10);
     }
 
     /* No longer needed. */
@@ -224,7 +222,8 @@ poll_thread(void *arg)
 	thread_destroy_event(evt);
 
     pcap_log("PCAP: polling stopped.\n");
-    thread_set_event(poll_state);
+    if (poll_state != NULL)
+	thread_set_event(poll_state);
 }
 
 
@@ -339,8 +338,6 @@ net_pcap_close(void)
 
     /* Tell the thread to terminate. */
     if (poll_tid != NULL) {
-	network_busy(0);
-
 	/* Wait for the thread to finish. */
 	pcap_log("PCAP: waiting for thread to end...\n");
 	thread_wait_event(poll_state, -1);

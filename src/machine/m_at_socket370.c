@@ -37,6 +37,7 @@
 #include "cpu.h"
 #include <86box/machine.h>
 #include <86box/clock.h>
+#include <86box/sound.h>
 #include <86box/snd_ac97.h>
 
 
@@ -70,17 +71,17 @@ machine_at_s370slm_init(const machine_t *model)
     device_add(&w83781d_device); /* fans: CPU, Fan 2, Chassis; temperatures: unused, CPU, unused */
     hwm_values.temperatures[0] = 0; /* unused */
     hwm_values.temperatures[2] = 0; /* unused */
-	
+
     return ret;
 }
 
 
 int
-machine_at_trinity371_init(const machine_t *model)
+machine_at_s1857_init(const machine_t *model)
 {
     int ret;
 
-    ret = bios_load_linear("roms/machines/trinity371/BX57200A.ROM",
+    ret = bios_load_linear("roms/machines/s1857/BX57200A.ROM",
 			   0x000c0000, 262144, 0);
 
     if (bios_only || !ret)
@@ -101,8 +102,14 @@ machine_at_trinity371_init(const machine_t *model)
     device_add(&i440bx_device);
     device_add(&piix4e_device);
     device_add(&keyboard_ps2_ami_pci_device);
-    device_add(&w83977f_370_device);
+    device_add(&w83977ef_370_device);
     device_add(&intel_flash_bxt_device);
+    spd_register(SPD_TYPE_SDRAM, 0x7, 256);
+
+    if (sound_card_current == SOUND_INTERNAL) {
+	device_add(&es1371_onboard_device);
+	device_add(&cs4297_device); /* found on other Tyan boards around the same time */
+    }
 
     return ret;
 }
@@ -136,6 +143,7 @@ machine_at_p6bap_init(const machine_t *model)
     device_add(&keyboard_ps2_ami_pci_device);
     device_add(&sst_flash_39sf020_device);
     spd_register(SPD_TYPE_SDRAM, 0x7, 256);
+
     return ret;
 }
 
@@ -206,7 +214,7 @@ machine_at_atc7020bxii_init(const machine_t *model)
     device_add(&sst_flash_39sf020_device);
     spd_register(SPD_TYPE_SDRAM, 0xF, 256);
 
-    return ret;	
+    return ret;
 }
 
 
@@ -238,6 +246,10 @@ machine_at_ambx133_init(const machine_t *model)
     device_add(&keyboard_ps2_ami_pci_device);
     device_add(&sst_flash_39sf020_device);
     spd_register(SPD_TYPE_SDRAM, 0x7, 256);
+    device_add(&gl518sm_2d_device); /* fans: CPUFAN1, CPUFAN2; temperature: CPU */
+    hwm_values.fans[1] += 500;
+    hwm_values.temperatures[0] += 4; /* CPU offset */
+    hwm_values.voltages[1] = RESISTOR_DIVIDER(12000, 10, 2); /* different 12V divider in BIOS (10K/2K?) */
 
     return ret;
 }
@@ -278,7 +290,7 @@ machine_at_awo671r_init(const machine_t *model)
 
 
 int
-machine_at_63a_init(const machine_t *model)
+machine_at_63a1_init(const machine_t *model)
 {
     int ret;
 
@@ -358,7 +370,7 @@ machine_at_gt694va_init(const machine_t *model)
     pci_init(PCI_CONFIG_TYPE_1);
     pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 0, 0, 3, 4);
-    pci_register_slot(0x0D, PCI_CARD_NORMAL,      4, 1, 2, 3);
+    pci_register_slot(0x0D, PCI_CARD_SOUND,       4, 1, 2, 3); /* assumed */
     pci_register_slot(0x0F, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x11, PCI_CARD_NORMAL,      2, 3, 4, 1);
     pci_register_slot(0x13, PCI_CARD_NORMAL,      1, 2, 3, 4);
@@ -375,6 +387,11 @@ machine_at_gt694va_init(const machine_t *model)
     hwm_values.fans[1] = 0; /* unused */
     hwm_values.fans[2] = 0; /* unused */
     hwm_values.temperatures[2] = 0; /* unused */
+
+    if (sound_card_current == SOUND_INTERNAL) {
+	device_add(&es1371_onboard_device);
+	device_add(&cs4297_device); /* assumed */
+    }
 
     return ret;
 }
@@ -407,14 +424,23 @@ machine_at_cuv4xls_init(const machine_t *model)
     pci_register_slot(0x01, PCI_CARD_AGPBRIDGE,   1, 2, 3, 4);
     device_add(&via_apro133a_device);
     device_add(&via_vt82c686b_device);
-    device_add(&via_vt82c686_sio_device);
     device_add(&keyboard_ps2_ami_pci_device);
     device_add(ics9xxx_get(ICS9250_18));
     device_add(&sst_flash_39sf020_device);
     spd_register(SPD_TYPE_SDRAM, 0xF, 1024);
     device_add(&as99127f_device); /* fans: Chassis, CPU, Power; temperatures: MB, JTPWR, CPU */
 
+    if (sound_card_current == SOUND_INTERNAL)
+	device_add(&cmi8738_onboard_device);
+
     return ret;
+}
+
+
+const device_t *
+at_cuv4xls_get_device(void)
+{
+    return &cmi8738_onboard_device;
 }
 
 
@@ -441,18 +467,17 @@ machine_at_6via90ap_init(const machine_t *model)
     pci_register_slot(0x0D, PCI_CARD_NORMAL,      1, 2, 3, 4);
     pci_register_slot(0x01, PCI_CARD_AGPBRIDGE,   1, 2, 3, 4);
     device_add(&via_apro133a_device);
-    device_add(&via_vt82c686b_device);
-    device_add(&via_vt82c686_sio_device);
+    device_add(&via_vt82c686b_device); /* fans: CPU1, CPU2; temperatures: CPU, System, unused */
     device_add(&keyboard_ps2_ami_pci_device);
     device_add(ics9xxx_get(ICS9250_18));
     device_add(&sst_flash_39sf020_device);
     spd_register(SPD_TYPE_SDRAM, 0x7, 1024);
-    device_add(&via_vt82c686_hwm_device); /* fans: CPU1, CPU2; temperatures: CPU, System, unused */
     hwm_values.temperatures[0] += 2; /* CPU offset */
     hwm_values.temperatures[1] += 2; /* System offset */
     hwm_values.temperatures[2] = 0; /* unused */
 
-    device_add(&alc100_device); /* ALC100P identified on similar Acorp boards (694TA, 6VIA90A1) */
+    if (sound_card_current == SOUND_INTERNAL)
+	device_add(&alc100_device); /* ALC100P identified on similar Acorp boards (694TA, 6VIA90A1) */
 
     return ret;
 }

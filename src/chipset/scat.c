@@ -384,7 +384,7 @@ get_addr(scat_t *dev, uint32_t addr, ems_page_t *p)
 		if (mem_size <= ((dev->regs[SCAT_VERSION] & 0x0f) > 3 ? 2048 : 4096) && (((dev->regs[SCAT_DRAM_CONFIGURATION] & 0x0f) < 8) || dev->external_is_RAS)) {
 			nbanks_2048k = 0;
 			nbanks_512k = mem_size >> 9;
-		} else { 
+		} else {
 			nbanks_2048k = mem_size >> 11;
 			nbanks_512k = (mem_size & 1536) >> 9;
 		}
@@ -1542,30 +1542,44 @@ scat_init(const device_t *info)
     return(dev);
 }
 
-
 const device_t scat_device = {
-    "C&T SCAT (v1)",
-    0,
-    0,
-    scat_init, scat_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "C&T SCAT (v1)",
+    .internal_name = "scat",
+    .flags = 0,
+    .local = 0,
+    .init = scat_init,
+    .close = scat_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t scat_4_device = {
-    "C&T SCAT (v4)",
-    0,
-    4,
-    scat_init, scat_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "C&T SCAT (v4)",
+    .internal_name = "scat_4",
+    .flags = 0,
+    .local = 4,
+    .init = scat_init,
+    .close = scat_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
 const device_t scat_sx_device = {
-    "C&T SCATsx",
-    0,
-    32,
-    scat_init, scat_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "C&T SCATsx",
+    .internal_name = "scat_sx",
+    .flags = 0,
+    .local = 32,
+    .init = scat_init,
+    .close = scat_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

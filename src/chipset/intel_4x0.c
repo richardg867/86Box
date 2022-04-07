@@ -29,6 +29,7 @@
 #include <86box/chipset.h>
 #include <86box/spd.h>
 #include <86box/machine.h>
+#include <86box/video.h>
 
 
 enum
@@ -55,8 +56,11 @@ typedef struct
 		smram_locked, max_drb,
 		drb_unit, drb_default;
     uint8_t	regs[256], regs_locked[256];
+    uint8_t	mem_state[256];
     int		type;
     smram_t	*smram_low, *smram_high;
+    void	*agpgart;
+    void	(*write_drbs)(uint8_t *regs, uint8_t reg_min, uint8_t reg_max, uint8_t drb_unit);
 } i4x0_t;
 
 
@@ -81,23 +85,18 @@ i4x0_log(const char *fmt, ...)
 
 
 static void
-i4x0_map(uint32_t addr, uint32_t size, int state)
+i4x0_map(i4x0_t *dev, uint32_t addr, uint32_t size, int state)
 {
-    switch (state & 3) {
-	case 0:
-		mem_set_mem_state_both(addr, size, MEM_READ_EXTANY | MEM_WRITE_EXTANY);
-		break;
-	case 1:
-		mem_set_mem_state_both(addr, size, MEM_READ_INTERNAL | MEM_WRITE_EXTANY);
-		break;
-	case 2:
-		mem_set_mem_state_both(addr, size, MEM_READ_EXTANY | MEM_WRITE_INTERNAL);
-		break;
-	case 3:
-		mem_set_mem_state_both(addr, size, MEM_READ_INTERNAL | MEM_WRITE_INTERNAL);
-		break;
+    uint32_t base = addr >> 12;
+    int states[4] = { MEM_READ_EXTANY | MEM_WRITE_EXTANY, MEM_READ_INTERNAL | MEM_WRITE_EXTANY,
+		      MEM_READ_EXTANY | MEM_WRITE_INTERNAL, MEM_READ_INTERNAL | MEM_WRITE_INTERNAL };
+
+    state &= 3;
+    if (dev->mem_state[base] != state) {
+	mem_set_mem_state_both(addr, size, states[state]);
+	dev->mem_state[base] = state;
+	flushmmucache_nopc();
     }
-    flushmmucache_nopc();
 }
 
 
@@ -208,14 +207,25 @@ i4x0_smram_handler_phase1(i4x0_t *dev)
 
 
 static void
-i4x0_mask_bar(uint8_t *regs)
+i4x0_mask_bar(uint8_t *regs, void *agpgart)
 {
     uint32_t bar;
 
+    /* Make sure the aperture's base is aligned to its size. */
     bar = (regs[0x13] << 24) | (regs[0x12] << 16);
     bar &= (((uint32_t) regs[0xb4] << 22) | 0xf0000000);
     regs[0x12] = (bar >> 16) & 0xff;
     regs[0x13] = (bar >> 24) & 0xff;
+
+    if (!agpgart)
+	return;
+
+    /* Map aperture and GART. */
+    agpgart_set_aperture(agpgart,
+			 bar,
+			 ((uint32_t) (uint8_t) (~regs[0xb4] & 0x3f) + 1) << 22,
+			 !!(regs[0x51] & 0x02));
+    agpgart_set_gart(agpgart, (regs[0xb9] << 8) | (regs[0xba] << 16) | (regs[0xbb] << 24));
 }
 
 
@@ -323,7 +333,7 @@ i4x0_write(int func, int addr, uint8_t val, void *priv)
 			case INTEL_440BX: case INTEL_440ZX:
 			case INTEL_440GX:
 				regs[0x12] = (val & 0xc0);
-				i4x0_mask_bar(regs);
+				i4x0_mask_bar(regs, dev->agpgart);
 				break;
 		}
 		break;
@@ -333,7 +343,7 @@ i4x0_write(int func, int addr, uint8_t val, void *priv)
 			case INTEL_440BX: case INTEL_440ZX:
 			case INTEL_440GX:
 				regs[0x13] = val;
-				i4x0_mask_bar(regs);
+				i4x0_mask_bar(regs, dev->agpgart);
 				break;
 		}
 		break;
@@ -411,15 +421,19 @@ i4x0_write(int func, int addr, uint8_t val, void *priv)
 				break;
 			case INTEL_440LX:
 				regs[0x51] = (regs[0x51] & 0x40) | (val & 0x87);
+				i4x0_mask_bar(regs, dev->agpgart);
 				break;
 			case INTEL_440EX:
 				regs[0x51] = (val & 0x86);
+				i4x0_mask_bar(regs, dev->agpgart);
 				break;
 			case INTEL_440BX: case INTEL_440ZX:
 				regs[0x51] = (regs[0x51] & 0x70) | (val & 0x8f);
+				i4x0_mask_bar(regs, dev->agpgart);
 				break;
 			case INTEL_440GX:
    				regs[0x51] = (regs[0x51] & 0xb0) | (val & 0x4f);
+   				i4x0_mask_bar(regs, dev->agpgart);
 				break;
 		}
 		break;
@@ -584,10 +598,10 @@ i4x0_write(int func, int addr, uint8_t val, void *priv)
 	case 0x59:	/* PAM0 */
 		if (dev->type <= INTEL_430NX) {
 			if ((regs[0x59] ^ val) & 0x0f)
-				i4x0_map(0x80000, 0x20000, val & 0x0f);
+				i4x0_map(dev, 0x80000, 0x20000, val & 0x0f);
 		}
 		if ((regs[0x59] ^ val) & 0xf0) {
-			i4x0_map(0xf0000, 0x10000, val >> 4);
+			i4x0_map(dev, 0xf0000, 0x10000, val >> 4);
 			shadowbios = (val & 0x10);
 		}
 		if (dev->type > INTEL_430NX)
@@ -597,49 +611,49 @@ i4x0_write(int func, int addr, uint8_t val, void *priv)
 		break;
 	case 0x5a:	/* PAM1 */
 		if ((regs[0x5a] ^ val) & 0x0f)
-			i4x0_map(0xc0000, 0x04000, val & 0xf);
+			i4x0_map(dev, 0xc0000, 0x04000, val & 0xf);
 		if ((regs[0x5a] ^ val) & 0xf0)
-			i4x0_map(0xc4000, 0x04000, val >> 4);
+			i4x0_map(dev, 0xc4000, 0x04000, val >> 4);
 		regs[0x5a] = val & 0x77;
 		break;
 	case 0x5b:	/*PAM2 */
 		if ((regs[0x5b] ^ val) & 0x0f)
-			i4x0_map(0xc8000, 0x04000, val & 0xf);
+			i4x0_map(dev, 0xc8000, 0x04000, val & 0xf);
 		if ((regs[0x5b] ^ val) & 0xf0)
-			i4x0_map(0xcc000, 0x04000, val >> 4);
+			i4x0_map(dev, 0xcc000, 0x04000, val >> 4);
 		regs[0x5b] = val & 0x77;
 		break;
 	case 0x5c:	/*PAM3 */
 		if ((regs[0x5c] ^ val) & 0x0f)
-			i4x0_map(0xd0000, 0x04000, val & 0xf);
+			i4x0_map(dev, 0xd0000, 0x04000, val & 0xf);
 		if ((regs[0x5c] ^ val) & 0xf0)
-			i4x0_map(0xd4000, 0x04000, val >> 4);
+			i4x0_map(dev, 0xd4000, 0x04000, val >> 4);
 		regs[0x5c] = val & 0x77;
 		break;
 	case 0x5d:	/* PAM4 */
 		if ((regs[0x5d] ^ val) & 0x0f)
-			i4x0_map(0xd8000, 0x04000, val & 0xf);
+			i4x0_map(dev, 0xd8000, 0x04000, val & 0xf);
 		if ((regs[0x5d] ^ val) & 0xf0)
-			i4x0_map(0xdc000, 0x04000, val >> 4);
+			i4x0_map(dev, 0xdc000, 0x04000, val >> 4);
 		regs[0x5d] = val & 0x77;
 		break;
 	case 0x5e:	/* PAM5 */
 		if ((regs[0x5e] ^ val) & 0x0f)
-			i4x0_map(0xe0000, 0x04000, val & 0xf);
+			i4x0_map(dev, 0xe0000, 0x04000, val & 0xf);
 		if ((regs[0x5e] ^ val) & 0xf0)
-			i4x0_map(0xe4000, 0x04000, val >> 4);
+			i4x0_map(dev, 0xe4000, 0x04000, val >> 4);
 		regs[0x5e] = val & 0x77;
 		break;
 	case 0x5f:	/* PAM6 */
 		if ((regs[0x5f] ^ val) & 0x0f)
-			i4x0_map(0xe8000, 0x04000, val & 0xf);
+			i4x0_map(dev, 0xe8000, 0x04000, val & 0xf);
 		if ((regs[0x5f] ^ val) & 0xf0)
-			i4x0_map(0xec000, 0x04000, val >> 4);
+			i4x0_map(dev, 0xec000, 0x04000, val >> 4);
 		regs[0x5f] = val & 0x77;
 		break;
 	case 0x60: case 0x61: case 0x62: case 0x63: case 0x64:
 		if ((addr & 0x7) <= dev->max_drb) {
-			spd_write_drbs(regs, 0x60, 0x60 + dev->max_drb, dev->drb_unit);
+			dev->write_drbs(regs, 0x60, 0x60 + dev->max_drb, dev->drb_unit);
 			break;
 		}
 		switch (dev->type) {
@@ -663,7 +677,7 @@ i4x0_write(int func, int addr, uint8_t val, void *priv)
 		break;
 	case 0x65:
 		if ((addr & 0x7) <= dev->max_drb) {
-			spd_write_drbs(regs, 0x60, 0x60 + dev->max_drb, dev->drb_unit);
+			dev->write_drbs(regs, 0x60, 0x60 + dev->max_drb, dev->drb_unit);
 			break;
 		}
 		switch (dev->type) {
@@ -686,7 +700,7 @@ i4x0_write(int func, int addr, uint8_t val, void *priv)
 		break;
 	case 0x66:
 		if ((addr & 0x7) <= dev->max_drb) {
-			spd_write_drbs(regs, 0x60, 0x60 + dev->max_drb, dev->drb_unit);
+			dev->write_drbs(regs, 0x60, 0x60 + dev->max_drb, dev->drb_unit);
 			break;
 		}
 		switch (dev->type) {
@@ -700,11 +714,11 @@ i4x0_write(int func, int addr, uint8_t val, void *priv)
 		break;
 	case 0x67:
 		if ((addr & 0x7) <= dev->max_drb) {
-			spd_write_drbs(regs, 0x60, 0x60 + dev->max_drb, dev->drb_unit);
+			dev->write_drbs(regs, 0x60, 0x60 + dev->max_drb, dev->drb_unit);
 			break;
 		}
 		switch (dev->type) {
-			case INTEL_430NX: case INTEL_430HX:	
+			case INTEL_430NX: case INTEL_430HX:
 			case INTEL_440FX:
 			case INTEL_440LX: case INTEL_440EX:
 			case INTEL_440BX: case INTEL_440GX:
@@ -720,8 +734,12 @@ i4x0_write(int func, int addr, uint8_t val, void *priv)
 		}
 		break;
 	case 0x68:
+		if (dev->type == INTEL_430NX) {
+			dev->write_drbs(regs, 0x60, 0x60 + dev->max_drb, dev->drb_unit);
+			break;
+		}
 		switch (dev->type) {
-			case INTEL_430NX: case INTEL_430HX:
+			case INTEL_430HX:
 			case INTEL_430VX: case INTEL_430TX:
 				regs[0x68] = val;
 				break;
@@ -742,8 +760,11 @@ i4x0_write(int func, int addr, uint8_t val, void *priv)
 		}
 		break;
 	case 0x69:
+		if (dev->type == INTEL_430NX) {
+			dev->write_drbs(regs, 0x60, 0x60 + dev->max_drb, dev->drb_unit);
+			break;
+		}
 		switch (dev->type) {
-			case INTEL_430NX:
 			case INTEL_440BX: case INTEL_440GX:
 				regs[0x69] = val;
 				break;
@@ -756,8 +777,11 @@ i4x0_write(int func, int addr, uint8_t val, void *priv)
 		}
 		break;
 	case 0x6a: case 0x6b:
+		if (dev->type == INTEL_430NX) {
+			dev->write_drbs(regs, 0x60, 0x60 + dev->max_drb, dev->drb_unit);
+			break;
+		}
 		switch (dev->type) {
-			case INTEL_430NX:
 			case INTEL_440BX: case INTEL_440GX:
 				regs[addr] = val;
 				break;
@@ -1074,7 +1098,7 @@ i4x0_write(int func, int addr, uint8_t val, void *priv)
 			case INTEL_440BX: case INTEL_440ZX:
 			case INTEL_440GX:
 				regs[0xb4] = (val & 0x3f);
-				i4x0_mask_bar(regs);
+				i4x0_mask_bar(regs, dev->agpgart);
 				break;
 		}
 		break;
@@ -1084,6 +1108,7 @@ i4x0_write(int func, int addr, uint8_t val, void *priv)
 			case INTEL_440BX: case INTEL_440ZX:
 			case INTEL_440GX:
 				regs[0xb9] = (val & 0xf0);
+				i4x0_mask_bar(regs, dev->agpgart);
 				break;
 		}
 		break;
@@ -1094,6 +1119,7 @@ i4x0_write(int func, int addr, uint8_t val, void *priv)
 			case INTEL_440BX: case INTEL_440ZX:
 			case INTEL_440GX:
 				regs[addr] = val;
+				i4x0_mask_bar(regs, dev->agpgart);
 				break;
 		}
 		break;
@@ -1294,6 +1320,8 @@ static void
 
     regs[0x00] = 0x86; regs[0x01] = 0x80; /*Intel*/
 
+    dev->write_drbs = spd_write_drbs;
+
     switch (dev->type) {
 	case INTEL_420TX:
 	case INTEL_420ZX:
@@ -1303,11 +1331,11 @@ static void
 		regs[0x0d] = 0x20;
 		/* According to information from FreeBSD 3.x source code:
 			0x00 = 486DX, 0x20 = 486SX, 0x40 = 486DX2 or 486DX4, 0x80 = Pentium OverDrive. */
-		if (!(hasfpu) && (cpu_multi = 1))
+		if (!(hasfpu) && (cpu_multi == 1))
 			regs[0x50] = 0x20;
-		else if (!(hasfpu) && (cpu_multi = 2))
+		else if (!(hasfpu) && (cpu_multi == 2))
 			regs[0x50] = 0x60;	/* Guess based on the SX, DX, and DX2 values. */
-		else if (hasfpu && (cpu_multi = 1))
+		else if (hasfpu && (cpu_multi == 1))
 			regs[0x50] = 0x00;
 		else if (hasfpu && (cpu_multi >= 2) && !(cpu_s->cpu_type == CPU_P24T))
 			regs[0x50] = 0x40;
@@ -1345,7 +1373,7 @@ static void
 		regs[0x59] = 0x0f;
 		regs[0x60] = regs[0x61] = regs[0x62] = regs[0x63] = 0x02;
 		dev->max_drb = 5;
-		dev->drb_unit = 4;
+		dev->drb_unit = 1;
 		dev->drb_default = 0x02;
 		break;
 	case INTEL_430NX:
@@ -1366,8 +1394,9 @@ static void
 		regs[0x59] = 0x0f;
 		regs[0x60] = regs[0x61] = regs[0x62] = regs[0x63] = regs[0x64] = regs[0x65] = regs[0x66] = regs[0x67] = 0x02;
 		dev->max_drb = 7;
-		dev->drb_unit = 4;
+		dev->drb_unit = 1;
 		dev->drb_default = 0x02;
+		dev->write_drbs = spd_write_drbs_with_ext;
 		break;
 	case INTEL_430FX:
 		regs[0x02] = 0x2d; regs[0x03] = 0x12;	/* SB82437FX-66 */
@@ -1507,7 +1536,7 @@ static void
 
 		regs[0x02] = (regs[0x7a] & 0x02) ? 0x92 : 0x90; regs[0x03] = 0x71;	/* 82443BX */
 		regs[0x06] = (regs[0x7a] & 0x02) ? 0x00 : 0x10;
-		regs[0x08] = 0x02;
+		regs[0x08] = (regs[0x7a] & 0x02) ? 0x03 : 0x02;
 		regs[0x10] = 0x08;
 		regs[0x34] = (regs[0x7a] & 0x02) ? 0x00 : 0xa0;
 		if (cpu_busspeed <= 66666667)
@@ -1593,231 +1622,237 @@ static void
 
     pci_add_card(PCI_ADD_NORTHBRIDGE, i4x0_read, i4x0_write, dev);
 
-    if ((dev->type >= INTEL_440BX) && !(regs[0x7a] & 0x02))
+    if ((dev->type >= INTEL_440BX) && !(regs[0x7a] & 0x02)) {
 	device_add((dev->type == INTEL_440GX) ? &i440gx_agp_device : &i440bx_agp_device);
-    else if (dev->type >= INTEL_440LX)
+	dev->agpgart = device_add(&agpgart_device);
+    } else if (dev->type >= INTEL_440LX) {
 	device_add(&i440lx_agp_device);
+	dev->agpgart = device_add(&agpgart_device);
+    }
 
     return dev;
 }
 
-
-const device_t i420tx_device =
-{
-    "Intel 82424TX",
-    DEVICE_PCI,
-    INTEL_420TX,
-    i4x0_init, 
-    i4x0_close, 
-    i4x0_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+const device_t i420tx_device = {
+    .name = "Intel 82424TX",
+    .internal_name = "i420tx",
+    .flags = DEVICE_PCI,
+    .local = INTEL_420TX,
+    .init = i4x0_init,
+    .close = i4x0_close,
+    .reset = i4x0_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
-const device_t i420zx_device =
-{
-    "Intel 82424ZX",
-    DEVICE_PCI,
-    INTEL_420ZX,
-    i4x0_init, 
-    i4x0_close, 
-    i4x0_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+const device_t i420zx_device = {
+    .name = "Intel 82424ZX",
+    .internal_name = "i420zx",
+    .flags = DEVICE_PCI,
+    .local = INTEL_420ZX,
+    .init = i4x0_init,
+    .close = i4x0_close,
+    .reset = i4x0_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
-const device_t i430lx_device =
-{
-    "Intel 82434LX",
-    DEVICE_PCI,
-    INTEL_430LX,
-    i4x0_init, 
-    i4x0_close, 
-    i4x0_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+const device_t i430lx_device = {
+    .name = "Intel 82434LX",
+    .internal_name = "i430lx",
+    .flags = DEVICE_PCI,
+    .local = INTEL_430LX,
+    .init = i4x0_init,
+    .close = i4x0_close,
+    .reset = i4x0_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
-const device_t i430nx_device =
-{
-    "Intel 82434NX",
-    DEVICE_PCI,
-    INTEL_430NX,
-    i4x0_init, 
-    i4x0_close, 
-    i4x0_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+const device_t i430nx_device = {
+    .name = "Intel 82434NX",
+    .internal_name = "i430nx",
+    .flags = DEVICE_PCI,
+    .local = INTEL_430NX,
+    .init = i4x0_init,
+    .close = i4x0_close,
+    .reset = i4x0_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
-const device_t i430fx_device =
-{
-    "Intel SB82437FX-66",
-    DEVICE_PCI,
-    INTEL_430FX,
-    i4x0_init, 
-    i4x0_close, 
-    i4x0_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+const device_t i430fx_device = {
+    .name = "Intel SB82437FX-66",
+    .internal_name = "i430fx",
+    .flags = DEVICE_PCI,
+    .local = INTEL_430FX,
+    .init = i4x0_init,
+    .close = i4x0_close,
+    .reset = i4x0_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
-const device_t i430fx_rev02_device =
-{
-    "Intel SB82437FX-66 (Rev. 02)",
-    DEVICE_PCI,
-    0x0200 | INTEL_430FX,
-    i4x0_init, 
-    i4x0_close, 
-    i4x0_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+const device_t i430fx_rev02_device = {
+    .name = "Intel SB82437FX-66 (Rev. 02)",
+    .internal_name = "i430fx_rev02",
+    .flags = DEVICE_PCI,
+    .local = 0x0200 | INTEL_430FX,
+    .init = i4x0_init,
+    .close = i4x0_close,
+    .reset = i4x0_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
-const device_t i430hx_device =
-{
-    "Intel 82439HX",
-    DEVICE_PCI,
-    INTEL_430HX,
-    i4x0_init, 
-    i4x0_close, 
-    i4x0_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+const device_t i430hx_device = {
+    .name = "Intel 82439HX",
+    .internal_name = "i430hx",
+    .flags = DEVICE_PCI,
+    .local = INTEL_430HX,
+    .init = i4x0_init,
+    .close = i4x0_close,
+    .reset = i4x0_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
-const device_t i430vx_device =
-{
-    "Intel 82437VX",
-    DEVICE_PCI,
-    INTEL_430VX,
-    i4x0_init, 
-    i4x0_close, 
-    i4x0_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+const device_t i430vx_device = {
+    .name = "Intel 82437VX",
+    .internal_name = "i430vx",
+    .flags = DEVICE_PCI,
+    .local = INTEL_430VX,
+    .init = i4x0_init,
+    .close = i4x0_close,
+    .reset = i4x0_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
-const device_t i430tx_device =
-{
-    "Intel 82439TX",
-    DEVICE_PCI,
-    INTEL_430TX,
-    i4x0_init, 
-    i4x0_close, 
-    i4x0_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+const device_t i430tx_device = {
+    .name = "Intel 82439TX",
+    .internal_name = "i430tx",
+    .flags = DEVICE_PCI,
+    .local = INTEL_430TX,
+    .init = i4x0_init,
+    .close = i4x0_close,
+    .reset = i4x0_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
-const device_t i440fx_device =
-{
-    "Intel 82441FX",
-    DEVICE_PCI,
-    INTEL_440FX,
-    i4x0_init, 
-    i4x0_close, 
-    i4x0_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+const device_t i440fx_device = {
+    .name = "Intel 82441FX",
+    .internal_name = "i440fx",
+    .flags = DEVICE_PCI,
+    .local = INTEL_440FX,
+    .init = i4x0_init,
+    .close = i4x0_close,
+    .reset = i4x0_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-const device_t i440lx_device =
-{
-    "Intel 82443LX",
-    DEVICE_PCI,
-    INTEL_440LX,
-    i4x0_init, 
-    i4x0_close, 
-    i4x0_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+const device_t i440lx_device = {
+    .name = "Intel 82443LX",
+    .internal_name = "i440lx",
+    .flags = DEVICE_PCI,
+    .local = INTEL_440LX,
+    .init = i4x0_init,
+    .close = i4x0_close,
+    .reset = i4x0_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-const device_t i440ex_device =
-{
-    "Intel 82443EX",
-    DEVICE_PCI,
-    INTEL_440EX,
-    i4x0_init, 
-    i4x0_close, 
-    i4x0_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+const device_t i440ex_device = {
+    .name = "Intel 82443EX",
+    .internal_name = "i440ex",
+    .flags = DEVICE_PCI,
+    .local = INTEL_440EX,
+    .init = i4x0_init,
+    .close = i4x0_close,
+    .reset = i4x0_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-
-const device_t i440bx_device =
-{
-    "Intel 82443BX",
-    DEVICE_PCI,
-    0x8000 | INTEL_440BX,
-    i4x0_init, 
-    i4x0_close, 
-    i4x0_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+const device_t i440bx_device = {
+    .name = "Intel 82443BX",
+    .internal_name = "i440bx",
+    .flags = DEVICE_PCI,
+    .local = 0x8000 | INTEL_440BX,
+    .init = i4x0_init,
+    .close = i4x0_close,
+    .reset = i4x0_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-const device_t i440gx_device =
-{
-    "Intel 82443GX",
-    DEVICE_PCI,
-    0x8000 | INTEL_440GX,
-    i4x0_init, 
-    i4x0_close, 
-    i4x0_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+const device_t i440bx_no_agp_device = {
+    .name = "Intel 82443BX",
+    .internal_name = "i440bx_no_agp",
+    .flags = DEVICE_PCI,
+    .local = 0x8200 | INTEL_440BX,
+    .init = i4x0_init,
+    .close = i4x0_close,
+    .reset = i4x0_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
-const device_t i440zx_device =
-{
-    "Intel 82443ZX",
-    DEVICE_PCI,
-    0x8000 | INTEL_440ZX,
-    i4x0_init, 
-    i4x0_close, 
-    i4x0_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+const device_t i440gx_device = {
+    .name = "Intel 82443GX",
+    .internal_name = "i440gx",
+    .flags = DEVICE_PCI,
+    .local = 0x8000 | INTEL_440GX,
+    .init = i4x0_init,
+    .close = i4x0_close,
+    .reset = i4x0_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
+};
+
+const device_t i440zx_device = {
+    .name = "Intel 82443ZX",
+    .internal_name = "i440zx",
+    .flags = DEVICE_PCI,
+    .local = 0x8000 | INTEL_440ZX,
+    .init = i4x0_init,
+    .close = i4x0_close,
+    .reset = i4x0_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

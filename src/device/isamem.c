@@ -68,11 +68,13 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING  IN ANY  WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 #include <wchar.h>
+#define HAVE_STDARG_H
 #include <86box/86box.h>
 #include <86box/machine.h>
 #include <86box/io.h>
@@ -82,6 +84,21 @@
 #include <86box/plat.h>
 #include <86box/isamem.h>
 
+#include "cpu.h"
+
+#define ISAMEM_IBMXT_CARD 0
+#define ISAMEM_GENXT_CARD 1
+#define ISAMEM_RAMCARD_CARD 2
+#define ISAMEM_SYSTEMCARD_CARD 3
+#define ISAMEM_IBMAT_CARD 4
+#define ISAMEM_GENAT_CARD 5
+#define ISAMEM_P5PAK_CARD 6
+#define ISAMEM_A6PAK_CARD 7
+#define ISAMEM_EMS5150_CARD 8
+#define ISAMEM_EV159_CARD 10
+#define ISAMEM_RAMPAGEXT_CARD 11
+#define ISAMEM_ABOVEBOARD_CARD 12
+#define ISAMEM_BRAT_CARD 13
 
 #define ISAMEM_DEBUG	0
 
@@ -93,6 +110,9 @@
 #define EMS_PGSIZE	(16 << 10)		/* one page is this big */
 #define EMS_MAXPAGE	4			/* number of viewport pages */
 
+#define EXTRAM_CONVENTIONAL 0
+#define EXTRAM_HIGH 1
+#define EXTRAM_XMS 2
 
 typedef struct {
     int8_t	enabled;			/* 1=ENABLED */
@@ -396,28 +416,33 @@ isamem_init(const device_t *info)
     /* Do per-board initialization. */
     tot = 0;
     switch(dev->board) {
-	case 0:		/* IBM PC/XT Memory Expansion Card */
-	case 2:		/* Paradise Systems 5-PAK */
+	case ISAMEM_IBMXT_CARD:		/* IBM PC/XT Memory Expansion Card */
+	case ISAMEM_GENXT_CARD:		/* Generic PC/XT Memory Expansion Card */
+	case ISAMEM_RAMCARD_CARD:	/* Microsoft RAMCard for IBM PC */
+	case ISAMEM_SYSTEMCARD_CARD:	/* Microsoft SystemCard */
+	case ISAMEM_P5PAK_CARD:		/* Paradise Systems 5-PAK */
+	case ISAMEM_A6PAK_CARD:		/* AST SixPakPlus */
 		dev->total_size = device_get_config_int("size");
 		dev->start_addr = device_get_config_int("start");
 		tot = dev->total_size;
 		break;
 
-	case 1:		/* IBM PC/AT Memory Expansion Card */
+	case ISAMEM_IBMAT_CARD:		/* IBM PC/AT Memory Expansion Card */
+	case ISAMEM_GENAT_CARD:		/* Generic PC/AT Memory Expansion Card */
 		dev->total_size = device_get_config_int("size");
 		dev->start_addr = device_get_config_int("start");
 		tot = dev->total_size;
 		dev->flags |= FLAG_WIDE;
 		break;
 
-	case 3:		/* Micro Mainframe EMS-5150(T) */
+	case ISAMEM_EMS5150_CARD:		/* Micro Mainframe EMS-5150(T) */
 		dev->base_addr = device_get_config_hex16("base");
 		dev->total_size = device_get_config_int("size");
 		dev->frame_addr = 0xD0000;
 		dev->flags |= (FLAG_EMS | FLAG_CONFIG);
 		break;
 
-	case 10:	/* Everex EV-159 RAM 3000 */
+	case ISAMEM_EV159_CARD:	/* Everex EV-159 RAM 3000 */
 		dev->base_addr = device_get_config_hex16("base");
 		dev->total_size = device_get_config_int("size");
 		dev->start_addr = device_get_config_int("start");
@@ -431,7 +456,9 @@ isamem_init(const device_t *info)
 dev->frame_addr = 0xE0000;
 		break;
 
-	case 11:
+	case ISAMEM_RAMPAGEXT_CARD: /* AST RAMpage/XT */
+	case ISAMEM_ABOVEBOARD_CARD: /* Intel AboveBoard */
+	case ISAMEM_BRAT_CARD: /* BocaRAM/AT */
 		dev->base_addr = device_get_config_hex16("base");
 		dev->total_size = device_get_config_int("size");
 		dev->start_addr = device_get_config_int("start");
@@ -455,7 +482,7 @@ dev->frame_addr = 0xE0000;
     isamem_log(")\n");
 
     /* Force (back to) 8-bit bus if needed. */
-    if ((!AT) && (dev->flags & FLAG_WIDE)) {
+    if ((!is286) && (dev->flags & FLAG_WIDE)) {
 	isamem_log("ISAMEM: not AT+ system, forcing 8-bit mode!\n");
 	dev->flags &= ~FLAG_WIDE;
     }
@@ -494,18 +521,18 @@ dev->frame_addr = 0xE0000;
 			t = tot;
 		isamem_log("ISAMEM: RAM at %05iKB (%iKB)\n", addr>>10, t>>10);
 
-		dev->ext_ram[0].ptr = ptr;
-		dev->ext_ram[0].base = addr;
+		dev->ext_ram[EXTRAM_CONVENTIONAL].ptr = ptr;
+		dev->ext_ram[EXTRAM_CONVENTIONAL].base = addr;
 
 		/* Create, initialize and enable the low-memory mapping. */
 		mem_mapping_add(&dev->low_mapping, addr, t,
 				ram_readb,
 				(dev->flags&FLAG_WIDE) ? ram_readw : NULL,
 				NULL,
-				ram_writeb, 
+				ram_writeb,
 				(dev->flags&FLAG_WIDE) ? ram_writew : NULL,
 				NULL,
-				ptr, MEM_MAPPING_EXTERNAL, &dev->ext_ram[0]);
+				ptr, MEM_MAPPING_EXTERNAL, &dev->ext_ram[EXTRAM_CONVENTIONAL]);
 
 		/* Tell the memory system this is external RAM. */
 		mem_set_mem_state(addr, t,
@@ -529,8 +556,8 @@ dev->frame_addr = 0xE0000;
 
 		isamem_log("ISAMEM: RAM at %05iKB (%iKB)\n", addr>>10, t>>10);
 
-		dev->ext_ram[1].ptr = ptr;
-		dev->ext_ram[1].base = addr + tot;
+		dev->ext_ram[EXTRAM_HIGH].ptr = ptr;
+		dev->ext_ram[EXTRAM_HIGH].base = addr + tot;
 
 		/* Update and enable the remap. */
 		mem_mapping_set(&ram_remapped_mapping,
@@ -538,7 +565,7 @@ dev->frame_addr = 0xE0000;
 				ram_readb, ram_readw, NULL,
 				ram_writeb, ram_writew, NULL,
 				ptr, MEM_MAPPING_EXTERNAL,
-				&dev->ext_ram[1]);
+				&dev->ext_ram[EXTRAM_HIGH]);
 		mem_mapping_disable(&ram_remapped_mapping);
 
 		/* Tell the memory system this is external RAM. */
@@ -559,18 +586,18 @@ dev->frame_addr = 0xE0000;
      * real mode (so, not by DOS, for example) but it can be used in
      * protected mode.
      */
-    if (AT && addr > 0 && tot > 0) {
+    if (is286 && addr > 0 && tot > 0) {
 	t = tot;
 	isamem_log("ISAMEM: RAM at %05iKB (%iKB)\n", addr>>10, t>>10);
 
-	dev->ext_ram[2].ptr = ptr;
-	dev->ext_ram[2].base = addr;
+	dev->ext_ram[EXTRAM_XMS].ptr = ptr;
+	dev->ext_ram[EXTRAM_XMS].base = addr;
 
 	/* Create, initialize and enable the high-memory mapping. */
 	mem_mapping_add(&dev->high_mapping, addr, t,
 			ram_readb, ram_readw, NULL,
 			ram_writeb, ram_writew, NULL,
-			ptr, MEM_MAPPING_EXTERNAL, &dev->ext_ram[2]);
+			ptr, MEM_MAPPING_EXTERNAL, &dev->ext_ram[EXTRAM_XMS]);
 
 	/* Tell the memory system this is external RAM. */
 	mem_set_mem_state(addr, t, MEM_READ_EXTERNAL | MEM_WRITE_EXTERNAL);
@@ -580,6 +607,8 @@ dev->frame_addr = 0xE0000;
 	tot -= t;
 	addr += t;
     }
+
+    isa_mem_size += dev->total_size - (k >> 10);
 
     /* If EMS is enabled, use the remainder for EMS. */
     if (dev->flags & FLAG_EMS) {
@@ -610,7 +639,7 @@ dev->frame_addr = 0xE0000;
 				ems_readb,
 				(dev->flags&FLAG_WIDE) ? ems_readw : NULL,
 				NULL,
-				ems_writeb, 
+				ems_writeb,
 				(dev->flags&FLAG_WIDE) ? ems_writew : NULL,
 				NULL,
 				ptr, MEM_MAPPING_EXTERNAL,
@@ -651,366 +680,599 @@ isamem_close(void *priv)
     free(dev);
 }
 
-
-static const device_config_t ibmxt_config[] =
-{
-	{
-		"size", "Memory Size", CONFIG_SPINNER, "", 128, "",
-		{ 0, 512, 16 },
-		{ { 0 } }
-	},
-	{
-		"start", "Start Address", CONFIG_SPINNER, "", 256, "",
-		{ 0, 640-64, 64 },
-		{ { 0 } }
-	},
-	{
-		"", "", -1
-	}
+static const device_config_t ibmxt_config[] = {
+// clang-format off
+    {
+        "size", "Memory Size", CONFIG_SPINNER, "", 128, "",
+        { 0, 512, 16 },
+        { { 0 } }
+    },
+    {
+        "start", "Start Address", CONFIG_SPINNER, "", 256, "",
+        { 0, 576, 64 },
+        { { 0 } }
+    },
+    { "", "", -1 }
+// clang-format on
 };
 
 static const device_t ibmxt_device = {
-    "IBM PC/XT Memory Expansion",
-    DEVICE_ISA,
-    0,
-    isamem_init, isamem_close, NULL,
-    { NULL }, NULL, NULL,
-    ibmxt_config
+    .name = "IBM PC/XT Memory Expansion",
+    .internal_name = "ibmxt",
+    .flags = DEVICE_ISA,
+    .local = ISAMEM_IBMXT_CARD,
+    .init = isamem_init,
+    .close = isamem_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = ibmxt_config
 };
 
+static const device_config_t genericxt_config[] = {
+// clang-format off
+    {
+        "size", "Memory Size", CONFIG_SPINNER, "", 16, "",
+        { 0, 640, 16 },
+        { { 0 } }
+    },
+    {
+        "start", "Start Address", CONFIG_SPINNER, "", 0, "",
+        { 0, 624, 16 },
+        { { 0 } }
+    },
+    { "", "", -1 }
+// clang-format on
+};
 
-static const device_config_t ibmat_config[] =
-{
-	{
-		"size", "Memory Size", CONFIG_SPINNER, "", 512, "",
-		{ 0, 4096, 512 },
-		{ { 0 } }
-	},
-	{
-		"start", "Start Address", CONFIG_SPINNER, "", 512, "",
-		{ 0, 16128, 128 },
-		{ { 0 } }
-	},
-	{
-		"", "", -1
-	}
+static const device_t genericxt_device = {
+    .name = "Generic PC/XT Memory Expansion",
+    .internal_name = "genericxt",
+    .flags = DEVICE_ISA,
+    .local = ISAMEM_GENXT_CARD,
+    .init = isamem_init,
+    .close = isamem_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = genericxt_config
+};
+
+static const device_config_t msramcard_config[] = {
+// clang-format off
+    {
+        "size", "Memory Size", CONFIG_SPINNER, "", 64, "",
+        { 0, 256, 64 },
+        { { 0 } }
+    },
+    {
+        "start", "Start Address", CONFIG_SPINNER, "", 0, "",
+        { 0, 624, 64 },
+        { { 0 } }
+    },
+    { "", "", -1 }
+// clang-format on
+};
+
+static const device_t msramcard_device = {
+    .name = "Microsoft RAMCard for IBM PC",
+    .internal_name = "msramcard",
+    .flags = DEVICE_ISA,
+    .local = ISAMEM_RAMCARD_CARD,
+    .init = isamem_init,
+    .close = isamem_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = msramcard_config
+};
+
+static const device_config_t mssystemcard_config[] = {
+// clang-format off
+    {
+        "size", "Memory Size", CONFIG_SPINNER, "", 64, "",
+        { 0, 256, 64 },
+        { { 0 } }
+    },
+    {
+        "start", "Start Address", CONFIG_SPINNER, "", 0, "",
+        { 0, 624, 64 },
+        { { 0 } }
+    },
+    { "", "", -1 }
+// clang-format on
+};
+
+static const device_t mssystemcard_device = {
+    .name = "Microsoft SystemCard",
+    .internal_name = "mssystemcard",
+    .flags = DEVICE_ISA,
+    .local = ISAMEM_SYSTEMCARD_CARD,
+    .init = isamem_init,
+    .close = isamem_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = mssystemcard_config
+};
+
+static const device_config_t ibmat_config[] = {
+// clang-format off
+    {
+        "size", "Memory Size", CONFIG_SPINNER, "", 512, "",
+        { 0, 12288, 512 },
+        { { 0 } }
+    },
+    {
+        "start", "Start Address", CONFIG_SPINNER, "", 512, "",
+        { 0, 15872, 512 },
+        { { 0 } }
+    },
+    { "", "", -1 }
+// clang-format on
 };
 
 static const device_t ibmat_device = {
-    "IBM PC/AT Memory Expansion",
-    DEVICE_ISA,
-    1,
-    isamem_init, isamem_close, NULL,
-    { NULL }, NULL, NULL,
-    ibmat_config
+    .name = "IBM PC/AT Memory Expansion",
+    .internal_name = "ibmat",
+    .flags = DEVICE_ISA,
+    .local = ISAMEM_IBMAT_CARD,
+    .init = isamem_init,
+    .close = isamem_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = ibmat_config
 };
 
+static const device_config_t genericat_config[] = {
+// clang-format off
+    {
+        "size", "Memory Size", CONFIG_SPINNER, "", 512, "",
+        { 0, 16384, 512 },
+        { { 0 } }
+    },
+    {
+        "start", "Start Address", CONFIG_SPINNER, "", 512, "",
+        { 0, 15872, 128 },
+        { { 0 } }
+    },
+    { "", "", -1 }
+// clang-format on
+};
 
-static const device_config_t p5pak_config[] =
-{
-	{
-		"size", "Memory Size", CONFIG_SPINNER, "", 128, "",
-		{ 0, 384, 64 },
-		{ { 0 } }
-	},
-	{
-		"start", "Start Address", CONFIG_SPINNER, "", 512, "",
-		{ 64, 576, 64 },
-		{ { 0 } }
-	},
-	{
-		"", "", -1
-	}
+static const device_t genericat_device = {
+    .name = "Generic PC/AT Memory Expansion",
+    .internal_name = "genericat",
+    .flags = DEVICE_ISA,
+    .local = ISAMEM_GENAT_CARD,
+    .init = isamem_init,
+    .close = isamem_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = genericat_config
+};
+
+static const device_config_t p5pak_config[] = {
+// clang-format off
+    {
+        "size", "Memory Size", CONFIG_SPINNER, "", 128, "",
+        { 0, 384, 64 },
+        { { 0 } }
+    },
+    {
+        "start", "Start Address", CONFIG_SPINNER, "", 512, "",
+        { 64, 576, 64 },
+        { { 0 } }
+    },
+    { "", "", -1 }
+// clang-format on
 };
 
 static const device_t p5pak_device = {
-    "Paradise Systems 5-PAK",
-    DEVICE_ISA,
-    2,
-    isamem_init, isamem_close, NULL,
-    { NULL }, NULL, NULL,
-    p5pak_config
+    .name = "Paradise Systems 5-PAK",
+    .internal_name = "p5pak",
+    .flags = DEVICE_ISA,
+    .local = ISAMEM_P5PAK_CARD,
+    .init = isamem_init,
+    .close = isamem_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = p5pak_config
 };
 
 
-static const device_config_t ems5150_config[] =
-{
-	{
-		"size", "Memory Size", CONFIG_SPINNER, "", 256,
-		"",
-		{ 0, 2048, 64 },
-		{ { 0 } }
-	},
-	{
-		"base", "Address", CONFIG_HEX16, "", 0, "", { 0 },
-		{
-			{
-				"Disabled", 0
-			},
-			{
-				"Board 1", 0x0208
-			},
-			{
-				"Board 2", 0x020a
-			},
-			{
-				"Board 3", 0x020c
-			},
-			{
-				"Board 4", 0x020e
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"", "", -1
-	}
+static const device_config_t a6pak_config[] = {
+// clang-format off
+    {
+        "size", "Memory Size", CONFIG_SPINNER, "", 64, "",
+        { 0, 576, 64 },
+        { { 0 } }
+    },
+    {
+        "start", "Start Address", CONFIG_SPINNER, "", 256, "",
+        { 64, 512, 64 },
+        { { 0 } }
+    },
+    { "", "", -1 }
+// clang-format on
+};
+
+static const device_t a6pak_device = {
+    .name = "AST SixPakPlus",
+    .internal_name = "a6pak",
+    .flags = DEVICE_ISA,
+    .local = ISAMEM_A6PAK_CARD,
+    .init = isamem_init,
+    .close = isamem_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = a6pak_config
+};
+
+static const device_config_t ems5150_config[] = {
+// clang-format off
+    {
+        "size", "Memory Size", CONFIG_SPINNER, "", 256, "",
+        { 0, 2048, 64 },
+        { { 0 } }
+    },
+    {
+        "base", "Address", CONFIG_HEX16, "", 0, "", { 0 },
+        {
+            { "Disabled", 0x0000 },
+            { "Board 1",  0x0208 },
+            { "Board 2",  0x020a },
+            { "Board 3",  0x020c },
+            { "Board 4",  0x020e },
+            { "" }
+        },
+    },
+    { "", "", -1 }
+// clang-format on
 };
 
 static const device_t ems5150_device = {
-    "Micro Mainframe EMS-5150(T)",
-    DEVICE_ISA,
-    3,
-    isamem_init, isamem_close, NULL,
-    { NULL }, NULL, NULL,
-    ems5150_config
+    .name = "Micro Mainframe EMS-5150(T)",
+    .internal_name = "ems5150",
+    .flags = DEVICE_ISA,
+    .local = ISAMEM_EMS5150_CARD,
+    .init = isamem_init,
+    .close = isamem_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = ems5150_config
 };
 
-
-static const device_config_t ev159_config[] =
-{
-	{
-		"size", "Memory Size", CONFIG_SPINNER, "", 512, "",
-		{ 0, 3072, 512 },
-		{ { 0 } }
-	},
-	{
-		"start", "Start Address", CONFIG_SPINNER, "", 0, "",
-		{ 0, 16128, 128 },
-		{ { 0 } }
-	},
-	{
-		"length", "Contiguous Size", CONFIG_SPINNER, "", 0, "",
-		{ 0, 16384, 128 },
-		{ { 0 } }
-	},
-	{
-		"width", "I/O Width", CONFIG_SELECTION, "", 0, "", { 0 },
-		{
-			{
-				"8-bit", 0
-			},
-			{
-				"16-bit", 1
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"speed", "Transfer Speed", CONFIG_SELECTION, "", 0, "", { 0 },
-		{
-			{
-				"Standard (150ns)", 0
-			},
-			{
-				"High-Speed (120ns)", 1
-			},
-			{
-				""
-			}
-		}
-	},
-	{
-		"ems", "EMS mode", CONFIG_SELECTION, "", 0, "", { 0 },
-		{
-			{
-				"Disabled", 0
-			},
-			{
-				"Enabled", 1
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"base", "Address", CONFIG_HEX16, "", 0x0258, "", { 0 },
-		{
-			{
-				"208H", 0x0208
-			},
-			{
-				"218H", 0x0218
-			},
-			{
-				"258H", 0x0258
-			},
-			{
-				"268H", 0x0268
-			},
-			{
-				"2A8H", 0x02A8
-			},
-			{
-				"2B8H", 0x02B8
-			},
-			{
-				"2E8H", 0x02E8
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"", "", -1
-	}
+static const device_config_t ev159_config[] = {
+// clang-format off
+    {
+        "size", "Memory Size", CONFIG_SPINNER, "", 512, "",
+        { 0, 3072, 512 },
+        { { 0 } }
+    },
+    {
+        "start", "Start Address", CONFIG_SPINNER, "", 0, "",
+        { 0, 16128, 128 },
+        { { 0 } }
+    },
+    {
+        "length", "Contiguous Size", CONFIG_SPINNER, "", 0, "",
+        { 0, 16384, 128 },
+        { { 0 } }
+    },
+    {
+        "width", "I/O Width", CONFIG_SELECTION, "", 0, "", { 0 },
+        {
+            { "8-bit",  0 },
+            { "16-bit", 1 },
+            { ""          }
+        },
+    },
+    {
+        "speed", "Transfer Speed", CONFIG_SELECTION, "", 0, "", { 0 },
+        {
+            { "Standard (150ns)",   0 },
+            { "High-Speed (120ns)", 1 },
+            { ""                      }
+        }
+    },
+    {
+        "ems", "EMS mode", CONFIG_SELECTION, "", 0, "", { 0 },
+        {
+            { "Disabled", 0 },
+            { "Enabled",  1 },
+            { "" }
+        },
+    },
+    {
+        "base", "Address", CONFIG_HEX16, "", 0x0258, "", { 0 },
+        {
+            { "208H", 0x0208 },
+            { "218H", 0x0218 },
+            { "258H", 0x0258 },
+            { "268H", 0x0268 },
+            { "2A8H", 0x02A8 },
+            { "2B8H", 0x02B8 },
+            { "2E8H", 0x02E8 },
+            { ""             }
+        },
+    },
+    { "", "", -1 }
+// clang-format on
 };
 
 static const device_t ev159_device = {
-    "Everex EV-159 RAM 3000 Deluxe",
-    DEVICE_ISA,
-    10,
-    isamem_init, isamem_close, NULL,
-    { NULL }, NULL, NULL,
-    ev159_config
+    .name = "Everex EV-159 RAM 3000 Deluxe",
+    .internal_name = "ev159",
+    .flags = DEVICE_ISA,
+    .local = ISAMEM_EV159_CARD,
+    .init = isamem_init,
+    .close = isamem_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = ev159_config
 };
 
-
-#ifdef USE_ISAMEM_RAMPAGE
-static const device_config_t rampage_config[] =
-{
-	{
-		"base", "Address", CONFIG_HEX16, "", 0x0258, "", { 0 },
-		{
-			{
-				"208H", 0x0208
-			},
-			{
-				"218H", 0x0218
-			},
-			{
-				"258H", 0x0258
-			},
-			{
-				"268H", 0x0268
-			},
-			{
-				"2A8H", 0x02A8
-			},
-			{
-				"2B8H", 0x02B8
-			},
-			{
-				"2E8H", 0x02E8
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"frame", "Frame Address", CONFIG_HEX20, "", 0, "", { 0 },
-		{
-			{
-				"Disabled", 0x00000
-			},
-			{
-				"C000H", 0xC0000
-			},
-			{
-				"D000H", 0xD0000
-			},
-			{
-				"E000H", 0xE0000
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"width", "I/O Width", CONFIG_SELECTION, "", 8, "", { 0 },
-		{
-			{
-				"8-bit", 8
-			},
-			{
-				"16-bit", 16
-			},
-			{
-				""
-			}
-		},
-	},
-	{
-		"speed", "Transfer Speed", CONFIG_SELECTION, "", 0, "", { 0 },
-		{
-			{
-				"Standard", 0
-			},
-			{
-				"High-Speed", 1
-			},
-			{
-				""
-			}
-		}
-	},
-	{
-		"size", "Memory Size", CONFIG_SPINNER, "", 128,
-		"",
-		{ 0, 8192, 128 },
-		{ 0 }
-	},
-	{
-		"", "", -1
-	}
+#if defined(DEV_BRANCH) && defined(USE_ISAMEM_BRAT)
+static const device_config_t brat_config[] = {
+// clang-format off
+    {
+        "base", "Address", CONFIG_HEX16, "", 0x0258, "", { 0 },
+        {
+            { "208H", 0x0208 },
+            { "218H", 0x0218 },
+            { "258H", 0x0258 },
+            { "268H", 0x0268 },
+            { ""             }
+        },
+    },
+    {
+        "frame", "Frame Address", CONFIG_HEX20, "", 0, "", { 0 },
+        {
+            { "Disabled", 0x00000 },
+            { "D000H",    0xD0000 },
+            { "E000H",    0xE0000 },
+            { ""                  }
+        },
+    },
+    {
+        "width", "I/O Width", CONFIG_SELECTION, "", 8, "", { 0 },
+        {
+            { "8-bit",   8 },
+            { "16-bit", 16 },
+            { ""           }
+        },
+    },
+    {
+        "speed", "Transfer Speed", CONFIG_SELECTION, "", 0, "", { 0 },
+        {
+            { "Standard",   0 },
+            { "High-Speed", 1 },
+            { ""              }
+        }
+    },
+    {
+        "size", "Memory Size", CONFIG_SPINNER, "", 128,
+        "",
+        { 0, 8192, 512 },
+        { { 0 } }
+    },
+    { "", "", -1 }
+// clang-format on
 };
 
-static const device_t isamem_rampage_device = {
-    "AST RAMpage/XT",
-    DEVICE_ISA,
-    11,
-    isamem_init, isamem_close, NULL,
-    { NULL }, NULL, NULL,
-    rampage_config
+static const device_t brat_device = {
+    .name = "BocaRAM/AT",
+    .internal_name = "brat",
+    .flags = DEVICE_ISA,
+    .local = ISAMEM_BRAT_CARD,
+    .init = isamem_init,
+    .close = isamem_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = brat_config
 };
 #endif
 
+#if defined(DEV_BRANCH) && defined(USE_ISAMEM_RAMPAGE)
+static const device_config_t rampage_config[] = {
+// clang-format off
+    {
+        "base", "Address", CONFIG_HEX16, "", 0x0258, "", { 0 },
+        {
+            { "208H", 0x0208 },
+            { "218H", 0x0218 },
+            { "258H", 0x0258 },
+            { "268H", 0x0268 },
+            { "2A8H", 0x02A8 },
+            { "2B8H", 0x02B8 },
+            { "2E8H", 0x02E8 },
+            { ""             }
+        },
+    },
+    {
+        "frame", "Frame Address", CONFIG_HEX20, "", 0, "", { 0 },
+        {
+            { "Disabled", 0x00000 },
+            { "C000H",    0xC0000 },
+            { "D000H",    0xD0000 },
+            { "E000H",    0xE0000 },
+            { ""                  }
+        },
+    },
+    {
+        "width", "I/O Width", CONFIG_SELECTION, "", 8, "", { 0 },
+        {
+            { "8-bit",   8 },
+            { "16-bit", 16 },
+            { ""           }
+        },
+    },
+    {
+        "speed", "Transfer Speed", CONFIG_SELECTION, "", 0, "", { 0 },
+        {
+            { "Standard",   0 },
+            { "High-Speed", 1 },
+            { ""              }
+        }
+    },
+    {
+        "size", "Memory Size", CONFIG_SPINNER, "", 128, "",
+        { 0, 8192, 128 },
+        { { 0 } }
+    },
+    { "", "", -1 }
+// clang-format on
+};
+
+static const device_t rampage_device = {
+    .name = "AST RAMpage/XT",
+    .internal_name = "rampage",
+    .flags = DEVICE_ISA,
+    .local = ISAMEM_RAMPAGEXT_CARD,
+    .init = isamem_init,
+    .close = isamem_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = rampage_config
+};
+#endif
+
+#if defined(DEV_BRANCH) && defined(USE_ISAMEM_IAB)
+static const device_config_t iab_config[] = {
+// clang-format off
+    {
+        "base", "Address", CONFIG_HEX16, "", 0x0258, "", { 0 },
+        {
+            { "208H", 0x0208 },
+            { "218H", 0x0218 },
+            { "258H", 0x0258 },
+            { "268H", 0x0268 },
+            { "2A8H", 0x02A8 },
+            { "2B8H", 0x02B8 },
+            { "2E8H", 0x02E8 },
+            { ""             }
+        },
+    },
+    {
+        "frame", "Frame Address", CONFIG_HEX20, "", 0, "", { 0 },
+        {
+            { "Disabled", 0x00000 },
+            { "C000H",    0xC0000 },
+            { "D000H",    0xD0000 },
+            { "E000H",    0xE0000 },
+            { ""                  }
+        },
+    },
+    {
+        "width", "I/O Width", CONFIG_SELECTION, "", 8, "", { 0 },
+        {
+            { "8-bit",   8 },
+            { "16-bit", 16 },
+            { ""           }
+        },
+    },
+    {
+        "speed", "Transfer Speed", CONFIG_SELECTION, "", 0, "", { 0 },
+        {
+            { "Standard",   0 },
+            { "High-Speed", 1 },
+            { ""              }
+        }
+    },
+    {
+        "size", "Memory Size", CONFIG_SPINNER, "", 128, "",
+        { 0, 8192, 128 },
+        { { 0 } }
+    },
+    { "", "", -1 }
+// clang-format on
+};
+
+static const device_t iab_device = {
+    .name = "Intel AboveBoard",
+    .internal_name = "iab",
+    .flags = DEVICE_ISA,
+    .local = ISAMEM_ABOVEBOARD_CARD,
+    .init = isamem_init,
+    .close = isamem_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = iab_config
+};
+#endif
+
+static const device_t isa_none_device = {
+    .name = "None",
+    .internal_name = "none",
+    .flags = 0,
+    .local = 0,
+    .init = NULL,
+    .close = NULL,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
+};
 
 static const struct {
-    const char		*internal_name;
     const device_t	*dev;
 } boards[] = {
-    { "none",		NULL			},
-    { "ibmxt",		&ibmxt_device		},
-    { "ibmat",		&ibmat_device		},
-    { "p5pak",		&p5pak_device		},
-    { "ems5150",	&ems5150_device		},
-    { "ev159",		&ev159_device		},
-#ifdef USE_ISAMEM_BRAT
-    { "brat",		&brat_device		},
+// clang-format off
+    { &isa_none_device     },
+    { &ibmxt_device        },
+    { &genericxt_device    },
+    { &msramcard_device    },
+    { &mssystemcard_device },
+    { &ibmat_device        },
+    { &genericat_device    },
+    { &p5pak_device        },
+    { &a6pak_device        },
+    { &ems5150_device      },
+    { &ev159_device        },
+#if defined(DEV_BRANCH) && defined(USE_ISAMEM_BRAT)
+    { &brat_device         },
 #endif
-#ifdef USE_ISAMEM_RAMPAGE
-    { "rampage",	&rampage_device		},
+#if defined(DEV_BRANCH) && defined(USE_ISAMEM_RAMPAGE)
+    { &rampage_device      },
 #endif
-#ifdef USE_ISAMEM_IAB
-    { "iab",		&iab_device		},
+#if defined(DEV_BRANCH) && defined(USE_ISAMEM_IAB)
+    { &iab_device          },
 #endif
-    { "",		NULL			}
+    { NULL                 }
+// clang-format on
 };
-
 
 void
 isamem_reset(void)
 {
     int k, i;
+
+    /* We explicitly set to zero here or bad things happen */
+    isa_mem_size = 0;
 
     for (i = 0; i < ISAMEM_MAX; i++) {
 	k = isamem_type[i];
@@ -1021,7 +1283,6 @@ isamem_reset(void)
     }
 }
 
-
 const char *
 isamem_get_name(int board)
 {
@@ -1030,22 +1291,19 @@ isamem_get_name(int board)
     return(boards[board].dev->name);
 }
 
-
 const char *
 isamem_get_internal_name(int board)
 {
-    return(boards[board].internal_name);
+    return device_get_internal_name(boards[board].dev);
 }
-
-
 
 int
 isamem_get_from_internal_name(const char *s)
 {
     int c = 0;
 
-    while (boards[c].internal_name != NULL) {
-	if (! strcmp(boards[c].internal_name, s))
+    while (boards[c].dev != NULL) {
+	if (! strcmp(boards[c].dev->internal_name, s))
 		return(c);
 	c++;
     }
@@ -1053,7 +1311,6 @@ isamem_get_from_internal_name(const char *s)
     /* Not found. */
     return(0);
 }
-
 
 const device_t *
 isamem_get_device(int board)

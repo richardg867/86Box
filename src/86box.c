@@ -17,6 +17,8 @@
  *		Copyright 2008-2020 Sarah Walker.
  *		Copyright 2016-2020 Miran Grca.
  *		Copyright 2017-2020 Fred N. van Kempen.
+ *		Copyright 2021 Laci bá'
+ *		Copyright 2021 dob205
  */
 #include <inttypes.h>
 #include <stdarg.h>
@@ -26,9 +28,16 @@
 #include <string.h>
 #include <time.h>
 #include <wchar.h>
+#include <stdatomic.h>
+
+#ifndef _WIN32
+#include <pwd.h>
+#include <unistd.h>
+#endif
 #ifdef __APPLE__
 #include <string.h>
 #include <dispatch/dispatch.h>
+#include "mac/macOSXGlue.h"
 #ifdef __aarch64__
 #include <pthread.h>
 #endif
@@ -88,8 +97,8 @@
 #include <86box/video.h>
 #include <86box/ui.h>
 #include <86box/plat.h>
-#include <86box/plat_midi.h>
 #include <86box/version.h>
+#include <86box/gdbstub.h>
 #include <86box/cli.h>
 #include <86box/vfio.h>
 
@@ -97,7 +106,7 @@
 /* Stuff that used to be globally declared in plat.h but is now extern there
    and declared here instead. */
 int		dopause;		/* system is paused */
-int		doresize;			/* screen resize requested */
+atomic_flag		doresize;			/* screen resize requested */
 volatile int		is_quit;				/* system exit requested */
 uint64_t	timer_freq;
 char        emu_version[200];		/* version ID string */
@@ -123,6 +132,7 @@ uint64_t	unique_id = 0;
 uint64_t	source_hwnd = 0;
 #endif
 char	rom_path[1024] = { '\0'};		/* (O) full path to ROMs */
+rom_path_t rom_paths = { "", NULL };    /* (O) full paths to ROMs */
 char	log_path[1024] = { '\0'};		/* (O) full path of logfile */
 char	vm_name[1024]  = { '\0'};		/* (O) display name of the VM */
 
@@ -149,27 +159,26 @@ int video_vsync = 0;				/* (C) video */
 int video_framerate = -1;			/* (C) video */
 char video_shader[512] = { '\0' };		/* (C) video */
 int	serial_enabled[SERIAL_MAX] = {0,0};	/* (C) enable serial ports */
-int bugger_enabled = 0;			/* (C) enable ISAbugger */
+int bugger_enabled = 0;				/* (C) enable ISAbugger */
 int postcard_enabled = 0;			/* (C) enable POST card */
 int isamem_type[ISAMEM_MAX] = { 0,0,0,0 };	/* (C) enable ISA mem cards */
-int isartc_type = 0;			/* (C) enable ISA RTC card */
+int isartc_type = 0;				/* (C) enable ISA RTC card */
 int	gfxcard = 0;				/* (C) graphics/video card */
 int	sound_is_float = 1;			/* (C) sound uses FP values */
-int GAMEBLASTER = 0;			/* (C) sound option */
-int GUS = 0;				/* (C) sound option */
+int GAMEBLASTER = 0;				/* (C) sound option */
+int GUS = 0;					/* (C) sound option */
 int SSI2001 = 0;				/* (C) sound option */
-int voodoo_enabled = 0;			/* (C) video option */
-uint32_t mem_size = 0;				/* (C) memory size */
+int voodoo_enabled = 0;				/* (C) video option */
+uint32_t mem_size = 0;				/* (C) memory size (Installed on system board)*/
+uint32_t isa_mem_size = 0;	/* (C) memory size (ISA Memory Cards) */
 int	cpu_use_dynarec = 0;			/* (C) cpu uses/needs Dyna */
-int cpu = 0;				/* (C) cpu type */
+int cpu = 0;					/* (C) cpu type */
 int fpu_type = 0;				/* (C) fpu type */
 int	time_sync = 0;				/* (C) enable time sync */
 int	confirm_reset = 1;			/* (C) enable reset confirmation */
-int confirm_exit = 1;			/* (C) enable exit confirmation */
-int confirm_save = 1;			/* (C) enable save confirmation */
-#ifdef USE_DISCORD
+int confirm_exit = 1;				/* (C) enable exit confirmation */
+int confirm_save = 1;				/* (C) enable save confirmation */
 int	enable_discord = 0;			/* (C) enable Discord integration */
-#endif
 int	enable_crashdump = 0;			/* (C) enable crash dump */
 
 /* Statistics. */
@@ -190,7 +199,7 @@ char	usr_path[1024];				/* path (dir) of user data */
 char	cfg_path[1024];				/* full path of config file */
 FILE	*stdlog = NULL;				/* file to log output to */
 int	scrnsz_x = SCREEN_RES_X;		/* current screen size, X */
-int scrnsz_y = SCREEN_RES_Y;		/* current screen size, Y */
+int scrnsz_y = SCREEN_RES_Y;			/* current screen size, Y */
 int	config_changed;				/* config has changed */
 int	title_update;
 int	framecountx = 0;
@@ -386,6 +395,48 @@ pc_log(const char *fmt, ...)
 #define pc_log(fmt, ...)
 #endif
 
+void
+add_rom_path(const char* path)
+{
+    static char cwd[1024];
+    memset(cwd, 0x00, sizeof(cwd));
+    rom_path_t* cur_rom_path = &rom_paths;
+    while (cur_rom_path->next != NULL) {
+        cur_rom_path = cur_rom_path->next;
+    }
+    if (!plat_path_abs((char*)path)) {
+        /*
+         * This looks like a relative path.
+         *
+         * Add it to the current working directory
+         * to convert it (back) to an absolute path.
+         */
+        plat_getcwd(cwd, 1024);
+        plat_path_slash(cwd);
+        snprintf(cur_rom_path->rom_path, 1024, "%s%s%c", cwd, path, 0);
+    }
+    else {
+        /*
+         * The user-provided path seems like an
+         * absolute path, so just use that.
+         */
+        strncpy(cur_rom_path->rom_path, path, 1024);
+    }
+    plat_path_slash(cur_rom_path->rom_path);
+    cur_rom_path->next = calloc(1, sizeof(rom_path_t));
+}
+
+// Copied over from Unix code, which in turn is lifted from musl. Needed for parsing XDG_DATA_DIRS.
+static char *local_strsep(char **str, const char *sep)
+{
+    char *s = *str, *end;
+    if (!s) return NULL;
+    end = s + strcspn(s, sep);
+    if (*end) *end++ = 0;
+    else end = 0;
+    *str = end;
+    return s;
+}
 
 /*
  * Perform initial startup of the PC.
@@ -399,12 +450,16 @@ pc_init(int argc, char *argv[])
 {
 	char path[2048], path2[2048];
 	char *cfg = NULL, *p;
+#if !defined(__APPLE__) && !defined(_WIN32)
+	char *appimage;
+#endif
 	char temp[128];
 	struct tm *info;
 	time_t now;
 	int c, vmrp = 0;
 	int ng = 0, lvmp = 0;
 	uint32_t *uid, *shwnd;
+	uint32_t lang_init = 0;
 
 	/* Grab the executable's full path. */
 	plat_get_exe_name(exe_path, sizeof(exe_path)-1);
@@ -442,6 +497,7 @@ usage:
 			printf("-E or --nographic    - forces the old behavior\n");
 #endif
 			printf("-F or --fullscreen   - start in fullscreen mode\n");
+			printf("-G or --lang langid  - start with specified language (e.g. en-US, or system)\n");
 #ifdef _WIN32
 			printf("-H or --hwnd id,hwnd - sends back the main dialog's hwnd\n");
 #endif
@@ -495,6 +551,7 @@ usage:
 			if ((c+1) == argc) goto usage;
 
 			strcpy(path2, argv[++c]);
+            add_rom_path(path2);
 		} else if (!strcasecmp(argv[c], "--config") ||
 			   !strcasecmp(argv[c], "-C")) {
 			if ((c+1) == argc) goto usage;
@@ -523,7 +580,20 @@ usage:
 			uid = (uint32_t *) &unique_id;
 			shwnd = (uint32_t *) &source_hwnd;
 			sscanf(argv[++c], "%08X%08X,%08X%08X", uid + 1, uid, shwnd + 1, shwnd);
+		} else if (!strcasecmp(argv[c], "--lang") ||
+			   !strcasecmp(argv[c], "-G")) {
+
+
 #endif
+		  //This function is currently unimplemented for *nix but has placeholders.
+
+		  lang_init = plat_language_code(argv[++c]);
+		  if (!lang_init)
+			 printf("\nWarning: Invalid language code, ignoring --lang parameter.\n\n");
+
+		  //The return value of 0 only means that the code is invalid,
+		  //  not related to that translation is exists or not for the
+          //  selected language.
 		} else if (!strcasecmp(argv[c], "--test")) {
 			/* some (undocumented) test function here.. */
 
@@ -577,12 +647,44 @@ usage:
 			plat_dir_create(usr_path);
 	}
 
-	if (vmrp && (path2[0] == '\0')) {
-		strcpy(path2, usr_path);
-		plat_path_slash(path2);
-		strcat(path2, "roms");
-		plat_path_slash(path2);
+    if (vmrp) {
+        char vmrppath[1024] = { 0 };
+        strcpy(vmrppath, usr_path);
+        plat_path_slash(vmrppath);
+        strcat(vmrppath, "roms");
+        plat_path_slash(vmrppath);
+        add_rom_path(vmrppath);
+        if (path2[0] == '\0') {
+            strcpy(path2, vmrppath);
+        }
+    }
+
+    {
+        char default_rom_path[1024] = { 0 };
+#if defined(__APPLE__)
+        getDefaultROMPath(default_rom_path);
+#elif !defined(_WIN32)
+		appimage = getenv("APPIMAGE");
+		if (appimage && (appimage[0] != '\0')) {
+            plat_get_dirname(default_rom_path, appimage);
+            plat_path_slash(default_rom_path);
+            strcat(default_rom_path, "roms");
+            plat_path_slash(default_rom_path);
+		}
+#endif
+        if (default_rom_path[0] == '\0') {
+            plat_getcwd(default_rom_path, 1024);
+            plat_path_slash(default_rom_path);
+            snprintf(default_rom_path, 1024, "%s%s%c", default_rom_path, "roms", 0);
+            plat_path_slash(default_rom_path);
+        }
+        add_rom_path(default_rom_path);
+        if (path2[0] == '\0') {
+            strcpy(path2, default_rom_path);
+        }
 	}
+
+    plat_init_rom_paths();
 
 	/*
 	 * If the user provided a path for ROMs, use that
@@ -676,14 +778,23 @@ usage:
 	info = localtime(&now);
 	strftime(temp, sizeof(temp), "%Y/%m/%d %H:%M:%S", info);
 	pclog("#\n# %ls v%ls logfile, created %s\n#\n",
-		EMU_NAME_W, EMU_VERSION_W, temp);
+		EMU_NAME_W, EMU_VERSION_FULL_W, temp);
 	pclog("# VM: %s\n#\n", vm_name);
 	pclog("# Emulator path: %s\n", exe_path);
 	pclog("# Userfiles path: %s\n", usr_path);
-	if (rom_path[0] != '\0')
-		pclog("# ROM path: %s\n", rom_path);
+    if (rom_paths.next) {
+        rom_path_t* cur_rom_path = &rom_paths;
+        while (cur_rom_path->next) {
+            pclog("# ROM path: %s\n", cur_rom_path->rom_path);
+            cur_rom_path = cur_rom_path->next;
+        }
+    }
 	else
-		pclog("# ROM path: %sroms\\\n", exe_path);
+#ifndef _WIN32
+	pclog("# ROM path: %sroms/\n", exe_path);
+#else
+	pclog("# ROM path: %sroms\\\n", exe_path);
+#endif
 	pclog("# Configuration file: %s\n#\n\n", cfg_path);
 	/*
 	 * We are about to read the configuration file, which MAY
@@ -700,6 +811,12 @@ usage:
 
 	/* Load the configuration file. */
 	config_load();
+
+	/* Load the desired language */
+	if (lang_init)
+		lang_id = lang_init;
+
+	gdbstub_init();
 
 	/* All good! */
 	return(1);
@@ -734,6 +851,28 @@ pc_init_modules(void)
 	int c, m;
 	wchar_t temp[512];
 	char tempc[512];
+
+#ifdef PRINT_MISSING_MACHINES_AND_VIDEO_CARDS
+	c = m = 0;
+	while (machine_get_internal_name_ex(c) != NULL) {
+		m = machine_available(c);
+		if (!m)
+			pclog("Missing machine: %s\n", machine_getname_ex(c));
+		c++;
+	}
+
+	c = m = 0;
+	while (video_get_internal_name(c) != NULL) {
+		memset(tempc, 0, sizeof(tempc));
+		device_get_name(video_card_getdevice(c), 0, tempc);
+		if ((c > 1) && !(tempc[0]))
+			break;
+		m = video_card_available(c);
+		if (!m)
+			pclog("Missing video card: %s\n", tempc);
+		c++;
+	}
+#endif
 
 	pc_log("Scanning for ROM images:\n");
 	c = m = 0;
@@ -882,7 +1021,9 @@ pc_reset_hard_close(void)
 
 	scsi_device_close_all();
 
-	midi_close();
+	midi_out_close();
+
+	midi_in_close();
 
 	cdrom_close();
 
@@ -909,8 +1050,6 @@ pc_reset_hard_close(void)
 void
 pc_reset_hard_init(void)
 {
-	wchar_t wcpufamily[2048], wcpu[2048], wmachine[2048], *wcp;
-
 	/*
 	 * First, we reset the modules that are not part of
 	 * the actual machine, but which support some of the
@@ -938,9 +1077,6 @@ pc_reset_hard_init(void)
 
 	/* Reset and reconfigure the Sound Card layer. */
 	sound_card_reset();
-
-	/* Reset any ISA memory cards. */
-	isamem_reset();
 
 	/* Reset any ISA RTC cards. */
 	isartc_reset();
@@ -1009,13 +1145,26 @@ pc_reset_hard_init(void)
 	/* Reset the CPU module. */
 	resetx86();
 	dma_reset();
-	pic_reset();
+	pci_pic_reset();
 	cpu_cache_int_enabled = cpu_cache_ext_enabled = 0;
 
 	atfullspeed = 0;
 	pc_full_speed();
 
-	cycles = cycles_main = 0;
+	cycles = 0;
+#ifdef FPU_CYCLES
+	fpu_cycles = 0;
+#endif
+#ifdef USE_DYNAREC
+	cycles_main = 0;
+#endif
+
+	update_mouse_msg();
+}
+
+void update_mouse_msg()
+{
+	wchar_t wcpufamily[2048], wcpu[2048], wmachine[2048], *wcp;
 
 	mbstowcs(wmachine, machine_getname(), strlen(machine_getname())+1);
 
@@ -1028,16 +1177,23 @@ pc_reset_hard_init(void)
 	if (wcp) /* remove parentheses */
 		*(wcp - 1) = L'\0';
 	mbstowcs(wcpu, cpu_s->name, strlen(cpu_s->name)+1);
+#ifdef _WIN32
+	swprintf(mouse_msg[0], sizeof_w(mouse_msg[0]), L"%%i%%%% - %ls",
+		plat_get_string(IDS_2077));
+	swprintf(mouse_msg[1], sizeof_w(mouse_msg[1]), L"%%i%%%% - %ls",
+		(mouse_get_buttons() > 2) ? plat_get_string(IDS_2078) : plat_get_string(IDS_2079));
+	wcsncpy(mouse_msg[2], L"%i%%", sizeof_w(mouse_msg[2]));
+#else
 	swprintf(mouse_msg[0], sizeof_w(mouse_msg[0]), L"%ls v%ls - %%i%%%% - %ls - %ls/%ls - %ls",
-		EMU_NAME_W, EMU_VERSION_W, wmachine, wcpufamily, wcpu,
+		EMU_NAME_W, EMU_VERSION_FULL_W, wmachine, wcpufamily, wcpu,
 		plat_get_string(IDS_2077));
 	swprintf(mouse_msg[1], sizeof_w(mouse_msg[1]), L"%ls v%ls - %%i%%%% - %ls - %ls/%ls - %ls",
-		EMU_NAME_W, EMU_VERSION_W, wmachine, wcpufamily, wcpu,
+		EMU_NAME_W, EMU_VERSION_FULL_W, wmachine, wcpufamily, wcpu,
 		(mouse_get_buttons() > 2) ? plat_get_string(IDS_2078) : plat_get_string(IDS_2079));
 	swprintf(mouse_msg[2], sizeof_w(mouse_msg[2]), L"%ls v%ls - %%i%%%% - %ls - %ls/%ls",
-		EMU_NAME_W, EMU_VERSION_W, wmachine, wcpufamily, wcpu);
+		EMU_NAME_W, EMU_VERSION_FULL_W, wmachine, wcpufamily, wcpu);
+#endif
 }
-
 
 void
 pc_reset_hard(void)
@@ -1098,7 +1254,9 @@ pc_close(thread_t *ptr)
 
 	scsi_device_close_all();
 
-	midi_close();
+	midi_out_close();
+
+	midi_in_close();
 
 	network_close();
 
@@ -1111,6 +1269,8 @@ pc_close(thread_t *ptr)
 	mo_close();
 
 	scsi_disk_close();
+
+	gdbstub_close();
 }
 
 
@@ -1139,6 +1299,9 @@ pc_run(void)
 	/* Run a block of code. */
 	startblit();
 	cpu_exec(cpu_s->rspeed / 100);
+#ifdef USE_GDBSTUB /* avoid a KBC FIFO overflow when CPU emulation is stalled */
+	if (gdbstub_step == GDBSTUB_EXEC)
+#endif
 	mouse_process();
 	joystick_process();
 	endblit();
@@ -1256,9 +1419,7 @@ set_screen_size(int x, int y)
 
     /* If the resolution has changed, let the main thread handle it. */
     if ((owsx != scrnsz_x) || (owsy != scrnsz_y))
-	doresize = 1;
-    else
-	doresize = 0;
+		atomic_flag_clear(&doresize);
 }
 
 

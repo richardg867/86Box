@@ -100,7 +100,7 @@ cs8230_read(uint16_t port, void *p)
 
 		case 0x05: case 0x06:				/* 82C301 registers */
 		case 0x09: case 0x0a: case 0x0b: case 0x0c:	/* 82C302 registers */
-		case 0x0d: case 0x0e: case 0x0f: 
+		case 0x0d: case 0x0e: case 0x0f:
 		case 0x10: case 0x11: case 0x12: case 0x13:
 		case 0x28: case 0x29: case 0x2a:
 			ret = cs8230->regs[cs8230->idx];
@@ -156,12 +156,16 @@ static void
     return cs8230;
 }
 
-
 const device_t cs8230_device = {
-    "C&T CS8230 (386/AT)",
-    0,
-    0,
-    cs8230_init, cs8230_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "C&T CS8230 (386/AT)",
+    .internal_name = "cs8230",
+    .flags = 0,
+    .local = 0,
+    .init = cs8230_init,
+    .close = cs8230_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

@@ -7,18 +7,18 @@
  *		This file is part of the 86Box distribution.
  *
  *		Rendering module for OpenGL
- * 
+ *
  * TODO:	More shader features
  *			- scaling
  *			- multipass
- *			- previous frames 
+ *			- previous frames
  *		(UI) options
  *		More error handling
- * 
+ *
  * Authors:	Teemu Korhonen
- * 
+ *
  *		Copyright 2021 Teemu Korhonen
- * 
+ *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -56,15 +56,16 @@ typedef LONG atomic_flag;
 #include <86box/plat.h>
 #include <86box/video.h>
 #include <86box/win.h>
+#include <86box/language.h>
 #include <86box/win_opengl.h>
 #include <86box/win_opengl_glslp.h>
 
 static const int INIT_WIDTH = 640;
 static const int INIT_HEIGHT = 400;
-static const int BUFFERPIXELS = 4460544;	/* Same size as render_buffer, pow(2048+64,2). */
-static const int BUFFERBYTES = 17842176;	/* Pixel is 4 bytes. */
+static const int BUFFERPIXELS = 4194304;	/* Same size as render_buffer, pow(2048+64,2). */
+static const int BUFFERBYTES = 16777216;	/* Pixel is 4 bytes. */
 static const int BUFFERCOUNT = 3;		/* How many buffers to use for pixel transfer (2-3 is commonly recommended). */
-static const int ROW_LENGTH = 2112;		/* Source buffer row lenght (including padding) */
+static const int ROW_LENGTH = 2048;		/* Source buffer row lenght (including padding) */
 
 /**
  * @brief A dedicated OpenGL thread.
@@ -167,7 +168,7 @@ typedef struct
 
 /**
  * @brief Set or unset OpenGL context window as a child window.
- * 
+ *
  * Modifies the window style and sets the parent window.
  * WS_EX_NOACTIVATE keeps the window from stealing input focus.
  */
@@ -197,10 +198,11 @@ static void set_parent_binding(int enable)
  * @brief Windows message handler for our window.
  * @param message
  * @param wParam
- * @param lParam 
+ * @param lParam
  * @param fullscreen
+ * @return Was message handled
 */
-static void handle_window_messages(UINT message, WPARAM wParam, LPARAM lParam, int fullscreen)
+static int handle_window_messages(UINT message, WPARAM wParam, LPARAM lParam, int fullscreen)
 {
 	switch (message)
 	{
@@ -218,7 +220,7 @@ static void handle_window_messages(UINT message, WPARAM wParam, LPARAM lParam, i
 			/* Mouse events that enter and exit capture. */
 			PostMessage(parent, message, wParam, lParam);
 		}
-		break;
+		return 1;
 	case WM_KEYDOWN:
 	case WM_KEYUP:
 	case WM_SYSKEYDOWN:
@@ -227,7 +229,7 @@ static void handle_window_messages(UINT message, WPARAM wParam, LPARAM lParam, i
 		{
 			PostMessage(parent, message, wParam, lParam);
 		}
-		break;
+		return 1;
 	case WM_INPUT:
 		if (fullscreen)
 		{
@@ -255,8 +257,17 @@ static void handle_window_messages(UINT message, WPARAM wParam, LPARAM lParam, i
 			}
 			free(raw);
 		}
-		break;
+		return 1;
+	case WM_MOUSELEAVE:
+		if (fullscreen)
+		{
+			/* Leave fullscreen if mouse leaves the renderer window. */
+			PostMessage(GetAncestor(parent, GA_ROOT), WM_LEAVEFULLSCREEN, 0, 0);
+		}
+		return 0;
 	}
+
+	return 0;
 }
 
 /**
@@ -371,7 +382,7 @@ static int initialize_glcontext(gl_identifiers* gl)
 		/* Create persistent buffer for pixel transfer. */
 		glBufferStorage(GL_PIXEL_UNPACK_BUFFER, BUFFERBYTES * BUFFERCOUNT, NULL, GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT);
 
-		buf_ptr = glMapBufferRange(GL_PIXEL_UNPACK_BUFFER, 0, BUFFERBYTES * BUFFERCOUNT, GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT);		
+		buf_ptr = glMapBufferRange(GL_PIXEL_UNPACK_BUFFER, 0, BUFFERBYTES * BUFFERCOUNT, GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT);
 	}
 	else
 	{
@@ -399,8 +410,8 @@ static int initialize_glcontext(gl_identifiers* gl)
 }
 
 /**
- * @brief Clean up OpenGL context 
- * @param gl Identifiers from initialize 
+ * @brief Clean up OpenGL context
+ * @param gl Identifiers from initialize
 */
 static void finalize_glcontext(gl_identifiers* gl)
 {
@@ -445,7 +456,9 @@ static void opengl_fail()
 		window = NULL;
 	}
 
-	/* TODO: Notify user. */
+	wchar_t* message = plat_get_string(IDS_2152);
+	wchar_t* header = plat_get_string(IDS_2153);
+	MessageBox(parent, header, message, MB_OK);
 
 	WaitForSingleObject(sync_objects.closing, INFINITE);
 
@@ -459,7 +472,7 @@ static void __stdcall opengl_debugmsg_callback(GLenum source, GLenum type, GLuin
 
 /**
  * @brief Main OpenGL thread proc.
- * 
+ *
  * OpenGL context should be accessed only from this single thread.
  * Events are used to synchronize communication.
 */
@@ -473,10 +486,10 @@ static void opengl_main(void* param)
 	SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1"); /* Is this actually doing anything...? */
 
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-	
-	if (GLAD_GL_ARB_debug_output)
+
+	if (GLAD_GL_ARB_debug_output && log_path[0] != '\0')
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG | SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
 	else
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
@@ -502,7 +515,7 @@ static void opengl_main(void* param)
 		pclog("OpenGL: subsystem is not SDL_SYSWM_WINDOWS.\n");
 		opengl_fail();
 	}
-	
+
 	window_hwnd = wmi.info.win.window;
 
 	if (!fullscreen)
@@ -526,8 +539,8 @@ static void opengl_main(void* param)
 		SDL_GL_DeleteContext(context);
 		opengl_fail();
 	}
-	
-	if (GLAD_GL_ARB_debug_output)
+
+	if (GLAD_GL_ARB_debug_output && log_path[0] != '\0')
 	{
 		glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB);
 		glDebugMessageControlARB(GL_DONT_CARE, GL_DEBUG_TYPE_PERFORMANCE_ARB, GL_DONT_CARE, 0, 0, GL_FALSE);
@@ -539,8 +552,35 @@ static void opengl_main(void* param)
 	pclog("OpenGL version: %s\n", glGetString(GL_VERSION));
 	pclog("OpenGL shader language version: %s\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
 
+	/* Check that the driver actually reports version 3.0 or later */
+	GLint major = -1;
+	glGetIntegerv(GL_MAJOR_VERSION, &major);
+	if (major < 3)
+	{
+		pclog("OpenGL: Minimum OpenGL version 3.0 is required.\n");
+		SDL_GL_DeleteContext(context);
+		opengl_fail();
+	}
+
+	/* Check if errors have been generated at this point */
+	GLenum gl_error = glGetError();
+	if (gl_error != GL_NO_ERROR)
+	{
+		/* Log up to 10 errors */
+		int i = 0;
+		do
+		{
+			pclog("OpenGL: Error %u\n", gl_error);
+			i++;
+		}
+		while((gl_error = glGetError()) != GL_NO_ERROR && i < 10);
+
+		SDL_GL_DeleteContext(context);
+		opengl_fail();
+	}
+
 	gl_identifiers gl = { 0 };
-	
+
 	if (!initialize_glcontext(&gl))
 	{
 		pclog("OpenGL: failed to initialize.\n");
@@ -576,7 +616,7 @@ static void opengl_main(void* param)
 				uint32_t ticks = plat_get_micro_ticks();
 
 				uint32_t elapsed = ticks - last_swap;
-				
+
 				if (elapsed + 1000 > frametime)
 				{
 					/* Spin the remaining time (< 1ms) to next frame */
@@ -592,25 +632,29 @@ static void opengl_main(void* param)
 				}
 			}
 
-			/* Check if commands that use buffers have been completed. */
-			for (int i = 0; i < BUFFERCOUNT; i++)
+			if (GLAD_GL_ARB_sync)
 			{
-				if (blit_info[i].sync != NULL && glClientWaitSync(blit_info[i].sync, GL_SYNC_FLUSH_COMMANDS_BIT, 0) != GL_TIMEOUT_EXPIRED)
+				/* Check if commands that use buffers have been completed. */
+				for (int i = 0; i < BUFFERCOUNT; i++)
 				{
-					glDeleteSync(blit_info[i].sync);
-					blit_info[i].sync = NULL;
-					atomic_flag_clear(&blit_info[i].in_use);
+					if (blit_info[i].sync != NULL && glClientWaitSync(blit_info[i].sync, GL_SYNC_FLUSH_COMMANDS_BIT, 0) != GL_TIMEOUT_EXPIRED)
+					{
+						glDeleteSync(blit_info[i].sync);
+						blit_info[i].sync = NULL;
+						atomic_flag_clear(&blit_info[i].in_use);
+					}
 				}
 			}
 
 			/* Handle window messages */
 			MSG msg;
-			if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+			while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
 			{
-				if (msg.hwnd == window_hwnd)
-					handle_window_messages(msg.message, msg.wParam, msg.lParam, fullscreen);
-				TranslateMessage(&msg);
-				DispatchMessage(&msg);
+				if (msg.hwnd != window_hwnd || !handle_window_messages(msg.message, msg.wParam, msg.lParam, fullscreen))
+				{
+					TranslateMessage(&msg);
+					DispatchMessage(&msg);
+				}
 			}
 
 			/* Wait for synchronized events for 1ms before going back to window events */
@@ -653,8 +697,17 @@ static void opengl_main(void* param)
 			glPixelStorei(GL_UNPACK_ROW_LENGTH, ROW_LENGTH);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, info->w, info->h, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, NULL);
 
-			/* Add fence to track when above gl commands are complete. */
-			info->sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+			if (GLAD_GL_ARB_sync)
+			{
+				/* Add fence to track when above gl commands are complete. */
+				info->sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+			}
+			else
+			{
+				/* No sync objects; block until commands are complete. */
+				glFinish();
+				atomic_flag_clear(&info->in_use);
+			}
 
 			read_pos = (read_pos + 1) % BUFFERCOUNT;
 
@@ -680,7 +733,14 @@ static void opengl_main(void* param)
 				{
 					SetForegroundWindow(window_hwnd);
 					SetFocus(window_hwnd);
+
+					/* Clip cursor to prevent it moving to another monitor. */
+					RECT rect;
+					GetWindowRect(window_hwnd, &rect);
+					ClipCursor(&rect);
 				}
+				else
+					ClipCursor(NULL);
 			}
 
 			if (fullscreen)
@@ -688,7 +748,7 @@ static void opengl_main(void* param)
 				int width, height, pad_x = 0, pad_y = 0, px_size = 1;
 				float ratio = 0;
 				const float ratio43 = 4.f / 3.f;
-				
+
 				SDL_GetWindowSize(window, &width, &height);
 
 				if (video_width > 0 && video_height > 0)
@@ -788,10 +848,13 @@ static void opengl_main(void* param)
 				SDL_ShowCursor(show_cursor);
 	}
 
-	for (int i = 0; i < BUFFERCOUNT; i++)
+	if (GLAD_GL_ARB_sync)
 	{
-		if (blit_info[i].sync != NULL)
-			glDeleteSync(blit_info[i].sync);
+		for (int i = 0; i < BUFFERCOUNT; i++)
+		{
+			if (blit_info[i].sync != NULL)
+				glDeleteSync(blit_info[i].sync);
+		}
 	}
 
 	finalize_glcontext(&gl);
@@ -809,6 +872,8 @@ static void opengl_main(void* param)
 
 static void opengl_blit(int x, int y, int w, int h)
 {
+	int row;
+
 	if ((x < 0) || (y < 0) || (w <= 0) || (h <= 0) || (w > 2048) || (h > 2048) || (buffer32 == NULL) || (thread == NULL) ||
 		atomic_flag_test_and_set(&blit_info[write_pos].in_use))
 	{
@@ -816,7 +881,8 @@ static void opengl_blit(int x, int y, int w, int h)
 		return;
 	}
 
-	video_copy(blit_info[write_pos].buffer, &(buffer32->line[y][x]), h * ROW_LENGTH * sizeof(uint32_t));
+	for (row = 0; row < h; ++row)
+		video_copy(&(((uint8_t *) blit_info[write_pos].buffer)[row * ROW_LENGTH * sizeof(uint32_t)]), &(buffer32->line[y + row][x]), w * sizeof(uint32_t));
 
 	if (screenshots)
 		video_screenshot(blit_info[write_pos].buffer, 0, 0, ROW_LENGTH);
@@ -853,7 +919,7 @@ int opengl_init(HWND hwnd)
 	sync_objects.blit_waiting = CreateSemaphore(NULL, 0, BUFFERCOUNT * 2, NULL);
 
 	parent = hwnd;
-	
+
 	RECT parent_size;
 
 	GetWindowRect(parent, &parent_size);
@@ -902,7 +968,7 @@ void opengl_close(void)
 
 	SetEvent(sync_objects.closing);
 
-	thread_wait(thread, -1);
+	thread_wait(thread);
 
 	thread_close_mutex(resize_info.mutex);
 	thread_close_mutex(options.mutex);
@@ -926,7 +992,7 @@ void opengl_set_fs(int fs)
 		return;
 
 	thread_wait_mutex(resize_info.mutex);
-	
+
 	resize_info.fullscreen = fs;
 	resize_info.scaling_mode = video_fullscreen_scale;
 
@@ -960,7 +1026,7 @@ void opengl_reload(void)
 
 	options.vsync = video_vsync;
 	options.frametime = framerate_to_frametime(video_framerate);
-	
+
 	if (strcmp(video_shader, options.shaderfile) != 0)
 	{
 		strcpy_s(options.shaderfile, sizeof(options.shaderfile), video_shader);

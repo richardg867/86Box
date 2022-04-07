@@ -23,7 +23,7 @@
  *		disk drives for this bus commonly have an 'A' suffix to
  *		identify them as 'ATBUS'.
  *
- *		In XTA-IDE, which is slightly older, the programming 
+ *		In XTA-IDE, which is slightly older, the programming
  *		interface of the IBM PC/XT (which used the MFM controller
  *		from Xebec) was kept, and, so, it uses an 8bit data path.
  *		Disk drives for this bus commonly have the 'X' suffix to
@@ -38,7 +38,7 @@
  *		data byte per transfer.  XTIDE uses regular IDE drives,
  *		and uses the regular ATA/IDE programming interface, just
  *		with the extra register.
- * 
+ *
  * NOTE:	This driver implements both the 'standard' XTA interface,
  *		sold by Western Digital as the WDXT-140 (no BIOS) and the
  *		WDXT-150 (with BIOS), as well as some variants customized
@@ -494,7 +494,7 @@ hdc_callback(void *priv)
 		}
 		set_intr(dev);
 		break;
-		
+
 	case CMD_READ_SENSE:
 		switch(dev->state) {
 			case STATE_IDLE:
@@ -514,7 +514,7 @@ hdc_callback(void *priv)
 			case STATE_SDONE:
 				set_intr(dev);
 		}
-		break;		
+		break;
 
 	case CMD_READ_VERIFY:
 		no_data = 1;
@@ -584,7 +584,7 @@ do_send:
 					}
 				}
 				break;
-			
+
 			case STATE_SDATA:
 				if (! no_data) {
 					/* Perform DMA. */
@@ -882,7 +882,7 @@ hdc_read(uint16_t port, void *priv)
 {
     hdc_t *dev = (hdc_t *)priv;
     uint8_t ret = 0xff;
-	
+
     switch (port & 7) {
 	case 0:		/* DATA register */
 		dev->status &= ~STAT_IRQ;
@@ -920,7 +920,7 @@ xta_log("DCB=%02X  status=%02X comp=%02X\n", dev->dcb.cmd, dev->status, dev->com
 		break;
     }
 
-    return(ret);	
+    return(ret);
 }
 
 
@@ -1072,7 +1072,7 @@ xta_init(const device_t *info)
 	rom_init(&dev->bios_rom, fn,
 		 dev->rom_addr, 0x2000, 0x1fff, 0, MEM_MAPPING_EXTERNAL);
    }
-		
+
     /* Create a timer for command delays. */
     timer_add(&dev->timer, hdc_callback, dev, 0);
 
@@ -1104,69 +1104,59 @@ xta_close(void *priv)
 
 
 static const device_config_t wdxt150_config[] = {
+// clang-format off
+    {
+        "base", "Address", CONFIG_HEX16, "", 0x0320, "", { 0 }, /*W2*/
         {
-		"base", "Address", CONFIG_HEX16, "", 0x0320, "", { 0 },		/*W2*/
-                {
-                        {
-                                "320H", 0x0320
-                        },
-                        {
-                                "324H", 0x0324
-                        },
-                        {
-                                ""
-                        }
-                },
+                        { "320H", 0x0320 },
+                        { "324H", 0x0324 },
+                        { ""             }
         },
+    },
+    {
+        "irq", "IRQ", CONFIG_SELECTION, "", 5, "", { 0 }, /*W3*/
         {
-		"irq", "IRQ", CONFIG_SELECTION, "", 5, "", { 0 },		/*W3*/
-                {
-                        {
-                                "IRQ 5", 5
-                        },
-                        {
-                                "IRQ 4", 4
-                        },
-                        {
-                                ""
-                        }
-                },
+                        { "IRQ 5", 5 },
+                        { "IRQ 4", 4 },
+                        { ""         }
         },
+    },
+    {
+        "bios_addr", "BIOS Address", CONFIG_HEX20, "", 0xc8000, "", { 0 }, /*W1*/
         {
-                "bios_addr", "BIOS Address", CONFIG_HEX20, "", 0xc8000, "", { 0 }, /*W1*/
-                {
-                        {
-                                "C800H", 0xc8000
-                        },
-                        {
-                                "CA00H", 0xca000
-                        },
-                        {
-                                ""
-                        }
-                },
+                        { "C800H", 0xc8000 },
+                        { "CA00H", 0xca000 },
+                        { ""               }
         },
-	{
-		"", "", -1
-	}
+    },
+	{ "", "", -1 }
+// clang-format off
 };
-
 
 const device_t xta_wdxt150_device = {
-    "WDXT-150 XTA Fixed Disk Controller",
-    DEVICE_ISA,
-    0,
-    xta_init, xta_close, NULL,
-    { xta_available }, NULL, NULL,
-    wdxt150_config
+    .name = "WDXT-150 XTA Fixed Disk Controller",
+    .internal_name = "xta_wdxt150",
+    .flags = DEVICE_ISA,
+    .local = 0,
+    .init = xta_init,
+    .close = xta_close,
+    .reset = NULL,
+    { .available = xta_available },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = wdxt150_config
 };
 
-
 const device_t xta_hd20_device = {
-    "EuroPC HD20 Fixed Disk Controller",
-    DEVICE_ISA,
-    1,
-    xta_init, xta_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "EuroPC HD20 Fixed Disk Controller",
+    .internal_name = "xta_hd20",
+    .flags = DEVICE_ISA,
+    .local = 1,
+    .init = xta_init,
+    .close = xta_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

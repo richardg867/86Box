@@ -192,6 +192,16 @@ device_add_common(const device_t *d, const device_t *cd, void *p, int inst)
 }
 
 
+char *
+device_get_internal_name(const device_t *d)
+{
+    if (d == NULL)
+	return "";
+
+    return (char *) d->internal_name;
+}
+
+
 void *
 device_add(const device_t *d)
 {
@@ -330,6 +340,30 @@ device_available(const device_t *d)
 
 
 int
+device_has_config(const device_t *d)
+{
+    int c = 0;
+    device_config_t *config;
+
+    if (d == NULL)
+	return 0;
+
+    if (d->config == NULL)
+	return 0;
+
+    config = (device_config_t *) d->config;
+
+    while (config->type != -1) {
+	if (config->type != CONFIG_MAC)
+		c++;
+	config++;
+    }
+
+    return (c > 0) ? 1 : 0;
+}
+
+
+int
 device_poll(const device_t *d, int x, int y, int z, int b)
 {
     int c;
@@ -378,9 +412,7 @@ device_get_name(const device_t *d, int bus, char *name)
     name[0] = 0x00;
 
     if (bus) {
-	if (d->flags & DEVICE_LPT)
-		sbus = "LPT";
-	else if (d->flags & DEVICE_ISA)
+	if (d->flags & DEVICE_ISA)
 		sbus = (d->flags & DEVICE_AT) ? "ISA16" : "ISA";
 	else if (d->flags & DEVICE_CBUS)
 		sbus = "C-BUS";
@@ -396,6 +428,10 @@ device_get_name(const device_t *d, int bus, char *name)
 		sbus = "AGP";
 	else if (d->flags & DEVICE_AC97)
 		sbus = "AMR";
+    else if (d->flags & DEVICE_COM)
+        sbus = "COM";
+	else if (d->flags & DEVICE_LPT)
+		sbus = "LPT";
 
 	if (sbus != NULL) {
 		/* First concatenate [<Bus>] before the device's name. */
@@ -406,7 +442,7 @@ device_get_name(const device_t *d, int bus, char *name)
 		/* Then change string from ISA16 to ISA if applicable. */
 		if (!strcmp(sbus, "ISA16"))
 			sbus = "ISA";
-		else if (!strcmp(sbus, "LPT")) {
+		else if (!strcmp(sbus, "COM")|| !strcmp(sbus, "LPT")) {
 			sbus = NULL;
 			strcat(name, d->name);
 			return;
@@ -646,29 +682,29 @@ device_set_config_mac(const char *s, int val)
 
 
 int
-device_is_valid(const device_t *device, int mflags)
+device_is_valid(const device_t *device, int m)
 {
     if (device == NULL) return(1);
 
-    if ((device->flags & DEVICE_AT) && !(mflags & MACHINE_BUS_ISA16)) return(0);
+    if ((device->flags & DEVICE_AT) && !machine_has_bus(m, MACHINE_BUS_ISA16)) return(0);
 
-    if ((device->flags & DEVICE_CBUS) && !(mflags & MACHINE_BUS_CBUS)) return(0);
+    if ((device->flags & DEVICE_CBUS) && !machine_has_bus(m, MACHINE_BUS_CBUS)) return(0);
 
-    if ((device->flags & DEVICE_ISA) && !(mflags & MACHINE_BUS_ISA)) return(0);
+    if ((device->flags & DEVICE_ISA) && !machine_has_bus(m, MACHINE_BUS_ISA)) return(0);
 
-    if ((device->flags & DEVICE_MCA) && !(mflags & MACHINE_BUS_MCA)) return(0);
+    if ((device->flags & DEVICE_MCA) && !machine_has_bus(m, MACHINE_BUS_MCA)) return(0);
 
-    if ((device->flags & DEVICE_EISA) && !(mflags & MACHINE_BUS_EISA)) return(0);
+    if ((device->flags & DEVICE_EISA) && !machine_has_bus(m, MACHINE_BUS_EISA)) return(0);
 
-    if ((device->flags & DEVICE_VLB) && !(mflags & MACHINE_BUS_VLB)) return(0);
+    if ((device->flags & DEVICE_VLB) && !machine_has_bus(m, MACHINE_BUS_VLB)) return(0);
 
-    if ((device->flags & DEVICE_PCI) && !(mflags & MACHINE_BUS_PCI)) return(0);
+    if ((device->flags & DEVICE_PCI) && !machine_has_bus(m, MACHINE_BUS_PCI)) return(0);
 
-    if ((device->flags & DEVICE_AGP) && !(mflags & MACHINE_BUS_AGP)) return(0);
+    if ((device->flags & DEVICE_AGP) && !machine_has_bus(m, MACHINE_BUS_AGP)) return(0);
 
-    if ((device->flags & DEVICE_PS2) && !(mflags & MACHINE_BUS_PS2)) return(0);
+    if ((device->flags & DEVICE_PS2) && !machine_has_bus(m, MACHINE_BUS_PS2)) return(0);
 
-    if ((device->flags & DEVICE_AC97) && !(mflags & MACHINE_BUS_AC97)) return(0);
+    if ((device->flags & DEVICE_AC97) && !machine_has_bus(m, MACHINE_BUS_AC97)) return(0);
 
     return(1);
 }

@@ -40,33 +40,35 @@
 # define EMU_DEVICE_H
 
 
-#define CONFIG_STRING		0
-#define CONFIG_INT		1
-#define CONFIG_BINARY		2
-#define CONFIG_SELECTION	3
-#define CONFIG_MIDI		4
-#define CONFIG_FNAME		5
-#define CONFIG_SPINNER		6
-#define CONFIG_HEX16		7
-#define CONFIG_HEX20		8
-#define CONFIG_MAC		9
-#define CONFIG_MIDI_IN  10
+#define CONFIG_END			-1
+#define CONFIG_STRING		 0
+#define CONFIG_INT			 1
+#define CONFIG_BINARY		 2
+#define CONFIG_SELECTION	 3
+#define CONFIG_MIDI_OUT		 4
+#define CONFIG_FNAME		 5
+#define CONFIG_SPINNER		 6
+#define CONFIG_HEX16		 7
+#define CONFIG_HEX20		 8
+#define CONFIG_MAC			 9
+#define CONFIG_MIDI_IN		10
 
 
 enum {
     DEVICE_NOT_WORKING = 1,	/* does not currently work correctly and will be disabled in a release build */
-    DEVICE_LPT = 2,		/* requires a parallel port */
-    DEVICE_PCJR = 4,		/* requires an IBM PCjr */
-    DEVICE_AT = 8,		/* requires an AT-compatible system */
-    DEVICE_PS2 = 0x10,		/* requires a PS/1 or PS/2 system */
-    DEVICE_ISA = 0x20,		/* requires the ISA bus */
-    DEVICE_CBUS = 0x40,		/* requires the C-BUS bus */
-    DEVICE_MCA = 0x80,		/* requires the MCA bus */
-    DEVICE_EISA = 0x100,	/* requires the EISA bus */
-    DEVICE_VLB = 0x200,		/* requires the PCI bus */
-    DEVICE_PCI = 0x400,		/* requires the VLB bus */
-    DEVICE_AGP = 0x800,		/* requires the AGP bus */
-    DEVICE_AC97 = 0x1000	/* requires the AC'97 bus */
+    DEVICE_PCJR = 2,		/* requires an IBM PCjr */
+    DEVICE_AT = 4,			/* requires an AT-compatible system */
+    DEVICE_PS2 = 8,			/* requires a PS/1 or PS/2 system */
+    DEVICE_ISA = 0x10,		/* requires the ISA bus */
+    DEVICE_CBUS = 0x20,		/* requires the C-BUS bus */
+    DEVICE_MCA = 0x40,		/* requires the MCA bus */
+    DEVICE_EISA = 0x80,		/* requires the EISA bus */
+    DEVICE_VLB = 0x100,		/* requires the PCI bus */
+    DEVICE_PCI = 0x200,		/* requires the VLB bus */
+    DEVICE_AGP = 0x400,		/* requires the AGP bus */
+    DEVICE_AC97 = 0x800,	/* requires the AC'97 bus */
+    DEVICE_COM = 0x1000,	/* requires a serial port */
+    DEVICE_LPT = 0x2000		/* requires a parallel port */
 };
 
 
@@ -94,6 +96,7 @@ typedef struct {
 
 typedef struct _device_ {
     const char	*name;
+    const char *internal_name;
     uint32_t	flags;		/* system flags */
     uint32_t	local;		/* flags local to device */
 
@@ -101,9 +104,9 @@ typedef struct _device_ {
     void	(*close)(void *priv);
     void	(*reset)(void *priv);
     union {
-	int		(*available)(void);
-	int		(*poll)(int x, int y, int z, int b, void *priv);
-	void		(*register_pci_slot)(int device, int type, int inta, int intb, int intc, int intd, void *priv);
+    int		(*available)(void);
+    int		(*poll)(int x, int y, int z, int b, void *priv);
+    void		(*register_pci_slot)(int device, int type, int inta, int intb, int intc, int intd, void *priv);
     };
     void	(*speed_changed)(void *priv);
     void	(*force_redraw)(void *priv);
@@ -144,8 +147,9 @@ extern void		device_register_pci_slot(const device_t *d, int device, int type, i
 extern void		device_speed_changed(void);
 extern void		device_force_redraw(void);
 extern void		device_get_name(const device_t *d, int bus, char *name);
+extern int		device_has_config(const device_t *d);
 
-extern int		device_is_valid(const device_t *, int machine_flags);
+extern int		device_is_valid(const device_t *, int m);
 
 extern int		device_get_config_int(const char *name);
 extern int		device_get_config_int_ex(const char *s, int dflt_int);
@@ -157,6 +161,8 @@ extern void		device_set_config_hex16(const char *s, int val);
 extern void		device_set_config_hex20(const char *s, int val);
 extern void		device_set_config_mac(const char *s, int val);
 extern const char	*device_get_config_string(const char *name);
+
+extern char *		device_get_internal_name(const device_t *d);
 
 extern int	machine_get_config_int(char *s);
 extern char	*machine_get_config_string(char *s);

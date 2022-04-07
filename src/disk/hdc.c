@@ -52,26 +52,16 @@ hdc_log(const char *fmt, ...)
 #define hdc_log(fmt, ...)
 #endif
 
-
 static void *
-null_init(const device_t *info)
+nullhdc_init(const device_t *info)
 {
     return(NULL);
 }
 
-
 static void
-null_close(void *priv)
+nullhdc_close(void *priv)
 {
 }
-
-
-static const device_t null_device = {
-    "Null HDC", 0, 0,
-    null_init, null_close, NULL,
-    { NULL }, NULL, NULL, NULL
-};
-
 
 static void *
 inthdc_init(const device_t *info)
@@ -79,50 +69,72 @@ inthdc_init(const device_t *info)
     return(NULL);
 }
 
-
 static void
 inthdc_close(void *priv)
 {
 }
 
-
-static const device_t inthdc_device = {
-    "Internal controller", 0, 0,
-    inthdc_init, inthdc_close, NULL,
-    { NULL }, NULL, NULL, NULL
+static const device_t hdc_none_device = {
+    .name = "None",
+    .internal_name = "none",
+    .flags = 0,
+    .local = 0,
+    .init = nullhdc_init,
+    .close = nullhdc_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
 
+static const device_t hdc_internal_device = {
+    .name = "Internal",
+    .internal_name = "internal",
+    .flags = 0,
+    .local = 0,
+    .init = inthdc_init,
+    .close = inthdc_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
+};
 
 static const struct {
-    const char		*internal_name;
     const device_t	*device;
 } controllers[] = {
-    { "none",			&null_device			},
-    { "internal",		&inthdc_device			},
-    { "st506_xt",		&st506_xt_xebec_device		},
-    { "st506_xt_dtc5150x",	&st506_xt_dtc5150x_device	},
-    { "st506_xt_st11_m",	&st506_xt_st11_m_device		},
-    { "st506_xt_wd1002a_wx1",	&st506_xt_wd1002a_wx1_device	},
-    { "st506_at",		&st506_at_wd1003_device		},
-    { "st506_xt_st11_r",	&st506_xt_st11_r_device		},
-    { "st506_xt_wd1002a_27x",	&st506_xt_wd1002a_27x_device	},
-    { "esdi_at",		&esdi_at_wd1007vse1_device	},
-    { "ide_isa",		&ide_isa_device			},
-    { "ide_isa_2ch",		&ide_isa_2ch_device		},
-    { "xtide_at",		&xtide_at_device		},
-    { "xtide_at_386",		&xtide_at_386_device		},
-    { "xtide_at_ps2",		&xtide_at_ps2_device		},
-    { "xta_wdxt150",		&xta_wdxt150_device		},
-    { "xtide_acculogic",	&xtide_acculogic_device		},
-    { "xtide",			&xtide_device			},
-    { "esdi_mca",		&esdi_ps2_device		},
-    { "ide_pci",		&ide_pci_device			},
-    { "ide_pci_2ch",		&ide_pci_2ch_device		},
-    { "ide_vlb",		&ide_vlb_device			},
-    { "ide_vlb_2ch",		&ide_vlb_2ch_device		},
-    { "",			NULL				}
+// clang-format off
+    { &hdc_none_device             },
+    { &hdc_internal_device         },
+    { &st506_xt_xebec_device       },
+    { &st506_xt_dtc5150x_device    },
+    { &st506_xt_st11_m_device      },
+    { &st506_xt_wd1002a_wx1_device },
+    { &st506_xt_wd1004a_wx1_device },
+    { &st506_at_wd1003_device      },
+    { &st506_xt_st11_r_device      },
+    { &st506_xt_wd1002a_27x_device },
+    { &st506_xt_wd1004_27x_device  },
+    { &st506_xt_wd1004a_27x_device },
+    { &esdi_at_wd1007vse1_device   },
+    { &ide_isa_device              },
+    { &ide_isa_2ch_device          },
+    { &xtide_at_device             },
+    { &xtide_at_386_device         },
+    { &xtide_at_ps2_device         },
+    { &xta_wdxt150_device          },
+    { &xtide_acculogic_device      },
+    { &xtide_device                },
+    { &esdi_ps2_device             },
+    { &ide_pci_device              },
+    { &ide_pci_2ch_device          },
+    { &ide_vlb_device              },
+    { &ide_vlb_2ch_device          },
+    { NULL                         }
+// clang-format on
 };
-
 
 /* Initialize the 'hdc_current' value based on configured HDC name. */
 void
@@ -157,23 +169,22 @@ hdc_reset(void)
 char *
 hdc_get_internal_name(int hdc)
 {
-    return((char *) controllers[hdc].internal_name);
+    return device_get_internal_name(controllers[hdc].device);
 }
 
 
 int
 hdc_get_from_internal_name(char *s)
 {
-	int c = 0;
-	
-	while (strlen((char *) controllers[c].internal_name))
-	{
-		if (!strcmp((char *) controllers[c].internal_name, s))
-			return c;
-		c++;
-	}
-	
-	return 0;
+    int c = 0;
+
+    while (controllers[c].device != NULL) {
+	if (!strcmp((char *) controllers[c].device->internal_name, s))
+		return c;
+	c++;
+    }
+
+    return 0;
 }
 
 
@@ -191,7 +202,7 @@ hdc_has_config(int hdc)
 
     if (dev == NULL) return(0);
 
-    if (dev->config == NULL) return(0);
+    if (!device_has_config(dev)) return(0);
 
     return(1);
 }

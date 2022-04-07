@@ -17,6 +17,8 @@
  *		Copyright 2016-2020 Miran Grca.
  */
 
+#ifndef VIDEO_SVGA_H
+# define VIDEO_SVGA_H
 
 #define FLAG_EXTRA_BANKS	1
 #define	FLAG_ADDR_BY8		2
@@ -25,7 +27,7 @@
 #define FLAG_NOSKEW		16
 #define FLAG_ADDR_BY16		32
 #define FLAG_RAMDAC_SHIFT	64
-
+#define FLAG_128K_MASK		128
 
 typedef struct {
     int ena,
@@ -50,7 +52,8 @@ typedef struct svga_t
 	    lowres, interlace, linedbl, rowcount,
 	    set_reset_disabled, bpp, ramdac_type, fb_only,
 	    readmode, writemode, readplane,
-	    hwcursor_oddeven, dac_hwcursor_oddeven, overlay_oddeven;
+	    hwcursor_oddeven, dac_hwcursor_oddeven, overlay_oddeven,
+	    fcr, hblank_overscan;
 
     int dac_addr, dac_pos, dac_r, dac_g,
 	vtotal, dispend, vsyncstart, split, vblankstart,
@@ -60,8 +63,9 @@ typedef struct svga_t
 	con, cursoron, blink, scrollcache, char_width,
 	firstline, lastline, firstline_draw, lastline_draw,
 	displine, fullchange, x_add, y_add, pan,
-	vram_display_mask, vidclock,
-	hwcursor_on, dac_hwcursor_on, overlay_on, set_override;
+	vram_display_mask, vidclock, dots_per_clock, hblank_ext,
+	hwcursor_on, dac_hwcursor_on, overlay_on, set_override,
+	hblankstart, hblankend, hblank_sub, hblank_end_val, hblank_end_len;
 
     /*The three variables below allow us to implement memory maps like that seen on a 1MB Trio64 :
       0MB-1MB - VRAM
@@ -116,7 +120,7 @@ typedef struct svga_t
     /* Called when VC=R18 and friends. If this returns zero then MA resetting
        is skipped. Matrox Mystique in Power mode reuses this counter for
        vertical line interrupt*/
-    int (*line_compare)(struct svga_t *svga);    
+    int (*line_compare)(struct svga_t *svga);
 
     /*Called at the start of vertical sync*/
     void (*vsync_callback)(struct svga_t *svga);
@@ -144,7 +148,7 @@ typedef struct svga_t
     uint16_t ksc5601_english_font_type;
 
     int vertical_linedbl;
-        
+
     /*Used to implement CRTC[0x17] bit 2 hsync divisor*/
     int hsync_divisor;
 
@@ -154,7 +158,8 @@ typedef struct svga_t
 
 	/*Force CRTC to dword mode, regardless of CR14/CR17. Required for S3 enhanced mode*/
 	int force_dword_mode;
-	int force_byte_mode;
+	
+	int force_old_addr;
 
 	int remap_required;
 	uint32_t (*remap_func)(struct svga_t *svga, uint32_t in_addr);
@@ -163,7 +168,7 @@ typedef struct svga_t
 } svga_t;
 
 
-extern int	svga_init(const device_t *info, svga_t *svga, void *p, int memsize, 
+extern int	svga_init(const device_t *info, svga_t *svga, void *p, int memsize,
 			  void (*recalctimings_ex)(struct svga_t *svga),
 			  uint8_t (*video_in) (uint16_t addr, void *p),
 			  void    (*video_out)(uint16_t addr, uint8_t val, void *p),
@@ -224,6 +229,8 @@ extern void	ati68860_hwcursor_draw(svga_t *svga, int displine);
 extern void	att49x_ramdac_out(uint16_t addr, int rs2, uint8_t val, void *p, svga_t *svga);
 extern uint8_t	att49x_ramdac_in(uint16_t addr, int rs2, void *p, svga_t *svga);
 
+extern void	att498_ramdac_out(uint16_t addr, int rs2, uint8_t val, void *p, svga_t *svga);
+extern uint8_t	att498_ramdac_in(uint16_t addr, int rs2, void *p, svga_t *svga);
 extern float	av9194_getclock(int clock, void *p);
 
 extern void	bt48x_ramdac_out(uint16_t addr, int rs2, int rs3, uint8_t val, void *p, svga_t *svga);
@@ -270,12 +277,14 @@ extern void tvp3026_ramdac_out(uint16_t addr, int rs2, int rs3, uint8_t val, voi
 extern uint8_t tvp3026_ramdac_in(uint16_t addr, int rs2, int rs3, void *p, svga_t *svga);
 extern void	tvp3026_recalctimings(void *p, svga_t *svga);
 extern void	tvp3026_hwcursor_draw(svga_t *svga, int displine);
+extern float	tvp3026_getclock(int clock, void *p);
 
 #ifdef EMU_DEVICE_H
 extern const device_t ati68860_ramdac_device;
 extern const device_t att490_ramdac_device;
 extern const device_t att491_ramdac_device;
 extern const device_t att492_ramdac_device;
+extern const device_t att498_ramdac_device;
 extern const device_t av9194_device;
 extern const device_t bt484_ramdac_device;
 extern const device_t att20c504_ramdac_device;
@@ -290,7 +299,7 @@ extern const device_t icd2061_device;
 extern const device_t ics9161_device;
 extern const device_t sc11483_ramdac_device;
 extern const device_t sc11487_ramdac_device;
-extern const device_t sc11484_ramdac_device;
+extern const device_t sc11486_ramdac_device;
 extern const device_t sc11484_nors2_ramdac_device;
 extern const device_t sc1502x_ramdac_device;
 extern const device_t sdac_ramdac_device;
@@ -300,3 +309,5 @@ extern const device_t tseng_ics5301_ramdac_device;
 extern const device_t tseng_ics5341_ramdac_device;
 extern const device_t tvp3026_ramdac_device;
 #endif
+
+#endif	/*VIDEO_SVGA_H*/

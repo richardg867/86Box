@@ -14,9 +14,9 @@
  *
  *		Copyright 2020 RichardG.
  */
+
 #ifndef EMU_SPD_H
 # define EMU_SPD_H
-
 
 #define SPD_BASE_ADDR		0x50
 #define SPD_MAX_SLOTS		8
@@ -106,6 +106,8 @@ typedef struct {
 
 extern void spd_register(uint8_t ram_type, uint8_t slot_mask, uint16_t max_module_size);
 extern void spd_write_drbs(uint8_t *regs, uint8_t reg_min, uint8_t reg_max, uint8_t drb_unit);
-
+extern void spd_write_drbs_with_ext(uint8_t *regs, uint8_t reg_min, uint8_t reg_max, uint8_t drb_unit);
+extern void spd_write_drbs_interleaved(uint8_t *regs, uint8_t reg_min, uint8_t reg_max, uint8_t drb_unit);
+extern void spd_write_drbs_ali1621(uint8_t *regs, uint8_t reg_min, uint8_t reg_max);
 
 #endif	/*EMU_SPD_H*/

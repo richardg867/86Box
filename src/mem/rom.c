@@ -69,11 +69,19 @@ rom_fopen(char *fn, char *mode)
 	fn2 = (char *) malloc(strlen(fn) + 1);
 	memcpy(fn2, fn, strlen(fn) + 1);
 
-	if (rom_path[0] != '\0') {
+    if (rom_paths.next) {
+        rom_path_t* cur_rom_path = &rom_paths;
 		memset(fn2, 0x00, strlen(fn) + 1);
-		memcpy(fn2, &(fn[5]), strlen(fn) - 4);		
+		memcpy(fn2, &(fn[5]), strlen(fn) - 4);
 
-		plat_append_filename(temp, rom_path, fn2);
+        while (cur_rom_path->next) {
+            memset(temp, 0, sizeof(temp));
+            plat_append_filename(temp, cur_rom_path->rom_path, fn2);
+            if (rom_present(temp)) {
+                break;
+            }
+            cur_rom_path = cur_rom_path->next;
+        }
 	} else {
 		/* Make sure to make it a backslash, just in case there's malformed
 		   code calling us that assumes Windows. */
@@ -97,17 +105,54 @@ rom_fopen(char *fn, char *mode)
 int
 rom_getfile(char *fn, char *s, int size)
 {
-    FILE *f;
+    char temp[1024] = {'\0'};
+    char *fn2;
+    int retval = 0;
 
-    plat_append_filename(s, exe_path, fn);
+    if ((strstr(fn, "roms/") == fn) || (strstr(fn, "roms\\") == fn)) {
+    /* Relative path */
+    fn2 = (char *) malloc(strlen(fn) + 1);
+    memcpy(fn2, fn, strlen(fn) + 1);
 
-    f = plat_fopen(s, "rb");
-    if (f != NULL) {
-	(void)fclose(f);
-	return(1);
+    if (rom_paths.next) {
+        rom_path_t* cur_rom_path = &rom_paths;
+        memset(fn2, 0x00, strlen(fn) + 1);
+        memcpy(fn2, &(fn[5]), strlen(fn) - 4);
+
+        while (cur_rom_path->next) {
+            memset(temp, 0, sizeof(temp));
+            plat_append_filename(temp, cur_rom_path->rom_path, fn2);
+            if (rom_present(temp)) {
+                strncpy(s, temp, size);
+                retval = 1;
+                break;
+            }
+            cur_rom_path = cur_rom_path->next;
+        }
+    } else {
+        /* Make sure to make it a backslash, just in case there's malformed
+           code calling us that assumes Windows. */
+        if (fn2[4] == '\\')
+            fn2[4] = '/';
+
+        plat_append_filename(temp, exe_path, fn2);
+        if (rom_present(temp)) {
+            strncpy(s, temp, size);
+            retval = 1;
+        }
     }
 
-    return(0);
+    free(fn2);
+    fn2 = NULL;
+    } else {
+        /* Absolute path */
+        if (rom_present(fn)) {
+            strncpy(s, fn, size);
+            retval = 1;
+        }
+    }
+
+    return(retval);
 }
 
 
@@ -185,7 +230,7 @@ rom_load_linear_oddeven(char *fn, uint32_t addr, int sz, int off, uint8_t *ptr)
 {
     FILE *f = rom_fopen(fn, "rb");
     int i;
-        
+
     if (f == NULL) {
 	rom_log("ROM: image '%s' not found\n", fn);
 	return(0);
@@ -221,7 +266,7 @@ int
 rom_load_linear(char *fn, uint32_t addr, int sz, int off, uint8_t *ptr)
 {
     FILE *f = rom_fopen(fn, "rb");
-        
+
     if (f == NULL) {
 	rom_log("ROM: image '%s' not found\n", fn);
 	return(0);
@@ -251,7 +296,7 @@ int
 rom_load_linear_inverted(char *fn, uint32_t addr, int sz, int off, uint8_t *ptr)
 {
     FILE *f = rom_fopen(fn, "rb");
-        
+
     if (f == NULL) {
 	rom_log("ROM: image '%s' not found\n", fn);
 	return(0);
@@ -417,10 +462,12 @@ static void
 bios_add(void)
 {
     int temp_cpu_type, temp_cpu_16bitbus = 1;
+    int temp_is286 = 0;
 
-    if (AT && cpu_s) {
+    if (/*AT && */cpu_s) {
 	temp_cpu_type = cpu_s->cpu_type;
 	temp_cpu_16bitbus = (temp_cpu_type == CPU_286 || temp_cpu_type == CPU_386SX || temp_cpu_type == CPU_486SLC || temp_cpu_type == CPU_IBM386SLC || temp_cpu_type == CPU_IBM486SLC );
+	temp_is286 = (temp_cpu_type >= CPU_286);
     }
 
     if (biosmask > 0x1ffff) {
@@ -442,7 +489,7 @@ bios_add(void)
 			       MEM_READ_ROMCS | MEM_WRITE_ROMCS);
     }
 
-    if (AT) {
+    if (temp_is286) {
 	mem_mapping_add(&bios_high_mapping, biosaddr | (temp_cpu_16bitbus ? 0x00f00000 : 0xfff00000), biosmask + 1,
 			bios_read,bios_readw,bios_readl,
 			NULL,NULL,NULL,

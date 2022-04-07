@@ -625,7 +625,7 @@ void pc_cas_advance (pc_cassette_t *cas)
     if (cas->motor == 0)
 	return;
 
-    if (cassette_cycles == -1) 
+    if (cassette_cycles == -1)
 	cassette_cycles = cycles;
     if (cycles <= cassette_cycles)
 	ticks = (cassette_cycles - cycles);
@@ -714,10 +714,15 @@ cassette_init(const device_t *info)
 
 
 const device_t cassette_device = {
-    "IBM PC/PCjr Cassette Device",
-    0,
-    0,
-    cassette_init, cassette_close, NULL,
-    { NULL }, NULL, NULL,
-    NULL
+    .name = "IBM PC/PCjr Cassette Device",
+    .internal_name = "cassette",
+    .flags = 0,
+    .local = 0,
+    .init = cassette_init,
+    .close = cassette_close,
+    .reset = NULL,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };

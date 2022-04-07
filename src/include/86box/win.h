@@ -17,7 +17,9 @@
  *		Copyright 2008-2019 Sarah Walker.
  *		Copyright 2016-2019 Miran Grca.
  *		Copyright 2017-2019 Fred N. van Kempen.
+ *		Copyright 2021 Laci bá'
  */
+
 #ifndef PLAT_WIN_H
 # define PLAT_WIN_H
 
@@ -65,9 +67,7 @@ DECLARE_HANDLE(DPI_AWARENESS_CONTEXT);
 #define ZIP_SUBMENU_NAME	L"ZIPSubmenu"
 #define MO_SUBMENU_NAME		L"MOSubmenu"
 
-#if defined(DEV_BRANCH) && defined(USE_OPENGL)
 #define VID_GL_SUBMENU		L"VidGLSubMenu"
-#endif
 
 /* Application-specific window messages.
 
@@ -105,10 +105,10 @@ extern HINSTANCE	hinstance;
 extern HWND		hwndMain,
 			hwndRender;
 extern HANDLE		ghMutex;
-extern LCID		lang_id;
 extern HICON		hIcon[256];
+extern int		dpi;
 extern RECT		oldclip;
-extern int		sbar_height, user_resize;
+extern int		sbar_height, tbar_height, user_resize;
 extern int		acp_utf8;
 
 // extern int		status_is_open;
@@ -122,14 +122,13 @@ extern uint8_t		filterindex;
 extern void	ResizeWindowByClientArea(HWND hwnd, int width, int height);
 extern void	InitCrashDump(void);
 
-extern HICON	LoadIconEx(PCTSTR pszIconName);
-
 /* Emulator start/stop support functions. */
 extern void	do_start(void);
 extern void	do_stop(void);
 
 /* Internal platform support functions. */
-extern void	set_language(int id);
+extern int	has_language_changed(uint32_t id);
+extern void	set_language(uint32_t id);
 extern int	get_vidpause(void);
 extern void	show_cursor(int);
 
@@ -148,6 +147,11 @@ extern int      win_get_dpi(HWND hwnd);
 extern int      win_get_system_metrics(int i, int dpi);
 
 extern LPARAM	win_get_string(int id);
+
+extern void     win_clear_icon_set();
+extern void     win_system_icon_set();
+extern void     win_load_icon_set();
+extern void     win_get_icons_path(char* path_root);
 
 extern intptr_t	fdd_type_to_icon(int type);
 
@@ -183,6 +187,9 @@ extern void	NewFloppyDialogCreate(HWND hwnd, int id, int part);
 /* Functions in win_specify_dim.c: */
 extern void	SpecifyDimensionsDialogCreate(HWND hwnd);
 
+/* Functions in win_preferences.c: */
+extern void	PreferencesDlgCreate(HWND hwnd);
+
 
 /* Functions in win_settings.c: */
 #define SETTINGS_PAGE_MACHINE			0
@@ -205,6 +212,13 @@ extern void	win_settings_open_ex(HWND hwnd, int category);
 extern HWND	hwndSBAR;
 extern void	StatusBarCreate(HWND hwndParent, uintptr_t idStatus, HINSTANCE hInst);
 extern int	MediaMenuHandler(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+
+
+/* Functions in win_toolbar.c */
+extern HWND	hwndRebar;
+extern void	ToolBarCreate(HWND hwndParent, HINSTANCE hInst);
+extern void	ToolBarLoadIcons();
+extern void	ToolBarUpdatePause(int paused);
 
 
 /* Functions in win_dialog.c: */
@@ -235,10 +249,12 @@ extern void	media_menu_update_cdrom(int id);
 extern void	media_menu_update_zip(int id);
 extern void	media_menu_update_mo(int id);
 
+/* Functions in win_ui.c */
+extern HMENU	menuMain;
+extern void	ResetAllMenus();
 
 #ifdef __cplusplus
 }
 #endif
-
 
 #endif	/*PLAT_WIN_H*/

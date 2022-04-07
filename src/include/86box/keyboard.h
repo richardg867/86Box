@@ -18,6 +18,7 @@
  *		Copyright 2016-2019 Miran Grca.
  *		Copyright 2017-2019 Fred N. van Kempen.
  */
+
 #ifndef EMU_KEYBOARD_H
 # define EMU_KEYBOARD_H
 
@@ -72,14 +73,12 @@ extern const device_t	keyboard_xt_olivetti_device;
 extern const device_t	keyboard_xt_zenith_device;
 extern const device_t	keyboard_at_device;
 extern const device_t	keyboard_at_ami_device;
-extern const device_t	keyboard_at_samsung_device;
 extern const device_t	keyboard_at_toshiba_device;
 extern const device_t	keyboard_at_olivetti_device;
 extern const device_t	keyboard_at_ncr_device;
 extern const device_t	keyboard_ps2_device;
 extern const device_t	keyboard_ps2_ps1_device;
 extern const device_t	keyboard_ps2_ps1_pci_device;
-extern const device_t	keyboard_ps2_ps2_device;
 extern const device_t	keyboard_ps2_xi8088_device;
 extern const device_t	keyboard_ps2_ami_device;
 extern const device_t	keyboard_ps2_olivetti_device;
@@ -108,12 +107,15 @@ extern int	keyboard_isfsexit(void);
 extern int	keyboard_ismsexit(void);
 extern void	keyboard_set_is_amstrad(int ams);
 
-extern void	keyboard_at_adddata_keyboard_raw(uint8_t val);
 extern void	keyboard_at_adddata_mouse(uint8_t val);
+extern void	keyboard_at_adddata_mouse_direct(uint8_t val);
+extern void	keyboard_at_adddata_mouse_cmd(uint8_t val);
 extern void	keyboard_at_mouse_reset(void);
 extern uint8_t	keyboard_at_mouse_pos(void);
+extern int	keyboard_at_fixed_channel(void);
 extern void	keyboard_at_set_mouse(void (*mouse_write)(uint8_t val,void *), void *);
 extern void	keyboard_at_set_a20_key(int state);
+extern void	keyboard_at_set_mode(int ps2);
 extern uint8_t	keyboard_at_get_mouse_scan(void);
 extern void	keyboard_at_set_mouse_scan(uint8_t val);
 extern void	keyboard_at_reset(void);

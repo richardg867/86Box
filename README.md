@@ -1,4 +1,4 @@
-86Box
+86Box [![Build Status](http://ci.86box.net/job/86Box/badge/icon)](http://ci.86box.net/job/86Box)
 =====
 **86Box** is a low level x86 emulator that runs older operating systems and software designed for IBM PC systems and compatibles from 1981 through fairly recent system designs based on the PCI bus.
 
@@ -15,28 +15,20 @@ Features
 System requirements and recommendations
 ---------------------------------------
 * Intel Core 2 or AMD Athlon 64 processor
-* Windows 7 Service Pack 1, Windows 8.1 or Windows 10
+* Windows version: Windows 7 Service Pack 1, Windows 8.1 or Windows 10
+* Linux version: Ubuntu 16.04, Debian 9.0 or other distributions from 2016 onwards
 * 4 GB of RAM
 
 Performance may vary depending on both host and guest configuration. Most emulation logic is executed in a single thread, therefore generally systems with better IPC (instructions per clock) should be able to emulate higher clock speeds.
 
-It is also recommended to use the [86Box Manager](https://github.com/86Box/86BoxManager) by [daviunic](https://github.com/daviunic) (Overdoze) to manage virtual machines. However, it is also possible to use 86Box on its own with the `--vmpath`/`-P` command line option.
+It is also recommended to use a manager application (**Windows only**) with 86Box for easier handling of multiple virtual machines.
+* [WinBox for 86Box](https://github.com/86Box/WinBox-for-86Box) by Laci bá'
+  * The new manager with improved new user experience; installer, automatic updates of emulator files and more.
+  * While development is suspended and the repository is archived, the latest version is fully functional.
+* [86Box Manager](https://github.com/86Box/86BoxManager) by [daviunic](https://github.com/daviunic) (Overdoze)
+  * The traditional 86Box manager with simple interface.
 
-Downloads
----------
-The latest stable version of 86Box is version 2.07, which was released on November 20, 2019, and is available from our [GitHub repository](https://github.com/86Box/86Box/releases/tag/v2.07).
-
-### Automatic builds
-We also offer automatic builds, which are built from the latest source code and contain the latest bugfixes and improvements, but may not be as stable and/or optimized as stable builds.
-
-| Regular | Debug | Experimental |
-|:-------:|:-----:|:------------:|
-|[![Build Status](http://ci.86box.net/job/86Box/badge/icon)](http://ci.86box.net/job/86Box)|[![Build Status](http://ci.86box.net/job/86Box-Debug/badge/icon)](http://ci.86box.net/job/86Box-Debug)|[![Build Status](http://ci.86box.net/job/86Box-Dev/badge/icon)](http://ci.86box.net/job/86Box-Dev)
-
-#### Legend
-* **Regular** builds are compiled using the settings in the building guide above. Use these if you don't know which build to use.
-* **Debug** builds are same as regular builds but include debug symbols. If you don't need them, you don't need to use this build.
-* **Experimental (Dev)** builds are compiled with certain unfinished features enabled. These builds are not optimized for maximum performance.
+However, it is also possible to use 86Box on its own with the `--vmpath`/`-P` command line option.
 
 Getting started
 ---------------
@@ -52,7 +44,7 @@ We operate an IRC channel and a Discord server for discussing 86Box, its develop
 
 Licensing
 ---------
-86Box is released under the [GNU General Public License, version 2](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html) only. For more information, see the `COPYING` file in the root of the repository.
+86Box is released under the [GNU General Public License, version 2](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html) or later. For more information, see the `COPYING` file in the root of the repository.
 
 The emulator can also optionally make use of [munt](https://github.com/munt/munt), [FluidSynth](https://www.fluidsynth.org/), [Ghostscript](https://www.ghostscript.com/) and [Discord Game SDK](https://discord.com/developers/docs/game-sdk/sdk-starter-guide), which are distributed under their respective licenses.
 

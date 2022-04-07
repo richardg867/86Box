@@ -146,6 +146,9 @@ ohci_mmio_read(uint32_t addr, void *p)
 
     ret = dev->ohci_mmio[addr];
 
+    if (addr == 0x101)
+	ret = (ret & 0xfe) | (!!mem_a20_key);
+
     return ret;
 }
 
@@ -406,17 +409,16 @@ usb_init(const device_t *info)
     return dev;
 }
 
-
-const device_t usb_device =
-{
-    "Universal Serial Bus",
-    DEVICE_PCI,
-    0,
-    usb_init, 
-    usb_close, 
-    usb_reset,
-    { NULL },
-    NULL,
-    NULL,
-    NULL
+const device_t usb_device = {
+    .name = "Universal Serial Bus",
+    .internal_name = "usb",
+    .flags = DEVICE_PCI,
+    .local = 0,
+    .init = usb_init,
+    .close = usb_close,
+    .reset = usb_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw = NULL,
+    .config = NULL
 };
