@@ -410,11 +410,13 @@ cli_render_write_title(wchar_t *s)
 void
 cli_render_monitorenter()
 {
-    thread_wait_event(render_data.render_complete, -1);
-    thread_reset_event(render_data.render_complete);
+    if (render_data.block != 2) {
+        thread_wait_event(render_data.render_complete, -1);
+        thread_reset_event(render_data.render_complete);
 
-    /* Block any further rendering. */
-    render_data.block = 1;
+        /* Block any further rendering. */
+        render_data.block = 1;
+    }
 
     /* Set up terminal:
        - Reset formatting
@@ -426,8 +428,10 @@ cli_render_monitorenter()
     cursor_x = cursor_y = -1;
     fprintf(CLI_RENDER_OUTPUT, "\033[0m\033[1;1H\033[2J\033[3J\033[%d q\033[?25h\033[?1049l", cli_term.decrqss_cursor);
 
-    thread_set_event(render_data.wake_render_thread);
-    thread_wait_event(render_data.render_complete, -1); /* avoid race conditions */
+    if (render_data.block != 2) {
+        thread_set_event(render_data.wake_render_thread);
+        thread_wait_event(render_data.render_complete, -1); /* avoid race conditions */
+    }
 }
 
 void
@@ -1517,6 +1521,10 @@ cli_render_close()
     /* Wait for the rendering thread to finish. */
     thread_wait_event(render_data.render_complete, -1);
     thread_set_event(render_data.render_complete); /* to avoid deadlocks just in case */
+
+    /* Restore terminal state. */
+    render_data.block = 2;
+    cli_render_monitorenter();
 
     /* Clean up. There shouldn't be any race conditions with
        the blit thread, as this is called after video_close. */
