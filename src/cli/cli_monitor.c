@@ -56,6 +56,7 @@ static const struct {
     const char *name;
     uint16_t    code;
 } named_seqs[] = {
+// clang-format off
     {"tab",        0x000f },
     { "enter",           0x001c },
     { "ret",0x001c },
@@ -121,6 +122,7 @@ static const struct {
     { "scrolllk",           0x0046 },
     { "scrolllock",  0x0046 },
     { 0   }
+// clang-format on
 };
 #endif
 
@@ -132,12 +134,16 @@ static event_t *screenshot_event;
 static char *(*readline)(const char *)          = NULL;
 static int (*add_history)(const char *)         = NULL;
 static void (*rl_callback_handler_remove)(void) = NULL;
+static FILE **rl_outstream;
 
 static dllimp_t libedit_imports[] = {
-    {"readline",                    &readline                  },
-    { "add_history",                &add_history               },
-    { "rl_callback_handler_remove", &rl_callback_handler_remove},
-    { NULL,                         NULL                       }
+// clang-format off
+    { "readline",                   &readline                   },
+    { "add_history",                &add_history                },
+    { "rl_callback_handler_remove", &rl_callback_handler_remove },
+    { "rl_outstream",               &rl_outstream               },
+    { NULL,                         NULL                        }
+// clang-format on
 };
 static void *libedit_handle = NULL;
 #endif
@@ -989,7 +995,6 @@ cli_monitor_init(uint8_t independent)
     if (!libedit_handle)
         libedit_handle = dynld_module(PATH_LIBEDIT_DLL_ALT, libedit_imports);
     if (libedit_handle && readline) {
-        FILE **rl_outstream = dlsym(libedit_handle, "rl_outstream");
         if (rl_outstream)
             *rl_outstream = CLI_RENDER_OUTPUT;
     } else {
