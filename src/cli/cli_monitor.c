@@ -342,19 +342,19 @@ separator: /* Search lookup table. */
                 fprintf(CLI_RENDER_OUTPUT, "Unknown key: %c\n", sch);
                 return;
             }
-        } else if (!strcasecmp(p, "ctrl") || !strcasecmp(p, "control")) { /* modifiers */
+        } else if (!stricmp(p, "ctrl") || !stricmp(p, "control")) { /* modifiers */
             modifier |= VT_CTRL;
-        } else if (!strcasecmp(p, "shift")) {
+        } else if (!stricmp(p, "shift")) {
             modifier |= VT_SHIFT;
-        } else if (!strcasecmp(p, "alt")) {
+        } else if (!stricmp(p, "alt")) {
             modifier |= VT_ALT;
-        } else if (!strcasecmp(p, "win") || !strcasecmp(p, "windows") || !strcasecmp(p, "meta")) {
+        } else if (!stricmp(p, "win") || !stricmp(p, "windows") || !stricmp(p, "meta")) {
             modifier |= VT_META;
         } else { /* other */
             /* Search named sequences. */
             for (j = 0; named_seqs[j].name; j++) {
                 /* Move on if this sequence doesn't match. */
-                if (strcasecmp(p, named_seqs[j].name))
+                if (stricmp(p, named_seqs[j].name))
                     continue;
 
                 /* Set keycode and stop search. */
@@ -652,7 +652,7 @@ static const struct {
     },
 
     { .name     = "help",
-     .helptext = "List all commands, or show usage for <command>.",
+     .helptext = "List all commands, or show detailed usage for <command>.",
      .args     = (const char *[]) { "command" },
      .args_max = 1,
      .category = MONITOR_CATEGORY_HIDDEN,
@@ -731,15 +731,61 @@ cli_monitor_usage(int cmd)
     cli_monitor_helptext(cmd, 0);
 }
 
+static int
+cli_monitor_getcmd(const char *name) {
+    /* Go through the command list. */
+    size_t cmd_len = strlen(name), cmd_count = 0;
+    int cmd, first_cmd = -1;
+    for (cmd = 0; commands[cmd].name; cmd++) {
+        /* Check if the command name matches. */
+        if (!strnicmp(name, commands[cmd].name, cmd_len)) {
+            /* Store the first found command. */
+            if (first_cmd < 0)
+                first_cmd = cmd;
+
+            /* Stop if more than one matching command was found. */
+            if (cmd_count++ >= 1)
+                break;
+        }
+    }
+
+    /* Handle ambiguous commands. */
+    if (cmd_count > 1) {
+        /* Output list of ambiguous commands. */
+        fprintf(CLI_RENDER_OUTPUT, "Ambiguous command: ");
+        for (cmd = 0; commands[cmd].name; cmd++) {
+            if (!strnicmp(name, commands[cmd].name, cmd_len)) {
+                if (cmd_count) {
+                    cmd_count = 0;
+                    fputs(commands[cmd].name, CLI_RENDER_OUTPUT);
+                } else {
+                    fprintf(CLI_RENDER_OUTPUT, ", %s", commands[cmd].name);
+                }
+            }
+        }
+        fputc('\n', CLI_RENDER_OUTPUT);
+
+        /* Inform callers that this was an ambiguous command. */
+        return -1;
+    } else if (first_cmd > -1) {
+        /* Take the first/only found command. */
+        return first_cmd;
+    } else {
+        /* Take the final dummy command. */
+        return cmd;
+    }
+}
+
 static void
 cli_monitor_help(int argc, char **argv, const void *priv)
 {
     /* Print help for a specific command if one was provided. */
     int cmd;
     if (argv[1] && argv[1][0]) {
-        for (cmd = 0; commands[cmd].name; cmd++) {
-            if (strcasecmp(commands[cmd].name, argv[1]))
-                continue;
+        cmd = cli_monitor_getcmd(argv[1]);
+        if (cmd < 0) {
+            return;
+        } else if (commands[cmd].name) {
             cli_monitor_usage(cmd);
             return;
         }
@@ -770,6 +816,7 @@ cli_monitor_help(int argc, char **argv, const void *priv)
 void
 cli_monitor_thread(void *priv)
 {
+    /* The monitor should only be available if both stdin and output are not redirected. */
     if (!isatty(fileno(stdin)) || !isatty(fileno(CLI_RENDER_OUTPUT)))
         return;
 
@@ -857,15 +904,12 @@ cli_monitor_thread(void *priv)
 
                 /* Identify command now to disable quote mode for commands which request that. */
                 if (argc == 1) {
-identify_cmd: /* Go through the command list. */
-                    for (cmd = 0;; cmd++) {
-                        /* Move on if this is not the command we're looking for. */
-                        if (commands[cmd].name && strcasecmp(argv[0], commands[cmd].name))
-                            continue;
-
-                        /* A matching command was found or the end was reached. */
-                        break;
-                    }
+identify_cmd:
+                    /* Find one or more matching commands, and bypass
+                       handling if this is an ambiguous command. */
+                    cmd = cli_monitor_getcmd(argv[0]);
+                    if (cmd < 0)
+                        goto have_cmd;
 
                     /* Return to main flow if this is the second check further down. */
                     if (!ch)
@@ -933,7 +977,7 @@ have_cmd:
 void
 cli_monitor_init(uint8_t independent)
 {
-    /* The monitor should only be available if both stdin and stdout are not redirected. */
+    /* The monitor should only be available if both stdin and output are not redirected. */
     if (!isatty(fileno(stdin)) || !isatty(fileno(CLI_RENDER_OUTPUT)))
         return;
 
