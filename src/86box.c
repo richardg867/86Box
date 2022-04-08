@@ -1246,7 +1246,7 @@ pc_run(void)
 		ui_window_title(temp);
 #endif
 #ifdef USE_CLI
-		swprintf_s(temp, sizeof_w(temp), L"%hs - %i%% - %s %s", vm_name, fps, EMU_NAME_W, EMU_VERSION_FULL_W);
+		swprintf(temp, sizeof_w(temp), L"%hs - %i%% - %ls %ls", vm_name, fps, EMU_NAME_W, EMU_VERSION_FULL_W);
 		cli_render_write_title(temp);
 #endif
 		title_update = 0;
