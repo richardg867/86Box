@@ -121,8 +121,8 @@ static const char *cp437[] = {
    character is the DEC charset ID, and the second character is the character itself.
    Charset B is assumed to be ISO 8859-1 (98% identical to DEC MCS), not plain ASCII. */
 static const char *cp437_fallback[] = {
-    /* 00 */ "B ", "Bo", "Bo", "Bo", "0`", "B^", "B^", "B.", "Bo", "Bo", "Bo", "BM", "BF", "B8", "B8", "Bo",
-    /* 10 */ "B>", "B<", "B|", "B!", "BP", "BS", "B-", "B|", ">|", ">~", ">}", ">{", "BL", "0`", ">D", ">E",
+    /* 00 */ "B ", "Bo", "Bo", "Bo", "0`", "B^", "B^", "0~", "0~", "0f", "0f", "BM", "BF", "B8", "B8", "Bo",
+    /* 10 */ "B>", "B<", ">|", "B!", "B\xB6", "B\xA7", "B-", ">|", ">|", ">~", ">}", ">{", "BL", ">M", ">D", ">E",
     /* 20 */ "B ", "B!", "B\"", "B#", "B$", "B%", "B&", "B'", "B(", "B)", "B*", "B+", "B,", "B-", "B.", "B/",
     /* 30 */ "B0", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B:", "B;", "B<", "B=", "B>", "B?",
     /* 40 */ "B@", "BA", "BB", "BC", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BK", "BL", "BM", "BN", "BO",
@@ -130,13 +130,13 @@ static const char *cp437_fallback[] = {
     /* 60 */ "B`", "Ba", "Bb", "Bc", "Bd", "Be", "Bf", "Bg", "Bh", "Bi", "Bj", "Bk", "Bl", "Bm", "Bn", "Bo",
     /* 70 */ "Bp", "Bq", "Br", "Bs", "Bt", "Bu", "Bv", "Bw", "Bx", "By", "Bz", "B{", "B|", "B}", "B~", ">D",
     /* 80 */ "B\xC7", "B\xFC", "B\xE9", "B\xE2", "B\xE4", "B\xE0", "B\xE5", "B\xE7", "B\xEA", "B\xEB", "B\xE8", "B\xEF", "B\xEE", "B\xEC", "B\xC4", "B\xC5",
-    /* 90 */ "B\xC9", "B\xE6", "B\xC6", "B\xF4", "B\xF6", "B\xF2", "B\xFB", "B\xF9", "B\xFF", "B\xD6", "B\xDC", "B\xA2", "0\xA3", "B\xA5", "BP", ">v",
+    /* 90 */ "B\xC9", "B\xE6", "B\xC6", "B\xF4", "B\xF6", "B\xF2", "B\xFB", "B\xF9", "B\xFF", "B\xD6", "B\xDC", "B\xA2", "0}", "B\xA5", "BP", ">v",
     /* A0 */ "B\xE1", "B\xED", "B\xF3", "B\xFA", "B\xF1", "B\xD1", "B\xAA", "0\xBA", "B\xBF", ">5", ">`", "B\xBD", "B\xBC", "B\xA1", "B\xAB", "B\xBB",
-    /* B0 */ "0h", "0a", "0a", "0x", "0u", "0u", "0u", "0k", "0k", "0u", "0x", "0k", "0j", "0j", "0j", "0k",
+    /* B0 */ "0a", "0a", "0a", "0x", "0u", "0u", "0u", "0k", "0k", "0u", "0x", "0k", "0j", "0j", "0j", "0k",
     /* C0 */ "0m", "0v", "0w", "0t", "0q", "0n", "0t", "0t", "0m", "0l", "0v", "0w", "0t", "0q", "0n", "0v",
-    /* D0 */ "0v", "0w", "0w", "0m", "0m", "0l", "0l", "0n", "0n", "0j", "0l", "00", "0s", "B#", "B#", "0o",
-    /* E0 */ ">a", ">b", ">G", ">p", ">S", ">s", "Bu", ">t", ">F", ">J", ">W", ">d", ">B", ">f", ">e", ">\\",
-    /* F0 */ ">O", "0g", ">>", "><", ">$", ">%", ">C", ">I", "0f", "0~", "0~", ">V", "Bn", "B\xB2", ">O", "B "
+    /* D0 */ "0v", "0w", "0w", "0m", "0m", "0l", "0l", "0n", "0n", "0j", "0l", "0a", "0s", "0a", "0a", "0o",
+    /* E0 */ ">a", ">b", ">G", "0{", ">S", ">s", "Bu", ">t", ">F", ">J", ">W", ">d", ">B", ">f", ">e", ">\\",
+    /* F0 */ ">O", "0g", "0z", "0y", ">$", ">%", ">C", ">I", "0f", "0~", "0~", ">V", "Bn", "B\xB2", ">O", "B "
 };
 
 /* Lookup table for encoding images as base64. */
