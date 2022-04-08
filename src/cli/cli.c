@@ -21,8 +21,10 @@
 #include <stdlib.h>
 #include <string.h>
 #ifdef _WIN32
+// clang-format off
 #    include <windows.h>
 #    include <VersionHelpers.h>
+// clang-format on
 #else
 #    include <sys/ioctl.h>
 #endif
