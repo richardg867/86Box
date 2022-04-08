@@ -117,25 +117,26 @@ static const char *cp437[] = {
     /* F0 */ "\xE2\x89\xA1", "\xC2\xB1", "\xE2\x89\xA5", "\xE2\x89\xA4", "\xE2\x8C\xA0", "\xE2\x8C\xA1", "\xC3\xB7", "\xE2\x89\x88", "\xC2\xB0", "\xE2\x88\x99", "\xC2\xB7", "\xE2\x88\x9A", "\xE2\x81\xBF", "\xC2\xB2", "\xE2\x96\xA0", "\xC2\xA0"
 };
 
-/* Fallback ASCII-only code page 437 character set for non-UTF-8 terminals.
-   On values >= 0x80, DEC Special Graphics should be used on the lower 7 bits. */
-static const char cp437_fallback[] = {
-    /* 00 */ ' ', 'o', 'o', 'o', 0xe0, '^', '^', '.', 'o', 'o', 'o', 'M', 'F', '8', '8', 'o',
-    /* 10 */ '>', '<', '|', '!', 'P', 'S', '-', '|', '^', 'v', '>', '<', 'L', '-', '^', 'v',
-    /* 20 */ ' ', '!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/',
-    /* 30 */ '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?',
-    /* 40 */ '@', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
-    /* 50 */ 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '[', '\\', ']', '^', '_',
-    /* 60 */ '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
-    /* 70 */ 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '{', '|', '}', '~', 'D',
-    /* 80 */ 'C', 'u', 'e', 'a', 'a', 'a', 'a', 'c', 'e', 'e', 'e', 'i', 'i', 'i', 'A', 'A',
-    /* 90 */ 'E', 'e', 'E', 'o', 'o', 'o', 'u', 'u', 'y', 'O', 'U', 'c', 0xfd, 'Y', 'P', 'f',
-    /* A0 */ 'a', 'i', 'o', 'u', 'n', 'N', 'a', 0xe6, '?', '-', '-', '2', '4', '!', '<', '>',
-    /* B0 */ 0xe8, 0xe1, 0xe1, 0xf8, 0xf5, 0xf5, 0xf5, 0xeb, 0xeb, 0xf5, 0xf8, 0xeb, 0xea, 0xea, 0xea, 0xeb,
-    /* C0 */ 0xed, 0xf6, 0xf7, 0xf4, 0xf1, 0xee, 0xf4, 0xf4, 0xed, 0xec, 0xf6, 0xf7, 0xf4, 0xf1, 0xee, 0xf6,
-    /* D0 */ 0xf6, 0xf7, 0xf7, 0xed, 0xed, 0xec, 0xec, 0xee, 0xee, 0xea, 0xec, 0xb0, 0xf3, '#', '#', 0xef,
-    /* E0 */ 'a', 's', 'c', 0xfb, 'S', 's', 'm', 't', 'W', 'O', 'O', 'd', '8', 'p', 'e', '^',
-    /* F0 */ '=', 0xe7, 0xfa, 0xf9, '|', '|', '/', '~', 0xe6, 0xfe, 0xfe, 'v', 'n', '2', '#', ' '
+/* Fallback ASCII-only code page 437 character set for non-UTF-8 terminals. The first
+   character is the DEC charset ID, and the second character is the character itself.
+   Charset B is assumed to be ISO 8859-1 (98% identical to DEC MCS), not plain ASCII. */
+static const char *cp437_fallback[] = {
+    /* 00 */ "B ", "Bo", "Bo", "Bo", "0`", "B^", "B^", "B.", "Bo", "Bo", "Bo", "BM", "BF", "B8", "B8", "Bo",
+    /* 10 */ "B>", "B<", "B|", "B!", "BP", "BS", "B-", "B|", ">|", ">~", ">}", ">{", "BL", "0`", ">D", ">E",
+    /* 20 */ "B ", "B!", "B\"", "B#", "B$", "B%", "B&", "B'", "B(", "B)", "B*", "B+", "B,", "B-", "B.", "B/",
+    /* 30 */ "B0", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B:", "B;", "B<", "B=", "B>", "B?",
+    /* 40 */ "B@", "BA", "BB", "BC", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BK", "BL", "BM", "BN", "BO",
+    /* 50 */ "BP", "BQ", "BR", "BS", "BT", "BU", "BV", "BW", "BX", "BY", "BZ", "B[", "B\\", "B]", "B^", "B_",
+    /* 60 */ "B`", "Ba", "Bb", "Bc", "Bd", "Be", "Bf", "Bg", "Bh", "Bi", "Bj", "Bk", "Bl", "Bm", "Bn", "Bo",
+    /* 70 */ "Bp", "Bq", "Br", "Bs", "Bt", "Bu", "Bv", "Bw", "Bx", "By", "Bz", "B{", "B|", "B}", "B~", ">D",
+    /* 80 */ "B\xC7", "B\xFC", "B\xE9", "B\xE2", "B\xE4", "B\xE0", "B\xE5", "B\xE7", "B\xEA", "B\xEB", "B\xE8", "B\xEF", "B\xEE", "B\xEC", "B\xC4", "B\xC5",
+    /* 90 */ "B\xC9", "B\xE6", "B\xC6", "B\xF4", "B\xF6", "B\xF2", "B\xFB", "B\xF9", "B\xFF", "B\xD6", "B\xDC", "B\xA2", "0\xA3", "B\xA5", "BP", ">v",
+    /* A0 */ "B\xE1", "B\xED", "B\xF3", "B\xFA", "B\xF1", "B\xD1", "B\xAA", "0\xBA", "B\xBF", ">5", ">`", "B\xBD", "B\xBC", "B\xA1", "B\xAB", "B\xBB",
+    /* B0 */ "0h", "0a", "0a", "0x", "0u", "0u", "0u", "0k", "0k", "0u", "0x", "0k", "0j", "0j", "0j", "0k",
+    /* C0 */ "0m", "0v", "0w", "0t", "0q", "0n", "0t", "0t", "0m", "0l", "0v", "0w", "0t", "0q", "0n", "0v",
+    /* D0 */ "0v", "0w", "0w", "0m", "0m", "0l", "0l", "0n", "0n", "0j", "0l", "00", "0s", "B#", "B#", "0o",
+    /* E0 */ ">a", ">b", ">G", ">p", ">S", ">s", "Bu", ">t", ">F", ">J", ">W", ">d", ">B", ">f", ">e", ">\\",
+    /* F0 */ ">O", "0g", ">>", "><", ">$", ">%", ">C", ">I", "0f", "0~", "0~", ">V", "Bn", "B\xB2", ">O", "B "
 };
 
 /* Lookup table for encoding images as base64. */
@@ -435,14 +436,11 @@ cli_render_monitorexit()
     /* Set up terminal:
        - Switch to Alternate Screen Buffer
        - Enable ESC on Meta
-       - Set cursor style to blinking underline */
-    fputs("\033[?1049h\033[?1036h\033[3 q", CLI_RENDER_OUTPUT);
-
-    /* Set terminal encoding to UTF-8. */
+       - Set cursor style to blinking underline
+       - Set terminal encoding to UTF-8 or ISO-8859-1 */
+    fprintf(CLI_RENDER_OUTPUT, "\033[?1049h\033[?1036h\033[3 q\033[%%%c", cli_term.can_utf8 ? 'G' : '@');
 #ifdef _WIN32
-    SetConsoleOutputCP(65001);
-#else
-    fputs("\033[%G", CLI_RENDER_OUTPUT);
+    SetConsoleOutputCP(cli_term.can_utf8 ? 65001 : 1252);
 #endif
 
     /* Clear and re-render the entire screen on the next rendering run. */
@@ -946,7 +944,7 @@ cli_render_process(void *priv)
         sgr_blink, sgr_bg, sgr_fg,
         prev_sgr_ul, prev_sgr_int, prev_sgr_reverse,
         prev_sgr_blink, prev_sgr_bg, prev_sgr_fg,
-        in_decsg, new_cx, new_cy;
+        in_charset, new_cx, new_cy;
     uint16_t           chr_attr;
     int                i, w, x;
     cli_render_line_t *line;
@@ -963,8 +961,30 @@ cli_render_process(void *priv)
         if (render_data.title[0]) {
             p = buf;
             p += sprintf(p, "\033]0;");
-            for (i = 0; render_data.title[i]; i++) /* really hacky wchar->ASCII conversion */
-                *p++ = ((render_data.title[i] >= 0x20) && (render_data.title[i] <= 0x7e)) ? render_data.title[i] : ' ';
+            for (i = 0; render_data.title[i]; i++) {
+                if (cli_term.can_utf8 && (render_data.title[i] >= 0x80)) {
+                    /* Encode UTF-8. */
+                    if (render_data.title[i] < 0x800) {
+                        w = 6;
+                        x = 0xc0;
+                    } else if (render_data.title[i] < 0x10000) {
+                        w = 12;
+                        x = 0xe0;
+                    } else if (render_data.title[i] < 0x200000) {
+                        w = 18;
+                        x = 0xf0;
+                    } else {
+                        continue;
+                    }
+                    *p++ = ~(0x7f >> (w / 6)) | ((render_data.title[i] >> w) & (0x3f >> (w / 6)));
+                    while (w > 0) {
+                        w -= 6;
+                        *p++ = 0x80 | ((render_data.title[i] >> w) & 0x3f);
+                    }
+                } else if ((render_data.title[i] >= 0x20) && (render_data.title[i] <= 0x7e)) {
+                    *p++ = render_data.title[i];
+                }
+            }
             *p++ = '\a';
             *p   = '\0';
             fputs(buf, CLI_RENDER_OUTPUT);
@@ -1159,7 +1179,7 @@ cli_render_process(void *priv)
                 p           = buf;
                 *p          = '\0';
                 sgr_started = prev_sgr_blink = prev_sgr_bg = prev_sgr_fg = prev_sgr_ul = prev_sgr_int = prev_sgr_reverse = 0;
-                in_decsg                                                                                                 = 0;
+                in_charset                                                                                               = 'B';
                 sgr_blackout                                                                                             = -1;
 
                 /* Render each character. */
@@ -1259,25 +1279,19 @@ cli_render_process(void *priv)
                     /* Add character. */
                     if (cli_term.can_utf8) {
                         p += sprintf(p, "%s", cp437[chr]);
-                    } else if (cp437_fallback[chr] & 0x80) {
-                        /* Enter DEC Special Graphics. */
-                        if (!in_decsg) {
-                            p += sprintf(p, "\033(0");
-                            in_decsg = 1;
-                        }
-                        *p++ = cp437_fallback[chr] & 0x7f;
                     } else {
-                        /* Exit DEC Special Graphics. */
-                        if (in_decsg) {
-                            p += sprintf(p, "\033(B");
-                            in_decsg = 0;
+                        /* Switch charsets if required. */
+                        if (in_charset != cp437_fallback[chr][0]) {
+                            in_charset = cp437_fallback[chr][0];
+                            p += sprintf(p, "\033(%s", cp437_fallback[chr]);
+                        } else {
+                            p += sprintf(p, "%s", &cp437_fallback[chr][1]);
                         }
-                        *p++ = cp437_fallback[chr];
                     }
                 }
 
-                /* Exit DEC Special Graphics. */
-                if (in_decsg)
+                /* Go back to the ASCII charset if we switched out of it. */
+                if (in_charset != 'B')
                     p += sprintf(p, "\033(B");
 
                 /* Output rendered line. */
