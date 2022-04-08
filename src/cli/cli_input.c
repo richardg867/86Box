@@ -684,14 +684,10 @@ cli_input_unhook(int c)
                 break;
 
             case 'q':
-                /* Stop if this was a spurious response. */
-                if (cli_term.decrqss_cursor)
-                    break;
-
-                /* Save default cursor style. */
+                /* Save current cursor style. */
                 if (sscanf(&dcs_buf[1], "%d", &cli_term.decrqss_cursor) != 1)
                     cli_term.decrqss_cursor = 0;
-                cli_input_log("CLI Input: DECRQSS reports a default cursor style of %d\n", cli_term.decrqss_cursor);
+                cli_input_log("CLI Input: DECRQSS reports a cursor style of %d\n", cli_term.decrqss_cursor);
                 break;
         }
     }

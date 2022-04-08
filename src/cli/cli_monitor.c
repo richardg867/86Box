@@ -230,8 +230,8 @@ cli_monitor_mediaload(int argc, char **argv, const void *priv)
         return;
 
     /* Provide feedback. */
-    fprintf(CLI_RENDER_OUTPUT, "Inserting%simage into %s %d: %s\n",
-            (wp ? " write-protected " : " "),
+    fprintf(CLI_RENDER_OUTPUT, "Inserting %simage into %s %d: %s\n",
+            wp ? "write-protected " : "",
             cmd->drive, id,
             argv[2]);
 
@@ -444,7 +444,7 @@ static void
 cli_monitor_pause(int argc, char **argv, const void *priv)
 {
     plat_pause(dopause ^ 1);
-    fprintf(CLI_RENDER_OUTPUT, "Emulated machine %saused.\n", dopause ? "p" : "unp");
+    fprintf(CLI_RENDER_OUTPUT, "Emulated machine %spaused.\n", dopause ? "" : "un");
 }
 
 static void

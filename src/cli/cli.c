@@ -310,9 +310,6 @@ cmd_nt10:
         /* Query primary device attributes. */
         cli_term.sda = 1;
         cli_render_write(RENDER_SIDEBAND_SDA, "\033[c");
-
-        /* Query default cursor style. */
-        cli_render_write(RENDER_SIDEBAND_DECRQSS_CURSOR, "\033P$q q\033\\");
     }
 }
 

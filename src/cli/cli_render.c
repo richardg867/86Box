@@ -436,9 +436,10 @@ cli_render_monitorexit()
     /* Set up terminal:
        - Switch to Alternate Screen Buffer
        - Enable ESC on Meta
+       - Query current cursor style (saved on DECRQSS response) if input is enabled
        - Set cursor style to blinking underline
        - Set terminal encoding to UTF-8 or ISO-8859-1 */
-    fprintf(CLI_RENDER_OUTPUT, "\033[?1049h\033[?1036h\033[3 q\033[%%%c", cli_term.can_utf8 ? 'G' : '@');
+    fprintf(CLI_RENDER_OUTPUT, "\033[?1049h\033[?1036h%s\033[3 q\033[%%%c", cli_term.can_input ? "\033P$q q\033\\" : "", cli_term.can_utf8 ? 'G' : '@');
 #ifdef _WIN32
     SetConsoleOutputCP(cli_term.can_utf8 ? 65001 : 1252);
 #endif
