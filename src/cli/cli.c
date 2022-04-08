@@ -39,8 +39,9 @@ static const struct {
     const uint8_t ctl;
     const uint8_t gfx;
 } term_types[] = {
+// clang-format off
 #ifdef _WIN32
-    {"cmd-nt6",         TERM_COLOR_4BIT,  0,                                    0                            },
+    { "cmd-nt6",        TERM_COLOR_4BIT,  0,                                    0                            },
     { "cmd-nt10",       TERM_COLOR_24BIT, 0,                                    0                            },
 #endif
     { "iterm",          TERM_COLOR_24BIT, 0,                                    0                            },
@@ -66,6 +67,7 @@ static const struct {
     { "vt241",          TERM_COLOR_NONE,  0,                                    TERM_GFX_SIXEL               },
     { "vt330",          TERM_COLOR_NONE,  0,                                    TERM_GFX_SIXEL               },
     { NULL,             TERM_COLOR_3BIT,  0,                                    0                            }  /* unknown terminal */
+// clang-format on
 };
 
 cli_term_t cli_term = {

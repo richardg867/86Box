@@ -153,12 +153,14 @@ static int(LIBSIXELDLLAPI *sixel_encode)(unsigned char *pixels, int width, int h
 static int(LIBSIXELDLLAPI *sixel_encoder_encode)(void *encoder, const char *filename);
 
 static dllimp_t libsixel_imports[] = {
-    {"sixel_dither_get",      &sixel_dither_get    },
-    { "sixel_output_new",     &sixel_output_new    },
-    { "sixel_output_destroy", &sixel_output_destroy},
-    { "sixel_encode",         &sixel_encode        },
-    { "sixel_encoder_encode", &sixel_encoder_encode},
-    { NULL,                   NULL                 }
+// clang-format off
+    { "sixel_dither_get",     &sixel_dither_get     },
+    { "sixel_output_new",     &sixel_output_new     },
+    { "sixel_output_destroy", &sixel_output_destroy },
+    { "sixel_encode",         &sixel_encode         },
+    { "sixel_encoder_encode", &sixel_encoder_encode },
+    { NULL,                   NULL                  }
+// clang-format on
 };
 static void *libsixel_handle = NULL,
             *libsixel_dither = NULL, *libsixel_output = NULL;
@@ -1399,18 +1401,17 @@ cli_render_init()
     libsixel_handle = dynld_module(PATH_LIBSIXEL_DLL, libsixel_imports);
     if (!libsixel_handle)
         libsixel_handle = dynld_module(PATH_LIBSIXEL_DLL_ALT, libsixel_imports);
-    if (libsixel_handle) {
+    if (libsixel_handle && sixel_output_new && sixel_encode) {
         /* Create output object. */
-        if (sixel_output_new && sixel_encode) {
-            sixel_output_new(&libsixel_output, cli_render_process_sixelwrite, CLI_RENDER_OUTPUT, NULL);
-        } else {
-            sixel_dither_get = NULL; /* disable libsixel if we're somehow missing functions */
+        sixel_output_new(&libsixel_output, cli_render_process_sixelwrite, CLI_RENDER_OUTPUT, NULL);
+        if (!libsixel_output)
             goto no_libsixel;
-        }
 
         cli_render_log("CLI Render: libsixel loaded successfully\n");
     } else {
 no_libsixel:
+        sixel_dither_get = NULL; /* disable partially-loaded libsixel */
+
         cli_render_log("CLI Render: libsixel not loaded\n");
     }
 
