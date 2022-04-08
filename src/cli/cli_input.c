@@ -638,43 +638,61 @@ cli_input_unhook(int c)
         cli_input_log("CLI Input: DECRQSS response: %s\n", dcs_buf);
 
         /* Interpret color-related responses. */
-        if (cli_term.decrqss_color) {
-            /* Interpret response according to the color level currently being queried. */
-            switch (cli_term.decrqss_color) {
-                case TERM_COLOR_24BIT:
-                    if (cli_input_response_strstr(dcs_buf, ":2:1:2:3:")) {
-                        /* 24-bit color supported. */
-                        cli_term_setcolor(TERM_COLOR_24BIT, "DECRQSS");
-                    } else if (cli_term.color_level < TERM_COLOR_8BIT) {
-                        /* Try 8-bit color if we don't explicitly know it's supported. */
-                        cli_term.decrqss_color = TERM_COLOR_8BIT;
-                        cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR, "\033[38;5;255m\033P$qm\033\\\033[0m");
-                        break;
-                    }
-                    cli_term.decrqss_color = TERM_COLOR_NONE;
+        char last_char = dcs_buf[strlen(dcs_buf) - 1];
+        switch (last_char) {
+            case 'm':
+                /* Stop if this was a spurious response. */
+                if (!cli_term.decrqss_color)
                     break;
 
-                case TERM_COLOR_8BIT:
-                    if (cli_input_response_strstr(dcs_buf, ":5:255:")) {
-                        /* 8-bit color supported. */
-                        cli_term_setcolor(TERM_COLOR_8BIT, "DECRQSS");
-                    } else if (cli_term.color_level < TERM_COLOR_4BIT) {
-                        /* Try 4-bit color if we don't explicitly know it's supported. */
-                        cli_term.decrqss_color = TERM_COLOR_4BIT;
-                        cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR, "\033[97m\033P$qm\033\\\033[0m");
+                /* Interpret response according to the color level currently being queried. */
+                switch (cli_term.decrqss_color) {
+                    case TERM_COLOR_24BIT:
+                        if (cli_input_response_strstr(dcs_buf, ":2:1:2:3:")) {
+                            /* 24-bit color supported. */
+                            cli_term_setcolor(TERM_COLOR_24BIT, "DECRQSS");
+                        } else if (cli_term.color_level < TERM_COLOR_8BIT) {
+                            /* Try 8-bit color if we don't explicitly know it's supported. */
+                            cli_term.decrqss_color = TERM_COLOR_8BIT;
+                            cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR, "\033[38;5;255m\033P$qm\033\\\033[0m");
+                            break;
+                        }
+                        cli_term.decrqss_color = TERM_COLOR_NONE;
                         break;
-                    }
-                    cli_term.decrqss_color = TERM_COLOR_NONE;
+
+                    case TERM_COLOR_8BIT:
+                        if (cli_input_response_strstr(dcs_buf, ":5:255:")) {
+                            /* 8-bit color supported. */
+                            cli_term_setcolor(TERM_COLOR_8BIT, "DECRQSS");
+                        } else if (cli_term.color_level < TERM_COLOR_4BIT) {
+                            /* Try 4-bit color if we don't explicitly know it's supported. */
+                            cli_term.decrqss_color = TERM_COLOR_4BIT;
+                            cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR, "\033[97m\033P$qm\033\\\033[0m");
+                            break;
+                        }
+                        cli_term.decrqss_color = TERM_COLOR_NONE;
+                        break;
+
+                    case TERM_COLOR_4BIT:
+                        if (cli_input_response_strstr(dcs_buf, ":97:")) {
+                            /* 4-bit color supported. */
+                            cli_term_setcolor(TERM_COLOR_4BIT, "DECRQSS");
+                        }
+                        cli_term.decrqss_color = TERM_COLOR_NONE;
+                        break;
+                }
+                break;
+
+            case 'q':
+                /* Stop if this was a spurious response. */
+                if (cli_term.decrqss_cursor)
                     break;
 
-                case TERM_COLOR_4BIT:
-                    if (cli_input_response_strstr(dcs_buf, ":97:")) {
-                        /* 4-bit color supported. */
-                        cli_term_setcolor(TERM_COLOR_4BIT, "DECRQSS");
-                    }
-                    cli_term.decrqss_color = TERM_COLOR_NONE;
-                    break;
-            }
+                /* Save default cursor style. */
+                if (sscanf(&dcs_buf[1], "%d", &cli_term.decrqss_cursor) != 1)
+                    cli_term.decrqss_cursor = 0;
+                cli_input_log("CLI Input: DECRQSS reports a default cursor style of %d\n", cli_term.decrqss_cursor);
+                break;
         }
     }
 }

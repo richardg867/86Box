@@ -71,6 +71,7 @@ enum {
     RENDER_SIDEBAND_CPR_UTF8,
     RENDER_SIDEBAND_SDA,
     RENDER_SIDEBAND_DECRQSS_COLOR,
+    RENDER_SIDEBAND_DECRQSS_CURSOR,
     RENDER_SIDEBAND_MAX
 };
 
@@ -78,6 +79,7 @@ typedef struct {
     uint8_t color_level, ctl_level, gfx_level,
         can_input, can_utf8, cpr, sda, decrqss_color,
         size_x, size_y;
+    int     decrqss_cursor;
 
     int (*setcolor)(char *p, uint8_t index, uint8_t is_background);
 } cli_term_t;

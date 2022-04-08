@@ -310,6 +310,9 @@ cmd_nt10:
         /* Query primary device attributes. */
         cli_term.sda = 1;
         cli_render_write(RENDER_SIDEBAND_SDA, "\033[c");
+
+        /* Query default cursor style. */
+        cli_render_write(RENDER_SIDEBAND_DECRQSS_CURSOR, "\033P$q q\033\\");
     }
 }
 
@@ -331,9 +334,9 @@ cli_close()
         HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
         if (h) {
             if (!SetConsoleMode(h, saved_console_mode))
-                cli_log("CLI Input: SetConsoleMode failed (%08X)\n", GetLastError());
+                cli_log("CLI: SetConsoleMode failed (%08X)\n", GetLastError());
         } else {
-            cli_log("CLI Input: GetStdHandle failed (%08X)\n", GetLastError());
+            cli_log("CLI: GetStdHandle failed (%08X)\n", GetLastError());
         }
     }
 #endif

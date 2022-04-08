@@ -420,10 +420,11 @@ cli_render_monitorenter()
        - Reset formatting
        - Move cursor to top left corner
        - Clear screen
+       - Set cursor style to default (from query response, or default 0 which some terminals accept)
        - Show cursor
        - Switch to xterm's Main Screen Buffer */
     cursor_x = cursor_y = -1;
-    fputs("\033[0m\033[1;1H\033[2J\033[3J\033[?25h\033[?1049l", CLI_RENDER_OUTPUT);
+    fprintf(CLI_RENDER_OUTPUT, "\033[0m\033[1;1H\033[2J\033[3J\033[%d q\033[?25h\033[?1049l", cli_term.decrqss_cursor);
 
     thread_set_event(render_data.wake_render_thread);
     thread_wait_event(render_data.render_complete, -1); /* avoid race conditions */
