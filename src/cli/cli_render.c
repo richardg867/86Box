@@ -150,7 +150,6 @@ static int(LIBSIXELDLLAPI *sixel_output_new)(void **output,
 static void(LIBSIXELDLLAPI *sixel_output_destroy)(void *output);
 static int(LIBSIXELDLLAPI *sixel_encode)(unsigned char *pixels, int width, int height,
                                          int depth, void *dither, void *context);
-static int(LIBSIXELDLLAPI *sixel_encoder_encode)(void *encoder, const char *filename);
 
 static dllimp_t libsixel_imports[] = {
 // clang-format off
@@ -158,7 +157,6 @@ static dllimp_t libsixel_imports[] = {
     { "sixel_output_new",     &sixel_output_new     },
     { "sixel_output_destroy", &sixel_output_destroy },
     { "sixel_encode",         &sixel_encode         },
-    { "sixel_encoder_encode", &sixel_encoder_encode },
     { NULL,                   NULL                  }
 // clang-format on
 };
@@ -230,7 +228,6 @@ cli_render_blank()
     thread_set_event(render_data.wake_render_thread);
 }
 
-int gx = 0;
 void
 cli_render_gfx(char *str)
 {
@@ -632,7 +629,8 @@ static char *
 cli_render_clearbg(char *p)
 {
     /* Use the black color for this terminal if applicable. */
-    p += sprintf(p, "\033[0;");
+    sprintf(p, "\033[0;");
+    p += 4; /* get rid of gcc warning */
     int i = 0;
     if ((render_data.mode < 0x10) || !(i = cli_term.setcolor(p, 0, 1)))
         *--p = '\0';
@@ -919,20 +917,70 @@ have_color:
 }
 
 void
-cli_render_process_sixel_png(char *fn)
+cli_render_process_screenshot(char *path, uint32_t *buf, int start_x, int start_y, int w, int h, int row_len)
 {
-    /* This requires libsixel. */
-    if (!sixel_encoder_encode)
-        return;
+    if (cli_term.gfx_level & (TERM_GFX_PNG | TERM_GFX_PNG_KITTY)) {
+        /* Pass the screenshot PNG file through to the terminal. */
+        FILE *f = fopen(path, "rb");
+        if (f) {
+            int     read;
+            uint8_t buf[3072];
 
-    /* Check if stdout is not redirected, because libsixel's weird API
-       does not provide a way to change the encoder object's output fd... */
-    if (!isatty(fileno(stdout)))
-        return;
+            /* Render PNG. */
+            if (cli_term.gfx_level & TERM_GFX_PNG) {
+                /* Output header. */
+                fputs("\033]1337;File=name=", CLI_RENDER_OUTPUT);
+                path = plat_get_basename(path);
+                cli_render_process_base64((uint8_t *) path, strlen(path));
+                fseek(f, 0, SEEK_END);
+                fprintf(CLI_RENDER_OUTPUT, ";size=%ld:", ftell(f));
+                fseek(f, 0, SEEK_SET);
 
-    /* Render image and flush stdout. */
-    sixel_encoder_encode(NULL, (const char *) fn);
-    fflush(stdout);
+                /* Output image. */
+                while ((read = fread(&buf, 1, sizeof(buf), f)))
+                    cli_render_process_base64(buf, read);
+
+                /* Output terminator. */
+                fputc('\a', CLI_RENDER_OUTPUT);
+            } else if (cli_term.gfx_level & TERM_GFX_PNG_KITTY) {
+                /* Output image in chunks of up to 4096
+                   base64-encoded bytes (3072 real bytes). */
+                int i = 1;
+                while ((read = fread(&buf, 1, sizeof(buf), f))) {
+                    /* Output header. */
+                    fputs("\033_G", CLI_RENDER_OUTPUT);
+                    if (i) {
+                        i = 0;
+                        fputs("a=T,f=100,q=1,", CLI_RENDER_OUTPUT);
+                    }
+                    fprintf(CLI_RENDER_OUTPUT, "m=%d;", !feof(f));
+
+                    /* Output chunk data as base64. */
+                    cli_render_process_base64(buf, read);
+
+                    /* Output terminator. */
+                    fputs("\033\\", CLI_RENDER_OUTPUT);
+                }
+            }
+
+            /* Finish and flush output. */
+            fputc('\n', CLI_RENDER_OUTPUT);
+            fflush(CLI_RENDER_OUTPUT);
+
+            fclose(f);
+        }
+    } else if (cli_term.gfx_level & TERM_GFX_SIXEL) {
+        /* Prepare a blit bitmap with the screenshot's screen data. */
+        bitmap_t bitmap = { .w = w, .h = h, .dat = buf };
+        for (int dy = 0; dy < h; dy++)
+            bitmap.line[dy] = &buf[((start_y + dy) * row_len) + start_x];
+
+        /* Run blit process on the bitmap. */
+        cli_render_gfx_blit(&bitmap, 0, 0, w, h);
+
+        /* Render the bitmap as sixels. */
+        cli_render_process_sixel(render_data.blit_fb, w, h);
+    }
 }
 
 static void

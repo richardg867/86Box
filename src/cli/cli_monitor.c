@@ -455,7 +455,7 @@ cli_monitor_fullscreen(int argc, char **argv, const void *priv)
 }
 
 static void
-cli_monitor_screenshot_hook(char *path)
+cli_monitor_screenshot_hook(char *path, uint32_t *buf, int start_x, int start_y, int w, int h, int row_len)
 {
     /* This hook should only be called once. */
     screenshot_hook = NULL;
@@ -464,59 +464,8 @@ cli_monitor_screenshot_hook(char *path)
     fprintf(CLI_RENDER_OUTPUT, "Saved screenshot to: %s\n", path);
 
 #ifdef USE_CLI
-    /* Output screenshot if supported by the terminal. */
-    if (cli_term.gfx_level & (TERM_GFX_PNG | TERM_GFX_PNG_KITTY)) {
-        FILE *f = fopen(path, "rb");
-        if (f) {
-            int     read;
-            uint8_t buf[3072];
-
-            /* Render PNG. */
-            if (cli_term.gfx_level & TERM_GFX_PNG) {
-                /* Output header. */
-                fputs("\033]1337;File=name=", CLI_RENDER_OUTPUT);
-                path = plat_get_basename((const char *) path);
-                cli_render_process_base64((uint8_t *) path, strlen(path));
-                fseek(f, 0, SEEK_END);
-                fprintf(CLI_RENDER_OUTPUT, ";size=%ld:", ftell(f));
-                fseek(f, 0, SEEK_SET);
-
-                /* Output image. */
-                while ((read = fread(&buf, 1, sizeof(buf), f)))
-                    cli_render_process_base64(buf, read);
-
-                /* Output terminator. */
-                fputc('\a', CLI_RENDER_OUTPUT);
-            } else if (cli_term.gfx_level & TERM_GFX_PNG_KITTY) {
-                /* Output image in chunks of up to 4096
-                   base64-encoded bytes (3072 real bytes). */
-                int i = 1;
-                while ((read = fread(&buf, 1, sizeof(buf), f))) {
-                    /* Output header. */
-                    fputs("\033_G", CLI_RENDER_OUTPUT);
-                    if (i) {
-                        i = 0;
-                        fputs("a=T,f=100,q=1,", CLI_RENDER_OUTPUT);
-                    }
-                    fprintf(CLI_RENDER_OUTPUT, "m=%d;", !feof(f));
-
-                    /* Output chunk data as base64. */
-                    cli_render_process_base64(buf, read);
-
-                    /* Output terminator. */
-                    fputs("\033\\", CLI_RENDER_OUTPUT);
-                }
-            }
-
-            /* Finish and flush output. */
-            fputc('\n', CLI_RENDER_OUTPUT);
-            fflush(CLI_RENDER_OUTPUT);
-
-            fclose(f);
-        }
-    } else if (cli_term.gfx_level & TERM_GFX_SIXEL) {
-        cli_render_process_sixel_png(path);
-    }
+    /* Render screenshot if supported by the terminal. */
+    cli_render_process_screenshot(path, buf, start_x, start_y, w, h, row_len);
 #endif
 
     /* Allow monitor thread to proceed. */

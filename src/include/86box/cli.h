@@ -135,8 +135,7 @@ extern void cli_render_setcolorlevel();
 extern void cli_render_setpal(uint8_t index, uint32_t color);
 extern void cli_render_updatescreen();
 
-extern void cli_render_process_base64(uint8_t *buf, int len);
-extern void cli_render_process_sixel_png(char *fn);
+extern void cli_render_process_screenshot(char *path, uint32_t *buf, int start_x, int start_y, int w, int h, int row_len);
 
 extern void cli_render_init();
 extern void cli_render_close();
