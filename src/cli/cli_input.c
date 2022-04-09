@@ -502,7 +502,7 @@ cli_input_csi_dispatch(int c)
             /* If we're exactly one character in, we can assume the
                terminal has interpreted our UTF-8 sequence as UTF-8. */
             cli_term.can_utf8 = modifier == 2;
-            cli_input_log("CLI Input: CPR probe reports%sUTF-8\n", cli_term.can_utf8 ? " " : " no ");
+            cli_input_log("CLI Input: CPR probe reports %sUTF-8\n", cli_term.can_utf8 ? "" : "no ");
         } else {
             cli_term.cpr &= ~1;
 

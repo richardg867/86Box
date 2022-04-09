@@ -424,7 +424,7 @@ cli_render_monitorenter()
        - Clear screen
        - Set cursor style to default (from query response, or default 0 which some terminals accept)
        - Show cursor
-       - Switch to xterm's Main Screen Buffer */
+       - Switch to Main Screen Buffer (do it last to prevent consequences of it not being supported) */
     cursor_x = cursor_y = -1;
     fprintf(CLI_RENDER_OUTPUT, "\033[0m\033[1;1H\033[2J\033[3J\033[%d q\033[?25h\033[?1049l", cli_term.decrqss_cursor);
 
@@ -438,7 +438,7 @@ void
 cli_render_monitorexit()
 {
     /* Set up terminal:
-       - Switch to Alternate Screen Buffer
+       - Switch to Alternate Screen Buffer (do it first to prevent consequences of it not being supported)
        - Enable ESC on Meta
        - Query current cursor style (saved on DECRQSS response) if input is enabled
        - Set cursor style to blinking underline
