@@ -1451,7 +1451,6 @@ void
 cli_render_init()
 {
     /* Try loading libsixel. */
-    int i;
     libsixel_handle = dynld_module(PATH_LIBSIXEL_DLL, libsixel_imports);
     if (!libsixel_handle)
         libsixel_handle = dynld_module(PATH_LIBSIXEL_DLL_ALT, libsixel_imports);
@@ -1474,6 +1473,7 @@ no_libsixel:
 
     /* Load RGB color values for the 256-color palette.
        Algorithm based on Linux's vt.c */
+    int i;
     uint32_t palette_color;
     for (i = 0; i < 256; i++) {
         if (i < 16) { /* 16-color ANSI */
