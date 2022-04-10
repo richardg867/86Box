@@ -488,14 +488,14 @@ cli_render_setcolor_none(char *p, uint8_t index, uint8_t is_background)
 static int
 cli_render_setcolor_3bit(char *p, uint8_t index, uint8_t is_background)
 {
-    /* Set an approximated color from the 3-color palette. */
+    /* Set an approximated color from the 8-color palette. */
     return sprintf(p, "%d", (is_background ? 40 : 30) + (palette_4bit[index] & 7));
 }
 
 static int
 cli_render_setcolor_4bit(char *p, uint8_t index, uint8_t is_background)
 {
-    /* Set an approximated color from the 4-color palette. */
+    /* Set an approximated color from the 16-color palette. */
     uint8_t approx   = palette_4bit[index],
             pre_attr = 0, sgr = (is_background ? 40 : 30) + (approx & 7);
 

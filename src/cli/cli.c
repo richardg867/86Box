@@ -116,7 +116,7 @@ cli_term_gettypeid(char *name)
 #endif
          ;
          term_types[i].name; i++) {
-        if (!strcasecmp(name, term_types[i].name))
+        if (!stricmp(name, term_types[i].name))
             return i;
     }
 
@@ -285,12 +285,12 @@ cmd_nt10:
     /* Detect COLORTERM environment variable set by some 24-bit terminals. */
     if (cli_term.color_level < TERM_COLOR_24BIT) {
         char *value = getenv("COLORTERM");
-        if (value && (strcasecmp(value, "truecolor") || strcasecmp(value, "24bit"))) {
+        if (value && (stricmp(value, "truecolor") || stricmp(value, "24bit"))) {
             cli_term_setcolor(TERM_COLOR_24BIT, "environment");
         } else if (cli_term.can_input) {
             /* Start detecting the terminal's color capabilities through DECRQSS queries. */
             cli_term.decrqss_color = TERM_COLOR_24BIT;
-            cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR, "\033[38;2;1;2;3m\033P$qm\033\\\033[0m");
+            cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR, "\033[38;2;255;255;255m\033P$qm\033\\\033[0m");
         }
     }
 

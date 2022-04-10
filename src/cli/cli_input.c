@@ -525,13 +525,13 @@ cli_input_csi_dispatch(int c)
         if (cli_term.sda == 1) { /* primary attributes */
             /* Enable sixel graphics if supported. */
             modifier = cli_input_response_strstr(param_buf, ":4:");
-            cli_input_log("%ssixel,", modifier ? "" : "no ");
+            cli_input_log("%ssixel, ", modifier ? "" : "no ");
             if (modifier)
                 cli_term.gfx_level |= TERM_GFX_SIXEL;
             else
                 cli_term.gfx_level &= ~TERM_GFX_SIXEL;
 
-            /* Enable 16-bit color if supported. */
+            /* Enable 4-bit color if supported. */
             modifier = cli_input_response_strstr(param_buf, ":22:");
             cli_input_log("%scolor\n", modifier ? "" : "no ");
             if ((cli_term.color_level < TERM_COLOR_4BIT) && modifier)
@@ -645,7 +645,7 @@ cli_input_unhook(int c)
         cli_input_log("CLI Input: DECRQSS response: %s\n", dcs_buf);
 
         /* Interpret color-related responses. */
-        char last_char = dcs_buf[strlen(dcs_buf) - 1];
+        char last_char = dcs_buf[dcs_buf_pos - 1];
         switch (last_char) {
             case 'm':
                 /* Stop if this was a spurious response. */
@@ -655,7 +655,7 @@ cli_input_unhook(int c)
                 /* Interpret response according to the color level currently being queried. */
                 switch (cli_term.decrqss_color) {
                     case TERM_COLOR_24BIT:
-                        if (cli_input_response_strstr(dcs_buf, ":2:1:2:3:")) {
+                        if (cli_input_response_strstr(dcs_buf, ":2:255:255:255:")) {
                             /* 24-bit color supported. */
                             cli_term_setcolor(TERM_COLOR_24BIT, "DECRQSS");
                         } else if (cli_term.color_level < TERM_COLOR_8BIT) {
