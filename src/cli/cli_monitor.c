@@ -808,7 +808,7 @@ cli_monitor_help(int argc, char **argv, const void *priv)
     }
 }
 
-static void
+void
 cli_monitor_thread(void *priv)
 {
     /* The monitor should only be available if both stdin and output are not redirected. */
