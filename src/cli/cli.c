@@ -149,7 +149,7 @@ cli_term_setgfx(uint8_t level)
 void
 cli_term_setsize(int size_x, int size_y, char *source)
 {
-    uint8_t new_size_x = MIN(size_x, 254), new_size_y = MIN(size_y, 254);
+    int new_size_x = MIN(size_x, 254), new_size_y = MIN(size_y, 254);
 
     cli_log("CLI: Terminal is %dx%d according to %s\n", new_size_x, new_size_y, source);
 
@@ -305,7 +305,7 @@ cmd_nt10:
     if (cli_term.can_input) {
         /* Probe UTF-8 support using CPR. */
         cli_term.cpr |= 2;
-        cli_render_write(RENDER_SIDEBAND_CPR_UTF8, "\033[1;1H\xC2\xA0\033[6n"); /* non-breaking space */
+        cli_render_write(RENDER_SIDEBAND_CPR_UTF8, "\033[1;1H\xC2\xA0\033[6n\033[1;1H"); /* non-breaking space */
 
         /* Query primary device attributes. */
         cli_term.sda = 1;
