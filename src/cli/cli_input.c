@@ -56,6 +56,7 @@ enum {
     VT_SOS_PM_APC_STRING,
     VT_OSC_STRING
 };
+#endif
 
 /* Lookup tables for converting keys and escape sequences to keyboard scan codes. */
 const uint16_t ascii_seqs[128] = {
@@ -160,6 +161,7 @@ const uint16_t ascii_seqs[128] = {
     ['~']  = 0x2a29,
     [0x7f] = 0x0053
 };
+#ifdef USE_CLI
 static const uint16_t csi_num_seqs[] = {
     [1]  = 0xe047, /* Home */
     [2]  = 0xe052, /* Insert */
@@ -247,6 +249,7 @@ cli_input_log(const char *fmt, ...)
     }
 }
 
+#    ifdef USE_CLI
 static void
 cli_input_log_key(const char *func, int c)
 {
@@ -255,6 +258,7 @@ cli_input_log_key(const char *func, int c)
     else
         cli_input_log("CLI Input: %s(%02X)\n", func, c);
 }
+#    endif
 #else
 #    define cli_input_log(fmt, ...)
 #    define cli_input_log_key(func, c)

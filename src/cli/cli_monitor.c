@@ -55,7 +55,7 @@ static const struct {
     const char *name;
     uint16_t    code;
 } named_seqs[] = {
-// clang-format off
+  // clang-format off
     {"tab",        0x000f },
     { "enter",           0x001c },
     { "ret",0x001c },
@@ -121,7 +121,7 @@ static const struct {
     { "scrolllk",           0x0046 },
     { "scrolllock",  0x0046 },
     { 0   }
-// clang-format on
+  // clang-format on
 };
 
 static int      first_run = 1;
@@ -135,13 +135,13 @@ static void (*rl_callback_handler_remove)(void) = NULL;
 static FILE **rl_outstream                      = NULL;
 
 static dllimp_t libedit_imports[] = {
-// clang-format off
+  // clang-format off
     { "readline",                   &readline                   },
     { "add_history",                &add_history                },
     { "rl_callback_handler_remove", &rl_callback_handler_remove },
     { "rl_outstream",               &rl_outstream               },
     { NULL,                         NULL                        }
-// clang-format on
+  // clang-format on
 };
 static void *libedit_handle = NULL;
 #endif
@@ -726,10 +726,11 @@ cli_monitor_usage(int cmd)
 }
 
 static int
-cli_monitor_getcmd(const char *name) {
+cli_monitor_getcmd(const char *name)
+{
     /* Go through the command list. */
     size_t cmd_len = strlen(name), cmd_count = 0;
-    int cmd, first_cmd = -1;
+    int    cmd, first_cmd                    = -1;
     for (cmd = 0; commands[cmd].name; cmd++) {
         /* Check if the command name matches. */
         if (!strnicmp(name, commands[cmd].name, cmd_len)) {
