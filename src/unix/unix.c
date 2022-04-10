@@ -850,7 +850,9 @@ int main(int argc, char** argv)
     /* Initialize the rendering window, or fullscreen. */
 
     do_start();
+#ifndef USE_CLI
     cli_monitor_init(1);
+#endif
     SDL_AddTimer(1000, timer_onesec, NULL);
     while (!is_quit)
     {
