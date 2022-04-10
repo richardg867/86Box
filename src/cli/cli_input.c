@@ -38,6 +38,7 @@
 #include <86box/keyboard.h>
 #include <86box/plat.h>
 
+#ifdef USE_CLI
 /* Escape sequence parser states. */
 enum {
     VT_GROUND = 0,
@@ -223,10 +224,11 @@ static const uint8_t csi_modifiers[] = {
 
 static int  in_raw = 0, param_buf_pos = 0, collect_buf_pos = 0, dcs_buf_pos = 0, osc_buf_pos = 0;
 static char param_buf[32], collect_buf[32], dcs_buf[32], osc_buf[32];
-#ifdef _WIN32
+#    ifdef _WIN32
 static DWORD saved_console_mode = 0;
-#else
+#    else
 static tcflag_t saved_lflag = 0, saved_iflag = 0;
+#    endif
 #endif
 
 #define ENABLE_CLI_INPUT_LOG 1
@@ -334,6 +336,7 @@ cli_input_send(uint16_t code, uint8_t modifier)
         keyboard_input(0, 0xe05b);
 }
 
+#ifdef USE_CLI
 static void
 cli_input_raw()
 {
@@ -342,7 +345,7 @@ cli_input_raw()
         return;
     in_raw = 1;
 
-#ifdef _WIN32
+#    ifdef _WIN32
     /* Enable ANSI input. */
     HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
     if (h) {
@@ -358,7 +361,7 @@ cli_input_raw()
     } else {
         cli_input_log("CLI Input: GetStdHandle failed (%08X)\n", GetLastError());
     }
-#else
+#    else
     /* Enable raw input. */
     struct termios ios;
     if (tcgetattr(STDIN_FILENO, &ios)) {
@@ -375,7 +378,7 @@ cli_input_raw()
         if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &ios))
             cli_input_log("CLI Input: tcsetattr failed (%d)\n", errno);
     }
-#endif
+#    endif
 }
 
 static void
@@ -387,7 +390,7 @@ cli_input_unraw()
 
     /* Restore saved terminal state. */
     if (in_raw == 2) {
-#ifdef _WIN32
+#    ifdef _WIN32
         HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
         if (h) {
             if (!SetConsoleMode(h, saved_console_mode))
@@ -395,7 +398,7 @@ cli_input_unraw()
         } else {
             cli_input_log("CLI Input: GetStdHandle failed (%08X)\n", GetLastError());
         }
-#else
+#    else
         struct termios ios;
         if (tcgetattr(STDIN_FILENO, &ios)) {
             cli_input_log("CLI Input: tcgetattr failed (%d)\n", errno);
@@ -405,7 +408,7 @@ cli_input_unraw()
             if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &ios))
                 cli_input_log("CLI Input: tcsetattr failed (%d)\n", errno);
         }
-#endif
+#    endif
     }
 
     in_raw = 0;
@@ -1099,3 +1102,4 @@ cli_input_close()
     /* Restore terminal state. */
     cli_input_unraw();
 }
+#endif

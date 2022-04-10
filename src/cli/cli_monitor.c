@@ -50,7 +50,6 @@
 #    endif
 #endif
 
-#ifdef USE_CLI
 /* Lookup tables for converting key names to keyboard scan codes. */
 static const struct {
     const char *name;
@@ -124,7 +123,6 @@ static const struct {
     { 0   }
 // clang-format on
 };
-#endif
 
 static int      first_run = 1;
 static event_t *screenshot_event;
@@ -303,7 +301,6 @@ cli_monitor_mediaeject_mountblank_nowp(int argc, char **argv, const void *priv)
     mount_func(id, "");
 }
 
-#ifdef USE_CLI
 static void
 cli_monitor_sendkey(int argc, char **argv, const void *priv)
 {
@@ -431,7 +428,6 @@ cli_monitor_type(int argc, char **argv, const void *priv)
             fprintf(CLI_RENDER_OUTPUT, "Ignoring unknown key: %c\n", ch);
     }
 }
-#endif
 
 static void
 cli_monitor_hardreset(int argc, char **argv, const void *priv)
@@ -600,7 +596,6 @@ static const struct {
      .handler  = cli_monitor_mediaeject,
      .priv     = (const media_cmd_t[]) { [0] = { cartridge_eject, 2, "cartridge slot" } } },
 
-#ifdef USE_CLI
     {
      .name     = "sendkey",
      .helptext = "Send key combination <combo>.",
@@ -619,7 +614,6 @@ static const struct {
      .category = MONITOR_CATEGORY_INPUT,
      .handler  = cli_monitor_type,
      },
-#endif
 
     { .name     = "hardreset",
      .helptext = "Hard reset the emulated machine.",
@@ -813,7 +807,7 @@ cli_monitor_help(int argc, char **argv, const void *priv)
     }
 }
 
-void
+static void
 cli_monitor_thread(void *priv)
 {
     /* The monitor should only be available if both stdin and output are not redirected. */

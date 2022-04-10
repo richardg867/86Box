@@ -78,7 +78,7 @@ typedef struct {
     uint8_t color_level, ctl_level, gfx_level,
         can_input, can_utf8, cpr, sda, decrqss_color,
         size_x, size_y;
-    int     decrqss_cursor;
+    int decrqss_cursor;
 
     int (*setcolor)(char *p, uint8_t index, uint8_t is_background);
 } cli_term_t;
@@ -103,8 +103,6 @@ extern void cli_init();
 extern void cli_close();
 
 /* cli_input.c */
-extern void cli_input_send(uint16_t code, uint8_t modifier);
-
 extern void cli_input_init();
 extern void cli_input_close();
 
@@ -142,8 +140,10 @@ extern void cli_render_init();
 extern void cli_render_close();
 #endif
 
+/* cli_input.c */
+extern void cli_input_send(uint16_t code, uint8_t modifier);
+
 /* cli_monitor.c */
-extern void cli_monitor_thread(void *priv);
 extern void cli_monitor_init(uint8_t independent);
 extern void cli_monitor_close();
 
