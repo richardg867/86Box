@@ -514,11 +514,11 @@ cli_input_csi_dispatch(int c)
 
     /* Determine if this is actually a device attribute query response. */
     if (cli_term.sda && (c == 'c') && (collect_buf[0] == '?')) {
-        cli_input_log("CLI Input: Attributes[%d] report:", cli_term.sda);
+        cli_input_log("CLI Input: Attributes[%d] report: ", cli_term.sda);
         if (cli_term.sda == 1) { /* primary attributes */
             /* Enable sixel graphics if supported. */
             modifier = cli_input_response_strstr(param_buf, ":4:");
-            cli_input_log("%ssixel,", modifier ? " " : " no ");
+            cli_input_log("%ssixel,", modifier ? "" : "no ");
             if (modifier)
                 cli_term.gfx_level |= TERM_GFX_SIXEL;
             else
@@ -526,7 +526,7 @@ cli_input_csi_dispatch(int c)
 
             /* Enable 16-bit color if supported. */
             modifier = cli_input_response_strstr(param_buf, ":22:");
-            cli_input_log("%scolor\n", modifier ? " " : " no ");
+            cli_input_log("%scolor\n", modifier ? "" : "no ");
             if ((cli_term.color_level < TERM_COLOR_4BIT) && modifier)
                 cli_term_setcolor(TERM_COLOR_4BIT, "attributes");
         } else {

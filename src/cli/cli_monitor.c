@@ -134,7 +134,7 @@ static event_t *screenshot_event;
 static char *(*readline)(const char *)          = NULL;
 static int (*add_history)(const char *)         = NULL;
 static void (*rl_callback_handler_remove)(void) = NULL;
-static FILE **rl_outstream;
+static FILE **rl_outstream                      = NULL;
 
 static dllimp_t libedit_imports[] = {
 // clang-format off
