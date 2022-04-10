@@ -265,7 +265,7 @@ cli_input_log_key(const char *func, int c)
 #endif
 
 void
-cli_input_send(uint16_t code, uint8_t modifier)
+cli_input_send(uint16_t code, int modifier)
 {
     cli_input_log("CLI Input: send(%04X, %02X)\n", code, modifier);
 

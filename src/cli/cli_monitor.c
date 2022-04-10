@@ -970,7 +970,7 @@ have_cmd:
 }
 
 void
-cli_monitor_init(uint8_t independent)
+cli_monitor_init(int independent)
 {
     /* The monitor should only be available if both stdin and output are not redirected. */
     if (!isatty(fileno(stdin)) || !isatty(fileno(CLI_RENDER_OUTPUT)))

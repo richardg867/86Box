@@ -140,10 +140,10 @@ enum {
 /* cli_input.c */
 extern const uint16_t ascii_seqs[128];
 
-extern void cli_input_send(uint16_t code, uint8_t modifier);
+extern void cli_input_send(uint16_t code, int modifier);
 
 /* cli_monitor.c */
-extern void cli_monitor_init(uint8_t independent);
+extern void cli_monitor_init(int independent);
 extern void cli_monitor_close();
 
 #endif
