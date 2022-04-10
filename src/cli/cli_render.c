@@ -967,10 +967,11 @@ cli_render_process_screenshot(char *path, uint32_t *buf, int start_x, int start_
                     /* Output terminator. */
                     fputs("\033\\", CLI_RENDER_OUTPUT);
                 }
+
+                fputc('\n', CLI_RENDER_OUTPUT);
             }
 
             /* Finish and flush output. */
-            fputc('\n', CLI_RENDER_OUTPUT);
             fflush(CLI_RENDER_OUTPUT);
 
             fclose(f);
