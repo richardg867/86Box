@@ -488,9 +488,9 @@ cli_input_csi_dispatch(int c)
         return;
 
     /* Read numeric code and modifier parameters if applicable. */
-    int  code, modifier;
-    char delimiter;
-    switch (sscanf(param_buf, "%d%c%d", &code, &delimiter, &modifier)) {
+    unsigned int code, modifier, third;
+    char         delimiter;
+    switch (sscanf(param_buf, "%u%c%u%c%u", &code, &delimiter, &modifier, &delimiter, &third)) {
         case EOF:
         case 0:
             code = 0;
@@ -498,10 +498,14 @@ cli_input_csi_dispatch(int c)
 
         case 1 ... 2:
             modifier = 0;
+            /* fall-through */
+
+        case 3 ... 4:
+            third = 0;
             break;
     }
 
-    /* Determine if this is actually a terminal size query response. */
+    /* Determine if this is a terminal size query response. */
     if (cli_term.cpr && (c == 'R') && (modifier > 1)) {
         if (code == 1) {
             cli_term.cpr &= ~2;
@@ -519,27 +523,41 @@ cli_input_csi_dispatch(int c)
         return;
     }
 
-    /* Determine if this is actually a device attribute query response. */
-    if (cli_term.sda && (c == 'c') && (collect_buf[0] == '?')) {
-        cli_input_log("CLI Input: Attributes[%d] report: ", cli_term.sda);
-        if (cli_term.sda == 1) { /* primary attributes */
-            /* Enable sixel graphics if supported. */
-            modifier = cli_input_response_strstr(param_buf, ":4:");
-            cli_input_log("%ssixel, ", modifier ? "" : "no ");
-            if (modifier)
-                cli_term.gfx_level |= TERM_GFX_SIXEL;
-            else
-                cli_term.gfx_level &= ~TERM_GFX_SIXEL;
+    /* Determine if this is a device attribute query response. */
+    if ((c == 'c') && (collect_buf[0] == '?')) {
+        cli_input_log("CLI Input: Primary attributes report: ");
 
-            /* Enable 4-bit color if supported. */
-            modifier = cli_input_response_strstr(param_buf, ":22:");
-            cli_input_log("%scolor\n", modifier ? "" : "no ");
-            if ((cli_term.color_level < TERM_COLOR_4BIT) && modifier)
-                cli_term_setcolor(TERM_COLOR_4BIT, "attributes");
+        /* Enable sixel graphics if supported. */
+        modifier = cli_input_response_strstr(param_buf, ":4:");
+        cli_input_log("%ssixel, ", modifier ? "" : "no ");
+        if (modifier)
+            cli_term.gfx_level |= TERM_GFX_SIXEL;
+        else
+            cli_term.gfx_level &= ~TERM_GFX_SIXEL;
+
+        /* Enable 4-bit color if supported. */
+        modifier = cli_input_response_strstr(param_buf, ":22:");
+        cli_input_log("%scolor\n", modifier ? "" : "no ");
+        if ((cli_term.color_level < TERM_COLOR_4BIT) && modifier)
+            cli_term_setcolor(TERM_COLOR_4BIT, "attributes");
+
+        return;
+    }
+
+    /* Determine if this is a graphics attribute query response. */
+    if ((c == 'S') && (collect_buf[0] == '?')) {
+        cli_input_log("CLI Input: Graphics attribute %d reports: response %d, ", code, modifier);
+        if ((code == 1) && (modifier == 0) && (third > 0)) {
+            /* Set sixel color register count. */
+            cli_input_log("%d sixel color registers\n", third);
+            cli_term.sixel_color_regs = third;
+
+            /* Update libsixel dithering level. */
+            cli_render_setcolorlevel();
         } else {
             cli_input_log("nothing we care about\n");
         }
-        cli_term.sda = 0;
+
         return;
     }
 
@@ -692,7 +710,7 @@ cli_input_unhook(int c)
 
             case 'q':
                 /* Save current cursor style. */
-                if (sscanf(&dcs_buf[1], "%d", &cli_term.decrqss_cursor) != 1)
+                if (sscanf(&dcs_buf[1], "%u", &cli_term.decrqss_cursor) != 1)
                     cli_term.decrqss_cursor = 0;
                 cli_input_log("CLI Input: DECRQSS reports a cursor style of %d\n", cli_term.decrqss_cursor);
                 break;

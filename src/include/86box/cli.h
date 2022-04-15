@@ -60,17 +60,16 @@ enum {
 
 enum {
     RENDER_SIDEBAND_CPR_SIZE = 0,
-    RENDER_SIDEBAND_CPR_UTF8,
-    RENDER_SIDEBAND_SDA,
+    RENDER_SIDEBAND_INITIAL_QUERIES,
     RENDER_SIDEBAND_DECRQSS_COLOR,
     RENDER_SIDEBAND_MAX
 };
 
 typedef struct {
     uint8_t color_level, ctl_level, gfx_level,
-        can_input, can_utf8, cpr, sda, decrqss_color,
+        can_input, can_utf8, cpr, decrqss_color,
         size_x, size_y;
-    int decrqss_cursor;
+    unsigned int decrqss_cursor, sixel_color_regs;
 
     int (*setcolor)(char *p, uint8_t index, uint8_t is_background);
 } cli_term_t;

@@ -84,7 +84,7 @@ typedef struct _cli_render_png_ {
 } cli_render_png_t;
 
 typedef struct _cli_render_sixel_ {
-    uint8_t set, render, sixmap[CLI_RENDER_GFXBUF_W];
+    uint8_t sixmap[CLI_RENDER_GFXBUF_W];
     union {
         uint32_t rgb;
         uint8_t  r_g_b_f[4];
@@ -152,13 +152,13 @@ static int(LIBSIXELDLLAPI *sixel_encode)(unsigned char *pixels, int width, int h
                                          int depth, void *dither, void *context);
 
 static dllimp_t libsixel_imports[] = {
-// clang-format off
+  // clang-format off
     { "sixel_dither_get",     &sixel_dither_get     },
     { "sixel_output_new",     &sixel_output_new     },
     { "sixel_output_destroy", &sixel_output_destroy },
     { "sixel_encode",         &sixel_encode         },
     { NULL,                   NULL                  }
-// clang-format on
+  // clang-format on
 };
 static void *libsixel_handle = NULL,
             *libsixel_dither = NULL, *libsixel_output = NULL;
@@ -168,7 +168,7 @@ static uint8_t palette_4bit[16], palette_8bit[16],
     cursor_x = -1, cursor_y = -1;
 static uint32_t            colors_8bit[256], palette_24bit[16];
 static time_t              gfx_last = 0;
-static int                 png_size = 0;
+static int                 png_size = 0, sixel_color_regs = -1, sixel_max_gray = -1;
 static cli_render_png_t   *png_first, *png_current;
 static cli_render_sixel_t *sixel_colors = NULL;
 static cli_render_line_t  *lines[CLI_RENDER_MAX_LINES];
@@ -502,7 +502,7 @@ cli_render_setcolor_4bit(char *p, uint8_t index, uint8_t is_background)
     if (approx & 8) {
         if (is_background) {
             pre_attr = sgr;
-            sgr += 60; /* bright background: use non-standard SGR */
+            sgr += 60; /* bright background: use non-standard SGR (pre_attr sets approximate 3-bit color as a backup) */
         } else {
             pre_attr = 1; /* bright foreground: increase intensity */
         }
@@ -542,7 +542,7 @@ cli_render_setcolor_24bit(char *p, uint8_t index, uint8_t is_background)
 void
 cli_render_setcolorlevel()
 {
-    /* Set color functions and establish libsixel dither level. */
+    /* Set color functions and establish libsixel dithering level. */
     int libsixel_dither_level;
     switch (cli_term.color_level) {
         case TERM_COLOR_3BIT:
@@ -572,8 +572,19 @@ cli_render_setcolorlevel()
     }
 
     /* Get libsixel dither object. */
-    if (sixel_dither_get)
-        libsixel_dither = sixel_dither_get(libsixel_dither_level);
+    if (sixel_dither_get) {
+        /* Limit level to what is supported by the color register count. */
+        int libsixel_dither_level_max;
+        if (cli_term.sixel_color_regs >= 256)
+            libsixel_dither_level_max = 0x3; /* SIXEL_BUILTIN_XTERM256 */
+        else if (cli_term.sixel_color_regs >= 16)
+            libsixel_dither_level_max = 0x2; /* SIXEL_BUILTIN_XTERM16 */
+        else
+            libsixel_dither_level_max = 0x0; /* SIXEL_BUILTIN_MONO_DARK */
+
+        /* Get dither object for the level. */
+        libsixel_dither = sixel_dither_get(MIN(libsixel_dither_level, libsixel_dither_level_max));
+    }
 }
 
 void
@@ -770,13 +781,9 @@ cli_render_process_sixelwrite(char *data, int size, void *priv)
 static void
 cli_render_process_sixel(uint8_t *fb, int sx, int sy)
 {
-    char     ch, prev_ch;
-    uint8_t *p = fb;
-    union {
-        uint32_t rgb;
-        uint8_t  r_g_b_f[4];
-    } color = { .rgb = 0 };
-    int                 i, j, x, y;
+    uint8_t            *p = fb;
+    int                 i, j, x;
+    double              gray_scale_255, gray_scale_3;
     cli_render_sixel_t *color_entry;
 
     /* Render using libsixel instead if available. */
@@ -788,51 +795,62 @@ cli_render_process_sixel(uint8_t *fb, int sx, int sy)
             return;
     }
 
-    /* Initialize palette array on the first use of sixel rendering. */
+    /* Initialize palette array on the first use of sixel rendering,
+       or reinitialize it if the amount of color registers has changed. */
+    if (sixel_colors && (cli_term.sixel_color_regs != sixel_color_regs)) {
+        free(sixel_colors);
+        sixel_colors = NULL;
+    }
     if (!sixel_colors) {
-        sixel_colors = malloc(sizeof(cli_render_sixel_t) * 1024);
-        for (j = 0; j < 1024; j++) {
-            color_entry = &sixel_colors[j];
-            /* Initialize the grayscale palette as well. */
-            if (j < 101)
-                color_entry->r_g_b_f[0] = color_entry->r_g_b_f[1] = color_entry->r_g_b_f[2] = j;
-            color_entry->render = 0;
-            memset(color_entry->sixmap, 0, sizeof(color_entry->sixmap));
+        sixel_color_regs = cli_term.sixel_color_regs;
+        sixel_colors     = (cli_render_sixel_t *) calloc(sixel_color_regs, sizeof(cli_render_sixel_t));
+
+        /* Initialize the grayscale palette as well. */
+        sixel_max_gray = MIN(sixel_color_regs, 101) - 1;
+        gray_scale_255 = 0.0;                    /* temporary storage for current value */
+        gray_scale_3   = 100.0 / sixel_max_gray; /* temporary storage for increment */
+        for (j = 0; j <= sixel_max_gray; j++) {
+            i                   = gray_scale_255;
+            sixel_colors[j].rgb = i | (i << 8) | (i << 16);
+            gray_scale_255 += gray_scale_3;
         }
     }
 
+    /* Initialize grayscale convenience values. */
+    gray_scale_255 = 255.0 / sixel_max_gray;
+    gray_scale_3   = 3.0 * gray_scale_255;
+    gray_scale_255 = 255.0 * gray_scale_255;
+
     /* Reset color state while clearing the color palette. */
-    for (j = 0; j < 1024; j++) {
-        color_entry             = &sixel_colors[j];
-        color_entry->set        = 0;
-        color_entry->r_g_b_f[3] = (j >= 101) << 7;
-    }
+    for (j = 0; j < sixel_color_regs; j++)
+        sixel_colors[j].r_g_b_f[3] = (j > sixel_max_gray) << 7;
 
     /* Start sixel output. */
     fputs("\033Pq", CLI_RENDER_OUTPUT);
 
     /* Render each sixel row, which corresponds to 6 pixel rows. */
-    for (y = 0; (y < sy) && (y < (CLI_RENDER_GFXBUF_H - 6)); y += 6) {
+    for (int y = 0; (y < sy) && (y < (CLI_RENDER_GFXBUF_H - 6)); y += 6) {
         /* Go through columns on this sixel row, building the sixmap for each color. */
         for (i = 0; i < 6; i++) {
             for (x = 0; x < sx; x++) {
+                /* Note: I tried skipping the color flow here in grayscale-only mode, only to hit an
+                   intermittent misoptimization on 32-bit MSYS2 gcc 11.2.0-4 with flags-i686.cmake */
+
                 /* Convert color to sixel scale. */
+                union {
+                    uint32_t rgb;
+                    uint8_t  r_g_b_f[4];
+                } color;
                 color.r_g_b_f[0] = *p++ / 2.55;
                 color.r_g_b_f[1] = *p++ / 2.55;
                 color.r_g_b_f[2] = *p++ / 2.55;
 
-                /* Check grayscale palette. */
-                if ((color.r_g_b_f[0] == color.r_g_b_f[1]) && (color.r_g_b_f[0] == color.r_g_b_f[2])) {
-                    color_entry = &sixel_colors[color.r_g_b_f[0]];
-                    goto have_color;
-                }
-
-                /* Check color palette. */
-                for (j = 101; j < 1024; j++) {
+                /* Check palette. */
+                for (j = 0; j < sixel_color_regs; j++) {
                     color_entry = &sixel_colors[j];
-                    if (color_entry->rgb == color.rgb) {
+                    if ((color_entry->rgb & 0x00ffffff) == color.rgb) {
                         goto have_color;
-                    } else if (color_entry->rgb & 0x80000000) {
+                    } else if (color_entry->rgb & (1 << 31)) {
                         /* This palette entry is up for grabs. */
                         color_entry->rgb = color.rgb;
                         goto have_color;
@@ -842,51 +860,49 @@ cli_render_process_sixel(uint8_t *fb, int sx, int sy)
                 /* Convert to grayscale. */
                 if (video_graytype) {
                     if (video_graytype == 1)
-                        j = ((54 * (uint32_t) * (p - 1)) + (183 * (uint32_t) * (p - 2)) + (18 * (uint32_t) * (p - 3))) / 650.25;
+                        j = ((54 * (uint32_t) * (p - 1)) + (183 * (uint32_t) * (p - 2)) + (18 * (uint32_t) * (p - 3))) / gray_scale_255;
                     else
-                        j = ((uint32_t) * (p - 1) + (uint32_t) * (p - 2) + (uint32_t) * (p - 3)) / 7.65;
+                        j = ((uint32_t) * (p - 1) + (uint32_t) * (p - 2) + (uint32_t) * (p - 3)) / gray_scale_3;
                 } else {
-                    j = ((76 * (uint32_t) * (p - 1)) + (150 * (uint32_t) * (p - 2)) + (29 * (uint32_t) * (p - 3))) / 650.25;
+                    j = ((76 * (uint32_t) * (p - 1)) + (150 * (uint32_t) * (p - 2)) + (29 * (uint32_t) * (p - 3))) / gray_scale_255;
                 }
                 color_entry = &sixel_colors[j];
 
-                /* Set bit in sixmap, and mark this color for rendering. */
 have_color:
+                /* Set bit in sixmap, and mark this color for rendering. */
                 color_entry->sixmap[x] |= 1 << i;
-                color_entry->render = 1;
+                color_entry->rgb |= (1 << 30);
             }
         }
 
         /* Render the sixmap for each color. */
-        for (j = 0; j < 1024; j++) {
+        for (j = 0; j < sixel_color_regs; j++) {
             /* Don't render colors not marked for rendering. */
             color_entry = &sixel_colors[j];
-            if (!color_entry->render) {
+            if (!(color_entry->rgb & (1 << 30))) {
                 /* Stop if the palette has ended. */
-                if (color_entry->rgb & 0x80000000)
+                if (color_entry->rgb & (1 << 31))
                     break;
                 else
                     continue;
             }
 
-            /* Set color register if it wasn't already set. */
-            if (!color_entry->set) {
-                color_entry->set = 1;
-                fprintf(CLI_RENDER_OUTPUT, "#%d;2;%d;%d;%d",
-                        j,
+            /* Activate color register. */
+            fprintf(CLI_RENDER_OUTPUT, "#%d", j);
+            if (!(color_entry->rgb & (1 << 29))) {
+                /* Set color register if it wasn't already set. */
+                color_entry->rgb |= (1 << 29);
+                fprintf(CLI_RENDER_OUTPUT, ";2;%d;%d;%d",
                         color_entry->r_g_b_f[0],
                         color_entry->r_g_b_f[1],
                         color_entry->r_g_b_f[2]);
             }
 
-            /* Activate color register. */
-            fprintf(CLI_RENDER_OUTPUT, "#%d", j);
-
             /* Output sixels with RLE compression. */
-            i       = 0;
-            prev_ch = -1;
+            i            = 0;
+            char prev_ch = -1;
             for (x = 0; x < sx; x++) {
-                ch = color_entry->sixmap[x];
+                char ch = color_entry->sixmap[x];
                 if (ch != prev_ch) {
                     if (i < 4) {
                         for (; i; i--)
@@ -910,7 +926,7 @@ have_color:
             fputc('$', CLI_RENDER_OUTPUT);
 
             /* Reset color state for the next sixel row. */
-            color_entry->render = 0;
+            color_entry->rgb &= ~(1 << 30);
             memset(color_entry->sixmap, 0, sizeof(color_entry->sixmap));
         }
 
@@ -1474,7 +1490,7 @@ no_libsixel:
 
     /* Load RGB color values for the 256-color palette.
        Algorithm based on Linux's vt.c */
-    int i;
+    int      i;
     uint32_t palette_color;
     for (i = 0; i < 256; i++) {
         if (i < 16) { /* 16-color ANSI */

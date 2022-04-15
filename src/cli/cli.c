@@ -39,7 +39,7 @@ static const struct {
     const uint8_t ctl;
     const uint8_t gfx;
 } term_types[] = {
-// clang-format off
+  // clang-format off
 #ifdef _WIN32
     { "cmd-nt6",        TERM_COLOR_4BIT,  0,                                    0                            },
     { "cmd-nt10",       TERM_COLOR_24BIT, 0,                                    0                            },
@@ -67,14 +67,15 @@ static const struct {
     { "vt241",          TERM_COLOR_NONE,  0,                                    TERM_GFX_SIXEL               },
     { "vt330",          TERM_COLOR_NONE,  0,                                    TERM_GFX_SIXEL               },
     { NULL,             TERM_COLOR_3BIT,  0,                                    0                            }  /* unknown terminal */
-// clang-format on
+  // clang-format on
 };
 
 cli_term_t cli_term = {
-    .can_utf8 = 1,
-    .size_x   = 80,
-    .size_y   = 24, /* terminals default to 80x24, not the IBM PC's 80x25 */
-    .setcolor = cli_render_setcolor_none
+    .can_utf8         = 1,
+    .size_x           = 80,
+    .size_y           = 24, /* terminals default to 80x24, not the IBM PC's 80x25 */
+    .sixel_color_regs = 1024,
+    .setcolor         = cli_render_setcolor_none
 };
 #ifdef _WIN32
 static int   have_state_restore = 0;
@@ -303,13 +304,12 @@ cmd_nt10:
 #endif
 
     if (cli_term.can_input) {
-        /* Probe UTF-8 support using CPR. */
+        /* Probe terminal for:
+           - UTF-8 support using Cursor Position Report and a non-breaking space character
+           - Color and sixel support using Primary Device Attributes
+           - Sixel color register count using Graphics Attributes */
         cli_term.cpr |= 2;
-        cli_render_write(RENDER_SIDEBAND_CPR_UTF8, "\033[1;1H\xC2\xA0\033[6n\033[1;1H"); /* non-breaking space */
-
-        /* Query primary device attributes. */
-        cli_term.sda = 1;
-        cli_render_write(RENDER_SIDEBAND_SDA, "\033[c");
+        cli_render_write(RENDER_SIDEBAND_INITIAL_QUERIES, "\033[1;1H\xC2\xA0\033[6n\033[c\033[?1;1;0S\033[1;1H");
     }
 }
 
