@@ -94,7 +94,6 @@ make_tar() {
 
 # Set common variables.
 project=86Box
-project_lower=86box
 cwd=$(pwd)
 
 # Parse arguments.
@@ -668,11 +667,17 @@ else
 		echo $pkg $version >> archive_tmp/README
 	done
 
+	# Archive metainfo data.
+	metainfo_base=archive_tmp/usr/share/metainfo
+	mkdir -p "$metainfo_base"
+	cp -p src/unix/assets/*.metainfo.xml "$metainfo_base/"
+	project_id=$(ls "$metainfo_base/"*".metainfo.xml" | head -1 | grep -oP '/\K([^/]+)(?=\.metainfo\.[^\.]+$)')
+
 	# Archive icons.
 	icon_base=archive_tmp/usr/share/icons
 	mkdir -p "$icon_base"
 	cp -rp src/unix/assets/[0-9]*x[0-9]* "$icon_base/"
-	icon_name=$(ls "$icon_base/"[0-9]*x[0-9]*/* | head -1 | grep -oP '/\K([^/]+)(?=\.[^\.]+$)')
+	project_icon=$(ls "$icon_base/"[0-9]*x[0-9]*/* | head -1 | grep -oP '/\K([^/]+)(?=\.[^\.]+$)')
 
 	# Archive executable, while also stripping it if requested.
 	mkdir -p archive_tmp/usr/local/bin
@@ -717,9 +722,9 @@ else
 	esac
 
 	# Get version for AppImage metadata.
-	project_version=$(grep -oP '#define\s+EMU_VERSION\s+"\K([^"]+)' "build/src/include/$project_lower/version.h" 2> /dev/null)
+	project_version=$(grep -oP '#define\s+EMU_VERSION\s+"\K([^"]+)' "build/src/include/"*"/version.h" 2> /dev/null)
 	[ -z "$project_version" ] && project_version=unknown
-	build_num=$(grep -oP '#define\s+EMU_BUILD_NUM\s+\K([0-9]+)' "build/src/include/$project_lower/version.h" 2> /dev/null)
+	build_num=$(grep -oP '#define\s+EMU_BUILD_NUM\s+\K([0-9]+)' "build/src/include/"*"/version.h" 2> /dev/null)
 	[ -n "$build_num" -a "$build_num" != "0" ] && project_version="$project_version-b$build_num"
 
 	# Download appimage-builder if necessary.
@@ -731,7 +736,7 @@ else
 	rm -rf "$project-"*".AppImage"
 
 	# Run appimage-builder in extract-and-run mode for Docker compatibility.
-	project="$project" project_lower="$project_lower" project_version="$project_version" project_icon="$icon_name" arch_deb="$arch_deb" \
+	project="$project" project_id="$project_id" project_version="$project_version" project_icon="$project_icon" arch_deb="$arch_deb" \
 		arch_appimage="$arch_appimage" APPIMAGE_EXTRACT_AND_RUN=1 ./appimage-builder.AppImage --recipe .ci/AppImageBuilder.yml
 	status=$?
 

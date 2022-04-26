@@ -27,7 +27,7 @@ version: 1
 AppDir:
   path: ./archive_tmp
   app_info:
-    id: !ENV 'net.${project_lower}.${project}'
+    id: !ENV '${project_id}'
     name: !ENV '${project}'
     icon: !ENV '${project_icon}'
     version: !ENV '${project_version}'
@@ -80,8 +80,9 @@ AppDir:
     - usr/lib/cmake
     - usr/lib/pkgconfig
     - usr/s[a-gi-zA-Z]*
-    - usr/share/[a-hj-zA-Z]*
+    - usr/share/[a-hj-ln-zA-Z]*
     - usr/share/i[a-bd-zA-Z]*
+    - usr/share/m[a-df-zA-Z]*
     - var
 AppImage:
   arch: !ENV '${arch_appimage}'
