@@ -145,6 +145,12 @@ add_library(ui STATIC
     qt_unixmanagerfilter.cpp
     qt_unixmanagerfilter.hpp
 
+    qt_vulkanwindowrenderer.hpp
+    qt_vulkanwindowrenderer.cpp
+
+    qt_vulkanrenderer.hpp
+    qt_vulkanrenderer.cpp
+
     ../qt_resources.qrc
 )
 
@@ -244,7 +250,7 @@ if (APPLE AND CMAKE_MACOSX_BUNDLE)
     install_qt5_plugin("Qt${QT_MAJOR}::QMacStylePlugin" QT_PLUGINS ${prefix})
     install_qt5_plugin("Qt${QT_MAJOR}::QICOPlugin" QT_PLUGINS ${prefix})
     install_qt5_plugin("Qt${QT_MAJOR}::QICNSPlugin" QT_PLUGINS ${prefix})
-    
+
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/qt.conf"
         "[Paths]\nPlugins = PlugIns\n")
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/qt.conf"

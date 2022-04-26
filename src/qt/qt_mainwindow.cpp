@@ -207,18 +207,12 @@ MainWindow::MainWindow(QWidget *parent) :
         qt_mouse_capture(mouse_capture);
         if (mouse_capture) {
             this->grabKeyboard();
-#ifdef WAYLAND
-            if (QGuiApplication::platformName().contains("wayland")) {
-                wl_mouse_capture(this->windowHandle());
-            }
-#endif
+            if (ui->stackedWidget->mouse_capture_func)
+                ui->stackedWidget->mouse_capture_func(this->windowHandle());
         } else {
             this->releaseKeyboard();
-#ifdef WAYLAND
-            if (QGuiApplication::platformName().contains("wayland")) {
-                wl_mouse_uncapture();
-            }
-#endif
+            if (ui->stackedWidget->mouse_uncapture_func)
+                ui->stackedWidget->mouse_uncapture_func();
         }
     });
 
@@ -282,8 +276,14 @@ MainWindow::MainWindow(QWidget *parent) :
         vid_api = 0;
         ui->actionHardware_Renderer_OpenGL->setVisible(false);
         ui->actionHardware_Renderer_OpenGL_ES->setVisible(false);
+        ui->actionVulkan->setVisible(false);
         ui->actionOpenGL_3_0_Core->setVisible(false);
     }
+
+#if !QT_CONFIG(vulkan)
+    if (vid_api == 4) vid_api = 0;
+    ui->actionVulkan->setVisible(false);
+#endif
 
     QActionGroup* actGroup = nullptr;
 
@@ -292,6 +292,7 @@ MainWindow::MainWindow(QWidget *parent) :
     actGroup->addAction(ui->actionHardware_Renderer_OpenGL);
     actGroup->addAction(ui->actionHardware_Renderer_OpenGL_ES);
     actGroup->addAction(ui->actionOpenGL_3_0_Core);
+    actGroup->addAction(ui->actionVulkan);
     actGroup->setExclusive(true);
 
     connect(actGroup, &QActionGroup::triggered, [this](QAction* action) {
@@ -309,6 +310,9 @@ MainWindow::MainWindow(QWidget *parent) :
             break;
         case 3:
             ui->stackedWidget->switchRenderer(RendererStack::Renderer::OpenGL3);
+            break;
+        case 4:
+            ui->stackedWidget->switchRenderer(RendererStack::Renderer::Vulkan);
             break;
         }
     });
@@ -515,10 +519,11 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     }
     qt_nvr_save();
     config_save();
-#if defined __unix__ && !defined __HAIKU__
-    extern void xinput2_exit();
-    if (QApplication::platformName() == "xcb") xinput2_exit();
-#endif
+
+    if (ui->stackedWidget->mouse_exit_func)
+        ui->stackedWidget->mouse_exit_func();
+
+    ui->stackedWidget->switchRenderer(RendererStack::Renderer::Software);
     event->accept();
 }
 
@@ -625,6 +630,7 @@ void MainWindow::on_actionSettings_triggered() {
     plat_pause(currentPause);
 }
 
+#if defined(__unix__) && !defined(__HAIKU__)
 std::array<uint32_t, 256> x11_to_xt_base
 {
     0,
@@ -952,7 +958,9 @@ std::array<uint32_t, 256> x11_to_xt_vnc
     0x14B,
     0x14D,
 };
+#endif
 
+#ifdef Q_OS_MACOS
 std::array<uint32_t, 256> darwin_to_xt
 {
     0x1E,
@@ -1084,7 +1092,9 @@ std::array<uint32_t, 256> darwin_to_xt
     0x148,
     0,
 };
+#endif
 
+#if defined(__unix__) && !defined(__HAIKU__)
 static std::unordered_map<uint32_t, uint16_t> evdev_to_xt =
     {
         {96, 0x11C},
@@ -1104,6 +1114,7 @@ static std::unordered_map<uint32_t, uint16_t> evdev_to_xt =
         {110, 0x152},
         {111, 0x153}
 };
+#endif
 
 #ifdef __HAIKU__
 static std::unordered_map<uint8_t, uint16_t> be_to_xt =
@@ -1216,7 +1227,9 @@ static std::unordered_map<uint8_t, uint16_t> be_to_xt =
 };
 #endif
 
+#if defined(__unix__) && !defined(__HAIKU__)
 static std::array<uint32_t, 256>& selected_keycode = x11_to_xt_base;
+#endif
 
 uint16_t x11_keycode_to_keysym(uint32_t keycode)
 {
