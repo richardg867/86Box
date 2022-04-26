@@ -671,7 +671,9 @@ else
 	project_id=$(ls src/unix/assets/*.*.xml | head -1 | grep -oP '/\K([^/]+)(?=\.[^\.]+\.[^\.]+$)')
 	metainfo_base=archive_tmp/usr/share/metainfo
 	mkdir -p "$metainfo_base"
-	cp -p "src/unix/assets/$project_id."*".xml" "$metainfo_base/$project_id.appdata.xml"
+	metainfo_dest="$metainfo_base/$project_id.appdata.xml"
+	cp -p "src/unix/assets/$project_id."*".xml" "$metainfo_dest"
+	grep -q "<category>Emulation</category>" "$metainfo_dest" && sed -i -e '/<categories>/d;/<category>/d;/<\/category>/d;/<\/categories>/d' "$metainfo_dest"
 
 	# Archive icons.
 	icon_base=archive_tmp/usr/share/icons
