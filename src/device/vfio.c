@@ -39,6 +39,8 @@
 #include <86box/mem.h>
 #include <86box/pci.h>
 #include <86box/plat.h>
+#include <86box/path.h>
+#include <86box/thread.h>
 #include <86box/timer.h>
 #include <86box/video.h>
 
@@ -3381,12 +3383,15 @@ vfio_speed_changed(void *priv)
 
 static const device_t vfio_device =
 {
-    "VFIO PCI Passthrough",
-    DEVICE_PCI,
-    0,
-    NULL, vfio_close, vfio_reset,
-    { NULL },
-    vfio_speed_changed,
-    NULL,
-    NULL
+    .name          = "VFIO PCI Passthrough",
+    .internal_name = "vfio",
+    .flags         = DEVICE_PCI,
+    .local         = 0,
+    .init          = NULL,
+    .close         = vfio_close,
+    .reset         = vfio_reset,
+    { .available = NULL },
+    .speed_changed = vfio_speed_changed,
+    .force_redraw  = NULL,
+    .config        = NULL
 };
