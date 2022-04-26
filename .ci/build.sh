@@ -645,7 +645,7 @@ else
 		-D SDL_JOYSTICK=ON -D SDL_HIDAPI_JOYSTICK=ON -D SDL_VIRTUAL_JOYSTICK=ON \
 		\
 		-D SDL_ATOMIC=OFF -D SDL_EVENTS=ON -D SDL_HAPTIC=OFF -D SDL_POWER=OFF -D SDL_THREADS=ON -D SDL_TIMERS=ON -D SDL_FILE=OFF \
-		-D SDL_LOADSO=ON -D SDL_CPUINFO=OFF -D SDL_FILESYSTEM=$sdl_ui -D SDL_DLOPEN=OFF -D SDL_SENSOR=OFF -D SDL_LOCALE=OFF \
+		-D SDL_LOADSO=ON -D SDL_CPUINFO=ON -D SDL_FILESYSTEM=$sdl_ui -D SDL_DLOPEN=OFF -D SDL_SENSOR=OFF -D SDL_LOCALE=OFF \
 		\
 		-D "CMAKE_TOOLCHAIN_FILE=$cwd_root/toolchain.cmake" -D "CMAKE_INSTALL_PREFIX=$cwd_root/archive_tmp/usr" \
 		-S "$prefix" -B "$cache_dir/sdlbuild" || exit 99
@@ -754,8 +754,10 @@ EOF
 		https://github.com/AppImageCrafters/appimage-builder/releases/download/v0.9.2/appimage-builder-0.9.2-35e3eab-x86_64.AppImage
 	chmod u+x appimage-builder.AppImage
 
-	# Remove any dangling AppImages which may interfere with the renaming process.
-	rm -rf "$project-"*".AppImage"
+	# Symlink global cache directory.
+	rm -rf appimage-builder-cache "$project-"*".AppImage" # also remove any dangling AppImages which may interfere with the renaming process
+	mkdir -p "$cache_dir/appimage-builder-cache"
+	ln -s "$cache_dir/appimage-builder-cache" appimage-builder-cache
 
 	# Run appimage-builder in extract-and-run mode for Docker compatibility.
 	project="$project" project_id="$project_id" project_version="$project_version" project_icon="$project_icon" arch_deb="$arch_deb" \
