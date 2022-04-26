@@ -86,3 +86,4 @@ AppDir:
     - var
 AppImage:
   arch: !ENV '${arch_appimage}'
+  file_name: '-n' # nasty hack to disable metainfo validation
