@@ -767,7 +767,7 @@ path_abs(char *path)
 
 /* Return the last element of a pathname. */
 char *
-plat_get_basename(const char *path)
+path_get_basename(const char *path)
 {
     int c = (int)strlen(path);
 

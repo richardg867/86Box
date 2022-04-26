@@ -3030,7 +3030,7 @@ vfio_init()
             /* sysfs path: use basename as device name. */
             i        = strlen(token);
             dev_name = malloc(i + 1);
-            strncpy(dev_name, plat_get_basename(token), i);
+            strncpy(dev_name, path_get_basename(token), i);
 
             /* Just append iommu_group to the path. */
             sysfs_device = malloc(i + 13);
@@ -3078,7 +3078,7 @@ vfio_init()
         free(sysfs_device);
         if (p) {
             /* Parse group ID. */
-            if (sscanf(plat_get_basename(p), "%d", &i) != 1) {
+            if (sscanf(path_get_basename(p), "%d", &i) != 1) {
                 pclog("path could not be parsed: %s\n", p);
                 free(p);
                 goto next;

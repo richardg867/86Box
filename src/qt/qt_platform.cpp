@@ -194,7 +194,7 @@ plat_getcwd(char *bufp, int max)
 }
 
 char *
-plat_get_basename(const char *path)
+path_get_basename(const char *path)
 {
     QFileInfo fi(path);
     return fi.fileName().toUtf8().data();
