@@ -168,6 +168,7 @@ static pc_timer_t     irq_timer;
 static vfio_irq_t    *current_irq = NULL;
 static const device_t vfio_device;
 
+#define ENABLE_VFIO_LOG 2
 #ifdef ENABLE_VFIO_LOG
 int vfio_do_log = ENABLE_VFIO_LOG;
 
@@ -658,7 +659,6 @@ static uint8_t
 vfio_quirk_iomirror_readb(uint16_t addr, void *priv)
 {
     vfio_region_t *bar = (vfio_region_t *) priv;
-    vfio_device_t *dev = bar->dev;
 
     /* Read I/O port mirror from memory-mapped space. */
     uint8_t ret = vfio_mem_readb_fd(bar->emulated_offset + bar->quirks.iomirror.offset + addr, bar);
@@ -674,7 +674,6 @@ static uint16_t
 vfio_quirk_iomirror_readw(uint16_t addr, void *priv)
 {
     vfio_region_t *bar = (vfio_region_t *) priv;
-    vfio_device_t *dev = bar->dev;
 
     /* Read I/O port mirror from memory-mapped space. */
     uint16_t ret = vfio_mem_readw_fd(bar->emulated_offset + bar->quirks.iomirror.offset + addr, bar);
@@ -858,6 +857,7 @@ vfio_quirk_nvidia3d0_state_readb(uint16_t addr, void *priv)
 
     /* Reset state on read. */
     dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
+    vfio_log_op("VFIO %s: NVIDIA 3D0: Switching to NONE state (byte read)\n", dev->name);
 
     /* Cascade to the main handler. */
     return vfio_io_readb_fd(addr, priv);
@@ -870,6 +870,7 @@ vfio_quirk_nvidia3d0_state_readw(uint16_t addr, void *priv)
 
     /* Reset state on read. */
     dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
+    vfio_log_op("VFIO %s: NVIDIA 3D0: Switching to NONE state (word read)\n", dev->name);
 
     /* Cascade to the main handler. */
     return vfio_io_readw_fd(addr, priv);
@@ -882,6 +883,7 @@ vfio_quirk_nvidia3d0_state_readl(uint16_t addr, void *priv)
 
     /* Reset state on read. */
     dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
+    vfio_log_op("VFIO %s: NVIDIA 3D0: Switching to NONE state (dword read)\n", dev->name);
 
     /* Cascade to the main handler. */
     return vfio_io_readl_fd(addr, priv);
@@ -894,6 +896,7 @@ vfio_quirk_nvidia3d0_state_writeb(uint16_t addr, uint8_t val, void *priv)
 
     /* Commands don't fit in a byte; just reset state and move on. */
     dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
+    vfio_log_op("VFIO %s: NVIDIA 3D0: Switching to NONE state (byte write)\n", dev->name);
 
     /* Cascade to the main handler. */
     vfio_io_writeb_fd(addr, val, &dev->vga_io_hi);
@@ -911,18 +914,24 @@ vfio_quirk_nvidia3d0_state_writew(uint16_t addr, uint16_t val, void *priv)
     /* Interpret NVIDIA commands. */
     switch (val) {
         case 0x338:
-            if (prev_state == NVIDIA_3D0_NONE)
+            if (prev_state == NVIDIA_3D0_NONE) {
                 dev->quirks.nvidia3d0.state = NVIDIA_3D0_SELECT;
+                vfio_log_op("VFIO %s: NVIDIA 3D0: Switching to SELECT state (word write)\n", dev->name);
+            }
             break;
 
         case 0x538:
-            if (prev_state == NVIDIA_3D0_WINDOW)
+            if (prev_state == NVIDIA_3D0_WINDOW) {
                 dev->quirks.nvidia3d0.state = NVIDIA_3D0_READ;
+                vfio_log_op("VFIO %s: NVIDIA 3D0: Switching to READ state (word write)\n", dev->name);
+            }
             break;
 
         case 0x738:
-            if (prev_state == NVIDIA_3D0_WINDOW)
+            if (prev_state == NVIDIA_3D0_WINDOW) {
                 dev->quirks.nvidia3d0.state = NVIDIA_3D0_WRITE;
+                vfio_log_op("VFIO %s: NVIDIA 3D0: Switching to WRITE state (word write)\n", dev->name);
+            }
             break;
     }
 
@@ -942,18 +951,24 @@ vfio_quirk_nvidia3d0_state_writel(uint16_t addr, uint32_t val, void *priv)
     /* Interpret NVIDIA commands. */
     switch (val) {
         case 0x338:
-            if (prev_state == NVIDIA_3D0_NONE)
+            if (prev_state == NVIDIA_3D0_NONE) {
                 dev->quirks.nvidia3d0.state = NVIDIA_3D0_SELECT;
+                vfio_log_op("VFIO %s: NVIDIA 3D0: Switching to SELECT state (dword write)\n", dev->name);
+            }
             break;
 
         case 0x538:
-            if (prev_state == NVIDIA_3D0_WINDOW)
+            if (prev_state == NVIDIA_3D0_WINDOW) {
                 dev->quirks.nvidia3d0.state = NVIDIA_3D0_READ;
+                vfio_log_op("VFIO %s: NVIDIA 3D0: Switching to READ state (dword write)\n", dev->name);
+            }
             break;
 
         case 0x738:
-            if (prev_state == NVIDIA_3D0_WINDOW)
+            if (prev_state == NVIDIA_3D0_WINDOW) {
                 dev->quirks.nvidia3d0.state = NVIDIA_3D0_WRITE;
+                vfio_log_op("VFIO %s: NVIDIA 3D0: Switching to WRITE state (dword write)\n", dev->name);
+            }
             break;
     }
 
@@ -1033,12 +1048,13 @@ vfio_quirk_nvidia3d0_data_writeb(uint16_t addr, uint8_t val, void *priv)
         /* Write MMIO index. */
         dev->quirks.nvidia3d0.index = val;
         dev->quirks.nvidia3d0.state = NVIDIA_3D0_WINDOW;
+        vfio_log_op("VFIO %s: NVIDIA 3D0: Write index %02X\n", dev->name, val);
     } else if (prev_state == NVIDIA_3D0_WRITE) {
         /* Write configuration register if part of the main PCI configuration space. */
         if (((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00001800) || ((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00088000)) {
             /* Write configuration register. */
             vfio_log_op("VFIO %s: NVIDIA 3D0: Write %02X to index %08X\n", dev->name,
-                        size, val, dev->quirks.nvidia3d0.index);
+                        val, dev->quirks.nvidia3d0.index);
             vfio_config_writeb(0, dev->quirks.nvidia3d0.index, val, dev);
             return;
         }
@@ -1060,11 +1076,12 @@ vfio_quirk_nvidia3d0_data_writew(uint16_t addr, uint16_t val, void *priv)
         /* Write MMIO index. */
         dev->quirks.nvidia3d0.index = val;
         dev->quirks.nvidia3d0.state = NVIDIA_3D0_WINDOW;
+        vfio_log_op("VFIO %s: NVIDIA 3D0: Write index %04X\n", dev->name, val);
     } else if (prev_state == NVIDIA_3D0_WRITE) {
         /* Write configuration register if part of the main PCI configuration space. */
         if (((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00001800) || ((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00088000)) {
-            vfio_log_op("VFIO %s: NVIDIA 3D0: Write %02X to index %08X\n", dev->name,
-                        size, val, dev->quirks.nvidia3d0.index);
+            vfio_log_op("VFIO %s: NVIDIA 3D0: Write %04X to index %08X\n", dev->name,
+                        val, dev->quirks.nvidia3d0.index);
             vfio_config_writew(0, dev->quirks.nvidia3d0.index, val, dev);
             return;
         }
@@ -1086,12 +1103,13 @@ vfio_quirk_nvidia3d0_data_writel(uint16_t addr, uint32_t val, void *priv)
         /* Write MMIO index. */
         dev->quirks.nvidia3d0.index = val;
         dev->quirks.nvidia3d0.state = NVIDIA_3D0_WINDOW;
+        vfio_log_op("VFIO %s: NVIDIA 3D0: Write index %08X\n", dev->name, val);
     } else if (prev_state == NVIDIA_3D0_WRITE) {
         /* Write configuration register if part of the main PCI configuration space. */
         if (((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00001800) || ((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00088000)) {
             /* Write configuration register. */
-            vfio_log_op("VFIO %s: NVIDIA 3D0: Write %02X to index %08X\n", dev->name,
-                        size, val, dev->quirks.nvidia3d0.index);
+            vfio_log_op("VFIO %s: NVIDIA 3D0: Write %08X to index %08X\n", dev->name,
+                        val, dev->quirks.nvidia3d0.index);
             vfio_config_writel(0, dev->quirks.nvidia3d0.index, val, dev);
             return;
         }
@@ -1413,9 +1431,10 @@ vfio_config_readb(int func, int addr, void *priv)
     intx_high = 0;
 
     /* Read register from device. */
+    addr &= 0xff;
     uint8_t ret;
     if (pread(dev->config.fd, &ret, 1, dev->config.offset + addr) != 1) {
-        vfio_log("VFIO %s: config_read(%d, %02X) failed\n", dev->name,
+        vfio_log("VFIO %s: config_readb(%d, %02X) failed\n", dev->name,
                  func, addr);
         return 0xff;
     }
@@ -1519,7 +1538,7 @@ end:
             break;
     }
 
-    vfio_log("VFIO %s: config_read(%02X) = %02X\n", dev->name,
+    vfio_log("VFIO %s: config_readb(%02X) = %02X\n", dev->name,
              addr, ret);
 
     return ret;
@@ -1528,13 +1547,13 @@ end:
 static uint16_t
 vfio_config_readw(int func, int addr, void *priv)
 {
-    return vfio_config_readb(func, addr, priv) | (vfio_config_readb(func | 1, addr, priv) << 8);
+    return vfio_config_readb(func, addr, priv) | (vfio_config_readb(func, addr + 1, priv) << 8);
 }
 
 static uint32_t
 vfio_config_readl(int func, int addr, void *priv)
 {
-    return vfio_config_readb(func, addr, priv) | (vfio_config_readb(func | 1, addr, priv) << 8) | (vfio_config_readb(func | 2, addr, priv) << 16) | (vfio_config_readb(func | 3, addr, priv) << 24);
+    return vfio_config_readb(func, addr, priv) | (vfio_config_readb(func, addr + 1, priv) << 8) | (vfio_config_readb(func, addr + 2, priv) << 16) | (vfio_config_readb(func, addr + 3, priv) << 24);
 }
 
 static void
@@ -1544,7 +1563,8 @@ vfio_config_writeb(int func, int addr, uint8_t val, void *priv)
     if (func)
         return;
 
-    vfio_log("VFIO %s: config_write(%02X, %02X)\n", dev->name, addr, val);
+    addr &= 0xff;
+    vfio_log("VFIO %s: config_writeb(%02X, %02X)\n", dev->name, addr, val);
 
     intx_high = 0;
 
