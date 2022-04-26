@@ -2342,7 +2342,7 @@ vfio_region_init(vfio_device_t *dev, struct vfio_region_info *reg, vfio_region_t
         /* Add a helpful reminder if a sanity check warning was printed
            and no ROM file was specified in this device's configuration. */
         if (j && !dev->rom_fn)
-            pclog("VFIO %s: A custom ROM can be loaded with the _rom_fn directive.", dev->name);
+            pclog("VFIO %s: A custom ROM can be loaded with the _rom_fn directive.\n", dev->name);
     } else {
         /* Attempt to mmap the region. */
         region->mmap_base = mmap(NULL, region->size,
