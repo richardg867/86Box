@@ -355,7 +355,7 @@ else
 	esac
 
 	# Establish general dependencies.
-	pkgs="cmake ninja-build pkg-config git wget p7zip-full wayland-protocols tar gzip file"
+	pkgs="cmake ninja-build pkg-config git wget p7zip-full wayland-protocols tar gzip file appstream"
 	if [ "$(dpkg --print-architecture)" = "$arch_deb" ]
 	then
 		pkgs="$pkgs build-essential"
@@ -667,11 +667,11 @@ else
 		echo $pkg $version >> archive_tmp/README
 	done
 
-	# Archive metainfo data.
+	# Archive metadata.
+	project_id=$(ls src/unix/assets/*.*.xml | head -1 | grep -oP '/\K([^/]+)(?=\.[^\.]+\.[^\.]+$)')
 	metainfo_base=archive_tmp/usr/share/metainfo
 	mkdir -p "$metainfo_base"
-	cp -p src/unix/assets/*.metainfo.xml "$metainfo_base/"
-	project_id=$(ls "$metainfo_base/"*".metainfo.xml" | head -1 | grep -oP '/\K([^/]+)(?=\.metainfo\.[^\.]+$)')
+	cp -p "src/unix/assets/$project_id."*".xml" "$metainfo_base/$project_id.appdata.xml"
 
 	# Archive icons.
 	icon_base=archive_tmp/usr/share/icons
