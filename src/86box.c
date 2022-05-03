@@ -103,6 +103,13 @@
 #include <86box/cli.h>
 #include <86box/vfio.h>
 
+// Disable c99-designator to avoid the warnings about int ng
+#ifdef __clang__
+#if __has_warning("-Wunused-but-set-variable")
+#pragma clang diagnostic ignored "-Wunused-but-set-variable"
+#endif
+#endif
+
 
 /* Stuff that used to be globally declared in plat.h but is now extern there
    and declared here instead. */
