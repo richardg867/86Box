@@ -177,6 +177,7 @@ int GAMEBLASTER = 0;				/* (C) sound option */
 int GUS = 0;					/* (C) sound option */
 int SSI2001 = 0;				/* (C) sound option */
 int voodoo_enabled = 0;				/* (C) video option */
+int ibm8514_enabled = 0;			/* (C) video option */
 uint32_t mem_size = 0;				/* (C) memory size (Installed on system board)*/
 uint32_t isa_mem_size = 0;	/* (C) memory size (ISA Memory Cards) */
 int	cpu_use_dynarec = 0;			/* (C) cpu uses/needs Dyna */
@@ -434,7 +435,11 @@ pc_init(int argc, char *argv[])
     if ((c >= 16) && !strcmp(&exe_path[c - 16], "/Contents/MacOS/")) {
         exe_path[c - 16] = '\0';
         p = path_get_filename(exe_path);
-	    *p = '\0';
+        *p = '\0';
+    }
+    if (!strncmp(exe_path, "/private/var/folders/", 21)) {
+        ui_msgbox_header(MBX_FATAL, L"App Translocation", EMU_NAME_W L" cannot determine the emulated machine's location due to a macOS security feature. Please make a copy of the " EMU_NAME_W L" app and open that copy instead.");
+        return(0);
     }
 #elif !defined(_WIN32)
     /* Grab the actual path if we are an AppImage. */
