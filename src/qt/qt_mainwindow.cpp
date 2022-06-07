@@ -26,6 +26,7 @@
 #include "qt_specifydimensions.h"
 #include "qt_soundgain.hpp"
 #include "qt_progsettings.hpp"
+#include "qt_mcadevicelist.hpp"
 
 #include "qt_rendererstack.hpp"
 #include "qt_renderercommon.hpp"
@@ -37,6 +38,7 @@ extern "C" {
 #include <86box/plat.h>
 #include <86box/discord.h>
 #include <86box/video.h>
+#include <86box/machine.h>
 #include <86box/vid_ega.h>
 #include <86box/version.h>
 
@@ -1434,6 +1436,7 @@ bool MainWindow::eventFilter(QObject* receiver, QEvent* event)
 void MainWindow::refreshMediaMenu() {
     mm->refresh(ui->menuMedia);
     status->refresh(ui->statusbar);
+    ui->actionMCA_devices->setVisible(machine_has_bus(machine, MACHINE_BUS_MCA));
 }
 
 void MainWindow::showMessage(const QString& header, const QString& message) {
@@ -1875,3 +1878,12 @@ void MainWindow::on_actionRenderer_options_triggered()
     if (dlg)
         dlg->exec();
 }
+
+void MainWindow::on_actionMCA_devices_triggered()
+{
+    auto dlg = new MCADeviceList(this);
+
+    if (dlg)
+        dlg->exec();
+}
+
