@@ -860,7 +860,7 @@ vfio_quirk_nvidia3d0_state_readb(uint16_t addr, void *priv)
     vfio_log_op("VFIO %s: NVIDIA 3D0: Switching to NONE state (byte read)\n", dev->name);
 
     /* Cascade to the main handler. */
-    return vfio_io_readb_fd(addr, priv);
+    return vfio_io_readb_fd(addr, &dev->vga_io_hi);
 }
 
 static uint16_t
@@ -873,7 +873,7 @@ vfio_quirk_nvidia3d0_state_readw(uint16_t addr, void *priv)
     vfio_log_op("VFIO %s: NVIDIA 3D0: Switching to NONE state (word read)\n", dev->name);
 
     /* Cascade to the main handler. */
-    return vfio_io_readw_fd(addr, priv);
+    return vfio_io_readw_fd(addr, &dev->vga_io_hi);
 }
 
 static uint32_t
@@ -886,7 +886,7 @@ vfio_quirk_nvidia3d0_state_readl(uint16_t addr, void *priv)
     vfio_log_op("VFIO %s: NVIDIA 3D0: Switching to NONE state (dword read)\n", dev->name);
 
     /* Cascade to the main handler. */
-    return vfio_io_readl_fd(addr, priv);
+    return vfio_io_readl_fd(addr, &dev->vga_io_hi);
 }
 
 static void
