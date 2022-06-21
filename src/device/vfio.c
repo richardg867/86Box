@@ -354,7 +354,7 @@ vfio_quirk_configmirror_readl(uint32_t addr, void *priv)
     vfio_mem_readl_fd(addr, bar);
 
     /* Read configuration register. */
-    uint32_t ret = vfio_config_readw(0, addr - bar->quirks.configmirror.offset, dev);
+    uint32_t ret = vfio_config_readl(0, addr - bar->quirks.configmirror.offset, dev);
     vfio_log_op("VFIO %s: Config mirror: Read %08X from index %02X\n",
                 dev->name, ret, addr - bar->quirks.configmirror.offset);
 
