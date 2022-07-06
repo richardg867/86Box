@@ -568,6 +568,10 @@ usage:
 		else goto usage;
 	}
 
+    strcpy(log_path, exe_path);
+    path_slash(log_path);
+    strcat(log_path, "86box.log");
+
 	/* One argument (config file) allowed. */
 	if (c < argc) {
 		if (lvmp)

@@ -166,6 +166,7 @@ static uint32_t cmdfifo_get(voodoo_t *voodoo)
 	}
 
         val = *(uint32_t *)&voodoo->fb_mem[voodoo->cmdfifo_rp & voodoo->fb_mask];
+        pclog("%08X @ %08X\n", val, voodoo->cmdfifo_rp & voodoo->fb_mask);
 
         if (!voodoo->cmdfifo_in_sub)
                 voodoo->cmdfifo_depth_rd++;
@@ -293,6 +294,7 @@ void voodoo_fifo_thread(void *param)
                 {
                         uint64_t start_time = plat_timer_read();
                         uint64_t end_time;
+                        pclog("header: ");
                         uint32_t header = cmdfifo_get(voodoo);
                         uint32_t addr;
                         uint32_t mask;
