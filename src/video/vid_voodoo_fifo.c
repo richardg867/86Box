@@ -29,6 +29,7 @@
 #include <86box/timer.h>
 #include <86box/device.h>
 #include <86box/plat.h>
+#include <86box/path.h>
 #include <86box/thread.h>
 #include <86box/video.h>
 #include <86box/vid_svga.h>
@@ -59,6 +60,27 @@ voodoo_fifo_log(const char *fmt, ...)
 #else
 #define voodoo_fifo_log(fmt, ...)
 #endif
+
+#define CMDFIFO_DUMP_SIZE 262144
+#define CMDFIFO_DUMP_MASK (CMDFIFO_DUMP_SIZE - 1)
+static uint32_t *cmdfifo_dump = NULL, cmdfifo_dump_pos = 0;
+
+static void
+cmdfifo_dump_write()
+{
+    char fn[1024];
+    strcpy(fn, exe_path);
+    path_slash(fn);
+    strcat(fn, "voodoofifo.bin");
+    FILE *f = fopen(fn, "wb");
+    if (!f) {
+        fatal("fopen voodoofifo.bin failed\n");
+        return;
+    }
+    fwrite(cmdfifo_dump + (cmdfifo_dump_pos & CMDFIFO_DUMP_MASK), sizeof(uint32_t), CMDFIFO_DUMP_SIZE - (cmdfifo_dump_pos & CMDFIFO_DUMP_MASK), f);
+    fwrite(cmdfifo_dump, sizeof(uint32_t), cmdfifo_dump_pos & CMDFIFO_DUMP_MASK, f);
+    fclose(f);
+}
 
 #define WAKE_DELAY (TIMER_USEC * 100)
 void voodoo_wake_fifo_thread(voodoo_t *voodoo)
@@ -166,7 +188,8 @@ static uint32_t cmdfifo_get(voodoo_t *voodoo)
 	}
 
         val = *(uint32_t *)&voodoo->fb_mem[voodoo->cmdfifo_rp & voodoo->fb_mask];
-        pclog("%08X @ %08X\n", val, voodoo->cmdfifo_rp & voodoo->fb_mask);
+        cmdfifo_dump[cmdfifo_dump_pos++ & CMDFIFO_DUMP_MASK] = voodoo->cmdfifo_rp & voodoo->fb_mask;
+        cmdfifo_dump[cmdfifo_dump_pos++ & CMDFIFO_DUMP_MASK] = val;
 
         if (!voodoo->cmdfifo_in_sub)
                 voodoo->cmdfifo_depth_rd++;
@@ -205,6 +228,12 @@ enum
 void voodoo_fifo_thread(void *param)
 {
         voodoo_t *voodoo = (voodoo_t *)param;
+
+        if (!cmdfifo_dump) {
+            cmdfifo_dump = malloc(CMDFIFO_DUMP_SIZE * sizeof(uint32_t));
+            if (!cmdfifo_dump)
+                fatal("cmdfifo_dump malloc failed\n");
+        }
 
         while (voodoo->fifo_thread_run)
         {
@@ -294,7 +323,8 @@ void voodoo_fifo_thread(void *param)
                 {
                         uint64_t start_time = plat_timer_read();
                         uint64_t end_time;
-                        pclog("header: ");
+                        cmdfifo_dump[cmdfifo_dump_pos++ & CMDFIFO_DUMP_MASK] = 0xffffffff;
+                        cmdfifo_dump[cmdfifo_dump_pos++ & CMDFIFO_DUMP_MASK] = 0xffffffff;
                         uint32_t header = cmdfifo_get(voodoo);
                         uint32_t addr;
                         uint32_t mask;
@@ -332,6 +362,7 @@ void voodoo_fifo_thread(void *param)
                                         break;
 
                                         default:
+                                        cmdfifo_dump_write();
                                         fatal("Bad CMDFIFO0 %08x\n", header);
                                 }
                                 break;
@@ -532,11 +563,13 @@ void voodoo_fifo_thread(void *param)
                                         break;
 
                                         default:
+                                        cmdfifo_dump_write();
                                         fatal("CMDFIFO packet 5 bad space %08x %08x\n", header, voodoo->cmdfifo_rp);
                                 }
                                 break;
 
                                 default:
+                                cmdfifo_dump_write();
                                 fatal("Bad CMDFIFO packet %08x %08x\n", header, voodoo->cmdfifo_rp);
                         }
 
