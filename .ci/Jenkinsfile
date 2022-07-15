@@ -94,6 +94,7 @@ def presetFlags = [
 	'Dev': '--preset=experimental -D CMAKE_BUILD_TYPE=Debug -D VNC=OFF -D STATIC_BUILD=OFF'
 ]
 
+@NonCPS
 def gitClone(repository, branch) {
 	/* Clean workspace. */
 	cleanWs()
