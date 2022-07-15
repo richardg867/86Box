@@ -100,12 +100,24 @@ def gitClone(repository, branch) {
 
 	/* Use stashes to avoid performing multiple clones. */
 	if (env.GIT_STASHED != 'true') {
+		/* If a commit was read from the polling log, clone the repository separately,
+		   do a hard reset to the commit and clone the resulting repository instead.
+		   This prevents detached HEADs while maintaining changelog integrity. */
+		if (env.GIT_COMMIT != null) {
+			def tempRepo = "${env.WORKSPACE_TMP}/headreset"
+			removeDir(tempRepo)
+			if (isUnix())
+				sh(script: "git clone '$repository' '$tempRepo' && cd '$tempRepo' && git reset --HARD '${env.GIT_COMMIT}'")
+			else
+				bat(script: "git clone \"$repository\" \"$tempRepo\" && cd \"$tempRepo\" && git reset --HARD \"${env.GIT_COMMIT}\"")
+			repository = tempRepo
+		}
+
 		/* Perform clone/checkout. */
 		def scmVars = checkout poll: true,
 				       changelog: true,
 				       scm: [$class: 'GitSCM',
-					     branches: [[name: env.GIT_COMMIT]],
-					     extensions: [[$class: 'LocalBranch', localBranch: branch.replace('*/', '')]],
+					     branches: [[name: branch]],
 					     userRemoteConfigs: [[url: repository]]]
 
 		if (env.GIT_COMMIT == null) {
@@ -131,7 +143,7 @@ def gitClone(repository, branch) {
 
 def removeDir(dir) {
 	if (isUnix())
-		return sh(returnStatus: true, script: "rm -rf \"$dir\"")
+		return sh(returnStatus: true, script: "rm -rf '$dir'")
 	else
 		return bat(returnStatus: true, script: "rd /s /q \"$dir\"")
 }
