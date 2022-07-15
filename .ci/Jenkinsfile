@@ -95,6 +95,18 @@ def presetFlags = [
 ]
 
 @NonCPS
+def messWithChangelog() {
+	def changeLogSets = currentBuild.changeSets
+           for (int i = 0; i < changeLogSets.size(); i++) {
+           	println "changeLogSet $i"
+           def entries = changeLogSets[i].items
+           for (int j = 0; j < entries.length; j++) {
+               def entry = entries[j]
+               println "item $j: ${entry.commitId} by ${entry.author} on ${new Date(entry.timestamp)}: ${entry.msg}"
+            }
+        }
+}
+
 def gitClone(repository, branch) {
 	/* Clean workspace. */
 	cleanWs()
@@ -120,15 +132,7 @@ def gitClone(repository, branch) {
 		}
 		println "[-] Using git commit [${env.GIT_COMMIT}]"
 
-		def changeLogSets = currentBuild.changeSets
-           for (int i = 0; i < changeLogSets.size(); i++) {
-           	println "changeLogSet $i"
-           def entries = changeLogSets[i].items
-           for (int j = 0; j < entries.length; j++) {
-               def entry = entries[j]
-               println "item $j: ${entry.commitId} by ${entry.author} on ${new Date(entry.timestamp)}: ${entry.msg}"
-            }
-        }
+		messWithChangelog()
 
 		/* Stash data and mark it as stashed. */
 		stash name: 'git', useDefaultExcludes: false
