@@ -116,7 +116,7 @@ def gitClone(repository, branch) {
 			//if (isUnix())
 			//	sh returnStatus: true, script: "git checkout ${env.GIT_COMMIT}"
 			//else
-			//	bat returnStatus: true, script: "git checkout ${env.GIT_COMMIT}"
+			//	bat returnStatus: true, script: "git checkout ${env.GIT_COMMIT}"//
 		}
 		println "[-] Using git commit [${env.GIT_COMMIT}]"
 
