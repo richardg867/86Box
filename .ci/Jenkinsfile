@@ -107,9 +107,9 @@ def gitClone(repository, branch) {
 			def tempRepo = "${env.WORKSPACE_TMP}/headreset"
 			removeDir(tempRepo)
 			if (isUnix())
-				sh(script: "git clone '$repository' '$tempRepo' && cd '$tempRepo' && git reset --HARD '${env.GIT_COMMIT}'")
+				sh(script: "git clone '$repository' '$tempRepo' && cd '$tempRepo' && git checkout -f '$branch' && git reset --hard '${env.GIT_COMMIT}'")
 			else
-				bat(script: "git clone \"$repository\" \"$tempRepo\" && cd \"$tempRepo\" && git reset --HARD \"${env.GIT_COMMIT}\"")
+				bat(script: "git clone \"$repository\" \"$tempRepo\" && cd \"$tempRepo\" && git checkout -f \"$branch\" && git reset --hard \"${env.GIT_COMMIT}\"")
 			repository = tempRepo
 		}
 
