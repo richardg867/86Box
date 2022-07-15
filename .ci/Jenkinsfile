@@ -102,7 +102,7 @@ def gitClone(repository, branch) {
 	if (env.GIT_STASHED != 'true') {
 		/* Perform clone/checkout. */
 		def scmVars = checkout poll: true,
-				       changelog: false,
+				       changelog: true,
 				       scm: [$class: 'GitSCM',
 					     branches: [[name: branch]],
 					     userRemoteConfigs: [[url: repository]]]
