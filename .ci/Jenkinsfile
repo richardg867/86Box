@@ -103,11 +103,12 @@ def gitClone(repository, branch) {
 		/* If a commit was read from the polling log, clone the repository separately,
 		   do a hard reset to the commit and clone the resulting repository instead.
 		   This prevents detached HEADs while maintaining changelog integrity. */
+		sh(script: "printenv")
 		if (env.GIT_COMMIT != null) {
 			def tempRepo = "${env.WORKSPACE_TMP}/headreset"
 			removeDir(tempRepo)
 			if (isUnix())
-				sh(script: "printenv && git clone '$repository' '$tempRepo' && cd '$tempRepo' && git checkout -f '${branch.replace('*/', '')}' && git reset --hard '${env.GIT_COMMIT}'")
+				sh(script: "git clone '$repository' '$tempRepo' && cd '$tempRepo' && git checkout -f '${branch.replace('*/', '')}' && git reset --hard '${env.GIT_COMMIT}'")
 			else
 				bat(script: "git clone \"$repository\" \"$tempRepo\" && cd \"$tempRepo\" && git checkout -f \"${branch.replace('*/', '')}\" && git reset --hard \"${env.GIT_COMMIT}\"")
 			repository = tempRepo
