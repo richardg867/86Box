@@ -95,16 +95,16 @@ def presetFlags = [
 ]
 
 @NonCPS
-def messWithChangelog() {
+def adjustChangelog(exclude) {
 	def changeLogSets = currentBuild.changeSets
-           for (int i = 0; i < changeLogSets.size(); i++) {
-           	println "changeLogSet $i"
-           def entries = changeLogSets[i].items
-           for (int j = 0; j < entries.length; j++) {
-               def entry = entries[j]
-               println "item $j: ${entry.commitId} by ${entry.author} on ${new Date(entry.timestamp)}: ${entry.msg}"
-            }
-        }
+	for (int i = 0; i < changeLogSets.size(); i++) {
+		println "changeLogSet $i"
+		def entries = changeLogSets[i].items
+		for (int j = 0; j < entries.length; j++) {
+			def entry = entries[j]
+			println "item $j: ${entry.commitId} by ${entry.author} on ${new Date(entry.timestamp)}: ${entry.msg}"
+		}
+	}
 }
 
 def gitClone(repository, branch) {
@@ -124,15 +124,24 @@ def gitClone(repository, branch) {
 			/* Save the current HEAD commit. */
 			env.GIT_COMMIT = scmVars.GIT_COMMIT
 		} else if (env.GIT_COMMIT != scmVars.GIT_COMMIT) {
-			/* Checkout the commit read from the polling log. */
+			/* Get list of commits between the desired commit and HEAD. */
+			def revListOutput = ''
 			if (isUnix())
-				sh returnStatus: true, script: "git checkout ${env.GIT_COMMIT}"
+				revListOutput = sh(returnStdout: true, script: "git rev-list ${env.GIT_COMMIT}..HEAD")
 			else
-				bat returnStatus: true, script: "git checkout ${env.GIT_COMMIT}"
+				revListOutput = bat(returnStdout: true, script: "git rev-list ${env.GIT_COMMIT}..HEAD")
+			def revList = revListOutput.split('\n')
+			println "revList = $revList"
+
+			adjustChangelog(revList)
+
+			/* Reset to the desired commit. */
+			if (isUnix())
+				sh(returnStatus: true, script: "git reset --hard ${env.GIT_COMMIT}")
+			else
+				bat(returnStatus: true, script: "git reset --hard ${env.GIT_COMMIT}")
 		}
 		println "[-] Using git commit [${env.GIT_COMMIT}]"
-
-		messWithChangelog()
 
 		/* Stash data and mark it as stashed. */
 		stash name: 'git', useDefaultExcludes: false
