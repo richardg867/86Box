@@ -104,7 +104,8 @@ def gitClone(repository, branch) {
 		def scmVars = checkout poll: true,
 				       changelog: true,
 				       scm: [$class: 'GitSCM',
-					     branches: [[name: branch]],
+					     branches: [[name: env.GIT_COMMIT]],
+					     extensions: [[$class: 'LocalBranch']],
 					     userRemoteConfigs: [[url: repository]]]
 
 		if (env.GIT_COMMIT == null) {
@@ -112,10 +113,10 @@ def gitClone(repository, branch) {
 			env.GIT_COMMIT = scmVars.GIT_COMMIT
 		} else if (env.GIT_COMMIT != scmVars.GIT_COMMIT) {
 			/* Checkout the commit read from the polling log. */
-			if (isUnix())
-				sh returnStatus: true, script: "git checkout ${env.GIT_COMMIT}"
-			else
-				bat returnStatus: true, script: "git checkout ${env.GIT_COMMIT}"
+			//if (isUnix())
+			//	sh returnStatus: true, script: "git checkout ${env.GIT_COMMIT}"
+			//else
+			//	bat returnStatus: true, script: "git checkout ${env.GIT_COMMIT}"
 		}
 		println "[-] Using git commit [${env.GIT_COMMIT}]"
 
