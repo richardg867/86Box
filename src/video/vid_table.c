@@ -37,46 +37,45 @@
 #include <86box/vid_colorplus.h>
 #include <86box/vid_mda.h>
 
-
 typedef struct {
-    const device_t    *device;
+    const device_t *device;
 } VIDEO_CARD;
 
-
-static video_timings_t timing_default = {VIDEO_ISA, 8, 16, 32,   8, 16, 32};
+static video_timings_t timing_default = { VIDEO_ISA, 8, 16, 32, 8, 16, 32 };
 
 static int was_reset = 0;
 
 static const device_t vid_none_device = {
-    .name = "None",
+    .name          = "None",
     .internal_name = "none",
-    .flags = 0,
-    .local = 0,
-    .init = NULL,
-    .close = NULL,
-    .reset = NULL,
+    .flags         = 0,
+    .local         = 0,
+    .init          = NULL,
+    .close         = NULL,
+    .reset         = NULL,
     { .available = NULL },
     .speed_changed = NULL,
-    .force_redraw = NULL,
-    .config = NULL
+    .force_redraw  = NULL,
+    .config        = NULL
 };
 static const device_t vid_internal_device = {
-    .name = "Internal",
+    .name          = "Internal",
     .internal_name = "internal",
-    .flags = 0,
-    .local = 0,
-    .init = NULL,
-    .close = NULL,
-    .reset = NULL,
+    .flags         = 0,
+    .local         = 0,
+    .init          = NULL,
+    .close         = NULL,
+    .reset         = NULL,
     { .available = NULL },
     .speed_changed = NULL,
-    .force_redraw = NULL,
-    .config = NULL
+    .force_redraw  = NULL,
+    .config        = NULL
 };
 
 static const VIDEO_CARD
-video_cards[] = {
-// clang-format off
+    video_cards[]
+    = {
+          // clang-format off
     { &vid_none_device                               },
     { &vid_internal_device                           },
     { &atiega_device                                 },
