@@ -52,7 +52,7 @@ enum {
     EGA_TSENG
 };
 
-static video_timings_t timing_ega = { VIDEO_ISA, 8, 16, 32, 8, 16, 32 };
+static video_timings_t timing_ega = { .type = VIDEO_ISA, .write_b = 8, .write_w = 16, .write_l = 32, .read_b = 8, .read_w = 16, .read_l = 32 };
 static uint8_t         ega_rotate[8][256];
 static uint32_t        pallook16[256], pallook64[256];
 static int             ega_type = 0, old_overscan_color = 0;
@@ -107,7 +107,7 @@ ega_out(uint16_t addr, uint8_t val, void *p)
             if (!ega->attrff) {
                 ega->attraddr = val & 31;
                 if ((val & 0x20) != ega->attr_palette_enable) {
-                    fullchange               = 3;
+                    ega->fullchange          = 3;
                     ega->attr_palette_enable = val & 0x20;
                     ega_recalctimings(ega);
                 }
@@ -115,7 +115,7 @@ ega_out(uint16_t addr, uint8_t val, void *p)
                 o                                 = ega->attrregs[ega->attraddr & 31];
                 ega->attrregs[ega->attraddr & 31] = val;
                 if (ega->attraddr < 16)
-                    fullchange = changeframecount;
+                    ega->fullchange = changeframecount;
                 if (ega->attraddr == 0x10 || ega->attraddr == 0x14 || ega->attraddr < 0x10) {
                     for (c = 0; c < 16; c++) {
                         if (ega->attrregs[0x10] & 0x80)
@@ -123,7 +123,7 @@ ega_out(uint16_t addr, uint8_t val, void *p)
                         else
                             ega->egapal[c] = (ega->attrregs[c] & 0x3f) | ((ega->attrregs[0x14] & 0xc) << 4);
                     }
-                    fullchange = changeframecount;
+                    ega->fullchange = changeframecount;
                 }
                 /* Recalculate timings on change of attribute register 0x11
                    (overscan border color) too. */
@@ -164,7 +164,7 @@ ega_out(uint16_t addr, uint8_t val, void *p)
             switch (ega->seqaddr & 0xf) {
                 case 1:
                     if (ega->scrblank && !(val & 0x20))
-                        fullchange = 3;
+                        ega->fullchange = 3;
                     ega->scrblank = (ega->scrblank & ~0x20) | (val & 0x20);
                     break;
                 case 2:
@@ -232,10 +232,10 @@ ega_out(uint16_t addr, uint8_t val, void *p)
             if (old != val) {
                 if (ega->crtcreg < 0xe || ega->crtcreg > 0x10) {
                     if ((ega->crtcreg == 0xc) || (ega->crtcreg == 0xd)) {
-                        fullchange    = 3;
-                        ega->ma_latch = ((ega->crtc[0xc] << 8) | ega->crtc[0xd]) + ((ega->crtc[8] & 0x60) >> 5);
+                        ega->fullchange = 3;
+                        ega->ma_latch   = ((ega->crtc[0xc] << 8) | ega->crtc[0xd]) + ((ega->crtc[8] & 0x60) >> 5);
                     } else {
-                        fullchange = changeframecount;
+                        ega->fullchange = changeframecount;
                         ega_recalctimings(ega);
                     }
                 }
@@ -597,11 +597,11 @@ ega_poll(void *p)
                 ega->cursoron = ega->blink & (16 + (16 * blink_delay));
 
             if (!(ega->gdcreg[6] & 1) && !(ega->blink & 15))
-                fullchange = 2;
+                ega->fullchange = 2;
             ega->blink = (ega->blink + 1) & 0x7f;
 
-            if (fullchange)
-                fullchange--;
+            if (ega->fullchange)
+                ega->fullchange--;
         }
         if (ega->vc == ega->vsyncstart) {
             ega->dispon = 0;
@@ -782,7 +782,7 @@ ega_write(uint32_t addr, uint8_t val, void *p)
         return;
 
     if (!(ega->gdcreg[6] & 1))
-        fullchange = 2;
+        ega->fullchange = 2;
 
     switch (ega->writemode) {
         case 1:
@@ -1305,7 +1305,7 @@ static const device_config_t ega_config[] = {
     {
         .type = CONFIG_END
     }
-  // clang-format on
+// clang-format on
 };
 
 const device_t ega_device = {

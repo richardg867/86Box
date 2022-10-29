@@ -221,7 +221,7 @@ void    wy700_write(uint32_t addr, uint8_t val, void *p);
 uint8_t wy700_read(uint32_t addr, void *p);
 void    wy700_checkchanges(wy700_t *wy700);
 
-static video_timings_t timing_wy700 = { VIDEO_ISA, 8, 16, 32, 8, 16, 32 };
+static video_timings_t timing_wy700 = { .type = VIDEO_ISA, .write_b = 8, .write_w = 16, .write_l = 32, .read_b = 8, .read_w = 16, .read_l = 32 };
 
 void
 wy700_out(uint16_t addr, uint8_t val, void *p)
@@ -611,15 +611,15 @@ wy700_cgaline(wy700_t *wy700)
     uint16_t ma = (wy700->cga_crtc[13] | (wy700->cga_crtc[12] << 8)) & 0x3fff;
     addr        = ((wy700->displine >> 2) & 1) * 0x2000 + (wy700->displine >> 3) * 80 + ((ma & ~1) << 1);
 
-#ifdef USE_CLI
-    cli_render_gfx("Wyse 700 %dx%d");
-#endif
-
     /* The fixed mode setting here programs the real CRTC with a screen
      * width to 20, so draw in 20 fixed chunks of 4 bytes each */
     for (x = 0; x < 20; x++) {
         dat = ((wy700->vram[addr & 0x3FFF] << 24) | (wy700->vram[(addr + 1) & 0x3FFF] << 16) | (wy700->vram[(addr + 2) & 0x3FFF] << 8) | (wy700->vram[(addr + 3) & 0x3FFF]));
         addr += 4;
+
+#ifdef USE_CLI
+    cli_render_gfx("Wyse 700 %dx%d");
+#endif
 
         if (wy700->wy700_mode == 6) {
             for (c = 0; c < 32; c++) {
@@ -665,13 +665,13 @@ wy700_medresline(wy700_t *wy700)
 
     addr = (wy700->displine >> 1) * 80 + 4 * wy700->wy700_base;
 
-#ifdef USE_CLI
-    cli_render_gfx("Wyse 700 %dx%d");
-#endif
-
     for (x = 0; x < 20; x++) {
         dat = ((wy700->vram[addr & 0x1FFFF] << 24) | (wy700->vram[(addr + 1) & 0x1FFFF] << 16) | (wy700->vram[(addr + 2) & 0x1FFFF] << 8) | (wy700->vram[(addr + 3) & 0x1FFFF]));
         addr += 4;
+
+#ifdef USE_CLI
+    cli_render_gfx("Wyse 700 %dx%d");
+#endif
 
         if (wy700->wy700_mode & 0x10) {
             for (c = 0; c < 16; c++) {
@@ -724,11 +724,6 @@ wy700_hiresline(wy700_t *wy700)
         if (wy700->displine & 1)
             addr += 0x10000;
     }
-
-#ifdef USE_CLI
-    cli_render_gfx("Wyse 700 %dx%d");
-#endif
-
     for (x = 0; x < 40; x++) {
         dat = ((wy700->vram[addr & 0x1FFFF] << 24) | (wy700->vram[(addr + 1) & 0x1FFFF] << 16) | (wy700->vram[(addr + 2) & 0x1FFFF] << 8) | (wy700->vram[(addr + 3) & 0x1FFFF]));
         addr += 4;
@@ -766,6 +761,10 @@ wy700_hiresline(wy700_t *wy700)
             }
         }
     }
+
+#ifdef USE_CLI
+    cli_render_gfx("Wyse 700 %dx%d");
+#endif
 }
 
 void

@@ -23,7 +23,7 @@ class RendererStack : public QStackedWidget {
     Q_OBJECT
 
 public:
-    explicit RendererStack(QWidget *parent = nullptr);
+    explicit RendererStack(QWidget *parent = nullptr, int monitor_index = 0);
     ~RendererStack();
 
     void mousePressEvent(QMouseEvent *event) override;
@@ -31,6 +31,12 @@ public:
     void mouseMoveEvent(QMouseEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
     void leaveEvent(QEvent *event) override;
+    void closeEvent(QCloseEvent *event) override;
+    void changeEvent(QEvent* event) override;
+    void resizeEvent(QResizeEvent *event) override
+    {
+        onResize(event->size().width(), event->size().height());
+    }
     void keyPressEvent(QKeyEvent *event) override
     {
         event->ignore();
@@ -45,12 +51,16 @@ public:
         OpenGL,
         OpenGLES,
         OpenGL3,
-        Vulkan
+        Vulkan,
+        Direct3D9,
+        None = -1
     };
     void switchRenderer(Renderer renderer);
 
     /* Does current renderer implement options dialog */
     bool hasOptions() const { return rendererWindow ? rendererWindow->hasOptions() : false; }
+    /* Reloads options of current renderer */
+    void reloadOptions() const { return rendererWindow->reloadOptions(); }
     /* Returns options dialog for current renderer */
     QDialog *getOptions(QWidget *parent) { return rendererWindow ? rendererWindow->getOptions(parent) : nullptr; }
 
@@ -72,10 +82,13 @@ public:
 
 signals:
     void blitToRenderer(int buf_idx, int x, int y, int w, int h);
+    void blit(int x, int y, int w, int h);
     void rendererChanged();
 
 public slots:
-    void blit(int x, int y, int w, int h);
+    void blitCommon(int x, int y, int w, int h);
+    void blitRenderer(int x, int y, int w, int h);
+    void blitDummy(int x, int y, int w, int h);
     void mousePoll();
 
 private:
@@ -83,21 +96,19 @@ private:
 
     Ui::RendererStack *ui;
 
-    struct mouseinputdata {
-        int deltax, deltay, deltaz;
-        int mousebuttons;
-    };
-    mouseinputdata mousedata;
-
     int x, y, w, h, sx, sy, sw, sh;
 
     int currentBuf  = 0;
     int isMouseDown = 0;
+    int m_monitor_index = 0;
+
+    Renderer current_vid_api = Renderer::None;
 
     std::vector<std::tuple<uint8_t *, std::atomic_flag *>> imagebufs;
 
     RendererCommon          *rendererWindow { nullptr };
     std::unique_ptr<QWidget> current;
+    std::atomic<bool> directBlitting{false};
 };
 
 #endif // QT_RENDERERCONTAINER_HPP

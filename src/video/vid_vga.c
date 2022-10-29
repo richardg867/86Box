@@ -31,8 +31,8 @@
 #include <86box/vid_svga.h>
 #include <86box/vid_vga.h>
 
-static video_timings_t timing_ps1_svga_isa = { VIDEO_ISA, 6, 8, 16, 6, 8, 16 };
-static video_timings_t timing_ps1_svga_mca = { VIDEO_MCA, 6, 8, 16, 6, 8, 16 };
+static video_timings_t timing_ps1_svga_isa = { .type = VIDEO_ISA, .write_b = 6, .write_w = 8, .write_l = 16, .read_b = 6, .read_w = 8, .read_l = 16 };
+static video_timings_t timing_ps1_svga_mca = { .type = VIDEO_MCA, .write_b = 6, .write_w = 8, .write_l = 16, .read_b = 6, .read_w = 8, .read_l = 16 };
 
 void
 vga_out(uint16_t addr, uint8_t val, void *p)

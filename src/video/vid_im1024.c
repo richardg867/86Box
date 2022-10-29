@@ -81,7 +81,7 @@ typedef struct {
         fifo_rdptr;
 } im1024_t;
 
-static video_timings_t timing_im1024 = { VIDEO_ISA, 8, 16, 32, 8, 16, 32 };
+static video_timings_t timing_im1024 = { .type = VIDEO_ISA, .write_b = 8, .write_w = 16, .write_l = 32, .read_b = 8, .read_w = 16, .read_l = 32 };
 
 #ifdef ENABLE_IM1024_LOG
 int im1024_do_log = ENABLE_IM1024_LOG;

@@ -28,6 +28,7 @@
 #include <86box/video.h>
 #include <86box/vid_ega.h>
 #include <86box/vid_ega_render_remap.h>
+#include <86box/cli.h>
 
 int
 ega_display_line(ega_t *ega)
@@ -71,6 +72,10 @@ ega_render_blank(ega_t *ega)
                 break;
         }
     }
+
+#ifdef USE_CLI
+    cli_render_blank();
+#endif
 }
 
 void
@@ -122,17 +127,17 @@ ega_render_text_40(ega_t *ega)
         ega->firstline_draw = ega->displine;
     ega->lastline_draw = ega->displine;
 
-    if (fullchange) {
+    if (ega->fullchange) {
         p    = &buffer32->line[ega->displine + ega->y_add][ega->x_add];
         xinc = (ega->seqregs[1] & 1) ? 16 : 18;
 
 #ifdef USE_CLI
         if (ega->sc == 0)
             cli_render_cga((ega->ma >> 2) / 80, ega->rowcount,
-                           ega->hdisp + ega->scrollcache, xinc,
-                           ega->vram, ega->ma, ega->vrammask, 4,
-                           ega->crtc[0x17] & 0x80, ega->attrregs[0x10] & 0x08,
-                           ega->ca, !(ega->crtc[0x0a] & 0x20) && ((ega->crtc[0x0b] & 0x1f) >= (ega->crtc[0x0a] & 0x1f)));
+                    ega->hdisp + ega->scrollcache, xinc,
+                    ega->vram, ega->ma, ega->vrammask, 4,
+                    ega->crtc[0x17] & 0x80, ega->attrregs[0x10] & 0x08,
+                    ega->ca, !(ega->crtc[0x0a] & 0x20) && ((ega->crtc[0x0b] & 0x1f) >= (ega->crtc[0x0a] & 0x1f)));
 #endif
 
         for (x = 0; x < (ega->hdisp + ega->scrollcache); x += xinc) {
@@ -202,17 +207,17 @@ ega_render_text_80(ega_t *ega)
         ega->firstline_draw = ega->displine;
     ega->lastline_draw = ega->displine;
 
-    if (fullchange) {
+    if (ega->fullchange) {
         p    = &buffer32->line[ega->displine + ega->y_add][ega->x_add];
         xinc = (ega->seqregs[1] & 1) ? 8 : 9;
 
 #ifdef USE_CLI
         if (ega->sc == 0)
             cli_render_cga((ega->ma >> 2) / 80, ega->rowcount,
-                           ega->hdisp + ega->scrollcache, xinc,
-                           ega->vram, ega->ma, ega->vrammask, 4,
-                           ega->crtc[0x17] & 0x80, ega->attrregs[0x10] & 0x08,
-                           ega->ca, !(ega->crtc[0x0a] & 0x20) && ((ega->crtc[0x0b] & 0x1f) >= (ega->crtc[0x0a] & 0x1f)));
+                    ega->hdisp + ega->scrollcache, xinc,
+                    ega->vram, ega->ma, ega->vrammask, 4,
+                    ega->crtc[0x17] & 0x80, ega->attrregs[0x10] & 0x08,
+                    ega->ca, !(ega->crtc[0x0a] & 0x20) && ((ega->crtc[0x0b] & 0x1f) >= (ega->crtc[0x0a] & 0x1f)));
 #endif
 
         for (x = 0; x < (ega->hdisp + ega->scrollcache); x += xinc) {
@@ -269,50 +274,45 @@ ega_render_2bpp_lowres(ega_t *ega)
     int      x;
     uint8_t  dat[2];
     uint32_t addr, *p;
-    uint32_t changed_addr;
 
     if ((ega->displine + ega->y_add) < 0)
         return;
 
-    changed_addr = ega->remap_func(ega, ega->ma);
-
-    if (fullchange) {
 #ifdef USE_CLI
-        cli_render_gfx("EGA %dx%d");
+    cli_render_gfx("EGA %dx%d");
 #endif
 
-        p = &buffer32->line[ega->displine + ega->y_add][ega->x_add];
+    p = &buffer32->line[ega->displine + ega->y_add][ega->x_add];
 
-        if (ega->firstline_draw == 2000)
-            ega->firstline_draw = ega->displine;
-        ega->lastline_draw = ega->displine;
+    if (ega->firstline_draw == 2000)
+        ega->firstline_draw = ega->displine;
+    ega->lastline_draw = ega->displine;
 
-        for (x = 0; x <= (ega->hdisp + ega->scrollcache); x += 16) {
-            addr = ega->remap_func(ega, ega->ma);
+    for (x = 0; x <= (ega->hdisp + ega->scrollcache); x += 16) {
+        addr = ega->remap_func(ega, ega->ma);
 
-            dat[0] = ega->vram[addr];
-            dat[1] = ega->vram[addr | 0x1];
-            if (ega->seqregs[1] & 4)
-                ega->ma += 2;
-            else
-                ega->ma += 4;
+        dat[0] = ega->vram[addr];
+        dat[1] = ega->vram[addr | 0x1];
+        if (ega->seqregs[1] & 4)
+            ega->ma += 2;
+        else
+            ega->ma += 4;
 
-            ega->ma &= ega->vrammask;
+        ega->ma &= ega->vrammask;
 
-            if (ega->crtc[0x17] & 0x80) {
-                p[0] = p[1] = ega->pallook[ega->egapal[(dat[0] >> 6) & 3]];
-                p[2] = p[3] = ega->pallook[ega->egapal[(dat[0] >> 4) & 3]];
-                p[4] = p[5] = ega->pallook[ega->egapal[(dat[0] >> 2) & 3]];
-                p[6] = p[7] = ega->pallook[ega->egapal[dat[0] & 3]];
-                p[8] = p[9] = ega->pallook[ega->egapal[(dat[1] >> 6) & 3]];
-                p[10] = p[11] = ega->pallook[ega->egapal[(dat[1] >> 4) & 3]];
-                p[12] = p[13] = ega->pallook[ega->egapal[(dat[1] >> 2) & 3]];
-                p[14] = p[15] = ega->pallook[ega->egapal[dat[1] & 3]];
-            } else
-                memset(p, 0x00, 16 * sizeof(uint32_t));
+        if (ega->crtc[0x17] & 0x80) {
+            p[0] = p[1] = ega->pallook[ega->egapal[(dat[0] >> 6) & 3]];
+            p[2] = p[3] = ega->pallook[ega->egapal[(dat[0] >> 4) & 3]];
+            p[4] = p[5] = ega->pallook[ega->egapal[(dat[0] >> 2) & 3]];
+            p[6] = p[7] = ega->pallook[ega->egapal[dat[0] & 3]];
+            p[8] = p[9] = ega->pallook[ega->egapal[(dat[1] >> 6) & 3]];
+            p[10] = p[11] = ega->pallook[ega->egapal[(dat[1] >> 4) & 3]];
+            p[12] = p[13] = ega->pallook[ega->egapal[(dat[1] >> 2) & 3]];
+            p[14] = p[15] = ega->pallook[ega->egapal[dat[1] & 3]];
+        } else
+            memset(p, 0x00, 16 * sizeof(uint32_t));
 
-            p += 16;
-        }
+        p += 16;
     }
 }
 
@@ -322,50 +322,45 @@ ega_render_2bpp_highres(ega_t *ega)
     int      x;
     uint8_t  dat[2];
     uint32_t addr, *p;
-    uint32_t changed_addr;
 
     if ((ega->displine + ega->y_add) < 0)
         return;
 
-    changed_addr = ega->remap_func(ega, ega->ma);
-
-    if (fullchange) {
 #ifdef USE_CLI
-        cli_render_gfx("EGA %dx%d");
+    cli_render_gfx("EGA %dx%d");
 #endif
 
-        p = &buffer32->line[ega->displine + ega->y_add][ega->x_add];
+    p = &buffer32->line[ega->displine + ega->y_add][ega->x_add];
 
-        if (ega->firstline_draw == 2000)
-            ega->firstline_draw = ega->displine;
-        ega->lastline_draw = ega->displine;
+    if (ega->firstline_draw == 2000)
+        ega->firstline_draw = ega->displine;
+    ega->lastline_draw = ega->displine;
 
-        for (x = 0; x <= (ega->hdisp + ega->scrollcache); x += 8) {
-            addr = ega->remap_func(ega, ega->ma);
+    for (x = 0; x <= (ega->hdisp + ega->scrollcache); x += 8) {
+        addr = ega->remap_func(ega, ega->ma);
 
-            dat[0] = ega->vram[addr];
-            dat[1] = ega->vram[addr | 0x1];
-            if (ega->seqregs[1] & 4)
-                ega->ma += 2;
-            else
-                ega->ma += 4;
+        dat[0] = ega->vram[addr];
+        dat[1] = ega->vram[addr | 0x1];
+        if (ega->seqregs[1] & 4)
+            ega->ma += 2;
+        else
+            ega->ma += 4;
 
-            ega->ma &= ega->vrammask;
+        ega->ma &= ega->vrammask;
 
-            if (ega->crtc[0x17] & 0x80) {
-                p[0] = ega->pallook[ega->egapal[(dat[0] >> 6) & 3]];
-                p[1] = ega->pallook[ega->egapal[(dat[0] >> 4) & 3]];
-                p[2] = ega->pallook[ega->egapal[(dat[0] >> 2) & 3]];
-                p[3] = ega->pallook[ega->egapal[dat[0] & 3]];
-                p[4] = ega->pallook[ega->egapal[(dat[1] >> 6) & 3]];
-                p[5] = ega->pallook[ega->egapal[(dat[1] >> 4) & 3]];
-                p[6] = ega->pallook[ega->egapal[(dat[1] >> 2) & 3]];
-                p[7] = ega->pallook[ega->egapal[dat[1] & 3]];
-            } else
-                memset(p, 0x00, 8 * sizeof(uint32_t));
+        if (ega->crtc[0x17] & 0x80) {
+            p[0] = ega->pallook[ega->egapal[(dat[0] >> 6) & 3]];
+            p[1] = ega->pallook[ega->egapal[(dat[0] >> 4) & 3]];
+            p[2] = ega->pallook[ega->egapal[(dat[0] >> 2) & 3]];
+            p[3] = ega->pallook[ega->egapal[dat[0] & 3]];
+            p[4] = ega->pallook[ega->egapal[(dat[1] >> 6) & 3]];
+            p[5] = ega->pallook[ega->egapal[(dat[1] >> 4) & 3]];
+            p[6] = ega->pallook[ega->egapal[(dat[1] >> 2) & 3]];
+            p[7] = ega->pallook[ega->egapal[dat[1] & 3]];
+        } else
+            memset(p, 0x00, 8 * sizeof(uint32_t));
 
-            p += 8;
-        }
+        p += 8;
     }
 }
 
@@ -375,58 +370,53 @@ ega_render_4bpp_lowres(ega_t *ega)
     int      x, oddeven;
     uint8_t  dat, edat[4];
     uint32_t addr, *p;
-    uint32_t changed_addr;
 
     if ((ega->displine + ega->y_add) < 0)
         return;
 
-    changed_addr = ega->remap_func(ega, ega->ma);
-
-    if (fullchange) {
 #ifdef USE_CLI
-        cli_render_gfx("EGA %dx%d");
+    cli_render_gfx("EGA %dx%d");
 #endif
 
-        p = &buffer32->line[ega->displine + ega->y_add][ega->x_add];
+    p = &buffer32->line[ega->displine + ega->y_add][ega->x_add];
 
-        if (ega->firstline_draw == 2000)
-            ega->firstline_draw = ega->displine;
-        ega->lastline_draw = ega->displine;
+    if (ega->firstline_draw == 2000)
+        ega->firstline_draw = ega->displine;
+    ega->lastline_draw = ega->displine;
 
-        for (x = 0; x <= (ega->hdisp + ega->scrollcache); x += 16) {
-            addr    = ega->remap_func(ega, ega->ma);
-            oddeven = 0;
+    for (x = 0; x <= (ega->hdisp + ega->scrollcache); x += 16) {
+        addr    = ega->remap_func(ega, ega->ma);
+        oddeven = 0;
 
-            if (ega->seqregs[1] & 4) {
-                oddeven = (addr & 4) ? 1 : 0;
-                edat[0] = ega->vram[addr | oddeven];
-                edat[2] = ega->vram[addr | oddeven | 0x2];
-                edat[1] = edat[3] = 0;
-                ega->ma += 2;
-            } else {
-                *(uint32_t *) (&edat[0]) = *(uint32_t *) (&ega->vram[addr]);
-                ega->ma += 4;
-            }
-            ega->ma &= ega->vrammask;
-
-            if (ega->crtc[0x17] & 0x80) {
-                dat  = edatlookup[edat[0] >> 6][edat[1] >> 6] | (edatlookup[edat[2] >> 6][edat[3] >> 6] << 2);
-                p[0] = p[1] = ega->pallook[ega->egapal[(dat >> 4) & ega->plane_mask]];
-                p[2] = p[3] = ega->pallook[ega->egapal[dat & ega->plane_mask]];
-                dat         = edatlookup[(edat[0] >> 4) & 3][(edat[1] >> 4) & 3] | (edatlookup[(edat[2] >> 4) & 3][(edat[3] >> 4) & 3] << 2);
-                p[4] = p[5] = ega->pallook[ega->egapal[(dat >> 4) & ega->plane_mask]];
-                p[6] = p[7] = ega->pallook[ega->egapal[dat & ega->plane_mask]];
-                dat         = edatlookup[(edat[0] >> 2) & 3][(edat[1] >> 2) & 3] | (edatlookup[(edat[2] >> 2) & 3][(edat[3] >> 2) & 3] << 2);
-                p[8] = p[9] = ega->pallook[ega->egapal[(dat >> 4) & ega->plane_mask]];
-                p[10] = p[11] = ega->pallook[ega->egapal[dat & ega->plane_mask]];
-                dat           = edatlookup[edat[0] & 3][edat[1] & 3] | (edatlookup[edat[2] & 3][edat[3] & 3] << 2);
-                p[12] = p[13] = ega->pallook[ega->egapal[(dat >> 4) & ega->plane_mask]];
-                p[14] = p[15] = ega->pallook[ega->egapal[dat & ega->plane_mask]];
-            } else
-                memset(p, 0x00, 16 * sizeof(uint32_t));
-
-            p += 16;
+        if (ega->seqregs[1] & 4) {
+            oddeven = (addr & 4) ? 1 : 0;
+            edat[0] = ega->vram[addr | oddeven];
+            edat[2] = ega->vram[addr | oddeven | 0x2];
+            edat[1] = edat[3] = 0;
+            ega->ma += 2;
+        } else {
+            *(uint32_t *) (&edat[0]) = *(uint32_t *) (&ega->vram[addr]);
+            ega->ma += 4;
         }
+        ega->ma &= ega->vrammask;
+
+        if (ega->crtc[0x17] & 0x80) {
+            dat  = edatlookup[edat[0] >> 6][edat[1] >> 6] | (edatlookup[edat[2] >> 6][edat[3] >> 6] << 2);
+            p[0] = p[1] = ega->pallook[ega->egapal[(dat >> 4) & ega->plane_mask]];
+            p[2] = p[3] = ega->pallook[ega->egapal[dat & ega->plane_mask]];
+            dat         = edatlookup[(edat[0] >> 4) & 3][(edat[1] >> 4) & 3] | (edatlookup[(edat[2] >> 4) & 3][(edat[3] >> 4) & 3] << 2);
+            p[4] = p[5] = ega->pallook[ega->egapal[(dat >> 4) & ega->plane_mask]];
+            p[6] = p[7] = ega->pallook[ega->egapal[dat & ega->plane_mask]];
+            dat         = edatlookup[(edat[0] >> 2) & 3][(edat[1] >> 2) & 3] | (edatlookup[(edat[2] >> 2) & 3][(edat[3] >> 2) & 3] << 2);
+            p[8] = p[9] = ega->pallook[ega->egapal[(dat >> 4) & ega->plane_mask]];
+            p[10] = p[11] = ega->pallook[ega->egapal[dat & ega->plane_mask]];
+            dat           = edatlookup[edat[0] & 3][edat[1] & 3] | (edatlookup[edat[2] & 3][edat[3] & 3] << 2);
+            p[12] = p[13] = ega->pallook[ega->egapal[(dat >> 4) & ega->plane_mask]];
+            p[14] = p[15] = ega->pallook[ega->egapal[dat & ega->plane_mask]];
+        } else
+            memset(p, 0x00, 16 * sizeof(uint32_t));
+
+        p += 16;
     }
 }
 
@@ -436,57 +426,52 @@ ega_render_4bpp_highres(ega_t *ega)
     int      x, oddeven;
     uint8_t  dat, edat[4];
     uint32_t addr, *p;
-    uint32_t changed_addr;
 
     if ((ega->displine + ega->y_add) < 0)
         return;
 
-    changed_addr = ega->remap_func(ega, ega->ma);
-
-    if (fullchange) {
 #ifdef USE_CLI
-        cli_render_gfx("EGA %dx%d");
+    cli_render_gfx("EGA %dx%d");
 #endif
 
-        p = &buffer32->line[ega->displine + ega->y_add][ega->x_add];
+    p = &buffer32->line[ega->displine + ega->y_add][ega->x_add];
 
-        if (ega->firstline_draw == 2000)
-            ega->firstline_draw = ega->displine;
-        ega->lastline_draw = ega->displine;
+    if (ega->firstline_draw == 2000)
+        ega->firstline_draw = ega->displine;
+    ega->lastline_draw = ega->displine;
 
-        for (x = 0; x <= (ega->hdisp + ega->scrollcache); x += 8) {
-            addr    = ega->remap_func(ega, ega->ma);
-            oddeven = 0;
+    for (x = 0; x <= (ega->hdisp + ega->scrollcache); x += 8) {
+        addr    = ega->remap_func(ega, ega->ma);
+        oddeven = 0;
 
-            if (ega->seqregs[1] & 4) {
-                oddeven = (addr & 4) ? 1 : 0;
-                edat[0] = ega->vram[addr | oddeven];
-                edat[2] = ega->vram[addr | oddeven | 0x2];
-                edat[1] = edat[3] = 0;
-                ega->ma += 2;
-            } else {
-                *(uint32_t *) (&edat[0]) = *(uint32_t *) (&ega->vram[addr]);
-                ega->ma += 4;
-            }
-            ega->ma &= ega->vrammask;
-
-            if (ega->crtc[0x17] & 0x80) {
-                dat  = edatlookup[edat[0] >> 6][edat[1] >> 6] | (edatlookup[edat[2] >> 6][edat[3] >> 6] << 2);
-                p[0] = ega->pallook[ega->egapal[(dat >> 4) & ega->plane_mask]];
-                p[1] = ega->pallook[ega->egapal[dat & ega->plane_mask]];
-                dat  = edatlookup[(edat[0] >> 4) & 3][(edat[1] >> 4) & 3] | (edatlookup[(edat[2] >> 4) & 3][(edat[3] >> 4) & 3] << 2);
-                p[2] = ega->pallook[ega->egapal[(dat >> 4) & ega->plane_mask]];
-                p[3] = ega->pallook[ega->egapal[dat & ega->plane_mask]];
-                dat  = edatlookup[(edat[0] >> 2) & 3][(edat[1] >> 2) & 3] | (edatlookup[(edat[2] >> 2) & 3][(edat[3] >> 2) & 3] << 2);
-                p[4] = ega->pallook[ega->egapal[(dat >> 4) & ega->plane_mask]];
-                p[5] = ega->pallook[ega->egapal[dat & ega->plane_mask]];
-                dat  = edatlookup[edat[0] & 3][edat[1] & 3] | (edatlookup[edat[2] & 3][edat[3] & 3] << 2);
-                p[6] = ega->pallook[ega->egapal[(dat >> 4) & ega->plane_mask]];
-                p[7] = ega->pallook[ega->egapal[dat & ega->plane_mask]];
-            } else
-                memset(p, 0x00, 8 * sizeof(uint32_t));
-
-            p += 8;
+        if (ega->seqregs[1] & 4) {
+            oddeven = (addr & 4) ? 1 : 0;
+            edat[0] = ega->vram[addr | oddeven];
+            edat[2] = ega->vram[addr | oddeven | 0x2];
+            edat[1] = edat[3] = 0;
+            ega->ma += 2;
+        } else {
+            *(uint32_t *) (&edat[0]) = *(uint32_t *) (&ega->vram[addr]);
+            ega->ma += 4;
         }
+        ega->ma &= ega->vrammask;
+
+        if (ega->crtc[0x17] & 0x80) {
+            dat  = edatlookup[edat[0] >> 6][edat[1] >> 6] | (edatlookup[edat[2] >> 6][edat[3] >> 6] << 2);
+            p[0] = ega->pallook[ega->egapal[(dat >> 4) & ega->plane_mask]];
+            p[1] = ega->pallook[ega->egapal[dat & ega->plane_mask]];
+            dat  = edatlookup[(edat[0] >> 4) & 3][(edat[1] >> 4) & 3] | (edatlookup[(edat[2] >> 4) & 3][(edat[3] >> 4) & 3] << 2);
+            p[2] = ega->pallook[ega->egapal[(dat >> 4) & ega->plane_mask]];
+            p[3] = ega->pallook[ega->egapal[dat & ega->plane_mask]];
+            dat  = edatlookup[(edat[0] >> 2) & 3][(edat[1] >> 2) & 3] | (edatlookup[(edat[2] >> 2) & 3][(edat[3] >> 2) & 3] << 2);
+            p[4] = ega->pallook[ega->egapal[(dat >> 4) & ega->plane_mask]];
+            p[5] = ega->pallook[ega->egapal[dat & ega->plane_mask]];
+            dat  = edatlookup[edat[0] & 3][edat[1] & 3] | (edatlookup[edat[2] & 3][edat[3] & 3] << 2);
+            p[6] = ega->pallook[ega->egapal[(dat >> 4) & ega->plane_mask]];
+            p[7] = ega->pallook[ega->egapal[dat & ega->plane_mask]];
+        } else
+            memset(p, 0x00, 8 * sizeof(uint32_t));
+
+        p += 8;
     }
 }

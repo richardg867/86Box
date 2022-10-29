@@ -181,7 +181,7 @@ typedef struct {
     uint8_t *vram;
 } incolor_t;
 
-static video_timings_t timing_incolor = { VIDEO_ISA, 8, 16, 32, 8, 16, 32 };
+static video_timings_t timing_incolor = { .type = VIDEO_ISA, .write_b = 8, .write_w = 16, .write_l = 32, .read_b = 8, .read_w = 16, .read_l = 32 };
 
 static void
 recalc_timings(incolor_t *dev)

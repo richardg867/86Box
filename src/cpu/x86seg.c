@@ -41,8 +41,6 @@ uint8_t opcode2;
 int cgate16, cgate32;
 int intgatesize;
 
-uint32_t abrt_error;
-
 void taskswitch286(uint16_t seg, uint16_t *segdat, int is32);
 
 void pmodeint(int num, int soft);
@@ -83,7 +81,10 @@ seg_reset(x86seg *s)
     if (s == &cpu_state.seg_cs) {
 	if (!cpu_inited)
 		fatal("seg_reset(&cpu_state.seg.cs) without an initialized CPU\n");
-	s->base = is286 ? (cpu_16bitbus ? 0x00ff0000 : 0xffff0000) : 0x000ffff0;
+	if (is6117)
+		s->base = 0x03ff0000;
+	else
+		s->base = is286 ? (cpu_16bitbus ? 0x00ff0000 : 0xffff0000) : 0x000ffff0;
 	s->seg = is286 ? 0xf000 : 0xffff;
     } else {
 	s->base = 0;
@@ -159,6 +160,18 @@ x86_doabrt(int x86_abrt)
 		SP -= 4;
 	}
     }
+}
+
+
+void
+x86de(char *s, uint16_t error)
+{
+#ifdef BAD_CODE
+    cpu_state.abrt = ABRT_DE;
+    abrt_error = error;
+#else
+    x86_int(0);
+#endif
 }
 
 

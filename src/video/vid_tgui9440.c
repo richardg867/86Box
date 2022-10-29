@@ -166,8 +166,8 @@ typedef struct tgui_t {
     int has_bios;
 } tgui_t;
 
-video_timings_t timing_tgui_vlb = { VIDEO_BUS, 4, 8, 16, 4, 8, 16 };
-video_timings_t timing_tgui_pci = { VIDEO_PCI, 4, 8, 16, 4, 8, 16 };
+video_timings_t timing_tgui_vlb = { .type = VIDEO_BUS, .write_b = 4, .write_w = 8, .write_l = 16, .read_b = 4, .read_w = 8, .read_l = 16 };
+video_timings_t timing_tgui_pci = { .type = VIDEO_PCI, .write_b = 4, .write_w = 8, .write_l = 16, .read_b = 4, .read_w = 8, .read_l = 16 };
 
 static void    tgui_out(uint16_t addr, uint8_t val, void *p);
 static uint8_t tgui_in(uint16_t addr, void *p);
@@ -469,7 +469,8 @@ tgui_out(uint16_t addr, uint8_t val, void *p)
                     break;
 
                 case 0x37:
-                    i2c_gpio_set(tgui->i2c, (val & 0x02) || !(val & 0x04), (val & 0x01) || !(val & 0x08));
+                    if (tgui->type >= TGUI_9440)
+                        i2c_gpio_set(tgui->i2c, (val & 0x02) || !(val & 0x04), (val & 0x01) || !(val & 0x08));
                     break;
 
                 case 0x40:
@@ -494,8 +495,8 @@ tgui_out(uint16_t addr, uint8_t val, void *p)
 
                 case 0x50:
                     if (tgui->type >= TGUI_9440) {
-                        svga->hwcursor.ena   = !!(val & 0x80);
-                        svga->hwcursor.xsize = svga->hwcursor.ysize = ((val & 1) ? 64 : 32);
+                        svga->hwcursor.ena       = !!(val & 0x80);
+                        svga->hwcursor.cur_xsize = svga->hwcursor.cur_ysize = ((val & 1) ? 64 : 32);
                     }
                     break;
             }
@@ -598,7 +599,7 @@ tgui_in(uint16_t addr, void *p)
             return svga->crtcreg;
         case 0x3D5:
             temp = svga->crtc[svga->crtcreg];
-            if (svga->crtcreg == 0x37) {
+            if ((svga->crtcreg == 0x37) && (tgui->type >= TGUI_9440)) {
                 if (!(temp & 0x04)) {
                     temp &= ~0x02;
                     if (i2c_gpio_get_scl(tgui->i2c))
@@ -881,7 +882,7 @@ tgui_hwcursor_draw(svga_t *svga, int displine)
     uint32_t dat[2];
     int      xx;
     int      offset = svga->hwcursor_latch.x + svga->hwcursor_latch.xoff;
-    int      pitch  = (svga->hwcursor_latch.xsize == 64) ? 16 : 8;
+    int      pitch  = (svga->hwcursor_latch.cur_xsize == 64) ? 16 : 8;
 
     if (svga->interlace && svga->hwcursor_oddeven)
         svga->hwcursor_latch.addr += pitch;
@@ -3458,8 +3459,11 @@ tgui_init(const device_t *info)
 
     tgui->has_bios = (bios_fn != NULL);
 
-    if (tgui->has_bios)
+    if (tgui->has_bios) {
         rom_init(&tgui->bios_rom, (char *) bios_fn, 0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
+        if (tgui->pci)
+            mem_mapping_disable(&tgui->bios_rom.mapping);
+    }
 
     if (tgui->pci)
         video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_tgui_pci);
@@ -3534,8 +3538,10 @@ tgui_close(void *p)
 
     svga_close(&tgui->svga);
 
-    ddc_close(tgui->ddc);
-    i2c_gpio_close(tgui->i2c);
+    if (tgui->type >= TGUI_9440) {
+        ddc_close(tgui->ddc);
+        i2c_gpio_close(tgui->i2c);
+    };
 
     free(tgui);
 }

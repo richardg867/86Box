@@ -258,9 +258,9 @@ typedef struct mach64_t {
     void   *i2c, *ddc;
 } mach64_t;
 
-static video_timings_t timing_mach64_isa = { VIDEO_ISA, 3, 3, 6, 5, 5, 10 };
-static video_timings_t timing_mach64_vlb = { VIDEO_BUS, 2, 2, 1, 20, 20, 21 };
-static video_timings_t timing_mach64_pci = { VIDEO_PCI, 2, 2, 1, 20, 20, 21 };
+static video_timings_t timing_mach64_isa = { .type = VIDEO_ISA, .write_b = 3, .write_w = 3, .write_l = 6, .read_b = 5, .read_w = 5, .read_l = 10 };
+static video_timings_t timing_mach64_vlb = { .type = VIDEO_BUS, .write_b = 2, .write_w = 2, .write_l = 1, .read_b = 20, .read_w = 20, .read_l = 21 };
+static video_timings_t timing_mach64_pci = { .type = VIDEO_PCI, .write_b = 2, .write_w = 2, .write_l = 1, .read_b = 20, .read_w = 20, .read_l = 21 };
 
 enum {
     SRC_BG      = 0,
@@ -2090,8 +2090,8 @@ mach64_vblank_start(svga_t *svga)
     svga->overlay.x = (mach64->overlay_y_x_start >> 16) & 0x7ff;
     svga->overlay.y = mach64->overlay_y_x_start & 0x7ff;
 
-    svga->overlay.xsize = ((mach64->overlay_y_x_end >> 16) & 0x7ff) - svga->overlay.x;
-    svga->overlay.ysize = (mach64->overlay_y_x_end & 0x7ff) - svga->overlay.y;
+    svga->overlay.cur_xsize = ((mach64->overlay_y_x_end >> 16) & 0x7ff) - svga->overlay.x;
+    svga->overlay.cur_ysize = (mach64->overlay_y_x_end & 0x7ff) - svga->overlay.y;
 
     svga->overlay.addr  = mach64->buf_offset[0] & 0x3ffff8;
     svga->overlay.pitch = mach64->buf_pitch[0] & 0xfff;
@@ -3678,122 +3678,122 @@ mach64_readl(uint32_t addr, void *p)
             x = ((x) < 0) ? 0 : 0xff; \
     } while (0)
 
-#define DECODE_ARGB1555()                                        \
-    do {                                                         \
-        for (x = 0; x < mach64->svga.overlay_latch.xsize; x++) { \
-            uint16_t dat = ((uint16_t *) src)[x];                \
-                                                                 \
-            int b = dat & 0x1f;                                  \
-            int g = (dat >> 5) & 0x1f;                           \
-            int r = (dat >> 10) & 0x1f;                          \
-                                                                 \
-            b = (b << 3) | (b >> 2);                             \
-            g = (g << 3) | (g >> 2);                             \
-            r = (r << 3) | (r >> 2);                             \
-                                                                 \
-            mach64->overlay_dat[x] = (r << 16) | (g << 8) | b;   \
-        }                                                        \
+#define DECODE_ARGB1555()                                            \
+    do {                                                             \
+        for (x = 0; x < mach64->svga.overlay_latch.cur_xsize; x++) { \
+            uint16_t dat = ((uint16_t *) src)[x];                    \
+                                                                     \
+            int b = dat & 0x1f;                                      \
+            int g = (dat >> 5) & 0x1f;                               \
+            int r = (dat >> 10) & 0x1f;                              \
+                                                                     \
+            b = (b << 3) | (b >> 2);                                 \
+            g = (g << 3) | (g >> 2);                                 \
+            r = (r << 3) | (r >> 2);                                 \
+                                                                     \
+            mach64->overlay_dat[x] = (r << 16) | (g << 8) | b;       \
+        }                                                            \
     } while (0)
 
-#define DECODE_RGB565()                                          \
-    do {                                                         \
-        for (x = 0; x < mach64->svga.overlay_latch.xsize; x++) { \
-            uint16_t dat = ((uint16_t *) src)[x];                \
-                                                                 \
-            int b = dat & 0x1f;                                  \
-            int g = (dat >> 5) & 0x3f;                           \
-            int r = (dat >> 11) & 0x1f;                          \
-                                                                 \
-            b = (b << 3) | (b >> 2);                             \
-            g = (g << 2) | (g >> 4);                             \
-            r = (r << 3) | (r >> 2);                             \
-                                                                 \
-            mach64->overlay_dat[x] = (r << 16) | (g << 8) | b;   \
-        }                                                        \
+#define DECODE_RGB565()                                              \
+    do {                                                             \
+        for (x = 0; x < mach64->svga.overlay_latch.cur_xsize; x++) { \
+            uint16_t dat = ((uint16_t *) src)[x];                    \
+                                                                     \
+            int b = dat & 0x1f;                                      \
+            int g = (dat >> 5) & 0x3f;                               \
+            int r = (dat >> 11) & 0x1f;                              \
+                                                                     \
+            b = (b << 3) | (b >> 2);                                 \
+            g = (g << 2) | (g >> 4);                                 \
+            r = (r << 3) | (r >> 2);                                 \
+                                                                     \
+            mach64->overlay_dat[x] = (r << 16) | (g << 8) | b;       \
+        }                                                            \
     } while (0)
 
-#define DECODE_ARGB8888()                                        \
-    do {                                                         \
-        for (x = 0; x < mach64->svga.overlay_latch.xsize; x++) { \
-            int b = src[0];                                      \
-            int g = src[1];                                      \
-            int r = src[2];                                      \
-            src += 4;                                            \
-                                                                 \
-            mach64->overlay_dat[x] = (r << 16) | (g << 8) | b;   \
-        }                                                        \
+#define DECODE_ARGB8888()                                            \
+    do {                                                             \
+        for (x = 0; x < mach64->svga.overlay_latch.cur_xsize; x++) { \
+            int b = src[0];                                          \
+            int g = src[1];                                          \
+            int r = src[2];                                          \
+            src += 4;                                                \
+                                                                     \
+            mach64->overlay_dat[x] = (r << 16) | (g << 8) | b;       \
+        }                                                            \
     } while (0)
 
-#define DECODE_VYUY422()                                            \
-    do {                                                            \
-        for (x = 0; x < mach64->svga.overlay_latch.xsize; x += 2) { \
-            uint8_t y1, y2;                                         \
-            int8_t  u, v;                                           \
-            int     dR, dG, dB;                                     \
-            int     r, g, b;                                        \
-                                                                    \
-            y1 = src[0];                                            \
-            u  = src[1] - 0x80;                                     \
-            y2 = src[2];                                            \
-            v  = src[3] - 0x80;                                     \
-            src += 4;                                               \
-                                                                    \
-            dR = (359 * v) >> 8;                                    \
-            dG = (88 * u + 183 * v) >> 8;                           \
-            dB = (453 * u) >> 8;                                    \
-                                                                    \
-            r = y1 + dR;                                            \
-            CLAMP(r);                                               \
-            g = y1 - dG;                                            \
-            CLAMP(g);                                               \
-            b = y1 + dB;                                            \
-            CLAMP(b);                                               \
-            mach64->overlay_dat[x] = (r << 16) | (g << 8) | b;      \
-                                                                    \
-            r = y2 + dR;                                            \
-            CLAMP(r);                                               \
-            g = y2 - dG;                                            \
-            CLAMP(g);                                               \
-            b = y2 + dB;                                            \
-            CLAMP(b);                                               \
-            mach64->overlay_dat[x + 1] = (r << 16) | (g << 8) | b;  \
-        }                                                           \
+#define DECODE_VYUY422()                                                \
+    do {                                                                \
+        for (x = 0; x < mach64->svga.overlay_latch.cur_xsize; x += 2) { \
+            uint8_t y1, y2;                                             \
+            int8_t  u, v;                                               \
+            int     dR, dG, dB;                                         \
+            int     r, g, b;                                            \
+                                                                        \
+            y1 = src[0];                                                \
+            u  = src[1] - 0x80;                                         \
+            y2 = src[2];                                                \
+            v  = src[3] - 0x80;                                         \
+            src += 4;                                                   \
+                                                                        \
+            dR = (359 * v) >> 8;                                        \
+            dG = (88 * u + 183 * v) >> 8;                               \
+            dB = (453 * u) >> 8;                                        \
+                                                                        \
+            r = y1 + dR;                                                \
+            CLAMP(r);                                                   \
+            g = y1 - dG;                                                \
+            CLAMP(g);                                                   \
+            b = y1 + dB;                                                \
+            CLAMP(b);                                                   \
+            mach64->overlay_dat[x] = (r << 16) | (g << 8) | b;          \
+                                                                        \
+            r = y2 + dR;                                                \
+            CLAMP(r);                                                   \
+            g = y2 - dG;                                                \
+            CLAMP(g);                                                   \
+            b = y2 + dB;                                                \
+            CLAMP(b);                                                   \
+            mach64->overlay_dat[x + 1] = (r << 16) | (g << 8) | b;      \
+        }                                                               \
     } while (0)
 
-#define DECODE_YVYU422()                                            \
-    do {                                                            \
-        for (x = 0; x < mach64->svga.overlay_latch.xsize; x += 2) { \
-            uint8_t y1, y2;                                         \
-            int8_t  u, v;                                           \
-            int     dR, dG, dB;                                     \
-            int     r, g, b;                                        \
-                                                                    \
-            u  = src[0] - 0x80;                                     \
-            y1 = src[1];                                            \
-            v  = src[2] - 0x80;                                     \
-            y2 = src[3];                                            \
-            src += 4;                                               \
-                                                                    \
-            dR = (359 * v) >> 8;                                    \
-            dG = (88 * u + 183 * v) >> 8;                           \
-            dB = (453 * u) >> 8;                                    \
-                                                                    \
-            r = y1 + dR;                                            \
-            CLAMP(r);                                               \
-            g = y1 - dG;                                            \
-            CLAMP(g);                                               \
-            b = y1 + dB;                                            \
-            CLAMP(b);                                               \
-            mach64->overlay_dat[x] = (r << 16) | (g << 8) | b;      \
-                                                                    \
-            r = y2 + dR;                                            \
-            CLAMP(r);                                               \
-            g = y2 - dG;                                            \
-            CLAMP(g);                                               \
-            b = y2 + dB;                                            \
-            CLAMP(b);                                               \
-            mach64->overlay_dat[x + 1] = (r << 16) | (g << 8) | b;  \
-        }                                                           \
+#define DECODE_YVYU422()                                                \
+    do {                                                                \
+        for (x = 0; x < mach64->svga.overlay_latch.cur_xsize; x += 2) { \
+            uint8_t y1, y2;                                             \
+            int8_t  u, v;                                               \
+            int     dR, dG, dB;                                         \
+            int     r, g, b;                                            \
+                                                                        \
+            u  = src[0] - 0x80;                                         \
+            y1 = src[1];                                                \
+            v  = src[2] - 0x80;                                         \
+            y2 = src[3];                                                \
+            src += 4;                                                   \
+                                                                        \
+            dR = (359 * v) >> 8;                                        \
+            dG = (88 * u + 183 * v) >> 8;                               \
+            dB = (453 * u) >> 8;                                        \
+                                                                        \
+            r = y1 + dR;                                                \
+            CLAMP(r);                                                   \
+            g = y1 - dG;                                                \
+            CLAMP(g);                                                   \
+            b = y1 + dB;                                                \
+            CLAMP(b);                                                   \
+            mach64->overlay_dat[x] = (r << 16) | (g << 8) | b;          \
+                                                                        \
+            r = y2 + dR;                                                \
+            CLAMP(r);                                                   \
+            g = y2 - dG;                                                \
+            CLAMP(g);                                                   \
+            b = y2 + dB;                                                \
+            CLAMP(b);                                                   \
+            mach64->overlay_dat[x + 1] = (r << 16) | (g << 8) | b;      \
+        }                                                               \
     } while (0)
 
 void
@@ -3837,14 +3837,14 @@ mach64_overlay_draw(svga_t *svga, int displine)
             default:
                 mach64_log("Unknown Mach64 scaler format %x\n", mach64->scaler_format);
                 /*Fill buffer with something recognisably wrong*/
-                for (x = 0; x < mach64->svga.overlay_latch.xsize; x++)
+                for (x = 0; x < mach64->svga.overlay_latch.cur_xsize; x++)
                     mach64->overlay_dat[x] = 0xff00ff;
                 break;
         }
     }
 
     if (overlay_cmp_mix == 2) {
-        for (x = 0; x < mach64->svga.overlay_latch.xsize; x++) {
+        for (x = 0; x < mach64->svga.overlay_latch.cur_xsize; x++) {
             int h = h_acc >> 12;
 
             p[x] = mach64->overlay_dat[h];
@@ -3854,7 +3854,7 @@ mach64_overlay_draw(svga_t *svga, int displine)
                 h_acc = (h_max << 12);
         }
     } else {
-        for (x = 0; x < mach64->svga.overlay_latch.xsize; x++) {
+        for (x = 0; x < mach64->svga.overlay_latch.cur_xsize; x++) {
             int h      = h_acc >> 12;
             int gr_cmp = 0, vid_cmp = 0;
             int use_video = 0;
@@ -4204,10 +4204,7 @@ mach64_common_init(const device_t *info)
               mach64_in, mach64_out,
               NULL,
               mach64_overlay_draw);
-    mach64->svga.dac_hwcursor.ysize = 64;
-
-    if (info->flags & DEVICE_PCI)
-        mem_mapping_disable(&mach64->bios_rom.mapping);
+    mach64->svga.dac_hwcursor.cur_ysize = 64;
 
     mem_mapping_add(&mach64->linear_mapping, 0, 0, svga_read_linear, svga_readw_linear, svga_readl_linear, svga_write_linear, svga_writew_linear, svga_writel_linear, NULL, MEM_MAPPING_EXTERNAL, &mach64->svga);
     mem_mapping_add(&mach64->mmio_linear_mapping, 0, 0, mach64_ext_readb, mach64_ext_readw, mach64_ext_readl, mach64_ext_writeb, mach64_ext_writew, mach64_ext_writel, NULL, MEM_MAPPING_EXTERNAL, mach64);
@@ -4278,6 +4275,9 @@ mach64gx_init(const device_t *info)
     else if (info->flags & DEVICE_ISA)
         rom_init(&mach64->bios_rom, BIOS_ISA_ROM_PATH, 0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
 
+    if (info->flags & DEVICE_PCI)
+        mem_mapping_disable(&mach64->bios_rom.mapping);
+
     return mach64;
 }
 static void *
@@ -4302,6 +4302,9 @@ mach64vt2_init(const device_t *info)
     ati_eeprom_load(&mach64->eeprom, "mach64vt.nvr", 1);
 
     rom_init(&mach64->bios_rom, BIOS_ROMVT2_PATH, 0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
+
+    if (info->flags & DEVICE_PCI)
+        mem_mapping_disable(&mach64->bios_rom.mapping);
 
     svga->vblank_start = mach64_vblank_start;
 

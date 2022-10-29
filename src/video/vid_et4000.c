@@ -53,6 +53,12 @@
 #include <86box/vid_svga.h>
 #include <86box/vid_svga_render.h>
 
+#define ET4000_TYPE_ISA      1 /* ISA ET4000AX */
+#define ET4000_TYPE_MCA      2 /* MCA ET4000AX */
+#define ET4000_TYPE_KOREAN   3 /* Korean ET4000 */
+#define ET4000_TYPE_TRIGEM   4 /* Trigem 286M ET4000 */
+#define ET4000_TYPE_KASAN    5 /* Kasan ET4000 */
+
 #define BIOS_ROM_PATH        "roms/video/et4000/ET4000.BIN"
 #define KOREAN_BIOS_ROM_PATH "roms/video/et4000/tgkorvga.bin"
 #define KOREAN_FONT_ROM_PATH "roms/video/et4000/tg_ksc5601.rom"
@@ -96,8 +102,8 @@ static const uint8_t crtc_mask[0x40] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-static video_timings_t timing_et4000_isa = { VIDEO_ISA, 3, 3, 6, 5, 5, 10 };
-static video_timings_t timing_et4000_mca = { VIDEO_MCA, 4, 5, 10, 5, 5, 10 };
+static video_timings_t timing_et4000_isa = { .type = VIDEO_ISA, .write_b = 3, .write_w = 3, .write_l = 6, .read_b = 5, .read_w = 5, .read_l = 10 };
+static video_timings_t timing_et4000_mca = { .type = VIDEO_MCA, .write_b = 4, .write_w = 5, .write_l = 10, .read_b = 5, .read_w = 5, .read_l = 10 };
 
 static void    et4000_kasan_out(uint16_t addr, uint8_t val, void *p);
 static uint8_t et4000_kasan_in(uint16_t addr, void *p);
@@ -113,7 +119,7 @@ et4000_in(uint16_t addr, void *priv)
 
     switch (addr) {
         case 0x3c2:
-            if (dev->type == 1) {
+            if (dev->type == ET4000_TYPE_MCA) {
                 if ((svga->vgapal[0].r + svga->vgapal[0].g + svga->vgapal[0].b) >= 0x4e)
                     return 0;
                 else
@@ -447,8 +453,9 @@ et4000_kasan_out(uint16_t addr, uint8_t val, void *priv)
             case 3:
             case 4:
             case 5:
-                if (et4000->kasan_cfg_regs[0] & 1)
+                if (et4000->kasan_cfg_regs[0] & 1) {
                     et4000->kasan_font_data[addr - (((et4000->kasan_cfg_regs[2] << 8) | (et4000->kasan_cfg_regs[1])) + 3)] = val;
+                }
                 break;
             case 6:
                 if ((et4000->kasan_cfg_regs[0] & 1) && (et4000->kasan_font_data[3] & !(val & 0x80)) && (et4000->get_korean_font_base & 0x7F) >= 0x20 && (et4000->get_korean_font_base & 0x7F) < 0x7F) {
@@ -575,7 +582,7 @@ et4000_recalctimings(svga_t *svga)
             break;
     }
 
-    if (dev->type == 2 || dev->type == 3 || dev->type == 4) {
+    if (dev->type == ET4000_TYPE_KOREAN || dev->type == ET4000_TYPE_TRIGEM || dev->type == ET4000_TYPE_KASAN) {
         if ((svga->render == svga_render_text_80) && ((svga->crtc[0x37] & 0x0A) == 0x0A)) {
             if (dev->port_32cb_val & 0x80) {
                 svga->ma_latch -= 2;
@@ -645,7 +652,7 @@ et4000_init(const device_t *info)
     fn        = BIOS_ROM_PATH;
 
     switch (dev->type) {
-        case 0: /* ISA ET4000AX */
+        case ET4000_TYPE_ISA: /* ISA ET4000AX */
             dev->vram_size = device_get_config_int("memory") << 10;
             video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_et4000_isa);
             svga_init(info, &dev->svga, dev, dev->vram_size,
@@ -655,7 +662,7 @@ et4000_init(const device_t *info)
                           et4000_in, NULL, NULL, et4000_out, NULL, NULL, dev);
             break;
 
-        case 1: /* MCA ET4000AX */
+        case ET4000_TYPE_MCA: /* MCA ET4000AX */
             dev->vram_size = 1024 << 10;
             video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_et4000_mca);
             svga_init(info, &dev->svga, dev, dev->vram_size,
@@ -668,8 +675,8 @@ et4000_init(const device_t *info)
             mca_add(et4000_mca_read, et4000_mca_write, et4000_mca_feedb, NULL, dev);
             break;
 
-        case 2: /* Korean ET4000 */
-        case 3: /* Trigem 286M ET4000 */
+        case ET4000_TYPE_KOREAN: /* Korean ET4000 */
+        case ET4000_TYPE_TRIGEM: /* Trigem 286M ET4000 */
             dev->vram_size                      = device_get_config_int("memory") << 10;
             dev->port_22cb_val                  = 0x60;
             dev->port_32cb_val                  = 0;
@@ -693,7 +700,8 @@ et4000_init(const device_t *info)
             loadfont(KOREAN_FONT_ROM_PATH, 6);
             fn = KOREAN_BIOS_ROM_PATH;
             break;
-        case 4: /* Kasan ET4000 */
+
+        case ET4000_TYPE_KASAN: /* Kasan ET4000 */
             dev->vram_size                      = device_get_config_int("memory") << 10;
             dev->svga.ksc5601_sbyte_mask        = 0;
             dev->svga.ksc5601_udc_area_msb[0]   = 0xC9;
@@ -814,14 +822,14 @@ static const device_config_t et4000_config[] = {
     {
         .type = CONFIG_END
     }
-  // clang-format on
+// clang-format on
 };
 
 const device_t et4000_isa_device = {
     .name          = "Tseng Labs ET4000AX (ISA)",
     .internal_name = "et4000ax",
     .flags         = DEVICE_ISA,
-    .local         = 0,
+    .local         = ET4000_TYPE_ISA,
     .init          = et4000_init,
     .close         = et4000_close,
     .reset         = NULL,
@@ -835,7 +843,7 @@ const device_t et4000_mca_device = {
     .name          = "Tseng Labs ET4000AX (MCA)",
     .internal_name = "et4000mca",
     .flags         = DEVICE_MCA,
-    .local         = 1,
+    .local         = ET4000_TYPE_MCA,
     .init          = et4000_init,
     .close         = et4000_close,
     .reset         = NULL,
@@ -849,7 +857,7 @@ const device_t et4000k_isa_device = {
     .name          = "Trigem Korean VGA (Tseng Labs ET4000AX Korean)",
     .internal_name = "tgkorvga",
     .flags         = DEVICE_ISA,
-    .local         = 2,
+    .local         = ET4000_TYPE_KOREAN,
     .init          = et4000_init,
     .close         = et4000_close,
     .reset         = NULL,
@@ -863,7 +871,7 @@ const device_t et4000k_tg286_isa_device = {
     .name          = "Trigem Korean VGA (Trigem 286M)",
     .internal_name = "et4000k_tg286_isa",
     .flags         = DEVICE_ISA,
-    .local         = 3,
+    .local         = ET4000_TYPE_TRIGEM,
     .init          = et4000_init,
     .close         = et4000_close,
     .reset         = NULL,
@@ -877,7 +885,7 @@ const device_t et4000_kasan_isa_device = {
     .name          = "Kasan Hangulmadang-16 VGA (Tseng Labs ET4000AX Korean)",
     .internal_name = "kasan16vga",
     .flags         = DEVICE_ISA,
-    .local         = 4,
+    .local         = ET4000_TYPE_KASAN,
     .init          = et4000_init,
     .close         = et4000_close,
     .reset         = NULL,

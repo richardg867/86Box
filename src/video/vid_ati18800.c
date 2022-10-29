@@ -59,7 +59,7 @@ typedef struct ati18800_t {
     int     index;
 } ati18800_t;
 
-static video_timings_t timing_ati18800 = { VIDEO_ISA, 8, 16, 32, 8, 16, 32 };
+static video_timings_t timing_ati18800 = { .type = VIDEO_ISA, .write_b = 8, .write_w = 16, .write_l = 32, .read_b = 8, .read_w = 16, .read_l = 32 };
 
 static void
 ati18800_out(uint16_t addr, uint8_t val, void *p)

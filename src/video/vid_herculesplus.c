@@ -81,13 +81,24 @@ typedef struct {
     int      dispon, blink;
     int      vsynctime;
     int      vadj;
+    int      monitor_index, prev_monitor_index;
 
     int cols[256][2][2];
 
     uint8_t *vram;
 } herculesplus_t;
 
-static video_timings_t timing_herculesplus = { VIDEO_ISA, 8, 16, 32, 8, 16, 32 };
+#define VIDEO_MONITOR_PROLOGUE()                        \
+    {                                                   \
+        dev->prev_monitor_index = monitor_index_global; \
+        monitor_index_global    = dev->monitor_index;   \
+    }
+#define VIDEO_MONITOR_EPILOGUE()                        \
+    {                                                   \
+        monitor_index_global = dev->prev_monitor_index; \
+    }
+
+static video_timings_t timing_herculesplus = { .type = VIDEO_ISA, .write_b = 8, .write_w = 16, .write_l = 32, .read_b = 8, .read_w = 16, .read_l = 32 };
 
 static void
 recalc_timings(herculesplus_t *dev)
@@ -177,7 +188,7 @@ herculesplus_in(uint16_t port, void *priv)
             break;
 
         case 0x3ba:
-            /* 0x50: InColor card identity */
+            /* 0x10: Hercules Plus card identity */
             ret = (dev->stat & 0xf) | ((dev->stat & 8) << 4) | 0x10;
             break;
     }
@@ -413,9 +424,9 @@ text_line(herculesplus_t *dev, uint16_t ca)
         c = dev->crtc[HERCULESPLUS_CRTC_XMODE] & 5;
         if ((c == 0) || (c == 4))
             cli_render_mda(dev->crtc[1], dev->crtc[9] & 0x1f,
-                           dev->vram, dev->ma,
-                           dev->ctrl & 8, dev->ctrl & 0x20,
-                           ca, !(dev->crtc[0x0a] & 0x20) && ((dev->crtc[0x0b] & 0x1f) >= (dev->crtc[0x0a] & 0x1f)));
+                    dev->vram, dev->ma,
+                    dev->ctrl & 8, dev->ctrl & 0x20,
+                    ca, !(dev->crtc[0x0a] & 0x20) && ((dev->crtc[0x0b] & 0x1f) >= (dev->crtc[0x0a] & 0x1f)));
         else
             cli_render_gfx("Hercules Plus RAMfont");
     }
@@ -498,6 +509,7 @@ herculesplus_poll(void *priv)
     uint16_t        ca  = (dev->crtc[15] | (dev->crtc[14] << 8)) & 0x3fff;
     int             x, oldvc, oldsc;
 
+    VIDEO_MONITOR_PROLOGUE();
     if (!dev->linepos) {
         timer_advance_u64(&dev->timer, dev->dispofftime);
         dev->stat |= 1;
@@ -614,6 +626,8 @@ herculesplus_poll(void *priv)
         if ((dev->sc == (dev->crtc[10] & 31) || ((dev->crtc[8] & 3) == 3 && dev->sc == ((dev->crtc[10] & 31) >> 1))))
             dev->con = 1;
     }
+
+    VIDEO_MONITOR_EPILOGUE();
 }
 
 static void *
@@ -625,11 +639,12 @@ herculesplus_init(const device_t *info)
     dev = (herculesplus_t *) malloc(sizeof(herculesplus_t));
     memset(dev, 0, sizeof(herculesplus_t));
 
-    dev->vram = (uint8_t *) malloc(0x10000); /* 64k VRAM */
+    dev->vram          = (uint8_t *) malloc(0x10000); /* 64k VRAM */
+    dev->monitor_index = monitor_index_global;
 
     timer_add(&dev->timer, herculesplus_poll, dev, 1);
 
-    mem_mapping_add(&dev->mapping, 0xb0000, 0x10000,
+    mem_mapping_add(&dev->mapping, 0xb0000, 0x08000,
                     herculesplus_read, NULL, NULL,
                     herculesplus_write, NULL, NULL,
                     dev->vram, MEM_MAPPING_EXTERNAL, dev);
@@ -732,7 +747,7 @@ static const device_config_t herculesplus_config[] = {
     {
         .type = CONFIG_END
     }
-  // clang-format on
+// clang-format on
 };
 
 const device_t herculesplus_device = {

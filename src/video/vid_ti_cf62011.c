@@ -80,7 +80,7 @@ typedef struct {
     uint8_t reg_210a;
 } tivga_t;
 
-static video_timings_t timing_ti_cf62011 = { VIDEO_ISA, 6, 8, 16, 6, 8, 16 };
+static video_timings_t timing_ti_cf62011 = { .type = VIDEO_ISA, .write_b = 6, .write_w = 8, .write_l = 16, .read_b = 6, .read_w = 8, .read_l = 16 };
 
 static void
 vid_out(uint16_t addr, uint8_t val, void *priv)

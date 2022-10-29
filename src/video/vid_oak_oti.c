@@ -61,7 +61,7 @@ typedef struct {
     uint32_t vram_mask;
 } oti_t;
 
-static video_timings_t timing_oti = { VIDEO_ISA, 6, 8, 16, 6, 8, 16 };
+static video_timings_t timing_oti = { .type = VIDEO_ISA, .write_b = 6, .write_w = 8, .write_l = 16, .read_b = 6, .read_w = 8, .read_l = 16 };
 
 static void
 oti_out(uint16_t addr, uint8_t val, void *p)
@@ -341,27 +341,59 @@ oti_pos_in(uint16_t addr, void *p)
     return (oti->pos);
 }
 
+static float
+oti_getclock(int clock)
+{
+    float ret = 0.0;
+
+    switch (clock) {
+        case 0:
+        default:
+            ret = 25175000.0;
+            break;
+        case 1:
+            ret = 28322000.0;
+            break;
+        case 4:
+            ret = 14318000.0;
+            break;
+        case 5:
+            ret = 16257000.0;
+            break;
+        case 7:
+            ret = 35500000.0;
+            break;
+    }
+
+    return ret;
+}
+
 static void
 oti_recalctimings(svga_t *svga)
 {
-    oti_t *oti = (oti_t *) svga->p;
+    oti_t *oti     = (oti_t *) svga->p;
+    int    clk_sel = ((svga->miscout >> 2) & 3) | ((oti->regs[0x0d] & 0x20) >> 3);
 
-    if (oti->regs[0x14] & 0x08)
-        svga->ma_latch |= 0x10000;
-    if (oti->regs[0x16] & 0x08)
-        svga->ma_latch |= 0x20000;
+    svga->clock = (cpuclock * (double) (1ull << 32)) / oti_getclock(clk_sel);
 
-    if (oti->regs[0x14] & 0x01)
-        svga->vtotal += 0x400;
-    if (oti->regs[0x14] & 0x02)
-        svga->dispend += 0x400;
-    if (oti->regs[0x14] & 0x04)
-        svga->vsyncstart += 0x400;
+    if (oti->chip_id > 0) {
+        if (oti->regs[0x14] & 0x08)
+            svga->ma_latch |= 0x10000;
+        if (oti->regs[0x16] & 0x08)
+            svga->ma_latch |= 0x20000;
+
+        if (oti->regs[0x14] & 0x01)
+            svga->vtotal += 0x400;
+        if (oti->regs[0x14] & 0x02)
+            svga->dispend += 0x400;
+        if (oti->regs[0x14] & 0x04)
+            svga->vsyncstart += 0x400;
+
+        svga->interlace = oti->regs[0x14] & 0x80;
+    }
 
     if ((oti->regs[0x0d] & 0x0c) && !(oti->regs[0x0d] & 0x10))
         svga->rowoffset <<= 1;
-
-    svga->interlace = oti->regs[0x14] & 0x80;
 
     if (svga->bpp == 16) {
         svga->render = svga_render_16bpp_highres;

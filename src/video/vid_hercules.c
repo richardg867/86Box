@@ -34,7 +34,7 @@
 #include <86box/vid_hercules.h>
 #include <86box/cli.h>
 
-static video_timings_t timing_hercules = { VIDEO_ISA, 8, 16, 32, 8, 16, 32 };
+static video_timings_t timing_hercules = { .type = VIDEO_ISA, .write_b = 8, .write_w = 16, .write_l = 32, .read_b = 8, .read_w = 16, .read_l = 32 };
 
 static void
 recalc_timings(hercules_t *dev)
@@ -63,6 +63,7 @@ hercules_out(uint16_t addr, uint8_t val, void *priv)
     hercules_t *dev = (hercules_t *) priv;
     uint8_t     old;
 
+    VIDEO_MONITOR_PROLOGUE()
     switch (addr) {
         case 0x03b0:
         case 0x03b2:
@@ -89,7 +90,7 @@ hercules_out(uint16_t addr, uint8_t val, void *priv)
 
             if (old != val) {
                 if ((dev->crtcreg < 0xe) || (dev->crtcreg > 0x10)) {
-                    fullchange = changeframecount;
+                    dev->fullchange = changeframecount;
                     recalc_timings(dev);
                 }
             }
@@ -143,6 +144,8 @@ hercules_out(uint16_t addr, uint8_t val, void *priv)
         default:
             break;
     }
+
+    VIDEO_MONITOR_EPILOGUE()
 }
 
 static uint8_t
@@ -285,6 +288,7 @@ hercules_poll(void *priv)
     int         drawcursor;
     uint32_t   *p;
 
+    VIDEO_MONITOR_PROLOGUE()
     ca = (dev->crtc[15] | (dev->crtc[14] << 8)) & 0x3fff;
 
     if (!dev->linepos) {
@@ -516,6 +520,7 @@ hercules_poll(void *priv)
             }
         }
     }
+    VIDEO_MONITOR_EPILOGUE()
 }
 
 static void *
@@ -526,6 +531,7 @@ hercules_init(const device_t *info)
 
     dev = (hercules_t *) malloc(sizeof(hercules_t));
     memset(dev, 0x00, sizeof(hercules_t));
+    dev->monitor_index = monitor_index_global;
 
     overscan_x = 16;
     overscan_y = 28;

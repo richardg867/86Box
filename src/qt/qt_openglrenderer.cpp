@@ -26,9 +26,18 @@
 #include "qt_opengloptionsdialog.hpp"
 #include "qt_openglrenderer.hpp"
 
+#ifndef GL_MAP_PERSISTENT_BIT
+#define GL_MAP_PERSISTENT_BIT 0x0040
+#endif
+
+#ifndef GL_MAP_COHERENT_BIT
+#define GL_MAP_COHERENT_BIT 0x0080
+#endif
+
 OpenGLRenderer::OpenGLRenderer(QWidget *parent)
     : QWindow(parent->windowHandle())
     , renderTimer(new QTimer(this))
+    , options(nullptr)
 {
     renderTimer->setTimerType(Qt::PreciseTimer);
     /* TODO: need's more accuracy, maybe target 1ms earlier and spin yield */
@@ -71,6 +80,8 @@ OpenGLRenderer::exposeEvent(QExposeEvent *event)
 
     if (!isInitialized)
         initialize();
+
+    onResize(size().width(), size().height());
 }
 
 void
@@ -86,8 +97,8 @@ OpenGLRenderer::resizeEvent(QResizeEvent *event)
     context->makeCurrent(this);
 
     glViewport(
-        destination.x(),
-        destination.y(),
+        destination.x() * devicePixelRatio(),
+        destination.y() * devicePixelRatio(),
         destination.width() * devicePixelRatio(),
         destination.height() * devicePixelRatio());
 }
@@ -165,15 +176,13 @@ OpenGLRenderer::initialize()
 
         glTexImage2D(GL_TEXTURE_2D, 0, QOpenGLTexture::RGBA8_UNorm, INIT_WIDTH, INIT_HEIGHT, 0, QOpenGLTexture::BGRA, QOpenGLTexture::UInt32_RGBA8_Rev, NULL);
 
-        options = new OpenGLOptions(this, true, glslVersion);
-
-        applyOptions();
+        reloadOptions();
 
         glClearColor(0.f, 0.f, 0.f, 1.f);
 
         glViewport(
-            destination.x(),
-            destination.y(),
+            destination.x() * devicePixelRatio(),
+            destination.y() * devicePixelRatio(),
             destination.width() * devicePixelRatio(),
             destination.height() * devicePixelRatio());
 
@@ -240,10 +249,12 @@ void
 OpenGLRenderer::initializeExtensions()
 {
 #ifndef NO_BUFFER_STORAGE
-    if (context->hasExtension("GL_ARB_buffer_storage")) {
+    if (context->hasExtension("GL_ARB_buffer_storage") || context->hasExtension("GL_EXT_buffer_storage")) {
         hasBufferStorage = true;
 
-        glBufferStorage = (PFNGLBUFFERSTORAGEPROC) context->getProcAddress("glBufferStorage");
+        glBufferStorage = (PFNGLBUFFERSTORAGEEXTPROC_LOCAL) context->getProcAddress(context->hasExtension("GL_EXT_buffer_storage") ? "glBufferStorageEXT" : "glBufferStorage");
+        if (!glBufferStorage)
+            glBufferStorage = (PFNGLBUFFERSTORAGEEXTPROC_LOCAL) context->getProcAddress("glBufferStorage");
     }
 #endif
 }
@@ -302,6 +313,15 @@ OpenGLRenderer::applyOptions()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
 
     currentFilter = options->filter();
+}
+
+void
+OpenGLRenderer::reloadOptions()
+{
+    if (options) { delete options; options = nullptr; }
+    options = new OpenGLOptions(this, true, glslVersion);
+
+    applyOptions();
 }
 
 void
@@ -407,6 +427,14 @@ OpenGLRenderer::onBlit(int buf_idx, int x, int y, int w, int h)
 
     context->makeCurrent(this);
 
+#ifdef Q_OS_MACOS
+    glViewport(
+        destination.x() * devicePixelRatio(),
+        destination.y() * devicePixelRatio(),
+        destination.width() * devicePixelRatio(),
+        destination.height() * devicePixelRatio());
+#endif
+
     if (source.width() != w || source.height() != h) {
         source.setRect(0, 0, w, h);
 
@@ -417,7 +445,7 @@ OpenGLRenderer::onBlit(int buf_idx, int x, int y, int w, int h)
     }
 
     if (!hasBufferStorage)
-        glBufferSubData(GL_PIXEL_UNPACK_BUFFER, BUFFERBYTES * buf_idx, h * ROW_LENGTH * sizeof(uint32_t), (uint8_t *) unpackBuffer + BUFFERBYTES * buf_idx);
+        glBufferSubData(GL_PIXEL_UNPACK_BUFFER, BUFFERBYTES * buf_idx, h * ROW_LENGTH * sizeof(uint32_t) + (y * ROW_LENGTH * sizeof(uint32_t)), (uint8_t *) unpackBuffer + BUFFERBYTES * buf_idx);
 
     glPixelStorei(GL_UNPACK_SKIP_PIXELS, BUFFERPIXELS * buf_idx + y * ROW_LENGTH + x);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, ROW_LENGTH);

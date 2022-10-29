@@ -891,12 +891,15 @@ azt_init(const device_t *info)
     azt2316a_t *azt2316a = malloc(sizeof(azt2316a_t));
     memset(azt2316a, 0, sizeof(azt2316a_t));
 
-    azt2316a->type = info->local;
+    azt2316a->type = info->local & 0x7fffffff;
 
     if (azt2316a->type == SB_SUBTYPE_CLONE_AZT1605_0X0C) {
         fn = "azt1605.nvr";
     } else if (azt2316a->type == SB_SUBTYPE_CLONE_AZT2316A_0X11) {
-        fn = "azt2316a.nvr";
+        if (info->local & 0x80000000)
+            fn = "acermagic_s20.nvr";
+        else
+            fn = "azt2316a.nvr";
     }
 
     /* config */
@@ -982,7 +985,9 @@ azt_init(const device_t *info)
         else
             fatal("AZT2316A: invalid sb irq in config word %08X\n", azt2316a->config_word);
 
-        switch (azt2316a->config_word & (3 << 6)) {
+        if (info->local & 0x80000000)
+            azt2316a->cur_dma = 1;
+        else  switch (azt2316a->config_word & (3 << 6)) {
             case 1 << 6:
                 azt2316a->cur_dma = 0;
                 break;
@@ -1112,7 +1117,10 @@ azt_init(const device_t *info)
             azt2316a->cur_wss_enabled = 0;
 
         // these are not present on the EEPROM
-        azt2316a->cur_dma     = device_get_config_int("sb_dma8"); // TODO: investigate TSR to make this work with it - there is no software configurable DMA8?
+        if (info->local & 0x80000000)
+            azt2316a->cur_dma     = 1;
+        else
+            azt2316a->cur_dma     = device_get_config_int("sb_dma8"); // TODO: investigate TSR to make this work with it - there is no software configurable DMA8?
         azt2316a->cur_wss_irq = device_get_config_int("wss_irq");
         azt2316a->cur_wss_dma = device_get_config_int("wss_dma");
         azt2316a->cur_mode    = 0;
@@ -1125,7 +1133,10 @@ azt_init(const device_t *info)
     azt2316a->wss_interrupt_after_config = device_get_config_int("wss_interrupt_after_config");
 
     /* wss part */
-    ad1848_init(&azt2316a->ad1848, device_get_config_int("codec"));
+    if (info->local & 0x80000000)
+        ad1848_init(&azt2316a->ad1848, AD1848_TYPE_CS4231);
+    else
+        ad1848_init(&azt2316a->ad1848, device_get_config_int("codec"));
 
     ad1848_setirq(&azt2316a->ad1848, azt2316a->cur_wss_irq);
     ad1848_setdma(&azt2316a->ad1848, azt2316a->cur_wss_dma);
@@ -1149,7 +1160,7 @@ azt_init(const device_t *info)
         azt2316a->sb->dsp.azt_eeprom[i] = read_eeprom[i];
 
     if (azt2316a->sb->opl_enabled)
-        opl3_init(&azt2316a->sb->opl);
+        fm_driver_get(FM_YMF262, &azt2316a->sb->opl);
 
     sb_dsp_init(&azt2316a->sb->dsp, SBPRO2, azt2316a->type, azt2316a);
     sb_dsp_setaddr(&azt2316a->sb->dsp, azt2316a->cur_addr);
@@ -1158,9 +1169,9 @@ azt_init(const device_t *info)
     sb_ct1345_mixer_reset(azt2316a->sb);
     /* DSP I/O handler is activated in sb_dsp_setaddr */
     if (azt2316a->sb->opl_enabled) {
-        io_sethandler(azt2316a->cur_addr + 0, 0x0004, opl3_read, NULL, NULL, opl3_write, NULL, NULL, &azt2316a->sb->opl);
-        io_sethandler(azt2316a->cur_addr + 8, 0x0002, opl3_read, NULL, NULL, opl3_write, NULL, NULL, &azt2316a->sb->opl);
-        io_sethandler(0x0388, 0x0004, opl3_read, NULL, NULL, opl3_write, NULL, NULL, &azt2316a->sb->opl);
+        io_sethandler(azt2316a->cur_addr + 0, 0x0004, azt2316a->sb->opl.read, NULL, NULL, azt2316a->sb->opl.write, NULL, NULL, azt2316a->sb->opl.priv);
+        io_sethandler(azt2316a->cur_addr + 8, 0x0002, azt2316a->sb->opl.read, NULL, NULL, azt2316a->sb->opl.write, NULL, NULL, azt2316a->sb->opl.priv);
+        io_sethandler(0x0388, 0x0004, azt2316a->sb->opl.read, NULL, NULL, azt2316a->sb->opl.write, NULL, NULL, azt2316a->sb->opl.priv);
     }
 
     io_sethandler(azt2316a->cur_addr + 4, 0x0002, sb_ct1345_mixer_read, NULL, NULL, sb_ct1345_mixer_write, NULL, NULL, azt2316a->sb);
@@ -1227,7 +1238,7 @@ azt_speed_changed(void *p)
 }
 
 static const device_config_t azt1605_config[] = {
-    // clang-format off
+  // clang-format off
     {
         .name = "codec",
         .description = "CODEC",
@@ -1367,7 +1378,7 @@ static const device_config_t azt1605_config[] = {
         .default_int = 0
     },
     { .name = "", .description = "", .type = CONFIG_END }
-    // clang-format on
+  // clang-format on
 };
 
 static const device_config_t azt2316a_config[] = {
@@ -1488,33 +1499,129 @@ static const device_config_t azt2316a_config[] = {
         .default_int = 0
     },
     { .name = "", .description = "", .type = CONFIG_END }
-  // clang-format on
+// clang-format on
+};
+
+static const device_config_t acermagic_s20_config[] = {
+  // clang-format off
+    {
+        .name = "wss_interrupt_after_config",
+        .description = "Raise CODEC interrupt on CODEC setup (needed by some drivers)",
+        .type = CONFIG_BINARY,
+        .default_int = 0
+    },
+    {
+        .name = "addr",
+        .description = "SB Address",
+        .type = CONFIG_HEX16,
+        .default_string = "",
+        .default_int = 0,
+        .file_filter = "",
+        .spinner = { 0 },
+        .selection = {
+            {
+                .description = "0x220",
+                .value = 0x220
+            },
+            {
+                .description = "0x240",
+                .value = 0x240
+            },
+            {
+                .description = "Use EEPROM setting",
+                .value = 0
+            },
+            {
+                .description = ""
+            }
+        }
+    },
+    {
+        .name = "wss_irq",
+        .description = "WSS IRQ",
+        .type = CONFIG_SELECTION,
+        .selection = {
+            {
+                .description = "IRQ 11",
+                .value = 11
+            },
+            {
+                .description = "IRQ 10",
+                .value = 10
+            },
+            {
+                .description = "IRQ 7",
+                .value = 7
+            },
+            {
+                .description = ""
+            }
+        },
+        .default_int = 10
+    },
+    {
+        .name = "opl",
+        .description = "Enable OPL",
+        .type = CONFIG_BINARY,
+        .default_string = "",
+        .default_int = 1
+    },
+    {
+        .name = "receive_input",
+        .description = "Receive input (SB MIDI)",
+        .type = CONFIG_BINARY,
+        .default_string = "",
+        .default_int = 1
+    },
+    {
+        .name = "receive_input401",
+        .description = "Receive input (MPU-401)",
+        .type = CONFIG_BINARY,
+        .default_string = "",
+        .default_int = 0
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+// clang-format on
 };
 
 const device_t azt2316a_device = {
-    .name = "Aztech Sound Galaxy Pro 16 AB (Washington)",
+    .name          = "Aztech Sound Galaxy Pro 16 AB (Washington)",
     .internal_name = "azt2316a",
-    .flags = DEVICE_ISA | DEVICE_AT,
-    .local = SB_SUBTYPE_CLONE_AZT2316A_0X11,
-    .init = azt_init,
-    .close = azt_close,
-    .reset = NULL,
+    .flags         = DEVICE_ISA | DEVICE_AT,
+    .local         = SB_SUBTYPE_CLONE_AZT2316A_0X11,
+    .init          = azt_init,
+    .close         = azt_close,
+    .reset         = NULL,
     { .available = NULL },
     .speed_changed = azt_speed_changed,
-    .force_redraw = NULL,
-    .config = azt2316a_config
+    .force_redraw  = NULL,
+    .config        = azt2316a_config
+};
+
+const device_t acermagic_s20_device = {
+    .name          = "AcerMagic S20",
+    .internal_name = "acermagic_s20",
+    .flags         = DEVICE_ISA | DEVICE_AT,
+    .local         = SB_SUBTYPE_CLONE_AZT2316A_0X11 | 0x80000000,
+    .init          = azt_init,
+    .close         = azt_close,
+    .reset         = NULL,
+    { .available = NULL },
+    .speed_changed = azt_speed_changed,
+    .force_redraw  = NULL,
+    .config        = acermagic_s20_config
 };
 
 const device_t azt1605_device = {
-    .name = "Aztech Sound Galaxy Nova 16 Extra (Clinton)",
+    .name          = "Aztech Sound Galaxy Nova 16 Extra (Clinton)",
     .internal_name = "azt1605",
-    .flags = DEVICE_ISA | DEVICE_AT,
-    .local = SB_SUBTYPE_CLONE_AZT1605_0X0C,
-    .init = azt_init,
-    .close = azt_close,
-    .reset = NULL,
+    .flags         = DEVICE_ISA | DEVICE_AT,
+    .local         = SB_SUBTYPE_CLONE_AZT1605_0X0C,
+    .init          = azt_init,
+    .close         = azt_close,
+    .reset         = NULL,
     { .available = NULL },
     .speed_changed = azt_speed_changed,
-    .force_redraw = NULL,
-    .config = azt1605_config
+    .force_redraw  = NULL,
+    .config        = azt1605_config
 };

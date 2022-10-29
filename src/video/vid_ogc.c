@@ -53,7 +53,7 @@
 #define COMPOSITE_OLD 0
 #define COMPOSITE_NEW 1
 
-static video_timings_t timing_ogc = { VIDEO_ISA, 8, 16, 32, 8, 16, 32 };
+static video_timings_t timing_ogc = { .type = VIDEO_ISA, .write_b = 8, .write_w = 16, .write_l = 32, .read_b = 8, .read_w = 16, .read_l = 32 };
 
 static uint8_t mdaattr[256][2][2];
 
@@ -687,7 +687,7 @@ const device_config_t ogc_m24_config[] = {
     {
         .type = CONFIG_END
     }
-  // clang-format on
+// clang-format on
 };
 
 const device_t ogc_m24_device = {

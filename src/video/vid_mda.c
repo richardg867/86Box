@@ -35,7 +35,7 @@
 
 static int mdacols[256][2][2];
 
-static video_timings_t timing_mda = { VIDEO_ISA, 8, 16, 32, 8, 16, 32 };
+static video_timings_t timing_mda = { .type = VIDEO_ISA, .write_b = 8, .write_w = 16, .write_l = 32, .read_b = 8, .read_w = 16, .read_l = 32 };
 
 void mda_recalctimings(mda_t *mda);
 
@@ -127,6 +127,8 @@ mda_poll(void *p)
     uint8_t  chr, attr;
     int      oldsc;
     int      blink;
+
+    VIDEO_MONITOR_PROLOGUE()
     if (!mda->linepos) {
         timer_advance_u64(&mda->timer, mda->dispofftime);
         mda->stat |= 1;
@@ -260,6 +262,7 @@ mda_poll(void *p)
             mda->con = 1;
         }
     }
+    VIDEO_MONITOR_EPILOGUE();
 }
 
 void
@@ -288,6 +291,7 @@ mda_init(mda_t *mda)
     mdacols[0x88][0][1] = mdacols[0x88][1][1] = 16;
 
     overscan_x = overscan_y = 0;
+    mda->monitor_index      = monitor_index_global;
 
     cga_palette = device_get_config_int("rgb_type") << 1;
     if (cga_palette > 6) {
@@ -372,7 +376,7 @@ static const device_config_t mda_config[] = {
     {
         .type = CONFIG_END
     }
-  // clang-format on
+// clang-format on
 };
 
 const device_t mda_device = {

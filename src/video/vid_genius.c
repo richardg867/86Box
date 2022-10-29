@@ -40,7 +40,7 @@
 
 extern uint8_t fontdat8x12[256][16];
 
-static video_timings_t timing_genius = { VIDEO_ISA, 8, 16, 32, 8, 16, 32 };
+static video_timings_t timing_genius = { .type = VIDEO_ISA, .write_b = 8, .write_w = 16, .write_l = 32, .read_b = 8, .read_w = 16, .read_l = 32 };
 
 /* I'm at something of a disadvantage writing this emulation: I don't have an
  * MDSI Genius card, nor do I have the BIOS extension (VHRBIOS.SYS) that came

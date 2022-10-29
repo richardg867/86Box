@@ -109,9 +109,21 @@ main_thread_fn()
             if (drawits > 50)
                 drawits = 0;
 
+#ifdef USE_INSTRUMENT
+            uint64_t start_time = elapsed_timer.nsecsElapsed();
+#endif
             /* Run a block of code. */
             pc_run();
 
+#ifdef USE_INSTRUMENT
+            if (instru_enabled) {
+                uint64_t elapsed_us = (elapsed_timer.nsecsElapsed() - start_time) / 1000;
+                uint64_t total_elapsed_ms = (uint64_t)((double)tsc / cpu_s->rspeed * 1000);
+                printf("[instrument] %llu, %llu\n", total_elapsed_ms, elapsed_us);
+                if (instru_run_ms && total_elapsed_ms >= instru_run_ms)
+                    break;
+            }
+#endif
             /* Every 200 frames we save the machine status. */
             if (++frames >= 200 && nvr_dosave) {
                 qt_nvr_save();
@@ -120,23 +132,15 @@ main_thread_fn()
             }
         } else {
             /* Just so we dont overload the host OS. */
-            if (drawits < -1 || dopause)
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            else
-                std::this_thread::yield();
-        }
-
-        /* If needed, handle a screen resize. */
-        if (!atomic_flag_test_and_set(&doresize) && !video_fullscreen && !is_quit) {
-            if (vid_resize & 2)
-                plat_resize(fixed_size_x, fixed_size_y);
-            else
-                plat_resize(scrnsz_x, scrnsz_y);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }
 
     is_quit = 1;
+    QTimer::singleShot(0, QApplication::instance(), [] () { QApplication::instance()->quit(); });
 }
+
+static std::thread* main_thread;
 
 int main(int argc, char* argv[]) {
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
@@ -169,6 +173,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    bool startMaximized = window_remember && monitor_settings[0].mon_window_maximized;
     fprintf(stderr, "Qt: version %s, platform \"%s\"\n", qVersion(), QApplication::platformName().toUtf8().data());
     ProgSettings::loadTranslators(&app);
 #ifdef Q_OS_WINDOWS
@@ -196,7 +201,12 @@ int main(int argc, char* argv[]) {
     discord_load();
 
     main_window = new MainWindow();
-    main_window->show();
+    if (startMaximized) {
+        main_window->showMaximized();
+    } else {
+        main_window->show();
+    }
+
     app.installEventFilter(main_window);
 
 #ifdef Q_OS_WINDOWS
@@ -261,7 +271,7 @@ int main(int argc, char* argv[]) {
         main_window->installEventFilter(&socket);
         socket.connectToServer(qgetenv("86BOX_MANAGER_SOCKET"));
     }
-    pc_reset_hard_init();
+    //pc_reset_hard_init();
 
     /* Set the PAUSE mode depending on the renderer. */
     // plat_pause(0);
@@ -283,17 +293,21 @@ int main(int argc, char* argv[]) {
         QObject::connect(&discordupdate, &QTimer::timeout, &app, [] {
             discord_run_callbacks();
         });
-        discordupdate.start(0);
+        discordupdate.start(1000);
     }
 
     /* Initialize the rendering window, or fullscreen. */
-    auto main_thread = std::thread([] {
-       main_thread_fn();
+    QTimer::singleShot(0, &app, []
+    {
+        pc_reset_hard_init();
+        main_thread = new std::thread(main_thread_fn);
     });
 
     auto ret = app.exec();
     cpu_thread_run = 0;
-    main_thread.join();
+    main_thread->join();
+    pc_close(nullptr);
+    endblit();
 
     socket.close();
     return ret;

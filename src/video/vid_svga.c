@@ -393,7 +393,6 @@ svga_set_ramdac_type(svga_t *svga, int type)
                 svga->pallook[c] = makecol32((svga->vgapal[c].r & 0x3f) * 4,
                                              (svga->vgapal[c].g & 0x3f) * 4,
                                              (svga->vgapal[c].b & 0x3f) * 4);
-
 #ifdef USE_CLI
             if (c < 16)
                 cli_render_setpal(cga_ansi_palette[c], svga->pallook[svga->egapal[c]]);
@@ -464,7 +463,7 @@ svga_recalctimings(svga_t *svga)
 
     svga->hdisp_time = svga->hdisp;
     svga->render     = svga_render_blank;
-    if (!svga->scrblank && svga->attr_palette_enable) {
+    if (!svga->scrblank && (svga->crtc[0x17] & 0x80) && svga->attr_palette_enable) {
         if (!(svga->gdcreg[6] & 1) && !(svga->attrregs[0x10] & 1)) { /*Text mode*/
             if (svga->seqregs[1] & 8) /*40 column*/ {
                 svga->render = svga_render_text_40;
@@ -672,32 +671,32 @@ svga_poll(void *p)
 
     if (!svga->linepos) {
         if (svga->displine == svga->hwcursor_latch.y && svga->hwcursor_latch.ena) {
-            svga->hwcursor_on      = svga->hwcursor.ysize - svga->hwcursor_latch.yoff;
+            svga->hwcursor_on      = svga->hwcursor.cur_ysize - svga->hwcursor_latch.yoff;
             svga->hwcursor_oddeven = 0;
         }
 
         if (svga->displine == (svga->hwcursor_latch.y + 1) && svga->hwcursor_latch.ena && svga->interlace) {
-            svga->hwcursor_on      = svga->hwcursor.ysize - (svga->hwcursor_latch.yoff + 1);
+            svga->hwcursor_on      = svga->hwcursor.cur_ysize - (svga->hwcursor_latch.yoff + 1);
             svga->hwcursor_oddeven = 1;
         }
 
         if (svga->displine == svga->dac_hwcursor_latch.y && svga->dac_hwcursor_latch.ena) {
-            svga->dac_hwcursor_on      = svga->dac_hwcursor.ysize - svga->dac_hwcursor_latch.yoff;
+            svga->dac_hwcursor_on      = svga->dac_hwcursor.cur_ysize - svga->dac_hwcursor_latch.yoff;
             svga->dac_hwcursor_oddeven = 0;
         }
 
         if (svga->displine == (svga->dac_hwcursor_latch.y + 1) && svga->dac_hwcursor_latch.ena && svga->interlace) {
-            svga->dac_hwcursor_on      = svga->dac_hwcursor.ysize - (svga->dac_hwcursor_latch.yoff + 1);
+            svga->dac_hwcursor_on      = svga->dac_hwcursor.cur_ysize - (svga->dac_hwcursor_latch.yoff + 1);
             svga->dac_hwcursor_oddeven = 1;
         }
 
         if (svga->displine == svga->overlay_latch.y && svga->overlay_latch.ena) {
-            svga->overlay_on      = svga->overlay_latch.ysize - svga->overlay_latch.yoff;
+            svga->overlay_on      = svga->overlay_latch.cur_ysize - svga->overlay_latch.yoff;
             svga->overlay_oddeven = 0;
         }
 
         if (svga->displine == svga->overlay_latch.y + 1 && svga->overlay_latch.ena && svga->interlace) {
-            svga->overlay_on      = svga->overlay_latch.ysize - svga->overlay_latch.yoff;
+            svga->overlay_on      = svga->overlay_latch.cur_ysize - svga->overlay_latch.yoff;
             svga->overlay_oddeven = 1;
         }
 
@@ -964,9 +963,9 @@ svga_init(const device_t *info, svga_t *svga, void *p, int memsize,
     svga->hwcursor_draw                       = hwcursor_draw;
     svga->overlay_draw                        = overlay_draw;
 
-    svga->hwcursor.xsize = svga->hwcursor.ysize = 32;
+    svga->hwcursor.cur_xsize = svga->hwcursor.cur_ysize = 32;
 
-    svga->dac_hwcursor.xsize = svga->dac_hwcursor.ysize = 32;
+    svga->dac_hwcursor.cur_xsize = svga->dac_hwcursor.cur_ysize = 32;
 
     svga->translate_address         = NULL;
     svga->ksc5601_english_font_type = 0;
@@ -1071,9 +1070,10 @@ svga_write_common(uint32_t addr, uint8_t val, uint8_t linear, void *p)
 
     if (!linear) {
         if (xga_enabled) {
-            if (((svga->xga.op_mode & 7) == 4) && (svga->xga.aperture_cntl == 1)) {
+            if (((svga->xga.op_mode & 7) >= 4) && (svga->xga.aperture_cntl == 1)) {
                 if (val == 0xa5) { /*Memory size test of XGA*/
-                    svga->xga.test = val;
+                    svga->xga.test    = val;
+                    svga->xga.a5_test = 1;
                     return;
                 } else if (val == 0x5a) {
                     svga->xga.test = val;
@@ -1081,7 +1081,7 @@ svga_write_common(uint32_t addr, uint8_t val, uint8_t linear, void *p)
                 } else if (val == 0x12 || val == 0x34) {
                     addr += svga->xga.write_bank;
                     svga->xga.vram[addr & svga->xga.vram_mask] = val;
-                    svga->xga.op_mode_reset                    = 1;
+                    svga->xga.linear_endian_reverse            = 1;
                     return;
                 }
             } else
@@ -1271,7 +1271,7 @@ svga_read_common(uint32_t addr, uint8_t linear, void *p)
 
     if (!linear) {
         if (xga_enabled) {
-            if (((svga->xga.op_mode & 7) == 4) && (svga->xga.aperture_cntl == 1)) {
+            if (((svga->xga.op_mode & 7) >= 4) && (svga->xga.aperture_cntl == 1)) {
                 if (svga->xga.test == 0xa5) { /*Memory size test of XGA*/
                     svga->xga.on = 1;
                     return svga->xga.test;

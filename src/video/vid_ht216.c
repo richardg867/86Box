@@ -16,11 +16,13 @@
  *		Copyright 2019 Sarah Walker.
  *		Copyright 2019 Miran Grca.
  */
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 #include <wchar.h>
+#define HAVE_STDARG_H
 #include <86box/86box.h>
 #include "cpu.h"
 #include <86box/io.h>
@@ -98,9 +100,9 @@ uint8_t ht216_in(uint16_t addr, void *p);
 #define BIOS_RADIUS_SVGA_MULTIVIEW_PATH "roms/video/video7/U18.BIN"
 #define BIOS_HT216_32_PATH              "roms/video/video7/HT21632.BIN"
 
-static video_timings_t timing_v7vga_isa = { VIDEO_ISA, 3, 3, 6, 5, 5, 10 };
-static video_timings_t timing_v7vga_mca = { VIDEO_MCA, 4, 5, 10, 5, 5, 10 };
-static video_timings_t timing_v7vga_vlb = { VIDEO_BUS, 5, 5, 9, 20, 20, 30 };
+static video_timings_t timing_v7vga_isa = { .type = VIDEO_ISA, .write_b = 3, .write_w = 3, .write_l = 6, .read_b = 5, .read_w = 5, .read_l = 10 };
+static video_timings_t timing_v7vga_mca = { .type = VIDEO_MCA, .write_b = 4, .write_w = 5, .write_l = 10, .read_b = 5, .read_w = 5, .read_l = 10 };
+static video_timings_t timing_v7vga_vlb = { .type = VIDEO_BUS, .write_b = 5, .write_w = 5, .write_l = 9, .read_b = 20, .read_w = 20, .read_l = 30 };
 
 #ifdef ENABLE_HT216_LOG
 int ht216_do_log = ENABLE_HT216_LOG;
@@ -1494,9 +1496,9 @@ void
             break;
     }
 
-    svga->hwcursor.ysize = 32;
-    ht216->vram_mask     = mem_size - 1;
-    svga->decode_mask    = mem_size - 1;
+    svga->hwcursor.cur_ysize = 32;
+    ht216->vram_mask         = mem_size - 1;
+    svga->decode_mask        = mem_size - 1;
 
     if (has_rom == 4)
         svga->ramdac = device_add(&sc11484_nors2_ramdac_device);
@@ -1632,11 +1634,11 @@ static const device_config_t v7_vga_1024i_config[] = {
      .type        = CONFIG_SELECTION,
      .default_int = 512,
      .selection   = {
-          { .description = "256 kB",
+            { .description = "256 kB",
               .value       = 256 },
-          { .description = "512 kB",
+            { .description = "512 kB",
               .value       = 512 },
-          { .description = "" } } },
+            { .description = "" } } },
     { .type = CONFIG_END}
 };
 

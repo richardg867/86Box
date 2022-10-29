@@ -39,6 +39,7 @@
 #include <QLibrary>
 #include <QElapsedTimer>
 
+#include "qt_rendererstack.hpp"
 #include "qt_mainwindow.hpp"
 #include "qt_progsettings.hpp"
 
@@ -52,7 +53,7 @@ extern MainWindow* main_window;
 QElapsedTimer elapsed_timer;
 
 static std::atomic_int blitmx_contention = 0;
-static std::mutex blitmx;
+static std::recursive_mutex blitmx;
 
 class CharPointer {
 public:
@@ -160,13 +161,25 @@ plat_timer_read(void)
 FILE *
 plat_fopen(const char *path, const char *mode)
 {
+#if defined(Q_OS_MACOS) or defined(Q_OS_LINUX)
+    QFileInfo fi(path);
+    QString filename = (fi.isRelative() && !fi.filePath().isEmpty()) ? usr_path + fi.filePath() : fi.filePath();
+    return fopen(filename.toUtf8().constData(), mode);
+#else
     return fopen(QString::fromUtf8(path).toLocal8Bit(), mode);
+#endif
 }
 
 FILE *
 plat_fopen64(const char *path, const char *mode)
 {
-    return fopen(path, mode);
+#if defined(Q_OS_MACOS) or defined(Q_OS_LINUX)
+    QFileInfo fi(path);
+    QString filename = (fi.isRelative() && !fi.filePath().isEmpty()) ? usr_path + fi.filePath() : fi.filePath();
+    return fopen(filename.toUtf8().constData(), mode);
+#else
+    return fopen(QString::fromUtf8(path).toLocal8Bit(), mode);
+#endif
 }
 
 int
@@ -333,7 +346,7 @@ void
 plat_pause(int p)
 {
     static wchar_t oldtitle[512];
-    wchar_t title[512], paused_msg[64];
+    wchar_t title[1024], paused_msg[512];
 
     if (p == dopause) {
 #ifdef Q_OS_WINDOWS
@@ -342,11 +355,15 @@ plat_pause(int p)
 #endif
         return;
     }
+
     if ((p == 0) && (time_sync & TIME_SYNC_ENABLED))
         nvr_time_sync();
 
     dopause = p;
     if (p) {
+	if (mouse_capture)
+		plat_mouse_capture(0);
+
         wcsncpy(oldtitle, ui_window_title(NULL), sizeof_w(oldtitle) - 1);
         wcscpy(title, oldtitle);
         paused_msg[QObject::tr(" - PAUSED").toWCharArray(paused_msg)] = 0;
@@ -356,6 +373,7 @@ plat_pause(int p)
         ui_window_title(oldtitle);
     }
     discord_update_activity(dopause);
+    main_window->setUiPauseState(p);
 
 #ifdef Q_OS_WINDOWS
     if (source_hwnd)
@@ -379,7 +397,7 @@ plat_power_off(void)
     cycles -= 99999999;
 
     cpu_thread_run = 0;
-    QTimer::singleShot(0, main_window, &QMainWindow::close);
+    QTimer::singleShot(0, (const QWidget *) main_window, &QMainWindow::close);
 }
 
 void set_language(uint32_t id) {
@@ -437,6 +455,7 @@ void plat_language_code_r(uint32_t lcid, char* outbuf, int len) {
     return;
 }
 
+#ifndef Q_OS_WINDOWS
 void* dynld_module(const char *name, dllimp_t *table)
 {
     QString libraryName = name;
@@ -468,6 +487,7 @@ void dynld_close(void *handle)
 {
     delete reinterpret_cast<QLibrary*>(handle);
 }
+#endif
 
 void startblit()
 {
@@ -574,7 +594,7 @@ void ProgSettings::reloadStrings()
         gssynthstr.replace("libgs", LIB_NAME_GS);
     }
     else gssynthstr.prepend(LIB_NAME_GS);
-    translatedstrings[IDS_2132] = flsynthstr.toStdWString();
+    translatedstrings[IDS_2132] = gssynthstr.toStdWString();
     auto ftsynthstr = QCoreApplication::translate("", " is required for ESC/P printer emulation.");
     if (ftsynthstr.contains("libfreetype"))
     {

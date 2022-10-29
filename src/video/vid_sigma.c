@@ -177,6 +177,7 @@ typedef struct sigma_t {
 
     int plane;
     int revision;
+    int fullchange;
 } sigma_t;
 
 #define COMPOSITE_OLD 0
@@ -187,7 +188,7 @@ static uint8_t crtcmask[32] = {
     0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-static video_timings_t timing_sigma = { VIDEO_ISA, 8, 16, 32, 8, 16, 32 };
+static video_timings_t timing_sigma = { .type = VIDEO_ISA, .write_b = 8, .write_w = 16, .write_l = 32, .read_b = 8, .read_w = 16, .read_l = 32 };
 
 static void sigma_recalctimings(sigma_t *cga);
 
@@ -203,7 +204,7 @@ sigma_out(uint16_t addr, uint8_t val, void *p)
         /* If set to NMI on video I/O... */
         if (sigma->enable_nmi && (sigma->sigma_ctl & CTL_NMI)) {
             sigma->lastport |= 0x80; /* Card raised NMI */
-            nmi = 1;
+            nmi_raise();
         }
         /* For CRTC emulation, the card BIOS sets the value to be
          * read from port 0x3D1 like this */
@@ -225,7 +226,7 @@ sigma_out(uint16_t addr, uint8_t val, void *p)
                 sigma->crtc[sigma->crtcreg] = val & crtcmask[sigma->crtcreg];
                 if (old != val) {
                     if (sigma->crtcreg < 0xe || sigma->crtcreg > 0x10) {
-                        fullchange = changeframecount;
+                        sigma->fullchange = changeframecount;
                         sigma_recalctimings(sigma);
                     }
                 }

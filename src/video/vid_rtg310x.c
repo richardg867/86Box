@@ -46,7 +46,7 @@ typedef struct {
         vram_mask;
 } rtg_t;
 
-static video_timings_t timing_rtg_isa = { VIDEO_ISA, 3, 3, 6, 5, 5, 10 };
+static video_timings_t timing_rtg_isa = { .type = VIDEO_ISA, .write_b = 3, .write_w = 3, .write_l = 6, .read_b = 5, .read_w = 5, .read_l = 10 };
 
 static void
 rtg_recalcbanking(rtg_t *dev)
@@ -380,7 +380,7 @@ static const device_config_t rtg_config[] = {
     {
         .type = CONFIG_END
     }
-  // clang-format on
+// clang-format on
 };
 
 const device_t realtek_rtg3106_device = {

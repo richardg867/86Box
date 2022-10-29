@@ -25,6 +25,7 @@
 #include <QStatusBar>
 
 #include "qt_mainwindow.hpp"
+#include "qt_machinestatus.hpp"
 
 MainWindow* main_window = nullptr;
 
@@ -32,9 +33,26 @@ static QString sb_text, sb_buguitext, sb_mt32lcdtext;
 
 extern "C" {
 
+#include "86box/86box.h"
 #include <86box/plat.h>
 #include <86box/ui.h>
 #include <86box/mouse.h>
+#include <86box/timer.h>
+#include <86box/86box.h>
+#include <86box/device.h>
+#include <86box/fdd.h>
+#include <86box/hdc.h>
+#include <86box/scsi.h>
+#include <86box/scsi_device.h>
+#include <86box/cartridge.h>
+#include <86box/cassette.h>
+#include <86box/cdrom.h>
+#include <86box/zip.h>
+#include <86box/mo.h>
+#include <86box/hdd.h>
+#include <86box/thread.h>
+#include <86box/network.h>
+#include <86box/machine_status.h>
 
 void
 plat_delay_ms(uint32_t count)
@@ -55,17 +73,30 @@ wchar_t* ui_window_title(wchar_t* str)
     return str;
 }
 
-extern "C" void qt_blit(int x, int y, int w, int h)
+extern "C" void qt_blit(int x, int y, int w, int h, int monitor_index)
 {
-    main_window->blitToWidget(x, y, w, h);
+    main_window->blitToWidget(x, y, w, h, monitor_index);
 }
 
 void mouse_poll() {
     main_window->pollMouse();
 }
 
-void plat_resize(int w, int h) {
-    main_window->resizeContents(w, h);
+extern "C" int vid_resize;
+void plat_resize_request(int w, int h, int monitor_index)
+{
+    if (video_fullscreen || is_quit) return;
+    if (vid_resize & 2) {
+        plat_resize_monitor(fixed_size_x, fixed_size_y, monitor_index);
+    }
+    else {
+        plat_resize_monitor(w, h, monitor_index);
+    }
+}
+
+void plat_resize_monitor(int w, int h, int monitor_index) {
+    if (monitor_index >= 1) main_window->resizeContentsMonitor(w, h, monitor_index);
+    else main_window->resizeContents(w, h);
 }
 
 void plat_setfullscreen(int on) {
@@ -73,7 +104,7 @@ void plat_setfullscreen(int on) {
 }
 
 void plat_mouse_capture(int on) {
-    if (!kbd_req_capture && (mouse_type == MOUSE_TYPE_NONE))
+    if (!kbd_req_capture && (mouse_type == MOUSE_TYPE_NONE) && !machine_has_mouse())
         return;
 
     main_window->setMouseCapture(on > 0 ? true : false);
@@ -93,9 +124,23 @@ int	ui_msgbox_header(int flags, void *header, void* message) {
         msgBox.exec();
     } else {
         // else scope it to main_window
-        main_window->showMessage(hdr, msg);
+        main_window->showMessage(flags, hdr, msg);
     }
     return 0;
+}
+
+void ui_init_monitor(int monitor_index) {
+    if (QThread::currentThread() == main_window->thread()) {
+        emit main_window->initRendererMonitor(monitor_index);
+    }
+    else emit main_window->initRendererMonitorForNonQtThread(monitor_index);
+}
+
+void ui_deinit_monitor(int monitor_index) {
+    if (QThread::currentThread() == main_window->thread()) {
+        emit main_window->destroyRendererMonitor(monitor_index);
+    }
+    else emit main_window->destroyRendererMonitorForNonQtThread(monitor_index);
 }
 
 int	ui_msgbox(int flags, void *message) {
@@ -146,16 +191,71 @@ void ui_sb_set_ready(int ready) {
 
 void
 ui_sb_update_icon_state(int tag, int state) {
-    if (main_window == nullptr) {
-        return;
+    int category = tag & 0xfffffff0;
+    int item = tag & 0xf;
+    switch (category) {
+    case SB_CASSETTE:
+        machine_status.cassette.empty = state > 0 ? true : false;
+        break;
+    case SB_CARTRIDGE:
+        machine_status.cartridge[item].empty = state > 0 ? true : false;
+        break;
+    case SB_FLOPPY:
+        machine_status.fdd[item].empty = state > 0 ? true : false;
+        break;
+    case SB_CDROM:
+        machine_status.cdrom[item].empty = state > 0 ? true : false;
+        break;
+    case SB_ZIP:
+        machine_status.zip[item].empty = state > 0 ? true : false;
+        break;
+    case SB_MO:
+        machine_status.mo[item].empty = state > 0 ? true : false;
+        break;
+    case SB_HDD:
+        break;
+    case SB_NETWORK:
+        machine_status.net[item].empty = state > 0 ? true : false;
+        break;
+    case SB_SOUND:
+        break;
+    case SB_TEXT:
+        break;
     }
-    main_window->updateStatusBarEmpty(tag, state > 0 ? true : false);
 }
 
 void
 ui_sb_update_icon(int tag, int active) {
-    if (!update_icons) return;
-    main_window->updateStatusBarActivity(tag, active > 0 ? true : false);
+    int category = tag & 0xfffffff0;
+    int item = tag & 0xf;
+    switch (category) {
+    case SB_CASSETTE:
+        break;
+    case SB_CARTRIDGE:
+        break;
+    case SB_FLOPPY:
+        machine_status.fdd[item].active = active > 0 ? true : false;
+        break;
+    case SB_CDROM:
+        machine_status.cdrom[item].active = active > 0 ? true : false;
+        break;
+    case SB_ZIP:
+        machine_status.zip[item].active = active > 0 ? true : false;
+        break;
+    case SB_MO:
+        machine_status.mo[item].active = active > 0 ? true : false;
+        break;
+    case SB_HDD:
+        machine_status.hdd[item].active = active > 0 ? true : false;
+        break;
+    case SB_NETWORK:
+        machine_status.net[item].active = active > 0 ? true : false;
+        break;
+    case SB_SOUND:
+        break;
+    case SB_TEXT:
+        break;
+    }
 }
 
 }

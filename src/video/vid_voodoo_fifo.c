@@ -14,6 +14,7 @@
  *
  *		Copyright 2008-2020 Sarah Walker.
  */
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
@@ -21,6 +22,7 @@
 #include <stddef.h>
 #include <wchar.h>
 #include <math.h>
+#define HAVE_STDARG_H
 #include <86box/86box.h>
 #include "cpu.h"
 #include <86box/machine.h>
@@ -462,6 +464,7 @@ voodoo_fifo_thread(void *param)
                     //                                voodoo_fifo_log("CMDFIFO5 addr=%08x num=%i\n", addr, num);
                     switch (header >> 30) {
                         case 0: /*Linear framebuffer (Banshee)*/
+                        case 1: /*Planar YUV*/
                             if (voodoo->texture_present[0][(addr & voodoo->texture_mask) >> TEX_DIRTY_SHIFT]) {
                                 //                                                voodoo_fifo_log("texture_present at %08x %i\n", addr, (addr & voodoo->texture_mask) >> TEX_DIRTY_SHIFT);
                                 flush_texture_cache(voodoo, addr & voodoo->texture_mask, 0);

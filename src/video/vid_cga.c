@@ -46,7 +46,7 @@ static uint8_t crtcmask[32] = {
     0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-static video_timings_t timing_cga = { VIDEO_ISA, 8, 16, 32, 8, 16, 32 };
+static video_timings_t timing_cga = { .type = VIDEO_ISA, .write_b = 8, .write_w = 16, .write_l = 32, .read_b = 8, .read_w = 16, .read_l = 32 };
 
 void cga_recalctimings(cga_t *cga);
 
@@ -68,7 +68,7 @@ cga_out(uint16_t addr, uint8_t val, void *p)
             cga->crtc[cga->crtcreg] = val & crtcmask[cga->crtcreg];
             if (old != val) {
                 if ((cga->crtcreg < 0xe) || (cga->crtcreg > 0x10)) {
-                    fullchange = changeframecount;
+                    cga->fullchange = changeframecount;
                     cga_recalctimings(cga);
                 }
             }
@@ -116,6 +116,22 @@ cga_in(uint16_t addr, void *p)
     }
 
     return ret;
+}
+
+void
+cga_pravetz_out(uint16_t addr, uint8_t val, void *p)
+{
+    cga_t  *cga = (cga_t *) p;
+
+    cga->fontbase = (((unsigned int) val) << 8);
+}
+
+uint8_t
+cga_pravetz_in(uint16_t addr, void *p)
+{
+    cga_t *cga = (cga_t *) p;
+
+    return (cga->fontbase >> 8);
 }
 
 void
@@ -547,6 +563,21 @@ cga_standalone_init(const device_t *info)
     return cga;
 }
 
+void *
+cga_pravetz_init(const device_t *info)
+{
+    cga_t *cga = cga_standalone_init(info);
+
+    loadfont("roms/video/cga/CGA - PRAVETZ.BIN", 10);
+
+    io_removehandler(0x03dd, 0x0001, cga_in, NULL, NULL, cga_out, NULL, NULL, cga);
+    io_sethandler(0x03dd, 0x0001, cga_pravetz_in, NULL, NULL, cga_pravetz_out, NULL, NULL, cga);
+
+    cga->fontbase = 0x0300;
+
+    return cga;
+}
+
 void
 cga_close(void *p)
 {
@@ -653,6 +684,20 @@ const device_t cga_device = {
     .flags         = DEVICE_ISA,
     .local         = 0,
     .init          = cga_standalone_init,
+    .close         = cga_close,
+    .reset         = NULL,
+    { .available = NULL },
+    .speed_changed = cga_speed_changed,
+    .force_redraw  = NULL,
+    .config        = cga_config
+};
+
+const device_t cga_pravetz_device = {
+    .name          = "Pravetz VDC-2",
+    .internal_name = "cga_pravetz",
+    .flags         = DEVICE_ISA,
+    .local         = 0,
+    .init          = cga_pravetz_init,
     .close         = cga_close,
     .reset         = NULL,
     { .available = NULL },

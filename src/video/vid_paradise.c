@@ -69,10 +69,70 @@ typedef struct paradise_t {
     } accel;
 } paradise_t;
 
-static video_timings_t timing_paradise_pvga1a = { VIDEO_ISA, 6, 8, 16, 6, 8, 16 };
-static video_timings_t timing_paradise_wd90c  = { VIDEO_ISA, 3, 3, 6, 5, 5, 10 };
+static video_timings_t timing_paradise_pvga1a = { .type = VIDEO_ISA, .write_b = 6, .write_w = 8, .write_l = 16, .read_b = 6, .read_w = 8, .read_l = 16 };
+static video_timings_t timing_paradise_wd90c  = { .type = VIDEO_ISA, .write_b = 3, .write_w = 3, .write_l = 6, .read_b = 5, .read_w = 5, .read_l = 10 };
 
 void paradise_remap(paradise_t *paradise);
+
+uint8_t
+paradise_in(uint16_t addr, void *p)
+{
+    paradise_t *paradise = (paradise_t *) p;
+    svga_t     *svga     = &paradise->svga;
+
+    if (((addr & 0xfff0) == 0x3d0 || (addr & 0xfff0) == 0x3b0) && !(svga->miscout & 1))
+        addr ^= 0x60;
+
+    switch (addr) {
+        case 0x3c5:
+            if (svga->seqaddr > 7) {
+                if (paradise->type < WD90C11 || svga->seqregs[6] != 0x48)
+                    return 0xff;
+                if (svga->seqaddr > 0x12)
+                    return 0xff;
+                return svga->seqregs[svga->seqaddr & 0x1f];
+            }
+            break;
+
+        case 0x3c6:
+        case 0x3c7:
+        case 0x3c8:
+        case 0x3c9:
+            if (paradise->type == WD90C30)
+                return sc1148x_ramdac_in(addr, 0, svga->ramdac, svga);
+            return svga_in(addr, svga);
+
+        case 0x3cf:
+            if (svga->gdcaddr >= 9 && svga->gdcaddr <= 0x0e) {
+                if (svga->gdcreg[0x0f] & 0x10)
+                    return 0xff;
+            }
+            switch (svga->gdcaddr) {
+                case 0x0b:
+                    if (paradise->type == WD90C30) {
+                        if (paradise->vram_mask == ((512 << 10) - 1)) {
+                            svga->gdcreg[0x0b] |= 0xc0;
+                            svga->gdcreg[0x0b] &= ~0x40;
+                        }
+                    }
+                    return svga->gdcreg[0x0b];
+
+                case 0x0f:
+                    return (svga->gdcreg[0x0f] & 0x17) | 0x80;
+            }
+            break;
+
+        case 0x3D4:
+            return svga->crtcreg;
+        case 0x3D5:
+            if ((paradise->type == PVGA1A) && (svga->crtcreg & 0x20))
+                return 0xff;
+            if (svga->crtcreg > 0x29 && svga->crtcreg < 0x30 && (svga->crtc[0x29] & 0x88) != 0x80)
+                return 0xff;
+            return svga->crtc[svga->crtcreg];
+    }
+    return svga_in(addr, svga);
+}
 
 void
 paradise_out(uint16_t addr, uint8_t val, void *p)
@@ -185,69 +245,18 @@ paradise_out(uint16_t addr, uint8_t val, void *p)
                 }
             }
             break;
+
+        case 0x46e8:
+            io_removehandler(0x03c0, 0x0020, paradise_in, NULL, NULL, paradise_out, NULL, NULL, paradise);
+            mem_mapping_disable(&paradise->svga.mapping);
+            if (val & 8) {
+                io_sethandler(0x03c0, 0x0020, paradise_in, NULL, NULL, paradise_out, NULL, NULL, paradise);
+                mem_mapping_enable(&paradise->svga.mapping);
+            }
+            break;
     }
 
     svga_out(addr, val, svga);
-}
-
-uint8_t
-paradise_in(uint16_t addr, void *p)
-{
-    paradise_t *paradise = (paradise_t *) p;
-    svga_t     *svga     = &paradise->svga;
-
-    if (((addr & 0xfff0) == 0x3d0 || (addr & 0xfff0) == 0x3b0) && !(svga->miscout & 1))
-        addr ^= 0x60;
-
-    switch (addr) {
-        case 0x3c5:
-            if (svga->seqaddr > 7) {
-                if (paradise->type < WD90C11 || svga->seqregs[6] != 0x48)
-                    return 0xff;
-                if (svga->seqaddr > 0x12)
-                    return 0xff;
-                return svga->seqregs[svga->seqaddr & 0x1f];
-            }
-            break;
-
-        case 0x3c6:
-        case 0x3c7:
-        case 0x3c8:
-        case 0x3c9:
-            if (paradise->type == WD90C30)
-                return sc1148x_ramdac_in(addr, 0, svga->ramdac, svga);
-            return svga_in(addr, svga);
-
-        case 0x3cf:
-            if (svga->gdcaddr >= 9 && svga->gdcaddr <= 0x0e) {
-                if (svga->gdcreg[0x0f] & 0x10)
-                    return 0xff;
-            }
-            switch (svga->gdcaddr) {
-                case 0x0b:
-                    if (paradise->type == WD90C30) {
-                        if (paradise->vram_mask == ((512 << 10) - 1)) {
-                            svga->gdcreg[0x0b] |= 0xc0;
-                            svga->gdcreg[0x0b] &= ~0x40;
-                        }
-                    }
-                    return svga->gdcreg[0x0b];
-
-                case 0x0f:
-                    return (svga->gdcreg[0x0f] & 0x17) | 0x80;
-            }
-            break;
-
-        case 0x3D4:
-            return svga->crtcreg;
-        case 0x3D5:
-            if ((paradise->type == PVGA1A) && (svga->crtcreg & 0x20))
-                return 0xff;
-            if (svga->crtcreg > 0x29 && svga->crtcreg < 0x30 && (svga->crtc[0x29] & 0x88) != 0x80)
-                return 0xff;
-            return svga->crtc[svga->crtcreg];
-    }
-    return svga_in(addr, svga);
 }
 
 void
@@ -588,6 +597,7 @@ paradise_init(const device_t *info, uint32_t memsize)
         case WD90C11:
             svga->crtc[0x36] = '1';
             svga->crtc[0x37] = '1';
+            io_sethandler(0x46e8, 0x0001, paradise_in, NULL, NULL, paradise_out, NULL, NULL, paradise);
             break;
         case WD90C30:
             svga->crtc[0x36] = '3';
@@ -768,17 +778,30 @@ const device_t paradise_pvga1a_pc3086_device = {
 };
 
 static const device_config_t paradise_pvga1a_config[] = {
-    {.name        = "memory",
-     .description = "Memory size",
-     .type        = CONFIG_SELECTION,
-     .default_int = 512,
-     .selection   = {
-          { .description = "256 kB",
-              .value       = 256 },
-          { .description = "512 kB",
-              .value       = 512 },
-          { .description = "" } } },
-    { .type = CONFIG_END}
+  // clang-format off
+    {
+        .name = "memory",
+        .description = "Memory size",
+        .type = CONFIG_SELECTION,
+        .default_int = 512,
+        .selection = {
+            {
+                .description = "256 kB",
+                .value = 256
+            },
+            {
+                .description = "512 kB",
+                .value = 512
+            },
+            {
+                .description = ""
+            }
+        }
+    },
+    {
+        .type = CONFIG_END
+    }
+  // clang-format on
 };
 
 const device_t paradise_pvga1a_ncr3302_device = {
@@ -861,7 +884,7 @@ static const device_config_t paradise_wd90c30_config[] = {
     {
         .type = CONFIG_END
     }
-  // clang-format on
+// clang-format on
 };
 
 const device_t paradise_wd90c30_device = {

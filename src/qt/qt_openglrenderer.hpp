@@ -39,6 +39,8 @@
 #include "qt_opengloptions.hpp"
 #include "qt_renderercommon.hpp"
 
+typedef void (QOPENGLF_APIENTRYP PFNGLBUFFERSTORAGEEXTPROC_LOCAL) (GLenum target, GLsizeiptr size, const void *data, GLbitfield flags);
+
 class OpenGLRenderer : public QWindow, protected QOpenGLExtraFunctions, public RendererCommon {
     Q_OBJECT
 
@@ -53,6 +55,7 @@ public:
     void     finalize() override final;
     bool     hasOptions() const override { return true; }
     QDialog *getOptions(QWidget *parent) override;
+    void     reloadOptions() override;
 
 signals:
     void initialized();
@@ -74,8 +77,8 @@ private:
     static constexpr int BUFFERBYTES  = 16777216; /* Pixel is 4 bytes. */
     static constexpr int BUFFERCOUNT  = 3;        /* How many buffers to use for pixel transfer (2-3 is commonly recommended). */
 
-    OpenGLOptions *options;
     QTimer        *renderTimer;
+    OpenGLOptions *options;
 
     QString glslVersion;
 
@@ -102,7 +105,7 @@ private:
     /* GL_ARB_buffer_storage */
     bool hasBufferStorage = false;
 #ifndef NO_BUFFER_STORAGE
-    PFNGLBUFFERSTORAGEPROC glBufferStorage = nullptr;
+    PFNGLBUFFERSTORAGEEXTPROC_LOCAL glBufferStorage = nullptr;
 #endif
 
 private slots:

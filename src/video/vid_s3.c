@@ -106,7 +106,8 @@ enum {
     S3_MIROCRYSTAL8S_805,
     S3_NUMBER9_9FX_531,
     S3_NUMBER9_9FX_771,
-    S3_SPEA_MERCURY_LITE_PCI
+    S3_SPEA_MERCURY_LITE_PCI,
+    S3_86C805_ONBOARD
 };
 
 enum {
@@ -126,24 +127,24 @@ enum {
     S3_TRIO64V2  = 0x50
 };
 
-static video_timings_t timing_s3_86c911        = { VIDEO_ISA, 4, 4, 5, 20, 20, 35 };
-static video_timings_t timing_s3_86c801        = { VIDEO_ISA, 4, 4, 5, 20, 20, 35 };
-static video_timings_t timing_s3_86c805        = { VIDEO_BUS, 4, 4, 5, 20, 20, 35 };
-static video_timings_t timing_s3_86c928pci     = { VIDEO_PCI, 2, 2, 4, 26, 26, 42 };
-static video_timings_t timing_s3_stealth64_vlb = { VIDEO_BUS, 2, 2, 4, 26, 26, 42 };
-static video_timings_t timing_s3_stealth64_pci = { VIDEO_PCI, 2, 2, 4, 26, 26, 42 };
-static video_timings_t timing_s3_vision864_vlb = { VIDEO_BUS, 4, 4, 5, 20, 20, 35 };
-static video_timings_t timing_s3_vision864_pci = { VIDEO_PCI, 4, 4, 5, 20, 20, 35 };
-static video_timings_t timing_s3_vision868_vlb = { VIDEO_BUS, 4, 4, 5, 20, 20, 35 };
-static video_timings_t timing_s3_vision868_pci = { VIDEO_PCI, 4, 4, 5, 20, 20, 35 };
-static video_timings_t timing_s3_vision964_vlb = { VIDEO_BUS, 2, 2, 4, 20, 20, 35 };
-static video_timings_t timing_s3_vision964_pci = { VIDEO_PCI, 2, 2, 4, 20, 20, 35 };
-static video_timings_t timing_s3_vision968_vlb = { VIDEO_BUS, 2, 2, 4, 20, 20, 35 };
-static video_timings_t timing_s3_vision968_pci = { VIDEO_PCI, 2, 2, 4, 20, 20, 35 };
-static video_timings_t timing_s3_trio32_vlb    = { VIDEO_BUS, 4, 3, 5, 26, 26, 42 };
-static video_timings_t timing_s3_trio32_pci    = { VIDEO_PCI, 4, 3, 5, 26, 26, 42 };
-static video_timings_t timing_s3_trio64_vlb    = { VIDEO_BUS, 3, 2, 4, 25, 25, 40 };
-static video_timings_t timing_s3_trio64_pci    = { VIDEO_PCI, 3, 2, 4, 25, 25, 40 };
+static video_timings_t timing_s3_86c911        = { .type = VIDEO_ISA, .write_b = 4, .write_w = 4, .write_l = 5, .read_b = 20, .read_w = 20, .read_l = 35 };
+static video_timings_t timing_s3_86c801        = { .type = VIDEO_ISA, .write_b = 4, .write_w = 4, .write_l = 5, .read_b = 20, .read_w = 20, .read_l = 35 };
+static video_timings_t timing_s3_86c805        = { .type = VIDEO_BUS, .write_b = 4, .write_w = 4, .write_l = 5, .read_b = 20, .read_w = 20, .read_l = 35 };
+static video_timings_t timing_s3_86c928pci     = { .type = VIDEO_PCI, .write_b = 2, .write_w = 2, .write_l = 4, .read_b = 26, .read_w = 26, .read_l = 42 };
+static video_timings_t timing_s3_stealth64_vlb = { .type = VIDEO_BUS, .write_b = 2, .write_w = 2, .write_l = 4, .read_b = 26, .read_w = 26, .read_l = 42 };
+static video_timings_t timing_s3_stealth64_pci = { .type = VIDEO_PCI, .write_b = 2, .write_w = 2, .write_l = 4, .read_b = 26, .read_w = 26, .read_l = 42 };
+static video_timings_t timing_s3_vision864_vlb = { .type = VIDEO_BUS, .write_b = 4, .write_w = 4, .write_l = 5, .read_b = 20, .read_w = 20, .read_l = 35 };
+static video_timings_t timing_s3_vision864_pci = { .type = VIDEO_PCI, .write_b = 4, .write_w = 4, .write_l = 5, .read_b = 20, .read_w = 20, .read_l = 35 };
+static video_timings_t timing_s3_vision868_vlb = { .type = VIDEO_BUS, .write_b = 4, .write_w = 4, .write_l = 5, .read_b = 20, .read_w = 20, .read_l = 35 };
+static video_timings_t timing_s3_vision868_pci = { .type = VIDEO_PCI, .write_b = 4, .write_w = 4, .write_l = 5, .read_b = 20, .read_w = 20, .read_l = 35 };
+static video_timings_t timing_s3_vision964_vlb = { .type = VIDEO_BUS, .write_b = 2, .write_w = 2, .write_l = 4, .read_b = 20, .read_w = 20, .read_l = 35 };
+static video_timings_t timing_s3_vision964_pci = { .type = VIDEO_PCI, .write_b = 2, .write_w = 2, .write_l = 4, .read_b = 20, .read_w = 20, .read_l = 35 };
+static video_timings_t timing_s3_vision968_vlb = { .type = VIDEO_BUS, .write_b = 2, .write_w = 2, .write_l = 4, .read_b = 20, .read_w = 20, .read_l = 35 };
+static video_timings_t timing_s3_vision968_pci = { .type = VIDEO_PCI, .write_b = 2, .write_w = 2, .write_l = 4, .read_b = 20, .read_w = 20, .read_l = 35 };
+static video_timings_t timing_s3_trio32_vlb    = { .type = VIDEO_BUS, .write_b = 4, .write_w = 3, .write_l = 5, .read_b = 26, .read_w = 26, .read_l = 42 };
+static video_timings_t timing_s3_trio32_pci    = { .type = VIDEO_PCI, .write_b = 4, .write_w = 3, .write_l = 5, .read_b = 26, .read_w = 26, .read_l = 42 };
+static video_timings_t timing_s3_trio64_vlb    = { .type = VIDEO_BUS, .write_b = 3, .write_w = 2, .write_l = 4, .read_b = 25, .read_w = 25, .read_l = 40 };
+static video_timings_t timing_s3_trio64_pci    = { .type = VIDEO_PCI, .write_b = 3, .write_w = 2, .write_l = 4, .read_b = 25, .read_w = 25, .read_l = 40 };
 
 enum {
     VRAM_4MB   = 0,
@@ -3057,6 +3058,8 @@ s3_recalctimings(svga_t *svga)
             svga->vsyncstart |= 0x400;
         if (svga->crtc[0x5e] & 0x40)
             svga->split |= 0x400;
+        if (s3->accel.advfunc_cntl & 0x01)
+            svga->split = 0x7fff;
         if (svga->crtc[0x51] & 0x30)
             svga->rowoffset |= (svga->crtc[0x51] & 0x30) << 4;
         else if (svga->crtc[0x43] & 0x04)
@@ -3221,6 +3224,10 @@ s3_recalctimings(svga_t *svga)
                 break;
             case 16:
                 svga->render = svga_render_16bpp_highres;
+                if ((s3->card_type == S3_ELSAWIN2KPROX_964) || (s3->card_type == S3_ELSAWIN2KPROX)) {
+                    if (s3->width == 1280 || s3->width == 1600)
+                        svga->hdisp <<= 1;
+                }
                 if ((s3->chip != S3_VISION964) && (s3->card_type != S3_SPEA_MIRAGE_86C801) && (s3->card_type != S3_SPEA_MIRAGE_86C805)) {
                     if (s3->chip == S3_86C928)
                         svga->hdisp <<= 1;
@@ -3275,6 +3282,10 @@ s3_recalctimings(svga_t *svga)
                 }
                 if (s3->width == 1280 || s3->width == 1600 || (s3->card_type == S3_SPEA_MERCURY_P64V || s3->card_type == S3_NUMBER9_9FX_771))
                     svga->hdisp <<= 1;
+                if (s3->card_type == S3_NUMBER9_9FX_771) {
+                    if (svga->hdisp == 832)
+                        svga->hdisp -= 32;
+                }
                 if (s3->card_type == S3_MIROVIDEO40SV_ERGO_968 || s3->card_type == S3_MIROCRYSTAL20SV_964 || s3->card_type == S3_MIROCRYSTAL20SD_864 || s3->card_type == S3_PHOENIX_VISION968 || s3->card_type == S3_SPEA_MERCURY_P64V) {
                     svga->hdisp = s3->width;
                     if (s3->card_type == S3_MIROCRYSTAL20SD_864 || s3->card_type == S3_MIROCRYSTAL20SV_964) {
@@ -3398,9 +3409,9 @@ s3_trio64v_recalctimings(svga_t *svga)
         if (s3->streams.pri_h < svga->dispend)
             svga->dispend = s3->streams.pri_h;
 
-        svga->overlay.x     = s3->streams.sec_x - s3->streams.pri_x;
-        svga->overlay.y     = s3->streams.sec_y - s3->streams.pri_y;
-        svga->overlay.ysize = s3->streams.sec_h;
+        svga->overlay.x         = s3->streams.sec_x - s3->streams.pri_x;
+        svga->overlay.y         = s3->streams.sec_y - s3->streams.pri_y;
+        svga->overlay.cur_ysize = s3->streams.sec_h;
 
         if (s3->streams.buffer_ctrl & 2)
             svga->overlay.addr = s3->streams.sec_fb1;
@@ -3528,12 +3539,9 @@ s3_updatemapping(s3_t *s3)
 
                 mem_mapping_set_addr(&s3->linear_mapping, s3->linear_base, s3->linear_size);
             }
-            if (s3->chip >= S3_TRIO64V)
-                svga->fb_only = 1;
+            svga->fb_only = 1;
         } else {
-            if (s3->chip >= S3_TRIO64V)
-                svga->fb_only = 0;
-
+            svga->fb_only = 0;
             mem_mapping_disable(&s3->linear_mapping);
         }
 
@@ -7701,6 +7709,11 @@ s3_init(const device_t *info)
             chip    = S3_86C801;
             video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_s3_86c801);
             break;
+        case S3_86C805_ONBOARD:
+            bios_fn = NULL;
+            chip    = S3_86C805;
+            video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_s3_86c805);
+            break;
         case S3_SPEA_MIRAGE_86C805:
             bios_fn = ROM_SPEA_MIRAGE_86C805;
             chip    = S3_86C805;
@@ -7973,7 +7986,7 @@ s3_init(const device_t *info)
         }
     }
 
-    svga->hwcursor.ysize = 64;
+    svga->hwcursor.cur_ysize = 64;
 
     if (chip == S3_VISION964 && info->local != S3_ELSAWIN2KPROX_964)
         svga->dac_hwcursor_draw = bt48x_hwcursor_draw;
@@ -8097,6 +8110,20 @@ s3_init(const device_t *info)
 
         case S3_SPEA_MIRAGE_86C801:
         case S3_SPEA_MIRAGE_86C805:
+            svga->decode_mask = (2 << 20) - 1;
+            stepping          = 0xa0; /*86C801/86C805*/
+            s3->id            = stepping;
+            s3->id_ext        = stepping;
+            s3->id_ext_pci    = 0;
+            s3->packed_mmio   = 0;
+            svga->crtc[0x5a]  = 0x0a;
+
+            svga->ramdac    = device_add(&att490_ramdac_device);
+            svga->clock_gen = device_add(&av9194_device);
+            svga->getclock  = av9194_getclock;
+            break;
+
+        case S3_86C805_ONBOARD:
             svga->decode_mask = (2 << 20) - 1;
             stepping          = 0xa0; /*86C801/86C805*/
             s3->id            = stepping;
@@ -8557,11 +8584,11 @@ static const device_config_t s3_orchid_86c911_config[] = {
      .type        = CONFIG_SELECTION,
      .default_int = 1,
      .selection   = {
-          { .description = "512 KB",
+            { .description = "512 KB",
               .value       = 0 },
-          { .description = "1 MB",
+            { .description = "1 MB",
               .value       = 1 },
-          { .description = "" } } },
+            { .description = "" } } },
     { .type = CONFIG_END}
 };
 
@@ -8571,12 +8598,12 @@ static const device_config_t s3_9fx_config[] = {
      .type        = CONFIG_SELECTION,
      .default_int = 2,
      .selection   = {
-          { .description = "1 MB",
+            { .description = "1 MB",
               .value       = 1 },
-          { .description = "2 MB",
+            { .description = "2 MB",
               .value       = 2 },
-          /*Trio64 also supports 4 MB, however the Number Nine BIOS does not*/
-          {
+            /*Trio64 also supports 4 MB, however the Number Nine BIOS does not*/
+            {
                 .description = "" } } },
     { .type = CONFIG_END}
 };
@@ -8587,13 +8614,13 @@ static const device_config_t s3_phoenix_trio32_config[] = {
      .type        = CONFIG_SELECTION,
      .default_int = 2,
      .selection   = {
-          { .description = "512 KB",
+            { .description = "512 KB",
               .value       = 0 },
-          { .description = "1 MB",
+            { .description = "1 MB",
               .value       = 1 },
-          { .description = "2 MB",
+            { .description = "2 MB",
               .value       = 2 },
-          { .description = "" } } },
+            { .description = "" } } },
     { .type = CONFIG_END}
 };
 
@@ -8603,13 +8630,13 @@ static const device_config_t s3_standard_config[] = {
      .type        = CONFIG_SELECTION,
      .default_int = 4,
      .selection   = {
-          { .description = "1 MB",
+            { .description = "1 MB",
               .value       = 1 },
-          { .description = "2 MB",
+            { .description = "2 MB",
               .value       = 2 },
-          { .description = "4 MB",
+            { .description = "4 MB",
               .value       = 4 },
-          { .description = "" } } },
+            { .description = "" } } },
     { .type = CONFIG_END}
 };
 
@@ -8619,15 +8646,15 @@ static const device_config_t s3_968_config[] = {
      .type        = CONFIG_SELECTION,
      .default_int = 4,
      .selection   = {
-          { .description = "1 MB",
+            { .description = "1 MB",
               .value       = 1 },
-          { .description = "2 MB",
+            { .description = "2 MB",
               .value       = 2 },
-          { .description = "4 MB",
+            { .description = "4 MB",
               .value       = 4 },
-          { .description = "8 MB",
+            { .description = "8 MB",
               .value       = 8 },
-          { .description = "" } } },
+            { .description = "" } } },
     { .type = CONFIG_END}
 };
 
@@ -8682,6 +8709,20 @@ const device_t s3_spea_mirage_86c801_isa_device = {
     .close         = s3_close,
     .reset         = s3_reset,
     { .available = s3_spea_mirage_86c801_available },
+    .speed_changed = s3_speed_changed,
+    .force_redraw  = s3_force_redraw,
+    .config        = s3_9fx_config
+};
+
+const device_t s3_86c805_onboard_vlb_device = {
+    .name          = "S3 86c805 VLB On-Board",
+    .internal_name = "px_s3_805_onboard_vlb",
+    .flags         = DEVICE_VLB,
+    .local         = S3_86C805_ONBOARD,
+    .init          = s3_init,
+    .close         = s3_close,
+    .reset         = s3_reset,
+    { .available = NULL },
     .speed_changed = s3_speed_changed,
     .force_redraw  = s3_force_redraw,
     .config        = s3_9fx_config

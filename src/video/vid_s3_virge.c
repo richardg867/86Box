@@ -295,10 +295,10 @@ typedef struct virge_t {
     int waiting;
 } virge_t;
 
-static video_timings_t timing_diamond_stealth3d_2000_pci = { VIDEO_PCI, 2, 2, 3, 28, 28, 45 };
-static video_timings_t timing_diamond_stealth3d_3000_pci = { VIDEO_PCI, 2, 2, 4, 26, 26, 42 };
-static video_timings_t timing_virge_dx_pci               = { VIDEO_PCI, 2, 2, 3, 28, 28, 45 };
-static video_timings_t timing_virge_agp                  = { VIDEO_AGP, 2, 2, 3, 28, 28, 45 };
+static video_timings_t timing_diamond_stealth3d_2000_pci = { .type = VIDEO_PCI, .write_b = 2, .write_w = 2, .write_l = 3, .read_b = 28, .read_w = 28, .read_l = 45 };
+static video_timings_t timing_diamond_stealth3d_3000_pci = { .type = VIDEO_PCI, .write_b = 2, .write_w = 2, .write_l = 4, .read_b = 26, .read_w = 26, .read_l = 42 };
+static video_timings_t timing_virge_dx_pci               = { .type = VIDEO_PCI, .write_b = 2, .write_w = 2, .write_l = 3, .read_b = 28, .read_w = 28, .read_l = 45 };
+static video_timings_t timing_virge_agp                  = { .type = VIDEO_AGP, .write_b = 2, .write_w = 2, .write_l = 3, .read_b = 28, .read_w = 28, .read_l = 45 };
 
 static void s3_virge_triangle(virge_t *virge, s3d_t *s3d_tri);
 
@@ -801,7 +801,6 @@ s3_virge_recalctimings(svga_t *svga)
 
     if ((svga->crtc[0x67] & 0xc) != 0xc) /*VGA mode*/
     {
-        svga->fb_only = 0;
         svga->ma_latch |= (virge->ma_ext << 16);
         if (svga->crtc[0x51] & 0x30)
             svga->rowoffset += (svga->crtc[0x51] & 0x30) << 4;
@@ -844,8 +843,6 @@ s3_virge_recalctimings(svga_t *svga)
         s3_virge_log("VGA mode\n");
     } else /*Streams mode*/
     {
-        svga->fb_only = 1;
-
         if (virge->streams.buffer_ctrl & 1)
             svga->ma_latch = virge->streams.pri_fb1 >> 2;
         else
@@ -855,9 +852,9 @@ s3_virge_recalctimings(svga_t *svga)
         if (virge->streams.pri_h < svga->dispend)
             svga->dispend = virge->streams.pri_h;
 
-        svga->overlay.x     = virge->streams.sec_x - virge->streams.pri_x;
-        svga->overlay.y     = virge->streams.sec_y - virge->streams.pri_y;
-        svga->overlay.ysize = virge->streams.sec_h;
+        svga->overlay.x         = virge->streams.sec_x - virge->streams.pri_x;
+        svga->overlay.y         = virge->streams.sec_y - virge->streams.pri_y;
+        svga->overlay.cur_ysize = virge->streams.sec_h;
 
         if (virge->streams.buffer_ctrl & 2)
             svga->overlay.addr = virge->streams.sec_fb1;
@@ -4182,7 +4179,7 @@ s3_virge_init(const device_t *info)
               s3_virge_in, s3_virge_out,
               s3_virge_hwcursor_draw,
               s3_virge_overlay_draw);
-    virge->svga.hwcursor.ysize = 64;
+    virge->svga.hwcursor.cur_ysize = 64;
 
     if (info->local == S3_VIRGE_GX2)
         rom_init(&virge->bios_rom, (char *) bios_fn, 0xc0000, 0x10000, 0xffff, 0, MEM_MAPPING_EXTERNAL);
@@ -4453,65 +4450,144 @@ s3_virge_force_redraw(void *p)
 }
 
 static const device_config_t s3_virge_config[] = {
-    {.name        = "memory",
-     .description = "Memory size",
-     .type        = CONFIG_SELECTION,
-     .default_int = 4,
-     .selection   = {
-          { .description = "2 MB",
-              .value       = 2 },
-          { .description = "4 MB",
-              .value       = 4 },
-          { .description = "" } } },
-    { .name = "bilinear", .description = "Bilinear filtering", .type = CONFIG_BINARY, .default_int = 1 },
-    { .name = "dithering",    .description = "Dithering", .type = CONFIG_BINARY, .default_int = 1 },
-    { .type = CONFIG_END            }
+  // clang-format off
+    {
+        .name = "memory",
+        .description = "Memory size",
+        .type = CONFIG_SELECTION,
+        .default_int = 4,
+        .selection = {
+            {
+                .description = "2 MB",
+                .value = 2
+            },
+            {
+                .description = "4 MB",
+                .value = 4
+            },
+            {
+                .description = ""
+            }
+        }
+    },
+    {
+        .name = "bilinear",
+        .description = "Bilinear filtering",
+        .type = CONFIG_BINARY,
+        .default_int = 1
+    },
+    {
+        .name = "dithering",
+        .description = "Dithering",
+        .type = CONFIG_BINARY,
+        .default_int = 1
+    },
+    {
+        .type = CONFIG_END
+    }
+  // clang-format on
 };
 
 static const device_config_t s3_virge_stb_config[] = {
-    {.name        = "memory",
-     .description = "Memory size",
-     .type        = CONFIG_SELECTION,
-     .default_int = 4,
-     .selection   = {
-          { .description = "2 MB",
-              .value       = 2 },
-          { .description = "4 MB",
-              .value       = 4 },
-          { .description = "8 MB",
-              .value       = 8 },
-          { .description = "" } } },
-    { .name = "bilinear", .description = "Bilinear filtering", .type = CONFIG_BINARY, .default_int = 1 },
-    { .name = "dithering",    .description = "Dithering", .type = CONFIG_BINARY, .default_int = 1 },
-    { .type = CONFIG_END            }
+  // clang-format off
+    {
+        .name = "memory",
+        .description = "Memory size",
+        .type = CONFIG_SELECTION,
+        .default_int = 4,
+        .selection = {
+            {
+                .description = "2 MB",
+                .value = 2
+            },
+            {
+                .description = "4 MB",
+                .value = 4
+            },
+            {
+                .description = "8 MB",
+                .value = 8
+            },
+            {
+                .description = ""
+            }
+        }
+    },
+    {
+        .name = "bilinear",
+        .description = "Bilinear filtering",
+        .type = CONFIG_BINARY,
+        .default_int = 1
+    },
+    {
+        .name = "dithering",
+        .description = "Dithering",
+        .type = CONFIG_BINARY,
+        .default_int = 1
+    },
+    {
+        .type = CONFIG_END
+    }
+  // clang-format on
 };
 
 static const device_config_t s3_virge_357_config[] = {
-    {.name        = "bilinear",
-     .description = "Bilinear filtering",
-     .type        = CONFIG_BINARY,
-     .default_int = 1 },
-    { .name        = "dithering",
-     .description = "Dithering",
-     .type        = CONFIG_BINARY,
-     .default_int = 1 },
-    { .type = CONFIG_END                          }
+  // clang-format off
+    {
+        .name = "bilinear",
+        .description = "Bilinear filtering",
+        .type = CONFIG_BINARY,
+        .default_int = 1
+    },
+    {
+        .name = "dithering",
+        .description = "Dithering",
+        .type = CONFIG_BINARY,
+        .default_int = 1
+    },
+    {
+        .type = CONFIG_END
+    }
+  // clang-format on
 };
 
 static const device_config_t s3_trio3d2x_config[] = {
-    {.name        = "memory",
-     .description = "Memory size",
-     .type        = CONFIG_SELECTION,
-     .default_int = 4,
-     .selection   = {
-          { .description = "4 MB",
-              .value       = 4 },
-          { .description = "8 MB",
-              .value       = 8 },
-          { .description = "" } } },
-    { .name = "bilinear", .description = "Bilinear filtering", .type = CONFIG_BINARY, .default_int = 1 },
-    { .name = "dithering",    .description = "Dithering", .type = CONFIG_BINARY, .default_int = 1 },
-    { .type = CONFIG_END            }
+  // clang-format off
+    {
+        .name = "memory",
+        .description = "Memory size",
+        .type = CONFIG_SELECTION,
+        .default_int = 4,
+        .selection = {
+            {
+                .description = "4 MB",
+                .value = 4
+            },
+            {
+                .description = "8 MB",
+                .value = 8
+            },
+            {
+                .description = ""
+            }
+        }
+    },
+    {
+        .name = "bilinear",
+        .description = "Bilinear filtering",
+        .type = CONFIG_BINARY,
+        .default_int = 1
+    },
+    {
+        .name = "dithering",
+        .description = "Dithering",
+        .type = CONFIG_BINARY,
+        .default_int = 1
+    },
+    {
+        .type = CONFIG_END
+    }
+// clang-format on
 };
 
 const device_t s3_virge_325_pci_device = {
