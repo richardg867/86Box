@@ -1,22 +1,22 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
- *		running old operating systems and software designed for IBM
- *		PC systems and compatibles from 1981 through fairly recent
- *		system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *		This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *		ANSI input module for the command line interface.
+ *          ANSI input module for the command line interface.
  *
- *		Escape code parsing state machine based on:
- *		Williams, Paul Flo. "A parser for DEC's ANSI-compatible video
- *		terminals." VT100.net. <https://vt100.net/emu/dec_ansi_parser>
+ *          Escape code parsing state machine based on:
+ *          Williams, Paul Flo. "A parser for DEC's ANSI-compatible video
+ *          terminals." VT100.net. <https://vt100.net/emu/dec_ansi_parser>
  *
  *
  *
- * Author:	RichardG, <richardg867@gmail.com>
+ * Authors: RichardG, <richardg867@gmail.com>
  *
- *		Copyright 2021 RichardG.
+ *          Copyright 2021-2022 RichardG.
  */
 #include <stdarg.h>
 #include <stdint.h>
