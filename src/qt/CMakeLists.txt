@@ -1,3 +1,14 @@
+#
+# 86Box    A hypervisor and IBM PC system emulator that specializes in
+#          running old operating systems and software designed for IBM
+#          PC systems and compatibles from 1981 through fairly recent
+#          system designs based on the PCI bus.
+#
+#          This file is part of the 86Box distribution.
+#
+#          CMake build script.
+#
+
 # Find includes in corresponding build directories
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_AUTOMOC ON)
@@ -166,20 +177,28 @@ add_library(ui STATIC
     qt_mcadevicelist.cpp
     qt_mcadevicelist.ui
 
+    qt_mediahistorymanager.cpp
+    qt_mediahistorymanager.hpp
+
     ../qt_resources.qrc
 )
-
 
 if(RTMIDI)
     target_compile_definitions(ui PRIVATE USE_RTMIDI)
 endif()
 
-
 if(WIN32)
     enable_language(RC)
     target_sources(86Box PUBLIC ../win/86Box-qt.rc)
-    target_sources(plat PRIVATE win_joystick_rawinput.c)
-    target_link_libraries(86Box hid)
+    target_sources(plat PRIVATE win_dynld.c)
+    if(DINPUT)
+        target_sources(plat PRIVATE win_joystick.cpp)
+        target_link_libraries(86Box dinput8)
+    else()
+        target_sources(plat PRIVATE win_joystick_rawinput.c)
+    endif()
+    target_sources(ui PRIVATE qt_d3d9renderer.hpp qt_d3d9renderer.cpp)
+    target_link_libraries(86Box hid d3d9)
 
     # CMake 3.22 messed this up for clang/clang++
     # See https://gitlab.kitware.com/cmake/cmake/-/issues/22611
@@ -202,8 +221,26 @@ if(WIN32 AND NOT MINGW)
     target_sources(plat PRIVATE ../win/win_opendir.c)
 endif()
 
+if(WIN32)
+    target_sources(plat PRIVATE ../win/win_serial_passthrough.c)
+else()
+    target_sources(plat PRIVATE ../unix/unix_serial_passthrough.c)
+endif()
+
 if (APPLE)
     target_sources(ui PRIVATE macos_event_filter.mm)
+    if(MOLTENVK)
+        find_path(MOLTENVK_INCLUDE "vulkan/vulkan.h" PATHS "/opt/homebrew/opt/molten-vk/libexec/include" "/usr/local/opt/molten-vk/libexec/include" ${MOLTENVK_INCLUDE_DIR})
+        if (NOT MOLTENVK_INCLUDE)
+            message(FATAL_ERROR "Could not find vulkan/vulkan.h. If the headers are installed please use -DMOLTENVK_INCLUDE_DIR=/path/to/headers")
+        endif()
+        target_include_directories(ui PRIVATE ${MOLTENVK_INCLUDE})
+        find_library(MOLTENVK_LIB MoltenVK)
+        if (NOT MOLTENVK_LIB)
+            message(FATAL_ERROR "Could not find MoltenVK library")
+        endif()
+        target_link_libraries(ui PRIVATE "${MOLTENVK_LIB}")
+    endif()
 endif()
 
 if (WIN32)
@@ -239,12 +276,24 @@ if(WIN32)
         # needed for static builds
         qt_import_plugins(plat INCLUDE Qt${QT_MAJOR}::QWindowsIntegrationPlugin Qt${QT_MAJOR}::QICOPlugin Qt${QT_MAJOR}::QWindowsVistaStylePlugin)
     else()
-        install(CODE "
-            get_filename_component(CMAKE_INSTALL_PREFIX_ABSOLUTE \${CMAKE_INSTALL_PREFIX} ABSOLUTE)
-            execute_process(
-                COMMAND $<TARGET_FILE:Qt${QT_MAJOR}::windeployqt>
-                \"\${CMAKE_INSTALL_PREFIX_ABSOLUTE}/$<TARGET_FILE_NAME:86Box>\")
-        ")
+        if(USE_QT6)
+            install(CODE "
+                get_filename_component(CMAKE_INSTALL_PREFIX_ABSOLUTE \${CMAKE_INSTALL_PREFIX} ABSOLUTE)
+                execute_process(
+                    COMMAND $<TARGET_FILE:Qt${QT_MAJOR}::windeployqt>
+                    \"\${CMAKE_INSTALL_PREFIX_ABSOLUTE}/$<TARGET_FILE_NAME:86Box>\")
+            ")
+        else()
+            find_program(WINDEPLOYQT_EXECUTABLE windeployqt)
+            if(WINDEPLOYQT_EXECUTABLE)
+                install(CODE "
+                    get_filename_component(CMAKE_INSTALL_PREFIX_ABSOLUTE \${CMAKE_INSTALL_PREFIX} ABSOLUTE)
+                    execute_process(
+                        COMMAND ${WINDEPLOYQT_EXECUTABLE}
+                        \"\${CMAKE_INSTALL_PREFIX_ABSOLUTE}/$<TARGET_FILE_NAME:86Box>\")
+                ")
+            endif()
+        endif()
     endif()
 endif()
 
@@ -268,6 +317,7 @@ if (APPLE AND CMAKE_MACOSX_BUNDLE)
     set(prefix "86Box.app/Contents")
     set(INSTALL_RUNTIME_DIR "${prefix}/MacOS")
     set(INSTALL_CMAKE_DIR "${prefix}/Resources")
+    set(INSTALL_LIB_DIR "${prefix}/Frameworks")
 
     # using the install_qt5_plugin to add Qt plugins into the macOS app bundle
     install_qt5_plugin("Qt${QT_MAJOR}::QCocoaIntegrationPlugin" QT_PLUGINS ${prefix})
@@ -295,7 +345,21 @@ if (APPLE AND CMAKE_MACOSX_BUNDLE)
     install(CODE "
         include(BundleUtilities)
         get_filename_component(CMAKE_INSTALL_PREFIX_ABSOLUTE \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX} ABSOLUTE)
-        fixup_bundle(\"\${CMAKE_INSTALL_PREFIX_ABSOLUTE}/86Box.app\" \"${QT_PLUGINS}\" \"${DIRS}\")")
+        fixup_bundle(\"\${CMAKE_INSTALL_PREFIX_ABSOLUTE}/86Box.app\" \"${QT_PLUGINS}\" \"${DIRS}\")
+        execute_process(
+            COMMAND ${CMAKE_INSTALL_NAME_TOOL} -add_rpath \"@executable_path/../Frameworks/\"
+            \"\${CMAKE_INSTALL_PREFIX_ABSOLUTE}/${INSTALL_RUNTIME_DIR}/86Box\")
+        ")
+    if(MOLTENVK)
+        install(CODE "
+        execute_process(
+            COMMAND bash -c \"set -e
+            echo \\\"-- Creating vulkan dylib symlink for QT (libVulkan.dylib -> libMoltenVK.dylib)\\\"
+            cd \${CMAKE_INSTALL_PREFIX_ABSOLUTE}/${INSTALL_LIB_DIR}
+            ln -sf libMoltenVK.dylib libVulkan.dylib
+            \")
+        ")
+    endif()
 endif()
 
 if (UNIX AND NOT APPLE AND NOT HAIKU)

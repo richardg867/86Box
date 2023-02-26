@@ -1,22 +1,22 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
- *		running old operating systems and software designed for IBM
- *		PC systems and compatibles from 1981 through fairly recent
- *		system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *		This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *		Implementation of the Olivetti EVA (98/86) Gate Array.
+ *          Implementation of the Olivetti EVA (98/86) Gate Array.
  *
- *      Note: This chipset has no datasheet, everything were done via
- *      reverse engineering the BIOS of various machines using it.
+ * Note:    This chipset has no datasheet, everything were done via
+ *          reverse engineering the BIOS of various machines using it.
+ *
+ *
  *
  * Authors: EngiNerd <webmaster.crrc@yahoo.it>
  *
- *		Copyright 2020-2021 EngiNerd
+ *          Copyright 2020-2021 EngiNerd
  */
-
-
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -35,13 +35,14 @@
 
 typedef struct
 {
-    uint8_t	reg_065;
-    uint8_t	reg_067;
+    uint8_t reg_065;
+    uint8_t reg_067;
     uint8_t reg_069;
 } olivetti_eva_t;
 
 #ifdef ENABLE_OLIVETTI_EVA_LOG
 int olivetti_eva_do_log = ENABLE_OLIVETTI_EVA_LOG;
+
 static void
 olivetti_eva_log(const char *fmt, ...)
 {
@@ -50,11 +51,11 @@ olivetti_eva_log(const char *fmt, ...)
     if (olivetti_eva_do_log) {
         va_start(ap, fmt);
         pclog_ex(fmt, ap);
-    	va_end(ap);
+        va_end(ap);
     }
 }
 #else
-#define olivetti_eva_log(fmt, ...)
+#    define olivetti_eva_log(fmt, ...)
 #endif
 
 static void
@@ -98,7 +99,7 @@ static uint8_t
 olivetti_eva_read(uint16_t addr, void *priv)
 {
     olivetti_eva_t *dev = (olivetti_eva_t *) priv;
-    uint8_t ret = 0xff;
+    uint8_t         ret = 0xff;
     switch (addr) {
         case 0x065:
             ret = dev->reg_065;
@@ -114,7 +115,6 @@ olivetti_eva_read(uint16_t addr, void *priv)
     olivetti_eva_log("Olivetti EVA Gate Array: Read %02x at %02x\n", ret, addr);
     return ret;
 }
-
 
 static void
 olivetti_eva_close(void *priv)
@@ -157,15 +157,15 @@ olivetti_eva_init(const device_t *info)
 }
 
 const device_t olivetti_eva_device = {
-    .name = "Olivetti EVA Gate Array",
+    .name          = "Olivetti EVA Gate Array",
     .internal_name = "olivetta_eva",
-    .flags = 0,
-    .local = 0,
-    .init = olivetti_eva_init,
-    .close = olivetti_eva_close,
-    .reset = NULL,
+    .flags         = 0,
+    .local         = 0,
+    .init          = olivetti_eva_init,
+    .close         = olivetti_eva_close,
+    .reset         = NULL,
     { .available = NULL },
     .speed_changed = NULL,
-    .force_redraw = NULL,
-    .config = NULL
+    .force_redraw  = NULL,
+    .config        = NULL
 };

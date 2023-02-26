@@ -34,6 +34,7 @@ BEGIN
         MENUITEM "&Sakrij statusni redak",		IDM_VID_HIDE_STATUS_BAR
         MENUITEM "&Sakrij alatni redak",		IDM_VID_HIDE_TOOLBAR
         MENUITEM SEPARATOR
+        MENUITEM "&Show non-primary monitors",  IDM_VID_MONITORS
         MENUITEM "&Prozor s promjenjivim veličinama",          IDM_VID_RESIZE
         MENUITEM "&Zapamtite veličinu i položaj",  IDM_VID_REMEMBER
         MENUITEM SEPARATOR
@@ -56,6 +57,12 @@ BEGIN
             MENUITEM "&1x",                     IDM_VID_SCALE_2X
             MENUITEM "1,&5x",                   IDM_VID_SCALE_3X
             MENUITEM "&2x",                     IDM_VID_SCALE_4X
+            MENUITEM "&3x",                     IDM_VID_SCALE_5X
+            MENUITEM "&4x",                     IDM_VID_SCALE_6X
+            MENUITEM "&5x",                     IDM_VID_SCALE_7X
+            MENUITEM "&6x",                     IDM_VID_SCALE_8X
+            MENUITEM "&7x",                     IDM_VID_SCALE_9X
+            MENUITEM "&8x",                     IDM_VID_SCALE_10X
         END
         POPUP "Metoda filtriranja"
         BEGIN
@@ -103,7 +110,9 @@ BEGIN
         MENUITEM "Napravi &snimku zaslona\tCtrl+F11",  IDM_ACTION_SCREENSHOT
         MENUITEM SEPARATOR
         MENUITEM "&Postavke...",    IDM_PREFERENCES
+#ifdef DISCORD
         MENUITEM "Omogući integraciju sa programom &Discord", IDM_DISCORD
+#endif
         MENUITEM SEPARATOR
         MENUITEM "&Pojačanje zvuka...",              IDM_SND_GAIN
 #ifdef MTR_ENABLED
@@ -176,7 +185,8 @@ BEGIN
         MENUITEM "&Prazno",					IDM_CDROM_EMPTY
         MENUITEM "&Ponovo učitaj prethodnu sliku",			IDM_CDROM_RELOAD
         MENUITEM SEPARATOR
-        MENUITEM "&Slika",					IDM_CDROM_IMAGE
+        MENUITEM "&Slika...",					IDM_CDROM_IMAGE
+        MENUITEM "&Mapa...",					IDM_CDROM_DIR
     END
 END
 
@@ -270,8 +280,10 @@ END
 #define STR_DYNAREC		"Dinamički rekompilator"
 
 #define STR_VIDEO		"Video:"
+#define STR_VIDEO_2		"Video 2:"
 #define STR_VOODOO		"Voodoo grafika"
-#define STR_IBM8514		"IBM 8514/a Graphics"
+#define STR_IBM8514		"IBM 8514/a grafika"
+#define STR_XGA			"XGA grafika"
 
 #define STR_MOUSE		"Miš:"
 #define STR_JOYSTICK		"Palica za igru:"
@@ -280,18 +292,25 @@ END
 #define STR_JOY3		"Palica za igru 3..."
 #define STR_JOY4		"Palica za igru 4..."
 
-#define STR_SOUND		"Zvučna kartica:"
-#define STR_MIDI_OUT	"Izlazni uređaj MIDI:"
+#define STR_SOUND1		"Zvučna kartica 1:"
+#define STR_SOUND2		"Zvučna kartica 2:"
+#define STR_SOUND3		"Zvučna kartica 3:"
+#define STR_SOUND4		"Zvučna kartica 4:"
+#define STR_MIDI_OUT		"Izlazni uređaj MIDI:"
 #define STR_MIDI_IN		"Ulazni uređaj MIDI:"
 #define STR_MPU401		"Samostalni MPU-401"
-#define STR_SSI			"Innovation SSI-2001"
-#define STR_CMS			"CMS / Game Blaster"
-#define STR_GUS			"Gravis Ultrasound"
 #define STR_FLOAT		"Koristi FLOAT32 za zvuk"
+#define STR_FM_DRIVER		"Drajver za FM sintisajzer"
+#define STR_FM_DRV_NUKED	"Nuked (precizniji)"
+#define STR_FM_DRV_YMFM		"YMFM (brži)"
 
-#define STR_NET_TYPE		"Tip mreže:"
+#define STR_NET_TYPE	"Tip mreže:"
 #define STR_PCAP		"Uređaj PCap:"
 #define STR_NET			"Mrežna kartica:"
+#define STR_NET1		"Network card 1:"
+#define STR_NET2		"Network card 2:"
+#define STR_NET3		"Network card 3:"
+#define STR_NET4		"Network card 4:"
 
 #define STR_COM1		"Uređaj COM1:"
 #define STR_COM2		"Uređaj COM2:"
@@ -309,6 +328,10 @@ END
 #define STR_PARALLEL2		"Paralelna vrata 2"
 #define STR_PARALLEL3		"Paralelna vrata 3"
 #define STR_PARALLEL4		"Paralelna vrata 4"
+#define STR_SERIAL_PASS1	"Serial port passthrough 1"
+#define STR_SERIAL_PASS2	"Serial port passthrough 2"
+#define STR_SERIAL_PASS3	"Serial port passthrough 3"
+#define STR_SERIAL_PASS4	"Serial port passthrough 4"
 
 #define STR_HDC			"Kontroler tvrdog diska:"
 #define STR_FDC			"Kontroler diskete:"
@@ -328,6 +351,7 @@ END
 #define STR_BUS			"Sabirnica:"
 #define STR_CHANNEL		"Kanal:"
 #define STR_ID			"ID:"
+#define STR_SPEED		"Speed:"
 
 #define STR_SPECIFY		"&Odredi..."
 #define STR_SECTORS		"Sektori:"
@@ -343,6 +367,7 @@ END
 #define STR_CHECKBPB		"Provjeraj BPB"
 #define STR_CDROM_DRIVES	"CD-ROM pogoni:"
 #define STR_CD_SPEED		"Brzina:"
+#define STR_EARLY		"Raniji pogon"
 
 #define STR_MO_DRIVES		"MO pogoni:"
 #define STR_ZIP_DRIVES		"ZIP pogoni:"
@@ -416,101 +441,106 @@ BEGIN
     IDS_2084	"H"
     IDS_2085	"S"
     IDS_2086	"MB"
-    IDS_2087	"Provjeri BPB"
-    IDS_2088	"KB"
-    IDS_2089	"Nije moguće inicijalizirati renderer."
-    IDS_2090	"Standard"
-    IDS_2091	"%i stanje čekanja"
-    IDS_2092	"Tip"
-    IDS_2093	"Postavljanje PCap-a nije uspjelo"
-    IDS_2094	"Nema PCap uređaja"
-    IDS_2095	"Nevažeći PCap uređaj"
-    IDS_2096	"Standardna palica za igru s 2 tipke"
-    IDS_2097	"Standardna palica za igru s 4 tipke"
-    IDS_2098	"Standardna palica za igru s 6 tipke"
-    IDS_2099	"Standardna palica za igru s 8 tipke"
-    IDS_2100	"CH Flightstick Pro"
-    IDS_2101	"Microsoft SideWinder Pad"
-    IDS_2102	"Thrustmaster Flight Control System"
-    IDS_2103	"Bez"
-    IDS_2104	"Nije moguće učitati ubrzivače tipkovnice."
-    IDS_2105	"Nije moguće registrirati neobrađeni unos."
-    IDS_2106	"%u"
-    IDS_2107	"%u MB (CHS: %i, %i, %i)"
-    IDS_2108	"Disketa %i (%s): %ls"
-    IDS_2109	"Sve slike (*.0??;*.1??;*.??0;*.86F;*.BIN;*.CQ?;*.D??;*.FLP;*.HDM;*.IM?;*.JSON;*.TD0;*.*FD?;*.MFM;*.XDF)\0*.0??;*.1??;*.??0;*.86F;*.BIN;*.CQ?;*.D??;*.FLP;*.HDM;*.IM?;*.JSON;*.TD0;*.*FD?;*.MFM;*.XDF\0Napredne sektorske slike (*.IMD;*.JSON;*.TD0)\0*.IMD;*.JSON;*.TD0\0Osnovne sektorske slike (*.0??;*.1??;*.??0;*.BIN;*.CQ?;*.D??;*.FLP;*.HDM;*.IM?;*.XDF;*.*FD?)\0*.0??;*.1??;*.??0;*.BIN;*.CQ?;*.D??;*.FLP;*.HDM;*.IM?;*.XDF;*.*FD?\0Flux slike (*.FDI)\0*.FDI\0Površinske slike (*.86F;*.MFM)\0*.86F;*.MFM\0Sve datoteke (*.*)\0*.*\0"
-    IDS_2110	"Nije moguće inicijalizirati FreeType"
-    IDS_2111	"Nije moguće inicijalizirati SDL, SDL2.dll je potrebno"
-    IDS_2112	"Jeste li sigurni da želite hard resetirati emulirani sistem?"
-    IDS_2113	"Jeste li sigurni da želite zatvoriti 86Box?"
-    IDS_2114	"Nije moguće inicijalizirati GhostScript"
-    IDS_2115	"MO %i (%ls): %ls"
-    IDS_2116	"MO slike (*.IM?;*.MDI)\0*.IM?;*.MDI\0Svi datoteke (*.*)\0*.*\0"
-    IDS_2117	"Dobrodošli u 86Box!"
-    IDS_2118	"Uunutarnji kontroler"
-    IDS_2119	"Izlazi"
-    IDS_2120	"Nisu pronađene ROM datoteke"
-    IDS_2121	"Želite li spremiti postavke?"
-    IDS_2122	"Ovo će napraviti hard resetiranje emuliranog sistema."
-    IDS_2123	"Spremaj"
-    IDS_2124	"O programu 86Box"
-    IDS_2125	"86Box verzija " EMU_VERSION
+    IDS_2087    "Speed"
+    IDS_2088	"Provjeri BPB"
+    IDS_2089	"KB"
+    IDS_2090	"Nije moguće inicijalizirati renderer."
+    IDS_2091	"Standard"
+    IDS_2092	"%i stanje čekanja"
+    IDS_2093	"Tip"
+    IDS_2094	"Postavljanje PCap-a nije uspjelo"
+    IDS_2095	"Nema PCap uređaja"
+    IDS_2096	"Nevažeći PCap uređaj"
+    IDS_2097	"Standardna palica za igru s 2 tipke"
+    IDS_2098	"Standardna palica za igru s 4 tipke"
+    IDS_2099	"Standardna palica za igru s 6 tipke"
+    IDS_2100	"Standardna palica za igru s 8 tipke"
+    IDS_2101	"CH Flightstick Pro"
+    IDS_2102	"Microsoft SideWinder Pad"
+    IDS_2103	"Thrustmaster Flight Control System"
+    IDS_2104	"Bez"
+    IDS_2105	"Nije moguće učitati ubrzivače tipkovnice."
+    IDS_2106	"Nije moguće registrirati neobrađeni unos."
+    IDS_2107	"%u"
+    IDS_2108	"%u MB (CHS: %i, %i, %i)"
+    IDS_2109	"Disketa %i (%s): %ls"
+    IDS_2110	"Sve slike (*.0??;*.1??;*.??0;*.86F;*.BIN;*.CQ?;*.D??;*.FLP;*.HDM;*.IM?;*.JSON;*.TD0;*.*FD?;*.MFM;*.XDF)\0*.0??;*.1??;*.??0;*.86F;*.BIN;*.CQ?;*.D??;*.FLP;*.HDM;*.IM?;*.JSON;*.TD0;*.*FD?;*.MFM;*.XDF\0Napredne sektorske slike (*.IMD;*.JSON;*.TD0)\0*.IMD;*.JSON;*.TD0\0Osnovne sektorske slike (*.0??;*.1??;*.??0;*.BIN;*.CQ?;*.D??;*.FLP;*.HDM;*.IM?;*.XDF;*.*FD?)\0*.0??;*.1??;*.??0;*.BIN;*.CQ?;*.D??;*.FLP;*.HDM;*.IM?;*.XDF;*.*FD?\0Flux slike (*.FDI)\0*.FDI\0Površinske slike (*.86F;*.MFM)\0*.86F;*.MFM\0Sve datoteke (*.*)\0*.*\0"
+    IDS_2111	"Nije moguće inicijalizirati FreeType"
+    IDS_2112	"Nije moguće inicijalizirati SDL, SDL2.dll je potrebno"
+    IDS_2113	"Jeste li sigurni da želite hard resetirati emulirani sistem?"
+    IDS_2114	"Jeste li sigurni da želite zatvoriti 86Box?"
+    IDS_2115	"Nije moguće inicijalizirati GhostScript"
+    IDS_2116	"MO %i (%ls): %ls"
+    IDS_2117	"MO slike (*.IM?;*.MDI)\0*.IM?;*.MDI\0Svi datoteke (*.*)\0*.*\0"
+    IDS_2118	"Dobrodošli u 86Box!"
+    IDS_2119	"Uunutarnji kontroler"
+    IDS_2120	"Izlazi"
+    IDS_2121	"Nisu pronađene ROM datoteke"
+    IDS_2122	"Želite li spremiti postavke?"
+    IDS_2123	"Ovo će napraviti hard resetiranje emuliranog sistema."
+    IDS_2124	"Spremaj"
+    IDS_2125	"O programu 86Box"
+    IDS_2126	"86Box verzija " EMU_VERSION
 
-    IDS_2126	"Emulator starih računala\n\nAutori: Sarah Walker, Miran Grca, Fred N. van Kempen (waltje), SA1988, Tiseno100, reenigne, leilei, JohnElliott, greatpsycho, i drugi.\n\nPreveo: dob205\n\nObjavljeno pod licencom GNU General Public License, verzija 2 ili novije. Za više informacija pogledajte datoteku LICENCE."
-    IDS_2127	"U redu"
-    IDS_2128	"Hardver nije dostupan"
+    IDS_2127	"Emulator starih računala\n\nAutori: Sarah Walker, Miran Grca, Fred N. van Kempen (waltje), SA1988, Tiseno100, reenigne, leilei, JohnElliott, greatpsycho, i drugi.\n\nPreveo: dob205\n\nObjavljeno pod licencom GNU General Public License, verzija 2 ili novije. Za više informacija pogledajte datoteku LICENCE."
+    IDS_2128	"U redu"
+    IDS_2129	"Hardver nije dostupan"
 #ifdef _WIN32
 #define LIB_NAME_PCAP "WinPcap"
 #else
 #define LIB_NAME_PCAP "libpcap"
 #endif
-    IDS_2129	"Provjerite je li " LIB_NAME_PCAP " instaliran i jeste li na mreži, kompadibilnoj s " LIB_NAME_PCAP "."
-    IDS_2130	"Nevažeća konfiguracija"
+    IDS_2130	"Provjerite je li " LIB_NAME_PCAP " instaliran i jeste li na mreži, kompadibilnoj s " LIB_NAME_PCAP "."
+    IDS_2131	"Nevažeća konfiguracija"
 #ifdef _WIN32
 #define LIB_NAME_FREETYPE "freetype.dll"
 #else
 #define LIB_NAME_FREETYPE "libfreetype"
 #endif
-    IDS_2131	LIB_NAME_FREETYPE " je potrebno za emuliranje ESC/P pisača."
+    IDS_2132	LIB_NAME_FREETYPE " je potrebno za emuliranje ESC/P pisača."
 #ifdef _WIN32
 #define LIB_NAME_GS "gsdll32.dll"
 #else
 #define LIB_NAME_GS "libgs"
 #endif
-    IDS_2132	LIB_NAME_GS " je potrebno za automatsku konverziju PostScript datoteke u PDF datoteke.\n\nSvi dokumenti poslani na generički PostScript pisač bit će spremljeni kao PostScript (.ps) datoteke."
+    IDS_2133	LIB_NAME_GS " je potrebno za automatsku konverziju PostScript datoteke u PDF datoteke.\n\nSvi dokumenti poslani na generički PostScript pisač bit će spremljeni kao PostScript (.ps) datoteke."
 #ifdef _WIN32
 #define LIB_NAME_FLUIDSYNTH "libfluidsynth.dll"
 #else
 #define LIB_NAME_FLUIDSYNTH "libfluidsynth"
 #endif
-    IDS_2133	LIB_NAME_FLUIDSYNTH " je potrebno za FluidSynth MIDI izlaz."
-    IDS_2134	"Ulazim u cijelozaslonski način"
-    IDS_2135	"Ne pokazi više ovu poruku"
-    IDS_2136	"Ne izlazi"
-    IDS_2137	"Resetiraj"
-    IDS_2138	"Ne resetiraj"
-    IDS_2139	"MO slike (*.IM?;*.MDI)\0*.IM?;*.MDI\0Sve datoteke (*.*)\0*.*\0"
-    IDS_2140	"CD-ROM slike (*.ISO;*.CUE)\0*.ISO;*.CUE\0Sve datoteke (*.*)\0*.*\0"
-    IDS_2141	"Konfiguracija uređaja %hs "
-    IDS_2142    "Ekran u stanju mirovanja"
-    IDS_2143	"OpenGL shaderi (*.GLSL)\0*.GLSL\0Sve datoteke (*.*)\0*.*\0"
-    IDS_2144	"OpenGL opcije"
-    IDS_2145	"Učitavate nepodržanu konfiguraciju"
-    IDS_2146	"Filtriranje tipa CPU-a na temelju odabranog sistema onemogućeno je za ovaj emulirani sistem.\n\nOvo omogućuje odabir procesora koji inače nisu kompatibilne s odabranog sistem. Međutim, možete naići na na nekompatibilnosti s BIOS-om sustava ili drugim softverom.\n\nOmogućavanje ove postavke nije službeno podržano i sva prijava o greškama mogu biti zatvorena kao ""invalid""."
-    IDS_2147	"Nastavi"
-    IDS_2148	"Audio kaseta: %s"
-    IDS_2149	"Slike audio kasete (*.PCM;*.RAW;*.WAV;*.CAS)\0*.PCM;*.RAW;*.WAV;*.CAS\0Sve datoteke (*.*)\0*.*\0"
-    IDS_2150	"Kaseta %i: %ls"
-    IDS_2151	"Slike kasete (*.A;*.B;*.JRC)\0*.A;*.B;*.JRC\0Sve datoteke (*.*)\0*.*\0"
-    IDS_2152	"Nije moguće inicijalizirati renderer"
-    IDS_2153	"Nije moguće inicijalizirati OpenGL (3.0 jezgra) renderer. Molimte koristite drugi renderer."
-    IDS_2154	"Nastavi"
-    IDS_2155	"Pauziraj"
-    IDS_2156	"Stisni Ctrl+Alt+Del"
-    IDS_2157	"Stisni Ctrl+Alt+Esc"
-    IDS_2158	"Ponovno pokretanje"
-    IDS_2159	"ACPI bazirano gašenje"
-    IDS_2160	"Postavke"
+    IDS_2134	LIB_NAME_FLUIDSYNTH " je potrebno za FluidSynth MIDI izlaz."
+    IDS_2135	"Ulazim u cijelozaslonski način"
+    IDS_2136	"Ne pokazi više ovu poruku"
+    IDS_2137	"Ne izlazi"
+    IDS_2138	"Resetiraj"
+    IDS_2139	"Ne resetiraj"
+    IDS_2140	"MO slike (*.IM?;*.MDI)\0*.IM?;*.MDI\0Sve datoteke (*.*)\0*.*\0"
+    IDS_2141	"CD-ROM slike (*.ISO;*.CUE)\0*.ISO;*.CUE\0Sve datoteke (*.*)\0*.*\0"
+    IDS_2142	"Konfiguracija uređaja %hs "
+    IDS_2143    "Ekran u stanju mirovanja"
+    IDS_2144	"OpenGL shaderi (*.GLSL)\0*.GLSL\0Sve datoteke (*.*)\0*.*\0"
+    IDS_2145	"OpenGL opcije"
+    IDS_2146	"Učitavate nepodržanu konfiguraciju"
+    IDS_2147	"Filtriranje tipa CPU-a na temelju odabranog sistema onemogućeno je za ovaj emulirani sistem.\n\nOvo omogućuje odabir procesora koji inače nisu kompatibilne s odabranog sistem. Međutim, možete naići na na nekompatibilnosti s BIOS-om sustava ili drugim softverom.\n\nOmogućavanje ove postavke nije službeno podržano i sva prijava o greškama mogu biti zatvorena kao ""invalid""."
+    IDS_2148	"Nastavi"
+    IDS_2149	"Audio kaseta: %s"
+    IDS_2150	"Slike audio kasete (*.PCM;*.RAW;*.WAV;*.CAS)\0*.PCM;*.RAW;*.WAV;*.CAS\0Sve datoteke (*.*)\0*.*\0"
+    IDS_2151	"Kaseta %i: %ls"
+    IDS_2152	"Slike kasete (*.A;*.B;*.JRC)\0*.A;*.B;*.JRC\0Sve datoteke (*.*)\0*.*\0"
+    IDS_2153	"Nije moguće inicijalizirati renderer"
+    IDS_2154	"Nije moguće inicijalizirati OpenGL (3.0 jezgra) renderer. Molimte koristite drugi renderer."
+    IDS_2155	"Nastavi"
+    IDS_2156	"Pauziraj"
+    IDS_2157	"Stisni Ctrl+Alt+Del"
+    IDS_2158	"Stisni Ctrl+Alt+Esc"
+    IDS_2159	"Ponovno pokretanje"
+    IDS_2160	"ACPI bazirano gašenje"
+    IDS_2161	"Postavke"
+    IDS_2162    "Raniji pogon"
+    IDS_2163    "no dynarec"
+    IDS_2164    "old dynarec"
+    IDS_2165    "new dynarec"
 END
 
 STRINGTABLE DISCARDABLE 

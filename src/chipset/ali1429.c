@@ -165,9 +165,11 @@ ali1429_write(uint16_t addr, uint8_t val, void *priv)
 #endif
 
 		if (dev->index == 0x03)
-			dev->cfg_locked = !(val == 0xc5);
+			dev->cfg_locked = (val != 0xc5);
 
 		if (!dev->cfg_locked) {
+			pclog("M1429: dev->regs[%02x] = %02x\n", dev->index, val);
+
 			/* Common M1429 Registers */
 			switch (dev->index) {
 				case 0x10: case 0x11:

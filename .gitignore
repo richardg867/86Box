@@ -28,9 +28,6 @@ Makefile
 /archive_tmp
 /archive_tmp_universal
 /static2dll.*
-/pacman.txt
-/deps.txt
-/universal_listing.txt
 /VERSION
 *.zip
 *.tar
@@ -41,9 +38,19 @@ Makefile
 # Visual Studio Code
 /.vs
 /.vscode
+/out
 
 # Windows resource compiler
 RC*
 
 # Qt Creator
 CMakeLists.txt.user
+
+# Debian builder
+/debian/*.log
+/debian/*.substvars
+/debian/.debhelper
+/debian/86box
+/debian/debhelper-build-stamp
+/debian/files
+/obj-*-linux-gnu

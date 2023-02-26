@@ -10,7 +10,7 @@
  *
  *
  *
- * Authors:  Sarah Walker, <http://pcem-emulator.co.uk/>
+ * Authors:  Sarah Walker, <https://pcem-emulator.co.uk/>
  *           RichardG, <richardg867@gmail.com>
  *           Miran Grca, <mgrca8@gmail.com>
  *
@@ -493,10 +493,6 @@ es1371_read_frame_reg(es1371_t *dev, int frame, int page)
                     break;
             }
             break;
-    }
-
-    if (page == 0x0e || page == 0x0f) {
-        audiopci_log("Read frame = %02x, page = %02x, uart fifo valid = %02x, temp = %03x\n", frame, page, dev->valid, ret);
     }
 
     return ret;
@@ -1240,7 +1236,7 @@ capture_event(es1371_t *dev, int type, int rw, uint16_t port)
         dev->legacy_ctrl &= ~LEGACY_EVENT_TYPE_RW;
     dev->legacy_ctrl |= ((port << LEGACY_EVENT_ADDR_SHIFT) & LEGACY_EVENT_ADDR_MASK);
     dev->legacy_ctrl &= ~LEGACY_INT;
-    nmi = 1;
+    nmi_raise();
 }
 
 static void
@@ -1962,7 +1958,7 @@ generate_es1371_filter(void)
     for (n = 0; n < ES1371_NCoef; n++)
         gain += low_fir_es1371_coef[n] / (float) N;
 
-    gain /= 0.95;
+    gain /= 0.65;
 
     /* Normalise filter, to produce unity gain */
     for (n = 0; n < ES1371_NCoef; n++)
@@ -2053,7 +2049,7 @@ es1371_speed_changed(void *p)
 }
 
 static const device_config_t es1371_config[] = {
-// clang-format off
+  // clang-format off
     {
         .name = "codec",
         .description = "CODEC",
@@ -2090,11 +2086,11 @@ static const device_config_t es1371_config[] = {
         .default_int = 1
     },
     { .name = "", .description = "", .type = CONFIG_END }
-// clang-format on
+  // clang-format on
 };
 
 static const device_config_t es1371_onboard_config[] = {
-// clang-format off
+  // clang-format off
     {
         .name = "receive_input",
         .description = "Receive input (MIDI)",
@@ -2103,33 +2099,33 @@ static const device_config_t es1371_onboard_config[] = {
         .default_int = 1
     },
     { .name = "", .description = "", .type = CONFIG_END }
-// clang-format on
+  // clang-format on
 };
 
 const device_t es1371_device = {
-    .name = "Ensoniq AudioPCI (ES1371)",
+    .name          = "Ensoniq AudioPCI (ES1371)",
     .internal_name = "es1371",
-    .flags = DEVICE_PCI,
-    .local = 0,
-    .init = es1371_init,
-    .close = es1371_close,
-    .reset = es1371_reset,
+    .flags         = DEVICE_PCI,
+    .local         = 0,
+    .init          = es1371_init,
+    .close         = es1371_close,
+    .reset         = es1371_reset,
     { .available = NULL },
     .speed_changed = es1371_speed_changed,
-    .force_redraw = NULL,
-    .config = es1371_config
+    .force_redraw  = NULL,
+    .config        = es1371_config
 };
 
 const device_t es1371_onboard_device = {
-    .name = "Ensoniq AudioPCI (ES1371) (On-Board)",
+    .name          = "Ensoniq AudioPCI (ES1371) (On-Board)",
     .internal_name = "es1371_onboard",
-    .flags = DEVICE_PCI,
-    .local = 1,
-    .init = es1371_init,
-    .close = es1371_close,
-    .reset = es1371_reset,
+    .flags         = DEVICE_PCI,
+    .local         = 1,
+    .init          = es1371_init,
+    .close         = es1371_close,
+    .reset         = es1371_reset,
     { .available = NULL },
     .speed_changed = es1371_speed_changed,
-    .force_redraw = NULL,
-    .config = es1371_onboard_config
+    .force_redraw  = NULL,
+    .config        = es1371_onboard_config
 };

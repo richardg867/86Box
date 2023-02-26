@@ -76,6 +76,24 @@ msgstr "1,&5x"
 msgid "&2x"
 msgstr "&2x"
 
+msgid "&3x"
+msgstr "&3x"
+
+msgid "&4x"
+msgstr "&4x"
+
+msgid "&5x"
+msgstr "&5x"
+
+msgid "&6x"
+msgstr "&6x"
+
+msgid "&7x"
+msgstr "&7x"
+
+msgid "&8x"
+msgstr "&8x"
+
 msgid "Filter method"
 msgstr "Método de filtragem"
 
@@ -116,7 +134,7 @@ msgid "VGA screen &type"
 msgstr "&Tipo de tela VGA"
 
 msgid "RGB &Color"
-msgstr "&Cor RGB"
+msgstr "&Cores RGB"
 
 msgid "&RGB Grayscale"
 msgstr "Tons de cinza &RGB"
@@ -226,8 +244,8 @@ msgstr "&Vazio"
 msgid "&Reload previous image"
 msgstr "&Recarregar imagem anterior"
 
-msgid "&Image"
-msgstr "&Imagem"
+msgid "&Folder..."
+msgstr "&Pasta..."
 
 msgid "Target &framerate"
 msgstr "&Taxa de quadro pretendida"
@@ -347,13 +365,13 @@ msgid "Time synchronization"
 msgstr "Sincronização da hora"
 
 msgid "Disabled"
-msgstr "Desativada"
+msgstr "Desativar"
 
 msgid "Enabled (local time)"
-msgstr "Ativada (hora local)"
+msgstr "Ativar (hora local)"
 
 msgid "Enabled (UTC)"
-msgstr "Ativada (UTC)"
+msgstr "Ativar (UTC)"
 
 msgid "Dynamic Recompiler"
 msgstr "Recompilador dinâmico"
@@ -363,6 +381,12 @@ msgstr "Vídeo:"
 
 msgid "Voodoo Graphics"
 msgstr "3DFX Voodoo"
+
+msgid "IBM 8514/a Graphics"
+msgstr "Gráficos IBM 8514/a"
+
+msgid "XGA Graphics"
+msgstr "Gráficos XGA"
 
 msgid "Mouse:"
 msgstr "Mouse:"
@@ -382,29 +406,38 @@ msgstr "Joystick 3..."
 msgid "Joystick 4..."
 msgstr "Joystick 4..."
 
-msgid "Sound card:"
-msgstr "Placa de som:"
+msgid "Sound card 1:"
+msgstr "Placa de som 1:"
+
+msgid "Sound card 2:"
+msgstr "Placa de som 2:"
+
+msgid "Sound card 3:"
+msgstr "Placa de som 3:"
+
+msgid "Sound card 4:"
+msgstr "Placa de som 4:"
 
 msgid "MIDI Out Device:"
-msgstr "Disp. saída MIDI:"
+msgstr "Disp. de saída MIDI:"
 
 msgid "MIDI In Device:"
-msgstr "Disp. entrada MIDI:"
+msgstr "Disp. de entrada MIDI:"
 
 msgid "Standalone MPU-401"
 msgstr "MPU-401 autônomo"
 
-msgid "Innovation SSI-2001"
-msgstr "Innovation SSI-2001"
-
-msgid "CMS / Game Blaster"
-msgstr "CMS / Game Blaster"
-
-msgid "Gravis Ultrasound"
-msgstr "Gravis Ultrasound"
-
 msgid "Use FLOAT32 sound"
 msgstr "Usar som FLOAT32"
+
+msgid "FM synth driver"
+msgstr "Controlador de sint. FM"
+
+msgid "Nuked (more accurate)"
+msgstr "Nuked (mais preciso)"
+
+msgid "YMFM (faster)"
+msgstr "YMFM (mais rápido)"
 
 msgid "Network type:"
 msgstr "Tipo de rede:"
@@ -506,7 +539,7 @@ msgid "&Remove"
 msgstr "&Remover"
 
 msgid "Bus:"
-msgstr "Bar.:"
+msgstr "Barramento:"
 
 msgid "Channel:"
 msgstr "Canal:"
@@ -536,7 +569,7 @@ msgid "Image Format:"
 msgstr "Formato:"
 
 msgid "Block Size:"
-msgstr "Bloco:"
+msgstr "Blocos:"
 
 msgid "Floppy drives:"
 msgstr "Unidades de disquete:"
@@ -549,6 +582,9 @@ msgstr "Verificar BPB"
 
 msgid "CD-ROM drives:"
 msgstr "Unidades de CD-ROM:"
+
+msgid "Earlier drive"
+msgstr "Unidade anterior"
 
 msgid "MO drives:"
 msgstr "Unidades magneto-ópticas:"
@@ -599,7 +635,7 @@ msgid "Fatal error"
 msgstr "Erro fatal"
 
 msgid " - PAUSED"
-msgstr " - PAUSED"
+msgstr " - PAUSADO"
 
 msgid "Press Ctrl+Alt+PgDn to return to windowed mode."
 msgstr "Use Ctrl+Alt+PgDn para retornar ao modo janela"
@@ -749,7 +785,7 @@ msgid "Microsoft SideWinder Pad"
 msgstr "Microsoft SideWinder Pad"
 
 msgid "Thrustmaster Flight Control System"
-msgstr "Thrustmaster Flight Control System"
+msgstr "Sistema de Controle de Voo Thrustmaster"
 
 msgid "None"
 msgstr "Nada"

@@ -10,13 +10,13 @@
  *
  *
  *
- * Authors:	Sarah Walker, <http://pcem-emulator.co.uk/>
+ * Authors:	Sarah Walker, <https://pcem-emulator.co.uk/>
  *
  *		Copyright 2008-2020 Sarah Walker.
  */
 
 #ifndef VIDEO_VOODOO_BLITTER_H
-# define VIDEO_VOODOO_BLITTER_H
+#define VIDEO_VOODOO_BLITTER_H
 
 void voodoo_v2_blit_start(voodoo_t *voodoo);
 void voodoo_v2_blit_data(voodoo_t *voodoo, uint32_t data);

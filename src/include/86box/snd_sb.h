@@ -8,7 +8,7 @@
  *
  *          Sound Blaster emulation.
  *
- * Authors: Sarah Walker, <http://pcem-emulator.co.uk/>
+ * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *          TheCollector1995, <mariogplayer@gmail.com>
  *
@@ -121,15 +121,15 @@ typedef struct sb_ct1745_mixer_t {
     uint8_t index;
     uint8_t regs[256];
 
-        int output_filter; /* for clones */
+    int output_filter; /* for clones */
 } sb_ct1745_mixer_t;
 
 typedef struct sb_t {
     uint8_t cms_enabled,
         opl_enabled,
         mixer_enabled;
-    cms_t cms;
-    opl_t opl,
+    cms_t    cms;
+    fm_drv_t opl,
         opl2;
     sb_dsp_t dsp;
     union {
@@ -147,15 +147,18 @@ typedef struct sb_t {
         pnp_rom[512];
 
     uint16_t opl_pnp_addr;
+
+    void   *opl_mixer;
+    void  (*opl_mix)(void*, double*, double*);
 } sb_t;
 
 extern void    sb_ct1345_mixer_write(uint16_t addr, uint8_t val, void *p);
 extern uint8_t sb_ct1345_mixer_read(uint16_t addr, void *p);
 extern void    sb_ct1345_mixer_reset(sb_t *sb);
 
-extern void sb_ct1745_mixer_write(uint16_t addr, uint8_t val, void *p);
+extern void    sb_ct1745_mixer_write(uint16_t addr, uint8_t val, void *p);
 extern uint8_t sb_ct1745_mixer_read(uint16_t addr, void *p);
-extern void sb_ct1745_mixer_reset(sb_t* sb);
+extern void    sb_ct1745_mixer_reset(sb_t *sb);
 
 extern void sb_get_buffer_sbpro(int32_t *buffer, int len, void *p);
 extern void sbpro_filter_cd_audio(int channel, double *buffer, void *p);

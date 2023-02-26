@@ -1,114 +1,63 @@
 {
-    "version": 3,
+    "version": 2,
     "cmakeMinimumRequired": {
         "major": 3,
-        "minor": 21,
-        "patch": 0
+        "minor": 20
     },
     "configurePresets": [
         {
-            "name": "flags-base",
+            "name": "base",
+            "binaryDir": "${sourceDir}/build/${presetName}",
             "cacheVariables": {
-                "CMAKE_CONFIGURATION_TYPES": "Debug;Release;Optimized"
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/build/artifacts",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": true,
+                "DEV_BRANCH": "OFF",
+                "NEW_DYNAREC": "OFF",
+                "QT": "ON"
             },
-            "hidden": true,
-            "binaryDir": "build"
+            "generator": "Ninja",
+            "hidden": true
         },
         {
             "name": "regular",
-            "inherits": [
-                "flags-base"
-            ],
-            "generator": "Ninja",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release",
-                "DEV_BRANCH": "OFF",
-                "NEW_DYNAREC": "OFF"
-            }
-        },
-        {
-            "name": "regularndr",
-            "inherits": [
-                "flags-base"
-            ],
-            "generator": "Ninja",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release",
-                "DEV_BRANCH": "OFF",
-                "NEW_DYNAREC": "ON"
-            }
+                "CMAKE_BUILD_TYPE": "Release"
+            },
+            "inherits": "base"
         },
         {
             "name": "optimized",
-            "inherits": [
-                "flags-base"
-            ],
-            "generator": "Ninja",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Optimized",
-                "DEV_BRANCH": "OFF",
-                "NEW_DYNAREC": "OFF"
-            }
-        },
-        {
-            "name": "optimizedndr",
-            "inherits": [
-                "flags-base"
-            ],
-            "generator": "Ninja",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Optimized",
-                "DEV_BRANCH": "OFF",
-                "NEW_DYNAREC": "ON"
-            }
+                "CMAKE_BUILD_TYPE": "Optimized"
+            },
+            "inherits": "base"
         },
         {
             "name": "debug",
-            "inherits": [
-                "flags-base"
-            ],
-            "generator": "Ninja",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
-                "DEV_BRANCH": "OFF",
-                "NEW_DYNAREC": "OFF"
-            }
+                "CMAKE_BUILD_TYPE": "Debug"
+            },
+            "inherits": "base"
         },
         {
-            "name": "debugndr",
-            "inherits": [
-                "flags-base"
-            ],
-            "generator": "Ninja",
+            "name": "development",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
-                "DEV_BRANCH": "OFF",
-                "NEW_DYNAREC": "ON"
-            }
+                "CMAKE_BUILD_TYPE": "Release",
+                "DEV_BRANCH": "ON",
+                "NEW_DYNAREC": "OFF"
+            },
+            "inherits": "base"
         },
         {
             "name": "experimental",
-            "inherits": [
-                "flags-base"
-            ],
-            "generator": "Ninja",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
-                "DEV_BRANCH": "ON",
-                "NEW_DYNAREC": "OFF"
-            }
-        },
-        {
-            "name": "experimentalndr",
-            "inherits": [
-                "flags-base"
-            ],
-            "generator": "Ninja",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "DEV_BRANCH": "ON",
                 "NEW_DYNAREC": "ON"
-            }
+            },
+            "inherits": "base"
         }
-    ]
+    ],
+    "buildPresets": [],
+    "testPresets": []
 }

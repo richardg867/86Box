@@ -34,6 +34,7 @@ BEGIN
         MENUITEM "&Durum çubuğunu gizle",		IDM_VID_HIDE_STATUS_BAR
         MENUITEM "Hide &toolbar",		IDM_VID_HIDE_TOOLBAR
         MENUITEM SEPARATOR
+        MENUITEM "&Show non-primary monitors",  IDM_VID_MONITORS
         MENUITEM "&Yeniden boyutlandırılabilir pencere",          IDM_VID_RESIZE
         MENUITEM "&Pencere boyut ve pozisyonunu hatırla",  IDM_VID_REMEMBER
         MENUITEM SEPARATOR
@@ -56,6 +57,12 @@ BEGIN
             MENUITEM "&1x",                     IDM_VID_SCALE_2X
             MENUITEM "1.&5x",                   IDM_VID_SCALE_3X
             MENUITEM "&2x",                     IDM_VID_SCALE_4X
+            MENUITEM "&3x",                     IDM_VID_SCALE_5X
+            MENUITEM "&4x",                     IDM_VID_SCALE_6X
+            MENUITEM "&5x",                     IDM_VID_SCALE_7X
+            MENUITEM "&6x",                     IDM_VID_SCALE_8X
+            MENUITEM "&7x",                     IDM_VID_SCALE_9X
+            MENUITEM "&8x",                     IDM_VID_SCALE_10X
         END
         POPUP "&Filtre metodu"
         BEGIN
@@ -103,7 +110,9 @@ BEGIN
         MENUITEM "&Ekran görüntüsü al\tCtrl+F11",  IDM_ACTION_SCREENSHOT
         MENUITEM SEPARATOR
         MENUITEM "&Tercihler...",    IDM_PREFERENCES
+#ifdef DISCORD
         MENUITEM "&Discord entegrasyonunu etkinleştir", IDM_DISCORD
+#endif
         MENUITEM SEPARATOR
         MENUITEM "&Ses yükseltici...",              IDM_SND_GAIN
 #ifdef MTR_ENABLED
@@ -176,7 +185,8 @@ BEGIN
         MENUITEM "İmajı &çıkar",					IDM_CDROM_EMPTY
         MENUITEM "&Önceki imajı seç",			IDM_CDROM_RELOAD
         MENUITEM SEPARATOR
-        MENUITEM "&İmaj seç",					IDM_CDROM_IMAGE
+        MENUITEM "&İmaj seç...",					IDM_CDROM_IMAGE
+        MENUITEM "&Klasör...",					IDM_CDROM_DIR
     END
 END
 
@@ -270,8 +280,10 @@ END
 #define STR_DYNAREC		"Dinamik Derleyici"
 
 #define STR_VIDEO		"Ekran kartı:"
+#define STR_VIDEO_2		"Ekran kartı 2:"
 #define STR_VOODOO		"Voodoo Grafikleri"
-#define STR_IBM8514		"IBM 8514/a Graphics"
+#define STR_IBM8514		"IBM 8514/a Grafikleri"
+#define STR_XGA			"XGA Grafikleri"
 
 #define STR_MOUSE		"Fare:"
 #define STR_JOYSTICK		"Oyun kolu:"
@@ -280,18 +292,25 @@ END
 #define STR_JOY3		"Oyun kolu 3..."
 #define STR_JOY4		"Oyun kolu 4..."
 
-#define STR_SOUND		"Ses kartı:"
-#define STR_MIDI_OUT	"MIDI Çıkış Cihazı:"
+#define STR_SOUND1		"Ses kartı 1:"
+#define STR_SOUND2		"Ses kartı 2:"
+#define STR_SOUND3		"Ses kartı 3:"
+#define STR_SOUND4		"Ses kartı 4:"
+#define STR_MIDI_OUT		"MIDI Çıkış Cihazı:"
 #define STR_MIDI_IN		"MIDI Giriş Cihazı:"
 #define STR_MPU401		"Bağımsız MPU-401"
-#define STR_SSI			"Innovation SSI-2001"
-#define STR_CMS			"CMS / Game Blaster"
-#define STR_GUS			"Gravis Ultrasound"
 #define STR_FLOAT		"FLOAT32 ses kullan"
+#define STR_FM_DRIVER		"FM sentez sürücüsü"
+#define STR_FM_DRV_NUKED	"Nuked (daha doğru)"
+#define STR_FM_DRV_YMFM		"YMFM (daha hızlı)"
 
-#define STR_NET_TYPE		"Ağ tipi:"
+#define STR_NET_TYPE	"Ağ tipi:"
 #define STR_PCAP		"PCap cihazı:"
 #define STR_NET			"Ağ cihazı:"
+#define STR_NET1		"Network card 1:"
+#define STR_NET2		"Network card 2:"
+#define STR_NET3		"Network card 3:"
+#define STR_NET4		"Network card 4:"
 
 #define STR_COM1		"COM1 Cihazı:"
 #define STR_COM2		"COM2 Cihazı:"
@@ -309,6 +328,10 @@ END
 #define STR_PARALLEL2		"Paralel port 2"
 #define STR_PARALLEL3		"Paralel port 3"
 #define STR_PARALLEL4		"Paralel port 4"
+#define STR_SERIAL_PASS1	"Serial port passthrough 1"
+#define STR_SERIAL_PASS2	"Serial port passthrough 2"
+#define STR_SERIAL_PASS3	"Serial port passthrough 3"
+#define STR_SERIAL_PASS4	"Serial port passthrough 4"
 
 #define STR_HDC			"HD Kontrolcüsü:"
 #define STR_FDC			"FD Kontrolcüsü:"
@@ -328,6 +351,7 @@ END
 #define STR_BUS			"Veri yolu:"
 #define STR_CHANNEL		"Kanal:"
 #define STR_ID			"ID:"
+#define STR_SPEED		"Speed:"
 
 #define STR_SPECIFY		"&Belirle..."
 #define STR_SECTORS		"Sektörler:"
@@ -343,6 +367,7 @@ END
 #define STR_CHECKBPB		"BPB'yi denetle"
 #define STR_CDROM_DRIVES	"CD-ROM sürücüleri:"
 #define STR_CD_SPEED		"Hız:"
+#define STR_EARLY		"Daha erken sürüş"
 
 #define STR_MO_DRIVES		"MO sürücüleri:"
 #define STR_ZIP_DRIVES		"ZIP sürücüleri:"
@@ -416,101 +441,106 @@ BEGIN
     IDS_2084	"H"
     IDS_2085	"S"
     IDS_2086	"MB"
-    IDS_2087	"BPB'yi kontrol et"
-    IDS_2088	"KB"
-    IDS_2089	"Video işleyici başlatılamadı."
-    IDS_2090	"Varsayılan"
-    IDS_2091	"%i Bekleme durumları"
-    IDS_2092	"Tür"
-    IDS_2093	"PCap ayarlanamadı"
-    IDS_2094	"Herhangi bir PCap cihazı bulunamadı"
-    IDS_2095	"Geçersiz PCap cihazı"
-    IDS_2096	"Standart 2-button oyun kolları"
-    IDS_2097	"Standart 4-button oyun kolu"
-    IDS_2098	"Standart 6-button oyun kolu"
-    IDS_2099	"Standart 8-button oyun kolu"
-    IDS_2100	"CH Flightstick Pro"
-    IDS_2101	"Microsoft SideWinder Pad"
-    IDS_2102	"Thrustmaster Flight Kontrol Sistemi"
-    IDS_2103	"Hiçbiri"
-    IDS_2104	"Klavye ivdirgeçleri yüklenemedi."
-    IDS_2105	"Ham girdi kaydedilemedi."
-    IDS_2106	"%u"
-    IDS_2107	"%u MB (CHS: %i, %i, %i)"
-    IDS_2108	"Disket %i (%s): %ls"
-    IDS_2109	"Tüm imajlar (*.0??;*.1??;*.??0;*.86F;*.BIN;*.CQ?;*.D??;*.FLP;*.HDM;*.IM?;*.JSON;*.TD0;*.*FD?;*.MFM;*.XDF)\0*.0??;*.1??;*.??0;*.86F;*.BIN;*.CQ?;*.D??;*.FLP;*.HDM;*.IM?;*.JSON;*.TD0;*.*FD?;*.MFM;*.XDF\0Gelişmiş sektör imajları (*.IMD;*.JSON;*.TD0)\0*.IMD;*.JSON;*.TD0\0Basit sektör imajları (*.0??;*.1??;*.??0;*.BIN;*.CQ?;*.D??;*.FLP;*.HDM;*.IM?;*.XDF;*.*FD?)\0*.0??;*.1??;*.??0;*.BIN;*.CQ?;*.D??;*.FLP;*.HDM;*.IM?;*.XDF;*.*FD?\0Flux images (*.FDI)\0*.FDI\0Yüzey imajları (*.86F;*.MFM)\0*.86F;*.MFM\0All files (*.*)\0*.*\0"
-    IDS_2110	"FreeType başlatılamadı"
-    IDS_2111	"SDL başlatılamadı, SDL2.dll gerekmektedir"
-    IDS_2112	"Emüle edilen makineyi yeniden başlatmak istediğinizden emin misiniz?"
-    IDS_2113	"86Box'tan çıkmak istediğinize emin misiniz?"
-    IDS_2114	"Ghostscript başlatılamadı"
-    IDS_2115	"MO %i (%ls): %ls"
-    IDS_2116	"MO imajları (*.IM?;*.MDI)\0*.IM?;*.MDI\0All files (*.*)\0*.*\0"
-    IDS_2117	"86Box'a hoşgeldiniz!"
-    IDS_2118	"Dahili kontrolcü"
-    IDS_2119	"Çıkış"
-    IDS_2120	"Hiçbir ROM imajı bulunamadı"
-    IDS_2121	"Ayarları kaydetmek istediğinizden emin misiniz?"
-    IDS_2122	"Bu makineyi yeniden başlatacak."
-    IDS_2123	"Kaydet"
-    IDS_2124	"86Box Hakkında"
-    IDS_2125	"86Box v" EMU_VERSION
+    IDS_2087    "Speed"
+    IDS_2088	"BPB'yi kontrol et"
+    IDS_2089	"KB"
+    IDS_2090	"Video işleyici başlatılamadı."
+    IDS_2091	"Varsayılan"
+    IDS_2092	"%i Bekleme durumları"
+    IDS_2093	"Tür"
+    IDS_2094	"PCap ayarlanamadı"
+    IDS_2095	"Herhangi bir PCap cihazı bulunamadı"
+    IDS_2096	"Geçersiz PCap cihazı"
+    IDS_2097	"Standart 2-button oyun kolları"
+    IDS_2098	"Standart 4-button oyun kolu"
+    IDS_2099	"Standart 6-button oyun kolu"
+    IDS_2100	"Standart 8-button oyun kolu"
+    IDS_2101	"CH Flightstick Pro"
+    IDS_2102	"Microsoft SideWinder Pad"
+    IDS_2103	"Thrustmaster Flight Kontrol Sistemi"
+    IDS_2104	"Hiçbiri"
+    IDS_2105	"Klavye ivdirgeçleri yüklenemedi."
+    IDS_2106	"Ham girdi kaydedilemedi."
+    IDS_2107	"%u"
+    IDS_2108	"%u MB (CHS: %i, %i, %i)"
+    IDS_2109	"Disket %i (%s): %ls"
+    IDS_2110	"Tüm imajlar (*.0??;*.1??;*.??0;*.86F;*.BIN;*.CQ?;*.D??;*.FLP;*.HDM;*.IM?;*.JSON;*.TD0;*.*FD?;*.MFM;*.XDF)\0*.0??;*.1??;*.??0;*.86F;*.BIN;*.CQ?;*.D??;*.FLP;*.HDM;*.IM?;*.JSON;*.TD0;*.*FD?;*.MFM;*.XDF\0Gelişmiş sektör imajları (*.IMD;*.JSON;*.TD0)\0*.IMD;*.JSON;*.TD0\0Basit sektör imajları (*.0??;*.1??;*.??0;*.BIN;*.CQ?;*.D??;*.FLP;*.HDM;*.IM?;*.XDF;*.*FD?)\0*.0??;*.1??;*.??0;*.BIN;*.CQ?;*.D??;*.FLP;*.HDM;*.IM?;*.XDF;*.*FD?\0Flux images (*.FDI)\0*.FDI\0Yüzey imajları (*.86F;*.MFM)\0*.86F;*.MFM\0All files (*.*)\0*.*\0"
+    IDS_2111	"FreeType başlatılamadı"
+    IDS_2112	"SDL başlatılamadı, SDL2.dll gerekmektedir"
+    IDS_2113	"Emüle edilen makineyi yeniden başlatmak istediğinizden emin misiniz?"
+    IDS_2114	"86Box'tan çıkmak istediğinize emin misiniz?"
+    IDS_2115	"Ghostscript başlatılamadı"
+    IDS_2116	"MO %i (%ls): %ls"
+    IDS_2117	"MO imajları (*.IM?;*.MDI)\0*.IM?;*.MDI\0All files (*.*)\0*.*\0"
+    IDS_2118	"86Box'a hoşgeldiniz!"
+    IDS_2119	"Dahili kontrolcü"
+    IDS_2120	"Çıkış"
+    IDS_2121	"Hiçbir ROM imajı bulunamadı"
+    IDS_2122	"Ayarları kaydetmek istediğinizden emin misiniz?"
+    IDS_2123	"Bu makineyi yeniden başlatacak."
+    IDS_2124	"Kaydet"
+    IDS_2125	"86Box Hakkında"
+    IDS_2126	"86Box v" EMU_VERSION
 
-    IDS_2126	"Bir eski bilgisayar emülatörü\n\nYapanlar: Sarah Walker, Miran Grca, Fred N. van Kempen (waltje), SA1988, Tiseno100, reenigne, leilei, JohnElliott, greatpsycho, ve diğerleri.\n\nGNU Genel Kamu Lisansı versiyon 2 veya sonrası altında yayınlanmıştır. Daha fazla bilgi için LICENSE'ı gözden geçirin."
-    IDS_2127	"Tamam"
-    IDS_2128	"Donanım mevcut değil"
+    IDS_2127	"Bir eski bilgisayar emülatörü\n\nYapanlar: Sarah Walker, Miran Grca, Fred N. van Kempen (waltje), SA1988, Tiseno100, reenigne, leilei, JohnElliott, greatpsycho, ve diğerleri.\n\nGNU Genel Kamu Lisansı versiyon 2 veya sonrası altında yayınlanmıştır. Daha fazla bilgi için LICENSE'ı gözden geçirin."
+    IDS_2128	"Tamam"
+    IDS_2129	"Donanım mevcut değil"
 #ifdef _WIN32
 #define LIB_NAME_PCAP "WinPcap"
 #else
 #define LIB_NAME_PCAP "libpcap"
 #endif
-    IDS_2129	"" LIB_NAME_PCAP " kurulu olduğundan ve " LIB_NAME_PCAP "-uyumlu bir internet ağında bulunduğunuzdan emin olun."
-    IDS_2130	"Geçersiz konfigürasyon"
+    IDS_2130	"" LIB_NAME_PCAP " kurulu olduğundan ve " LIB_NAME_PCAP "-uyumlu bir internet ağında bulunduğunuzdan emin olun."
+    IDS_2131	"Geçersiz konfigürasyon"
 #ifdef _WIN32
 #define LIB_NAME_FREETYPE "freetype.dll"
 #else
 #define LIB_NAME_FREETYPE "libfreetype"
 #endif
-    IDS_2131	LIB_NAME_FREETYPE " ESC/P yazıcı emülasyonu için gereklidir."
+    IDS_2132	LIB_NAME_FREETYPE " ESC/P yazıcı emülasyonu için gereklidir."
 #ifdef _WIN32
 #define LIB_NAME_GS "gsdll32.dll"
 #else
 #define LIB_NAME_GS "libgs"
 #endif
-    IDS_2132	LIB_NAME_GS " PostScript dosyalarının otomatik olarak PDF dosyalarına çevirilmesi için gereklidir.\n\nGenel PostScript yazıcısına gönderilen tüm dökümanlar PostScript (.ps) dosyaları olarak kaydedilecektir."
+    IDS_2133	LIB_NAME_GS " PostScript dosyalarının otomatik olarak PDF dosyalarına çevirilmesi için gereklidir.\n\nGenel PostScript yazıcısına gönderilen tüm dökümanlar PostScript (.ps) dosyaları olarak kaydedilecektir."
 #ifdef _WIN32
 #define LIB_NAME_FLUIDSYNTH "libfluidsynth.dll"
 #else
 #define LIB_NAME_FLUIDSYNTH "libfluidsynth"
 #endif
-    IDS_2133	LIB_NAME_FLUIDSYNTH " FluidSynth MIDI çıkışı için gereklidir."
-    IDS_2134	"Tam ekran moduna geçiliyor"
-    IDS_2135	"Bu mesajı bir daha gösterme"
-    IDS_2136	"Çıkış yapma"
-    IDS_2137	"Yeniden başlat"
-    IDS_2138	"Yeniden başlatma"
-    IDS_2139	"MO imajları (*.IM?;*.MDI)\0*.IM?;*.MDI\0Tüm dosyalar (*.*)\0*.*\0"
-    IDS_2140	"CD-ROM imajları (*.ISO;*.CUE)\0*.ISO;*.CUE\0Tüm dosyalar (*.*)\0*.*\0"
-    IDS_2141	"%hs Cihaz Konfigürasyonu"
-    IDS_2142    "Monitör uyku modunda"
-    IDS_2143	"OpenGL Gölgelendiricileri (*.GLSL)\0*.GLSL\0Tüm dosyalar (*.*)\0*.*\0"
-    IDS_2144	"OpenGL ayarları"
-    IDS_2145	"Desteklenmeyen bir konfigürasyon yüklüyorsunuz"
-    IDS_2146	"Seçtiğiniz makineye uygun CPU (işlemci) türü filtrelemesi bu emülasyon için devre dışı bırakıldı.\n\nBu, normalde seçilen makine ile uyumlu olmayan bir CPU seçmenizi mümkün kılmaktadır. Ancak, bundan dolayı seçilen makinenin BIOS'u veya diğer yazılımlar ile uyumsuzluk sorunu yaşayabilirsiniz.\n\nBu filtrelemeyi devre dışı bırakmak emülatör tarafından resmi olarak desteklenmemektedir ve açtığınız bug (hata) raporları geçersiz olarak kapatılabilir."
-    IDS_2147	"Devam et"
-    IDS_2148	"Kaset: %s"
-    IDS_2149	"Kaset imajları (*.PCM;*.RAW;*.WAV;*.CAS)\0*.PCM;*.RAW;*.WAV;*.CAS\0Tüm dosyalar (*.*)\0*.*\0"
-    IDS_2150	"Kartuş %i: %ls"
-    IDS_2151	"Kartuş imajları (*.A;*.B;*.JRC)\0*.A;*.B;*.JRC\0Tüm dosyalar (*.*)\0*.*\0"
-    IDS_2152	"Error initializing renderer"
-    IDS_2153	"OpenGL (3.0 Core) renderer could not be initialized. Use another renderer."
-    IDS_2154	"Resume execution"
-    IDS_2155	"Pause execution"
-    IDS_2156	"Press Ctrl+Alt+Del"
-    IDS_2157	"Press Ctrl+Alt+Esc"
-    IDS_2158	"Hard reset"
-    IDS_2159	"ACPI shutdown"
-    IDS_2160	"Settings"
+    IDS_2134	LIB_NAME_FLUIDSYNTH " FluidSynth MIDI çıkışı için gereklidir."
+    IDS_2135	"Tam ekran moduna geçiliyor"
+    IDS_2136	"Bu mesajı bir daha gösterme"
+    IDS_2137	"Çıkış yapma"
+    IDS_2138	"Yeniden başlat"
+    IDS_2139	"Yeniden başlatma"
+    IDS_2140	"MO imajları (*.IM?;*.MDI)\0*.IM?;*.MDI\0Tüm dosyalar (*.*)\0*.*\0"
+    IDS_2141	"CD-ROM imajları (*.ISO;*.CUE)\0*.ISO;*.CUE\0Tüm dosyalar (*.*)\0*.*\0"
+    IDS_2142	"%hs Cihaz Konfigürasyonu"
+    IDS_2143    "Monitör uyku modunda"
+    IDS_2144	"OpenGL Gölgelendiricileri (*.GLSL)\0*.GLSL\0Tüm dosyalar (*.*)\0*.*\0"
+    IDS_2145	"OpenGL ayarları"
+    IDS_2146	"Desteklenmeyen bir konfigürasyon yüklüyorsunuz"
+    IDS_2147	"Seçtiğiniz makineye uygun CPU (işlemci) türü filtrelemesi bu emülasyon için devre dışı bırakıldı.\n\nBu, normalde seçilen makine ile uyumlu olmayan bir CPU seçmenizi mümkün kılmaktadır. Ancak, bundan dolayı seçilen makinenin BIOS'u veya diğer yazılımlar ile uyumsuzluk sorunu yaşayabilirsiniz.\n\nBu filtrelemeyi devre dışı bırakmak emülatör tarafından resmi olarak desteklenmemektedir ve açtığınız bug (hata) raporları geçersiz olarak kapatılabilir."
+    IDS_2148	"Devam et"
+    IDS_2149	"Kaset: %s"
+    IDS_2150	"Kaset imajları (*.PCM;*.RAW;*.WAV;*.CAS)\0*.PCM;*.RAW;*.WAV;*.CAS\0Tüm dosyalar (*.*)\0*.*\0"
+    IDS_2151	"Kartuş %i: %ls"
+    IDS_2152	"Kartuş imajları (*.A;*.B;*.JRC)\0*.A;*.B;*.JRC\0Tüm dosyalar (*.*)\0*.*\0"
+    IDS_2153	"Oluşturucu başlatılırken hata oluştu"
+    IDS_2154	"OpenGL (3.0 Core) görüntüleyici başlatılamadı. Başka bir görüntüleyici kullanın."
+    IDS_2155	"Yürütmeye devam et"
+    IDS_2156	"Yürütmeyi duraklat"
+    IDS_2157	"Ctrl+Alt+Del"
+    IDS_2158	"Ctrl+Alt+Esc"
+    IDS_2159	"Makineyi yeniden başlat"
+    IDS_2160	"ACPI kapatma"
+    IDS_2161	"Ayarlar"
+    IDS_2162    "Daha erken sürüş"
+    IDS_2163    "no dynarec"
+    IDS_2164    "old dynarec"
+    IDS_2165    "new dynarec"
 END
 
 STRINGTABLE DISCARDABLE 

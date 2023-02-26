@@ -10,7 +10,7 @@
  *
  *
  *
- * Authors: Sarah Walker, <http://pcem-emulator.co.uk/>
+ * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2008-2018 Sarah Walker.
@@ -19,6 +19,8 @@
 
 #ifndef EMU_SOUND_H
 #define EMU_SOUND_H
+
+#define SOUND_CARD_MAX 4 /* currently we support up to 4 sound cards and a standalome MPU401 */
 
 extern int sound_gain;
 
@@ -38,7 +40,7 @@ extern int gated,
     speakon;
 
 extern int sound_pos_global;
-extern int sound_card_current;
+extern int sound_card_current[SOUND_CARD_MAX];
 
 extern void sound_add_handler(void (*get_buffer)(int32_t *buffer,
                                                  int len, void *p),
@@ -80,6 +82,8 @@ extern const device_t adgold_device;
 
 /* Aztech Sound Galaxy 16 */
 extern const device_t azt2316a_device;
+extern const device_t acermagic_s20_device;
+extern const device_t mirosound_pcm10_device;
 extern const device_t azt1605_device;
 
 /* Ensoniq AudioPCI */
@@ -102,10 +106,10 @@ extern const device_t ps1snd_device;
 
 /* Tandy PSSJ */
 extern const device_t pssj_device;
-#    if defined(DEV_BRANCH) && defined(USE_TANDY_ISA)
 extern const device_t pssj_isa_device;
+
+/* Tandy PSG */
 extern const device_t tndy_device;
-#    endif
 
 /* Creative Labs Sound Blaster */
 extern const device_t sb_1_device;
@@ -120,6 +124,7 @@ extern const device_t sb_16_device;
 extern const device_t sb_16_pnp_device;
 extern const device_t sb_16_compat_device;
 extern const device_t sb_16_compat_nompu_device;
+extern const device_t sb_16_reply_mca_device;
 extern const device_t sb_32_pnp_device;
 extern const device_t sb_awe32_device;
 extern const device_t sb_awe32_pnp_device;

@@ -10,7 +10,7 @@
  *
  *
  *
- * Authors:  Sarah Walker, <http://pcem-emulator.co.uk/>
+ * Authors:  Sarah Walker, <https://pcem-emulator.co.uk/>
  *           Miran Grca, <mgrca8@gmail.com>
  *           Bit,
  *           DOSBox Team,
@@ -72,17 +72,17 @@ typedef struct
 } MIDI_OUT_DEVICE, MIDI_IN_DEVICE;
 
 static const device_t midi_out_none_device = {
-    .name = "None",
+    .name          = "None",
     .internal_name = "none",
-    .flags = 0,
-    .local = 0,
-    .init = NULL,
-    .close = NULL,
-    .reset = NULL,
+    .flags         = 0,
+    .local         = 0,
+    .init          = NULL,
+    .close         = NULL,
+    .reset         = NULL,
     { .available = NULL },
     .speed_changed = NULL,
-    .force_redraw = NULL,
-    .config = NULL
+    .force_redraw  = NULL,
+    .config        = NULL
 };
 
 static const MIDI_OUT_DEVICE devices[] = {
@@ -92,8 +92,10 @@ static const MIDI_OUT_DEVICE devices[] = {
     { &fluidsynth_device     },
 #endif
 #ifdef USE_MUNT
-    { &mt32_device           },
+    { &mt32_old_device       },
+    { &mt32_new_device       },
     { &cm32l_device          },
+    { &cm32ln_device         },
 #endif
 #ifdef USE_RTMIDI
     { &rtmidi_output_device  },
@@ -103,17 +105,17 @@ static const MIDI_OUT_DEVICE devices[] = {
 };
 
 static const device_t midi_in_none_device = {
-    .name = "None",
+    .name          = "None",
     .internal_name = "none",
-    .flags = 0,
-    .local = 0,
-    .init = NULL,
-    .close = NULL,
-    .reset = NULL,
+    .flags         = 0,
+    .local         = 0,
+    .init          = NULL,
+    .close         = NULL,
+    .reset         = NULL,
     { .available = NULL },
     .speed_changed = NULL,
-    .force_redraw = NULL,
-    .config = NULL
+    .force_redraw  = NULL,
+    .config        = NULL
 };
 
 static const MIDI_IN_DEVICE midi_in_devices[] = {
@@ -170,7 +172,7 @@ midi_out_device_get_from_internal_name(char *s)
 }
 
 void
-midi_out_device_init()
+midi_out_device_init(void)
 {
     if (devices[midi_output_device_current].device)
         device_add(devices[midi_output_device_current].device);
@@ -288,7 +290,7 @@ midi_in_device_get_from_internal_name(char *s)
 }
 
 void
-midi_in_device_init()
+midi_in_device_init(void)
 {
     if (midi_in_devices[midi_input_device_current].device)
         device_add(midi_in_devices[midi_input_device_current].device);

@@ -20,11 +20,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #ifdef _WIN32
+#    ifndef __clang__
+#        include <unistd.h>
+#    else
+#        include <io.h>
+#        define ssize_t           long
+#        define strtok_r(a, b, c) strtok_s(a, b, c)
+#    endif
 #    include <winsock2.h>
 #    include <ws2tcpip.h>
 #else
+#    include <unistd.h>
 #    include <arpa/inet.h>
 #    include <sys/socket.h>
 #    include <errno.h>
@@ -114,7 +121,8 @@ typedef struct _gdbstub_client_ {
     struct sockaddr_in addr;
 
     char packet[16384], response[16384];
-    int  has_packet, waiting_stop, packet_pos, response_pos;
+    int  has_packet : 1, first_packet_received : 1, ida_mode : 1, waiting_stop : 1,
+        packet_pos, response_pos;
 
     event_t *processed_event, *response_event;
 
@@ -133,7 +141,6 @@ typedef struct _gdbstub_breakpoint_ {
     struct _gdbstub_breakpoint_ *next;
 } gdbstub_breakpoint_t;
 
-#define ENABLE_GDBSTUB_LOG 1
 #ifdef ENABLE_GDBSTUB_LOG
 int gdbstub_do_log = ENABLE_GDBSTUB_LOG;
 
@@ -152,15 +159,15 @@ gdbstub_log(const char *fmt, ...)
 #    define gdbstub_log(fmt, ...)
 #endif
 
-static x86seg    *segment_regs[] = { &cpu_state.seg_cs, &cpu_state.seg_ss, &cpu_state.seg_ds, &cpu_state.seg_es, &cpu_state.seg_fs, &cpu_state.seg_gs };
-static uint32_t  *cr_regs[]      = { &cpu_state.CR0.l, &cr2, &cr3, &cr4 };
-static void      *fpu_regs[]     = { &cpu_state.npxc, &cpu_state.npxs, NULL, &x87_pc_seg, &x87_pc_off, &x87_op_seg, &x87_op_off };
-static const char target_xml[]   = /* QEMU gdb-xml/i386-32bit.xml with modifications (described in comments) */
+static x86seg   *segment_regs[] = { &cpu_state.seg_cs, &cpu_state.seg_ss, &cpu_state.seg_ds, &cpu_state.seg_es, &cpu_state.seg_fs, &cpu_state.seg_gs };
+static uint32_t *cr_regs[]      = { &cpu_state.CR0.l, &cr2, &cr3, &cr4 };
+static void     *fpu_regs[]     = { &cpu_state.npxc, &cpu_state.npxs, NULL, &x87_pc_seg, &x87_pc_off, &x87_op_seg, &x87_op_off };
+static char      target_xml[]   = /* QEMU gdb-xml/i386-32bit.xml with modifications (described in comments) */
     // clang-format off
     "<?xml version=\"1.0\"?>"
     "<!DOCTYPE target SYSTEM \"gdb-target.dtd\">"
     "<target>"
-        "<architecture>i8086</architecture>" /* start in 16-bit mode to work around known GDB bug preventing 32->16 switching */
+        "<!-- architecture tag goes here -->" /* <architecture> patched in here (length must be kept) */
         ""
         "<feature name=\"org.gnu.gdb.i386.core\">"
             "<flags id=\"i386_eflags\" size=\"4\">"
@@ -205,6 +212,9 @@ static const char target_xml[]   = /* QEMU gdb-xml/i386-32bit.xml with modificat
             "<reg name=\"es\" bitsize=\"16\" type=\"int32\"/>"
             "<reg name=\"fs\" bitsize=\"16\" type=\"int32\"/>"
             "<reg name=\"gs\" bitsize=\"16\" type=\"int32\"/>"
+            ""
+            "<reg name=\"fs_base\" bitsize=\"32\" type=\"int32\"/>"
+            "<reg name=\"gs_base\" bitsize=\"32\" type=\"int32\"/>"
             ""
             "<flags id=\"i386_cr0\" size=\"4\">"
                 "<field name=\"PG\" start=\"31\" end=\"31\"/>"
@@ -327,7 +337,7 @@ int      gdbstub_step = 0, gdbstub_next_asap = 0;
 uint64_t gdbstub_watch_pages[(((uint32_t) -1) >> (MEM_GRANULARITY_BITS + 6)) + 1];
 
 static void
-gdbstub_break()
+gdbstub_break(void)
 {
     /* Pause CPU execution as soon as possible. */
     if (gdbstub_step <= GDBSTUB_EXEC)
@@ -706,6 +716,8 @@ gdbstub_client_read_reg(int index, uint8_t *buf)
 static void
 gdbstub_client_packet(gdbstub_client_t *client)
 {
+    gdbstub_breakpoint_t *breakpoint, *prev_breakpoint = NULL, **first_breakpoint = NULL;
+
 #ifdef GDBSTUB_CHECK_CHECKSUM /* msys2 gdb 11.1 transmits qSupported and H with invalid checksum... */
     uint8_t rcv_checksum = 0, checksum = 0;
 #endif
@@ -752,6 +764,15 @@ gdbstub_client_packet(gdbstub_client_t *client)
     }
     client->response_pos = 0;
     client->packet_pos   = 1;
+
+    /* Handle IDA-specific hacks. */
+    if (!client->first_packet_received) {
+        client->first_packet_received = 1;
+        if (!strcmp(client->packet, "qSupported:xmlRegisters=i386,arm,mips")) {
+            gdbstub_log("GDB Stub: Enabling IDA mode\n");
+            client->ida_mode = 1;
+        }
+    }
 
     /* Parse command. */
     switch (client->packet[0]) {
@@ -970,8 +991,13 @@ e14:
 
                 /* Add our supported features to the end. */
                 if (client->response_pos < (sizeof(client->response) - 1))
+#if (defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64)
                     client->response_pos += snprintf(&client->response[client->response_pos], sizeof(client->response) - client->response_pos,
                                                      "PacketSize=%lX;swbreak+;hwbreak+;qXfer:features:read+", sizeof(client->packet) - 1);
+#else
+                    client->response_pos += snprintf(&client->response[client->response_pos], sizeof(client->response) - client->response_pos,
+                                                     "PacketSize=%X;swbreak+;hwbreak+;qXfer:features:read+", sizeof(client->packet) - 1);
+#endif
                 break;
             } else if (!strcmp(client->response, "Xfer")) {
                 /* Read the transfer object. */
@@ -982,10 +1008,21 @@ e14:
                     if (!strcmp(client->response, "read")) {
                         /* Read the transfer annex. */
                         client->packet_pos += gdbstub_client_read_string(client, client->response, sizeof(client->response) - 1, ':') + 1;
-                        if (!strcmp(client->response, "target.xml"))
-                            p = (char *) target_xml;
-                        else
+                        if (!strcmp(client->response, "target.xml")) {
+                            /* Patch architecture for IDA. */
+                            p = strstr(target_xml, "<!-- architecture tag goes here -->");
+                            if (p) {
+                                if (client->ida_mode)
+                                    memcpy(p, "<architecture>i386</architecture>  ", 35); /* make IDA not complain about i8086 being unknown */
+                                else
+                                    memcpy(p, "<architecture>i8086</architecture> ", 35); /* start in 16-bit mode to work around known GDB bug preventing 32->16 switching */
+                            }
+
+                            /* Send target XML. */
+                            p = target_xml;
+                        } else {
                             p = NULL;
+                        }
 
                         /* Stop if the file wasn't found. */
                         if (!p) {
@@ -1035,6 +1072,10 @@ e00:
                 FAST_RESPONSE("1");
             } else if (!strcmp(client->response, "C")) {
                 FAST_RESPONSE("QC1");
+            } else if (!strcmp(client->response, "fThreadInfo")) {
+                FAST_RESPONSE("m 1");
+            } else if (!strcmp(client->response, "sThreadInfo")) {
+                FAST_RESPONSE("l");
             } else if (!strcmp(client->response, "Rcmd")) {
                 /* Read and decode command in-place. */
                 i                 = gdbstub_client_read_hex(client, (uint8_t *) client->packet, strlen(client->packet) - client->packet_pos);
@@ -1178,7 +1219,6 @@ unknown:
 
         case 'z': /* remove break/watchpoint */
         case 'Z': /* insert break/watchpoint */
-            gdbstub_breakpoint_t *breakpoint, *prev_breakpoint = NULL, **first_breakpoint;
 
             /* Parse breakpoint type. */
             switch (client->packet[1]) {
@@ -1595,7 +1635,7 @@ gdbstub_server_thread(void *priv)
 }
 
 void
-gdbstub_cpu_init()
+gdbstub_cpu_init(void)
 {
     /* Replace cpu_exec with our own function if the GDB stub is active. */
     if ((gdbstub_socket != -1) && (cpu_exec != gdbstub_cpu_exec)) {
@@ -1605,7 +1645,7 @@ gdbstub_cpu_init()
 }
 
 int
-gdbstub_instruction()
+gdbstub_instruction(void)
 {
     /* Check hardware breakpoints if any are present. */
     gdbstub_breakpoint_t *breakpoint = first_hwbreak;
@@ -1635,7 +1675,7 @@ gdbstub_instruction()
 }
 
 int
-gdbstub_int3()
+gdbstub_int3(void)
 {
     /* Check software breakpoints if any are present. */
     gdbstub_breakpoint_t *breakpoint = first_swbreak;
@@ -1712,7 +1752,7 @@ gdbstub_mem_access(uint32_t *addrs, int access)
 }
 
 void
-gdbstub_init()
+gdbstub_init(void)
 {
 #ifdef _WIN32
     WSAStartup(MAKEWORD(2, 2), &wsa);
@@ -1758,7 +1798,7 @@ gdbstub_init()
 }
 
 void
-gdbstub_close()
+gdbstub_close(void)
 {
     /* Stop if the GDB server hasn't initialized. */
     if (gdbstub_socket < 0)
