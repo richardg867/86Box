@@ -41,9 +41,8 @@
 #include <86box/plat.h>
 #include <86box/vnc.h>
 
-
 const int keysyms_00[] = {
-    0x0000,	/* 0x00 */
+    0x0000, /* 0x00 */
     0x0000,
     0x0000,
     0x0000,
@@ -333,7 +332,7 @@ const int keysyms_00[] = {
 };
 
 const int keysyms_ff[] = {
-    0x0000,	/* 0x00 */
+    0x0000, /* 0x00 */
     0x0000,
     0x0000,
     0x0000,

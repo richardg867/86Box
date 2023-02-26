@@ -829,7 +829,9 @@ timer_onesec(uint32_t interval, void *param)
     return interval;
 }
 
-int main(int argc, char** argv)
+extern int gfxcard[2];
+int
+main(int argc, char **argv)
 {
     SDL_Event event;
 

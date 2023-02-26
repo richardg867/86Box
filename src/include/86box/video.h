@@ -137,11 +137,11 @@ extern int                video_fullscreen_scale_maximized;
 
 typedef rgb_t PALETTE[256];
 
-// extern int	changeframecount;
+// extern int changeframecount;
 
 extern volatile int screenshots;
-// extern bitmap_t	*buffer32;
-extern void	(*screenshot_hook)(char *path, uint32_t *buf, int start_x, int start_y, int w, int h, int row_len);
+extern void                  (*screenshot_hook)(char *path, uint32_t *buf, int start_x, int start_y, int w, int h, int row_len);
+// extern bitmap_t *buffer32;
 #define buffer32             (monitors[monitor_index_global].target_buffer)
 #define pal_lookup           (monitors[monitor_index_global].mon_pal_lookup)
 #define overscan_x           (monitors[monitor_index_global].mon_overscan_x)

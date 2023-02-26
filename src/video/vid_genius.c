@@ -439,11 +439,11 @@ genius_textline(genius_t *genius, uint8_t background, int mda, int cols80)
         cursorline = ((crtc[10] & 0x1F) <= sc) && ((crtc[11] & 0x1F) >= sc);
 
 #ifdef USE_CLI
-	if ((dl % 8) == 0)
-		cli_render_mda(w, crtc[9] & 0x1f,
-				framebuf, ma,
-				1, ctrl & 0x20,
-				ca, ctrl & 8);
+    if ((dl % 8) == 0)
+        cli_render_mda(w, crtc[9] & 0x1f,
+                       framebuf, ma,
+                       1, ctrl & 0x20,
+                       ca, ctrl & 8);
 #endif
 
     for (x = 0; x < w; x++) {

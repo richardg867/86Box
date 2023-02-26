@@ -166,7 +166,7 @@ dump_page(prnt_t *dev)
     if (ftell(fp) != 0) {
         fputc('\014', fp);
 #ifdef USE_CLI
-    fputc('\014', stderr);
+        fputc('\014', stderr);
 #endif
     }
 

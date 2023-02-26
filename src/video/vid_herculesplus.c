@@ -420,16 +420,16 @@ text_line(herculesplus_t *dev, uint16_t ca)
     uint32_t col;
 
 #ifdef USE_CLI
-	if ((dev->displine % 8) == 0) {
-		c = dev->crtc[HERCULESPLUS_CRTC_XMODE] & 5;
-		if ((c == 0) || (c == 4))
-			cli_render_mda(dev->crtc[1], dev->crtc[9] & 0x1f,
-					dev->vram, dev->ma,
-					dev->ctrl & 8, dev->ctrl & 0x20,
-					ca, !(dev->crtc[0x0a] & 0x20) && ((dev->crtc[0x0b] & 0x1f) >= (dev->crtc[0x0a] & 0x1f)));
-		else
-			cli_render_gfx("Hercules Plus RAMfont");
-	}
+    if ((dev->displine % 8) == 0) {
+        c = dev->crtc[HERCULESPLUS_CRTC_XMODE] & 5;
+        if ((c == 0) || (c == 4))
+            cli_render_mda(dev->crtc[1], dev->crtc[9] & 0x1f,
+                           dev->vram, dev->ma,
+                           dev->ctrl & 8, dev->ctrl & 0x20,
+                           ca, !(dev->crtc[0x0a] & 0x20) && ((dev->crtc[0x0b] & 0x1f) >= (dev->crtc[0x0a] & 0x1f)));
+        else
+            cli_render_gfx("Hercules Plus RAMfont");
+    }
 #endif
 
     for (x = 0; x < dev->crtc[1]; x++) {

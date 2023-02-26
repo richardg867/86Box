@@ -35,7 +35,7 @@ if(ISAMEM_BRAT)
 endif()
 
 if(VFIO)
-	target_sources(dev PRIVATE vfio.c)
+    target_sources(dev PRIVATE vfio.c)
 endif()
 
 if(LASERXT)
