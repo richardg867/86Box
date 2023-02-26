@@ -240,7 +240,7 @@ cli_term_updatesize(int runtime)
 }
 
 void
-cli_init()
+cli_init(void)
 {
     /* Initialize monitor module. */
     cli_monitor_init(0);
@@ -314,7 +314,7 @@ cmd_nt10:
 }
 
 void
-cli_close()
+cli_close(void)
 {
     /* Stop monitor module. */
     cli_monitor_close();

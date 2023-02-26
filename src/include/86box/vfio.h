@@ -17,6 +17,6 @@
 #if !defined(EMU_VFIO_H) && defined(USE_VFIO)
 #    define EMU_VFIO_H
 
-extern void vfio_init();
+extern void vfio_init(void);
 
 #endif

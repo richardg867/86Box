@@ -2845,7 +2845,7 @@ vfio_map_dma(uint8_t *ptr, uint32_t offset, uint32_t size)
 }
 
 static void
-vfio_reset()
+vfio_reset(void)
 {
     vfio_log("VFIO: reset()\n");
 
@@ -3007,7 +3007,7 @@ next2:
 }
 
 void
-vfio_init()
+vfio_init(void)
 {
     vfio_log("VFIO: init()\n");
 

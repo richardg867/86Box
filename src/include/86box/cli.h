@@ -144,6 +144,6 @@ extern void cli_input_send(uint16_t code, int modifier);
 /* cli_monitor.c */
 extern void cli_monitor_thread(void *priv);
 extern void cli_monitor_init(int independent);
-extern void cli_monitor_close();
+extern void cli_monitor_close(void);
 
 #endif

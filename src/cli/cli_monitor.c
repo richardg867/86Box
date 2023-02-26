@@ -997,7 +997,7 @@ cli_monitor_init(int independent)
 }
 
 void
-cli_monitor_close()
+cli_monitor_close(void)
 {
 #ifndef _WIN32
     /* Stop and close libedit. */

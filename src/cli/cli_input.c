@@ -342,7 +342,7 @@ cli_input_send(uint16_t code, int modifier)
 
 #ifdef USE_CLI
 static void
-cli_input_raw()
+cli_input_raw(void)
 {
     /* Don't do anything if raw input is already enabled. */
     if (in_raw)
@@ -386,7 +386,7 @@ cli_input_raw()
 }
 
 static void
-cli_input_unraw()
+cli_input_unraw(void)
 {
     /* Don't do anything if raw input is not enabled. */
     if (!in_raw)
@@ -1102,7 +1102,7 @@ cli_input_process(void *priv)
 }
 
 void
-cli_input_init()
+cli_input_init(void)
 {
     /* Don't initialize input altogether if stdin is not a tty. */
     if (!isatty(fileno(stdin))) {
@@ -1119,7 +1119,7 @@ cli_input_init()
 }
 
 void
-cli_input_close()
+cli_input_close(void)
 {
     /* Restore terminal state. */
     cli_input_unraw();
