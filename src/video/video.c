@@ -78,11 +78,12 @@
 #include <minitrace/minitrace.h>
 
 volatile int screenshots = 0;
+uint8_t      edatlookup[4][4];
 #ifdef USE_CLI
 int          cli_blit = 0;
 #endif
 void       (*screenshot_hook)(char *path, uint32_t *buf, int start_x, int start_y, int w, int h, int row_len) = NULL;
-bitmap_t    *buffer32 = NULL;
+//bitmap_t    *buffer32 = NULL;
 uint8_t      fontdat[2048][8];            /* IBM CGA font */
 uint8_t      fontdatm[2048][16];          /* IBM MDA font */
 uint8_t      fontdatw[512][32];           /* Wyse700 font */
@@ -393,6 +394,7 @@ void
 video_screenshot_monitor(uint32_t *buf, int start_x, int start_y, int row_len, int monitor_index)
 {
     char path[1024], fn[256];
+    blit_data_t *blit_data_ptr = monitors[monitor_index].mon_blit_data_ptr;
 
     memset(fn, 0, sizeof(fn));
     memset(path, 0, sizeof(path));
@@ -417,7 +419,7 @@ video_screenshot_monitor(uint32_t *buf, int start_x, int start_y, int row_len, i
     atomic_fetch_sub(&monitors[monitor_index].mon_screenshots, 1);
 
     if (screenshot_hook)
-        screenshot_hook(path, buf, start_x, start_y, blit_data.w, blit_data.h, row_len);
+        screenshot_hook(path, buf, start_x, start_y, blit_data_ptr->w, blit_data_ptr->h, row_len);
 
     screenshots--;
 }
@@ -462,10 +464,10 @@ blit_thread(void *param)
         MTR_BEGIN("video", "blit_thread");
 
 #ifdef USE_CLI
-        if (cli_blit) {
-            if (buffer32 != NULL)
-                cli_render_gfx_blit(buffer32, blit_data.x, blit_data.y, blit_data.w, blit_data.h);
-        }
+//        if (cli_blit) {
+//          if (buffer32 != NULL)
+//                cli_render_gfx_blit(buffer32, data.x, data.y, data.w, data.h);
+//        }
 #endif
 
         if (blit_func)
