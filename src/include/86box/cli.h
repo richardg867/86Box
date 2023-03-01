@@ -1,18 +1,18 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
- *		running old operating systems and software designed for IBM
- *		PC systems and compatibles from 1981 through fairly recent
- *		system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *		This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *		Definitions for the command line interface.
+ *          Definitions for the command line interface.
  *
  *
  *
- * Author:	RichardG, <richardg867@gmail.com>
+ * Authors: RichardG, <richardg867@gmail.com>
  *
- *		Copyright 2021 RichardG.
+ *          Copyright 2021-2023 RichardG.
  */
 #ifndef EMU_CLI_H
 #define EMU_CLI_H
@@ -144,6 +144,6 @@ extern void cli_input_send(uint16_t code, int modifier);
 /* cli_monitor.c */
 extern void cli_monitor_thread(void *priv);
 extern void cli_monitor_init(int independent);
-extern void cli_monitor_close();
+extern void cli_monitor_close(void);
 
 #endif

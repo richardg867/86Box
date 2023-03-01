@@ -86,6 +86,7 @@ extern const device_t at_nvr_old_device;
 extern const device_t at_nvr_device;
 extern const device_t ps_nvr_device;
 extern const device_t amstrad_nvr_device;
+extern const device_t amstrad_megapc_nvr_device;
 extern const device_t ibmat_nvr_device;
 extern const device_t piix4_nvr_device;
 extern const device_t ps_no_nmi_nvr_device;
@@ -110,13 +111,14 @@ extern int   nvr_save(void);
 
 extern int  nvr_is_leap(int year);
 extern int  nvr_get_days(int month, int year);
-extern void nvr_time_sync();
+extern void nvr_time_sync(void);
 extern void nvr_time_get(struct tm *);
 extern void nvr_time_set(struct tm *);
 
 extern void nvr_reg_write(uint16_t reg, uint8_t val, void *priv);
 extern void nvr_at_handler(int set, uint16_t base, nvr_t *nvr);
 extern void nvr_at_sec_handler(int set, uint16_t base, nvr_t *nvr);
+extern void nvr_at_index_read_handler(int set, uint16_t base, nvr_t *nvr);
 extern void nvr_read_addr_set(int set, nvr_t *nvr);
 extern void nvr_wp_set(int set, int h, nvr_t *nvr);
 extern void nvr_via_wp_set(int set, int reg, nvr_t *nvr);

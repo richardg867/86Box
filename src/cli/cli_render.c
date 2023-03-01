@@ -12,7 +12,7 @@
  *
  * Authors: RichardG, <richardg867@gmail.com>
  *
- *          Copyright 2021-2022 RichardG.
+ *          Copyright 2021-2023 RichardG.
  */
 #include <math.h>
 #define PNG_DEBUG 0
@@ -216,7 +216,7 @@ cli_render_log(const char *fmt, ...)
 #endif
 
 void
-cli_render_blank()
+cli_render_blank(void)
 {
     if (render_data.block)
         return;
@@ -408,7 +408,7 @@ cli_render_write_title(wchar_t *s)
 }
 
 void
-cli_render_monitorenter()
+cli_render_monitorenter(void)
 {
     if (render_data.block != 2) {
         thread_wait_event(render_data.render_complete, -1);
@@ -435,7 +435,7 @@ cli_render_monitorenter()
 }
 
 void
-cli_render_monitorexit()
+cli_render_monitorexit(void)
 {
     /* Set up terminal:
        - Switch to Alternate Screen Buffer (do it first to prevent consequences of it not being supported)
@@ -540,7 +540,7 @@ cli_render_setcolor_24bit(char *p, uint8_t index, uint8_t is_background)
 }
 
 void
-cli_render_setcolorlevel()
+cli_render_setcolorlevel(void)
 {
     /* Set color functions and establish libsixel dithering level. */
     int libsixel_dither_level;
@@ -701,7 +701,7 @@ cli_render_updateline(char *buf, uint8_t y, uint8_t full_width, uint8_t new_cx, 
 }
 
 void
-cli_render_updatescreen()
+cli_render_updatescreen(void)
 {
     /* Invalidate all lines. */
     render_data.invalidate_all = 1;
@@ -1465,7 +1465,7 @@ next:
 }
 
 void
-cli_render_init()
+cli_render_init(void)
 {
     /* Try loading libsixel. */
     libsixel_handle = dynld_module(PATH_LIBSIXEL_DLL, libsixel_imports);
@@ -1533,7 +1533,7 @@ no_libsixel:
 }
 
 void
-cli_render_close()
+cli_render_close(void)
 {
     /* Wait for the rendering thread to finish. */
     thread_wait_event(render_data.render_complete, -1);

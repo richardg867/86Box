@@ -12,7 +12,7 @@
  *
  * Authors: RichardG, <richardg867@gmail.com>
  *
- *          Copyright 2021-2022 RichardG.
+ *          Copyright 2021-2023 RichardG.
  */
 #include <signal.h>
 #include <stdarg.h>
@@ -21,8 +21,10 @@
 #include <stdlib.h>
 #include <string.h>
 #ifdef _WIN32
+// clang-format off
 #    include <windows.h>
 #    include <VersionHelpers.h>
+// clang-format on
 #else
 #    include <sys/ioctl.h>
 #endif
@@ -238,7 +240,7 @@ cli_term_updatesize(int runtime)
 }
 
 void
-cli_init()
+cli_init(void)
 {
     /* Initialize monitor module. */
     cli_monitor_init(0);
@@ -312,7 +314,7 @@ cmd_nt10:
 }
 
 void
-cli_close()
+cli_close(void)
 {
     /* Stop monitor module. */
     cli_monitor_close();

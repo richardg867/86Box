@@ -32,7 +32,7 @@
  *
  *
  * Authors: Miran Grca, <mgrca8@gmail.com>
- *          Sarah Walker, <tommowalker@tommowalker.co.uk>
+ *          Sarah Walker, <https://pcem-emulator.co.uk/>
  *
  *          Copyright 2016-2018 Miran Grca.
  *          Copyright 2008-2018 Sarah Walker.
@@ -266,7 +266,7 @@ const joystick_if_t joystick_sw_pad = {
     .button_count  = 10,
     .pov_count     = 0,
     .max_joysticks = 4,
-    .axis_names    = {"X axis", "Y axis" },
-    .button_names  = { "A",       "B", "C", "X", "Y", "Z", "L", "R", "Start", "M" },
-    .pov_names     = { NULL}
+    .axis_names    = { "X axis", "Y axis" },
+    .button_names  = { "A", "B", "C", "X", "Y", "Z", "L", "R", "Start", "M" },
+    .pov_names     = { NULL }
 };

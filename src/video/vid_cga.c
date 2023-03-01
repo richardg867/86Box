@@ -1,20 +1,20 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
- *		running old operating systems and software designed for IBM
- *		PC systems and compatibles from 1981 through fairly recent
- *		system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *		This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *		Emulation of the old and new IBM CGA graphics cards.
+ *          Emulation of the old and new IBM CGA graphics cards.
  *
  *
  *
- * Authors:	Sarah Walker, <http://pcem-emulator.co.uk/>
- *		Miran Grca, <mgrca8@gmail.com>
+ * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
+ *          Miran Grca, <mgrca8@gmail.com>
  *
- *		Copyright 2008-2019 Sarah Walker.
- *		Copyright 2016-2019 Miran Grca.
+ *          Copyright 2008-2019 Sarah Walker.
+ *          Copyright 2016-2019 Miran Grca.
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -121,7 +121,7 @@ cga_in(uint16_t addr, void *p)
 void
 cga_pravetz_out(uint16_t addr, uint8_t val, void *p)
 {
-    cga_t  *cga = (cga_t *) p;
+    cga_t *cga = (cga_t *) p;
 
     cga->fontbase = (((unsigned int) val) << 8);
 }
@@ -241,10 +241,10 @@ cga_poll(void *p)
 #ifdef USE_CLI
                 if ((cga->displine % 8) == 0)
                     cli_render_cga(cga->ma / cga->crtc[1], cga->crtc[9] & 0x1f,
-                                   cga->crtc[1], 1,
-                                   cga->charbuffer, 0, sizeof(cga->charbuffer) - 1, 1,
-                                   cga->cgamode & 0x08, cga->cgamode & 0x20,
-                                   ca - cga->ma, !(cga->crtc[0x0a] & 0x20) && ((cga->crtc[0x0b] & 0x1f) >= (cga->crtc[0x0a] & 0x1f)));
+                            cga->crtc[1], 1,
+                            cga->charbuffer, 0, sizeof(cga->charbuffer) - 1, 1,
+                            cga->cgamode & 0x08, cga->cgamode & 0x20,
+                            ca - cga->ma, !(cga->crtc[0x0a] & 0x20) && ((cga->crtc[0x0b] & 0x1f) >= (cga->crtc[0x0a] & 0x1f)));
 #endif
                 for (x = 0; x < cga->crtc[1]; x++) {
                     if (cga->cgamode & 8) {
@@ -273,12 +273,12 @@ cga_poll(void *p)
                 }
             } else if (!(cga->cgamode & 2)) {
 #ifdef USE_CLI
-                if ((cga->displine % 8) == 0)
-                    cli_render_cga(cga->ma / cga->crtc[1], cga->crtc[9] & 0x1f,
-                                   cga->crtc[1], 1,
-                                   cga->vram, cga->ma << 1, 0x3fff, 1,
-                                   cga->cgamode & 0x08, cga->cgamode & 0x20,
-                                   ca, !(cga->crtc[0x0a] & 0x20) && ((cga->crtc[0x0b] & 0x1f) >= (cga->crtc[0x0a] & 0x1f)));
+            if ((cga->displine % 8) == 0)
+                cli_render_cga(cga->ma / cga->crtc[1], cga->crtc[9] & 0x1f,
+                        cga->crtc[1], 1,
+                        cga->vram, cga->ma << 1, 0x3fff, 1,
+                        cga->cgamode & 0x08, cga->cgamode & 0x20,
+                        ca, !(cga->crtc[0x0a] & 0x20) && ((cga->crtc[0x0b] & 0x1f) >= (cga->crtc[0x0a] & 0x1f)));
 #endif
                 for (x = 0; x < cga->crtc[1]; x++) {
                     if (cga->cgamode & 8) {
@@ -377,6 +377,9 @@ cga_poll(void *p)
 
             Composite_Process(cga->cgamode, border, x >> 2, buffer32->line[(cga->displine << 1)]);
             Composite_Process(cga->cgamode, border, x >> 2, buffer32->line[(cga->displine << 1) + 1]);
+        } else {
+            video_process_8(x, cga->displine << 1);
+            video_process_8(x, (cga->displine << 1) + 1);
         }
 
         cga->sc = oldsc;
@@ -471,19 +474,11 @@ cga_poll(void *p)
                         }
 
                         if (enable_overscan) {
-                            if (cga->composite)
-                                video_blit_memtoscreen(0, (cga->firstline - 4) << 1,
-                                                       xsize, ((cga->lastline - cga->firstline) + 8) << 1);
-                            else
-                                video_blit_memtoscreen_8(0, (cga->firstline - 4) << 1,
-                                                         xsize, ((cga->lastline - cga->firstline) + 8) << 1);
+                            video_blit_memtoscreen(0, (cga->firstline - 4) << 1,
+                                                   xsize, ((cga->lastline - cga->firstline) + 8) << 1);
                         } else {
-                            if (cga->composite)
-                                video_blit_memtoscreen(8, cga->firstline << 1,
-                                                       xsize, (cga->lastline - cga->firstline) << 1);
-                            else
-                                video_blit_memtoscreen_8(8, cga->firstline << 1,
-                                                         xsize, (cga->lastline - cga->firstline) << 1);
+                            video_blit_memtoscreen(8, cga->firstline << 1,
+                                                   xsize, (cga->lastline - cga->firstline) << 1);
                         }
                     }
 
@@ -568,7 +563,7 @@ cga_pravetz_init(const device_t *info)
 {
     cga_t *cga = cga_standalone_init(info);
 
-    loadfont("roms/video/cga/CGA - PRAVETZ.BIN", 10);
+    loadfont("roms/video/cga/PRAVETZ-VDC2.BIN", 10);
 
     io_removehandler(0x03dd, 0x0001, cga_in, NULL, NULL, cga_out, NULL, NULL, cga);
     io_sethandler(0x03dd, 0x0001, cga_pravetz_in, NULL, NULL, cga_pravetz_out, NULL, NULL, cga);

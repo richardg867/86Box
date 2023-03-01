@@ -1,24 +1,24 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
- *		running old operating systems and software designed for IBM
- *		PC systems and compatibles from 1981 through fairly recent
- *		system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *		This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *		Emulation of the NCR NGA (K511, K201) video cards.
+ *          Emulation of the NCR NGA (K511, K201) video cards.
  *
  *
  *
- * Authors:	Sarah Walker, <http://pcem-emulator.co.uk/>
- *		Miran Grca, <mgrca8@gmail.com>
- *		Fred N. van Kempen, <decwiz@yahoo.com>
- *		EngiNerd, <webmaster.crrc@yahoo.it>
+ * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
+ *          Miran Grca, <mgrca8@gmail.com>
+ *          Fred N. van Kempen, <decwiz@yahoo.com>
+ *          EngiNerd, <webmaster.crrc@yahoo.it>
  *
- *		Copyright 2008-2019 Sarah Walker.
- *		Copyright 2016-2019 Miran Grca.
- *		Copyright 2017-2019 Fred N. van Kempen.
- *		Copyright 2020 EngiNerd.
+ *          Copyright 2008-2019 Sarah Walker.
+ *          Copyright 2016-2019 Miran Grca.
+ *          Copyright 2017-2019 Fred N. van Kempen.
+ *          Copyright 2020      EngiNerd.
  */
 
 #include <stdio.h>
@@ -181,10 +181,10 @@ nga_poll(void *priv)
 #ifdef USE_CLI
                     if ((nga->cga.displine % 8) == 0)
                         cli_render_cga(nga->cga.ma / nga->cga.crtc[1], nga->cga.crtc[9] & 0x1f,
-                                       nga->cga.crtc[1], 1,
-                                       nga->cga.charbuffer, 0, sizeof(nga->cga.charbuffer) - 1, 1,
-                                       nga->cga.cgamode & 0x08, nga->cga.cgamode & 0x20,
-                                       ca - nga->cga.ma, !(nga->cga.crtc[0x0a] & 0x20) && ((nga->cga.crtc[0x0b] & 0x1f) >= (nga->cga.crtc[0x0a] & 0x1f)));
+                                nga->cga.crtc[1], 1,
+                                nga->cga.charbuffer, 0, sizeof(nga->cga.charbuffer) - 1, 1,
+                                nga->cga.cgamode & 0x08, nga->cga.cgamode & 0x20,
+                                ca - nga->cga.ma, !(nga->cga.crtc[0x0a] & 0x20) && ((nga->cga.crtc[0x0b] & 0x1f) >= (nga->cga.crtc[0x0a] & 0x1f)));
 #endif
                     /* for each text column */
                     for (x = 0; x < nga->cga.crtc[1]; x++) {
@@ -228,10 +228,10 @@ nga_poll(void *priv)
 #ifdef USE_CLI
                     if ((nga->cga.displine % 8) == 0)
                         cli_render_cga(nga->cga.ma / nga->cga.crtc[1], nga->cga.crtc[9] & 0x1f,
-                                       nga->cga.crtc[1], 1,
-                                       nga->cga.vram, nga->cga.ma << 1, 0x3fff, 1,
-                                       nga->cga.cgamode & 0x08, nga->cga.cgamode & 0x20,
-                                       ca, !(nga->cga.crtc[0x0a] & 0x20) && ((nga->cga.crtc[0x0b] & 0x1f) >= (nga->cga.crtc[0x0a] & 0x1f)));
+                                nga->cga.crtc[1], 1,
+                                nga->cga.vram, nga->cga.ma << 1, 0x3fff, 1,
+                                nga->cga.cgamode & 0x08, nga->cga.cgamode & 0x20,
+                                ca, !(nga->cga.crtc[0x0a] & 0x20) && ((nga->cga.crtc[0x0b] & 0x1f) >= (nga->cga.crtc[0x0a] & 0x1f)));
 #endif
                     /* for each text column */
                     for (x = 0; x < nga->cga.crtc[1]; x++) {
@@ -267,9 +267,6 @@ nga_poll(void *priv)
                         nga->cga.ma++;
                     }
                 } else {
-#ifdef USE_CLI
-                    cli_render_gfx("NGA %dx%d");
-#endif
                     /* high res modes */
                     if (nga->cga.cgamode & 0x40) {
                         /* 640x400x2 mode */
@@ -318,6 +315,9 @@ nga_poll(void *priv)
 
                     /* for each text column */
                     for (x = 0; x < nga->cga.crtc[1]; x++) {
+#ifdef USE_CLI
+                        cli_render_gfx("NGA %dx%d");
+#endif
                         /* video out */
                         if (nga->cga.cgamode & 8) {
                             /* 640x400x2 */
@@ -366,6 +366,14 @@ nga_poll(void *priv)
                     hline(buffer32, 0, (nga->cga.displine << 1) + 1, ((nga->cga.crtc[1] << 4) + 16) << 2, cols[0]);
                 }
             }
+
+            if ((nga->cga.cgamode & 1))
+                /* set screen width */
+                x = (nga->cga.crtc[1] << 3) + 16;
+            else
+                x = (nga->cga.crtc[1] << 4) + 16;
+
+            video_process_8(x, nga->cga.displine);
 
             nga->cga.sc = oldsc;
             /* vertical sync */
@@ -485,19 +493,11 @@ nga_poll(void *priv)
                                 }
                                 /* nga specific */
                                 if (enable_overscan) {
-                                    if (nga->cga.composite)
-                                        video_blit_memtoscreen(0, (nga->cga.firstline - 8),
-                                                               xsize, (nga->cga.lastline - nga->cga.firstline) + 16);
-                                    else
-                                        video_blit_memtoscreen_8(0, (nga->cga.firstline - 8),
-                                                                 xsize, (nga->cga.lastline - nga->cga.firstline) + 16);
+                                    video_blit_memtoscreen(0, (nga->cga.firstline - 8),
+                                                           xsize, (nga->cga.lastline - nga->cga.firstline) + 16);
                                 } else {
-                                    if (nga->cga.composite)
-                                        video_blit_memtoscreen(8, nga->cga.firstline,
-                                                               xsize, (nga->cga.lastline - nga->cga.firstline));
-                                    else
-                                        video_blit_memtoscreen_8(8, nga->cga.firstline,
-                                                                 xsize, (nga->cga.lastline - nga->cga.firstline));
+                                    video_blit_memtoscreen(8, nga->cga.firstline,
+                                                           xsize, (nga->cga.lastline - nga->cga.firstline));
                                 }
                             }
                             frames++;
@@ -697,7 +697,7 @@ const device_config_t nga_config[] = {
     {
         .type = CONFIG_END
     }
-// clang-format on
+  // clang-format on
 };
 
 const device_t nga_device = {

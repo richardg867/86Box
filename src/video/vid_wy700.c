@@ -1,20 +1,20 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
- *		running old operating systems and software designed for IBM
- *		PC systems and compatibles from 1981 through fairly recent
- *		system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *		This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *		Wyse-700 emulation.
+ *          Wyse-700 emulation.
  *
  *
  *
- * Authors:	Sarah Walker, <http://pcem-emulator.co.uk/>
- *		Miran Grca, <mgrca8@gmail.com>
+ * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
+ *          Miran Grca, <mgrca8@gmail.com>
  *
- *		Copyright 2008-2018 Sarah Walker.
- *		Copyright 2016-2018 Miran Grca.
+ *          Copyright 2008-2018 Sarah Walker.
+ *          Copyright 2016-2018 Miran Grca.
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -545,25 +545,25 @@ wy700_textline(wy700_t *wy700)
         cursorline = ((wy700->real_crtc[10] & 0x1F) <= sc) && ((wy700->real_crtc[11] & 0x1F) >= sc);
     }
 
-#ifdef USE_CLI
-    if (mda)
-        cli_render_mda(w, wy700->real_crtc[0x09] & 0x1f,
-                       wy700->vram, ma,
-                       1, wy700->cga_ctrl & 0x20,
-                       ca, !(wy700->real_crtc[0x0a] & 0x20) && ((wy700->real_crtc[0x0b] & 0x1f) >= (wy700->real_crtc[0x0a] & 0x1f)));
-    else
-        cli_render_cga(w, wy700->real_crtc[0x09] & 0x1f,
-                       w, 1,
-                       wy700->vram, ma, 0x3fff, 1,
-                       1, wy700->cga_ctrl & 0x20,
-                       ca, !(wy700->real_crtc[0x0a] & 0x20) && ((wy700->real_crtc[0x0b] & 0x1f) >= (wy700->real_crtc[0x0a] & 0x1f)));
-#endif
-
     for (x = 0; x < w; x++) {
         chr        = wy700->vram[(addr + 2 * x) & 0x3FFF];
         attr       = wy700->vram[(addr + 2 * x + 1) & 0x3FFF];
         drawcursor = ((ma == ca) && cursorline && wy700->enabled && (wy700->cga_ctrl & 8) && (wy700->blink & 16));
         blink      = ((wy700->blink & 16) && (wy700->cga_ctrl & 0x20) && (attr & 0x80) && !drawcursor);
+
+#ifdef USE_CLI
+    if (mda)
+        cli_render_mda(w, wy700->real_crtc[0x09] & 0x1f,
+                wy700->vram, ma,
+                1, wy700->cga_ctrl & 0x20,
+                ca, !(wy700->real_crtc[0x0a] & 0x20) && ((wy700->real_crtc[0x0b] & 0x1f) >= (wy700->real_crtc[0x0a] & 0x1f)));
+    else
+        cli_render_cga(w, wy700->real_crtc[0x09] & 0x1f,
+                w, 1,
+                wy700->vram, ma, 0x3fff, 1,
+                1, wy700->cga_ctrl & 0x20,
+                ca, !(wy700->real_crtc[0x0a] & 0x20) && ((wy700->real_crtc[0x0b] & 0x1f) >= (wy700->real_crtc[0x0a] & 0x1f)));
+#endif
 
         if (wy700->cga_ctrl & 0x20)
             attr &= 0x7F;
@@ -611,15 +611,15 @@ wy700_cgaline(wy700_t *wy700)
     uint16_t ma = (wy700->cga_crtc[13] | (wy700->cga_crtc[12] << 8)) & 0x3fff;
     addr        = ((wy700->displine >> 2) & 1) * 0x2000 + (wy700->displine >> 3) * 80 + ((ma & ~1) << 1);
 
+#ifdef USE_CLI
+    cli_render_gfx("Wyse 700 %dx%d");
+#endif
+
     /* The fixed mode setting here programs the real CRTC with a screen
      * width to 20, so draw in 20 fixed chunks of 4 bytes each */
     for (x = 0; x < 20; x++) {
         dat = ((wy700->vram[addr & 0x3FFF] << 24) | (wy700->vram[(addr + 1) & 0x3FFF] << 16) | (wy700->vram[(addr + 2) & 0x3FFF] << 8) | (wy700->vram[(addr + 3) & 0x3FFF]));
         addr += 4;
-
-#ifdef USE_CLI
-    cli_render_gfx("Wyse 700 %dx%d");
-#endif
 
         if (wy700->wy700_mode == 6) {
             for (c = 0; c < 32; c++) {
@@ -665,13 +665,13 @@ wy700_medresline(wy700_t *wy700)
 
     addr = (wy700->displine >> 1) * 80 + 4 * wy700->wy700_base;
 
-    for (x = 0; x < 20; x++) {
-        dat = ((wy700->vram[addr & 0x1FFFF] << 24) | (wy700->vram[(addr + 1) & 0x1FFFF] << 16) | (wy700->vram[(addr + 2) & 0x1FFFF] << 8) | (wy700->vram[(addr + 3) & 0x1FFFF]));
-        addr += 4;
-
 #ifdef USE_CLI
     cli_render_gfx("Wyse 700 %dx%d");
 #endif
+
+    for (x = 0; x < 20; x++) {
+        dat = ((wy700->vram[addr & 0x1FFFF] << 24) | (wy700->vram[(addr + 1) & 0x1FFFF] << 16) | (wy700->vram[(addr + 2) & 0x1FFFF] << 8) | (wy700->vram[(addr + 3) & 0x1FFFF]));
+        addr += 4;
 
         if (wy700->wy700_mode & 0x10) {
             for (c = 0; c < 16; c++) {
@@ -724,6 +724,11 @@ wy700_hiresline(wy700_t *wy700)
         if (wy700->displine & 1)
             addr += 0x10000;
     }
+
+#ifdef USE_CLI
+	cli_render_gfx("Wyse 700 %dx%d");
+#endif
+
     for (x = 0; x < 40; x++) {
         dat = ((wy700->vram[addr & 0x1FFFF] << 24) | (wy700->vram[(addr + 1) & 0x1FFFF] << 16) | (wy700->vram[(addr + 2) & 0x1FFFF] << 8) | (wy700->vram[(addr + 3) & 0x1FFFF]));
         addr += 4;
@@ -761,10 +766,6 @@ wy700_hiresline(wy700_t *wy700)
             }
         }
     }
-
-#ifdef USE_CLI
-    cli_render_gfx("Wyse 700 %dx%d");
-#endif
 }
 
 void
@@ -812,6 +813,7 @@ wy700_poll(void *p)
                     break;
             }
         }
+        video_process_8(WY700_XSIZE, wy700->displine);
         wy700->displine++;
         /* Hardcode a fixed refresh rate and VSYNC timing */
         if (wy700->displine == 800) /* Start of VSYNC */
@@ -847,7 +849,7 @@ wy700_poll(void *p)
                 if (video_force_resize_get())
                     video_force_resize_set(0);
             }
-            video_blit_memtoscreen_8(0, 0, xsize, ysize);
+            video_blit_memtoscreen(0, 0, xsize, ysize);
 
             frames++;
             /* Fixed 1280x800 resolution */

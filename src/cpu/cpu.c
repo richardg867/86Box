@@ -1,22 +1,22 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
- *		running old operating systems and software designed for IBM
- *		PC systems and compatibles from 1981 through fairly recent
- *		system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *		This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *		CPU type handler.
+ *          CPU type handler.
  *
- * Authors:	Sarah Walker, <tommowalker@tommowalker.co.uk>
- *		leilei,
- *		Miran Grca, <mgrca8@gmail.com>
- *		Fred N. van Kempen, <decwiz@yahoo.com>
+ * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
+ *          leilei,
+ *          Miran Grca, <mgrca8@gmail.com>
+ *          Fred N. van Kempen, <decwiz@yahoo.com>
  *
- *		Copyright 2008-2020 Sarah Walker.
- *		Copyright 2016-2018 leilei.
- *		Copyright 2016-2020 Miran Grca.
- *		Copyright 2018-2021 Fred N. van Kempen.
+ *          Copyright 2008-2020 Sarah Walker.
+ *          Copyright 2016-2018 leilei.
+ *          Copyright 2016-2020 Miran Grca.
+ *          Copyright 2018-2021 Fred N. van Kempen.
  */
 #include <math.h>
 #include <stdarg.h>
@@ -61,6 +61,7 @@ enum {
     CPUID_AMDSEP    = (1 << 10),
     CPUID_SEP       = (1 << 11),
     CPUID_MTRR      = (1 << 12),
+    CPUID_PGE       = (1 << 13),
     CPUID_MCA       = (1 << 14),
     CPUID_CMOV      = (1 << 15),
     CPUID_MMX       = (1 << 23),
@@ -68,7 +69,8 @@ enum {
 };
 
 /*Addition flags returned by CPUID function 0x80000001*/
-#define CPUID_3DNOW (1UL << 31UL)
+#define CPUID_3DNOW  (1UL << 31UL)
+#define CPUID_3DNOWE (1UL << 30UL)
 
 /* Make sure this is as low as possible. */
 cpu_state_t cpu_state;
@@ -233,7 +235,7 @@ cpu_is_eligible(const cpu_family_t *cpu_family, int cpu, int machine)
     if (packages & CPU_PKG_SOCKET3)
         packages |= CPU_PKG_SOCKET1;
     else if (packages & CPU_PKG_SLOT1)
-        packages |= CPU_PKG_SOCKET370;
+        packages |= CPU_PKG_SOCKET370 | CPU_PKG_SOCKET8;
 
     /* Package type. */
     if (!(cpu_family->package & packages))
@@ -1157,7 +1159,7 @@ cpu_set(void)
             if (cpu_s->cpu_type >= CPU_K6_2)
                 x86_setopcodes(ops_386, ops_k62_0f);
 #    if defined(DEV_BRANCH) && defined(USE_AMD_K5)
-            else if (cpu_s->cpu_type = CPU_K6)
+            else if (cpu_s->cpu_type == CPU_K6)
                 x86_setopcodes(ops_386, ops_k6_0f);
             else
                 x86_setopcodes(ops_386, ops_pentiummmx_0f);
@@ -1166,6 +1168,13 @@ cpu_set(void)
                 x86_setopcodes(ops_386, ops_k6_0f);
 #    endif
 #endif
+
+            if ((cpu_s->cpu_type == CPU_K6_2P) || (cpu_s->cpu_type == CPU_K6_3P)) {
+                x86_opcodes_3DNOW = ops_3DNOWE;
+#ifdef USE_DYNAREC
+                x86_dynarec_opcodes_3DNOW = dynarec_ops_3DNOWE;
+#endif
+            }
 
             timing_rr  = 1; /* register dest - register src */
             timing_rm  = 2; /* register dest - memory src */
@@ -1202,6 +1211,8 @@ cpu_set(void)
             cpu_features = CPU_FEATURE_RDTSC | CPU_FEATURE_MSR | CPU_FEATURE_CR4 | CPU_FEATURE_VME | CPU_FEATURE_MMX;
             if (cpu_s->cpu_type >= CPU_K6_2)
                 cpu_features |= CPU_FEATURE_3DNOW;
+            if ((cpu_s->cpu_type == CPU_K6_2P) || (cpu_s->cpu_type == CPU_K6_3P))
+                cpu_features |= CPU_FEATURE_3DNOWE;
             msr.fcr = (1 << 8) | (1 << 9) | (1 << 12) | (1 << 16) | (1 << 19) | (1 << 21);
 #if defined(DEV_BRANCH) && defined(USE_AMD_K5)
             cpu_CR4_mask = CR4_TSD | CR4_DE | CR4_MCE;
@@ -1288,7 +1299,7 @@ cpu_set(void)
             if (cpu_s->cpu_type >= CPU_PENTIUM2)
                 cpu_features |= CPU_FEATURE_MMX;
             msr.fcr      = (1 << 8) | (1 << 9) | (1 << 12) | (1 << 16) | (1 << 19) | (1 << 21);
-            cpu_CR4_mask = CR4_VME | CR4_PVI | CR4_TSD | CR4_DE | CR4_PSE | CR4_MCE | CR4_PAE | CR4_PCE;
+            cpu_CR4_mask = CR4_VME | CR4_PVI | CR4_TSD | CR4_DE | CR4_PSE | CR4_MCE | CR4_PAE | CR4_PCE | CR4_PGE;
             if (cpu_s->cpu_type == CPU_PENTIUM2D)
                 cpu_CR4_mask |= CR4_OSFXSR;
 
@@ -1831,7 +1842,7 @@ cpu_CPUID(void)
                 case 0x80000001:
                     EAX = CPUID + 0x100;
                     EBX = ECX = 0;
-                    EDX       = CPUID_FPU | CPUID_VME | CPUID_PSE | CPUID_TSC | CPUID_MSR | CPUID_MCE | CPUID_CMPXCHG8B | CPUID_AMDSEP | CPUID_MMX | CPUID_3DNOW;
+                    EDX       = CPUID_FPU | CPUID_VME | CPUID_PSE | CPUID_TSC | CPUID_MSR | CPUID_MCE | CPUID_CMPXCHG8B | CPUID_AMDSEP | CPUID_MMX | CPUID_3DNOW | CPUID_3DNOWE;
                     break;
                 case 0x80000002:      /* Processor name string */
                     EAX = 0x2d444d41; /* AMD-K6(tm)-III P */
@@ -1949,7 +1960,7 @@ cpu_CPUID(void)
             } else if (EAX == 1) {
                 EAX = CPUID;
                 EBX = ECX = 0;
-                EDX       = CPUID_FPU | CPUID_VME | CPUID_PSE | CPUID_TSC | CPUID_MSR | CPUID_PAE | CPUID_MCE | CPUID_CMPXCHG8B | CPUID_MTRR | CPUID_MCA | CPUID_SEP | CPUID_CMOV;
+                EDX       = CPUID_FPU | CPUID_VME | CPUID_PSE | CPUID_TSC | CPUID_MSR | CPUID_PAE | CPUID_MCE | CPUID_CMPXCHG8B | CPUID_MTRR | CPUID_PGE | CPUID_MCA | CPUID_SEP | CPUID_CMOV;
             } else if (EAX == 2) {
                 EAX = 0x00000001;
                 EBX = ECX = 0;
@@ -1967,7 +1978,7 @@ cpu_CPUID(void)
             } else if (EAX == 1) {
                 EAX = CPUID;
                 EBX = ECX = 0;
-                EDX       = CPUID_FPU | CPUID_VME | CPUID_PSE | CPUID_TSC | CPUID_MSR | CPUID_PAE | CPUID_MCE | CPUID_CMPXCHG8B | CPUID_MMX | CPUID_MTRR | CPUID_MCA | CPUID_SEP | CPUID_CMOV;
+                EDX       = CPUID_FPU | CPUID_VME | CPUID_PSE | CPUID_TSC | CPUID_MSR | CPUID_PAE | CPUID_MCE | CPUID_CMPXCHG8B | CPUID_MMX | CPUID_MTRR | CPUID_PGE | CPUID_MCA | CPUID_SEP | CPUID_CMOV;
             } else if (EAX == 2) {
                 EAX = 0x00000001;
                 EBX = ECX = 0;
@@ -1985,7 +1996,7 @@ cpu_CPUID(void)
             } else if (EAX == 1) {
                 EAX = CPUID;
                 EBX = ECX = 0;
-                EDX       = CPUID_FPU | CPUID_VME | CPUID_PSE | CPUID_TSC | CPUID_MSR | CPUID_PAE | CPUID_MCE | CPUID_CMPXCHG8B | CPUID_MMX | CPUID_MTRR | CPUID_MCA | CPUID_SEP | CPUID_FXSR | CPUID_CMOV;
+                EDX       = CPUID_FPU | CPUID_VME | CPUID_PSE | CPUID_TSC | CPUID_MSR | CPUID_PAE | CPUID_MCE | CPUID_CMPXCHG8B | CPUID_MMX | CPUID_MTRR | CPUID_PGE | CPUID_MCA | CPUID_SEP | CPUID_FXSR | CPUID_CMOV;
             } else if (EAX == 2) {
                 EAX = 0x00000001;
                 EBX = ECX = 0;
@@ -2837,7 +2848,7 @@ amd_k_invalid_wrmsr:
                     break;
                 case 0x1b:
                     cpu_log("APIC_BASE write: %08X%08X\n", EDX, EAX);
-                    // msr.apic_base = EAX | ((uint64_t)EDX << 32);
+                    // msr.apic_base = EAX | ((uint64_t) EDX << 32);
                     break;
                 case 0x2a:
                     break;

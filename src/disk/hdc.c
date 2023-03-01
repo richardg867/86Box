@@ -1,20 +1,20 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
- *		running old operating systems and software designed for IBM
- *		PC systems and compatibles from 1981 through fairly recent
- *		system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *		This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *		Common code to handle all sorts of disk controllers.
+ *          Common code to handle all sorts of disk controllers.
  *
  *
  *
- * Authors:	Miran Grca, <mgrca8@gmail.com>
- *		Fred N. van Kempen, <decwiz@yahoo.com>
+ * Authors: Miran Grca, <mgrca8@gmail.com>
+ *          Fred N. van Kempen, <decwiz@yahoo.com>
  *
- *		Copyright 2016-2018 Miran Grca.
- *		Copyright 2017,2018 Fred N. van Kempen.
+ *          Copyright 2016-2018 Miran Grca.
+ *          Copyright 2017-2018 Fred N. van Kempen.
  */
 #include <stdarg.h>
 #include <stdint.h>
@@ -84,6 +84,7 @@ static const struct {
     { &hdc_none_device             },
     { &hdc_internal_device         },
     { &st506_xt_xebec_device       },
+    { &st506_xt_wdxt_gen_device    },
     { &st506_xt_dtc5150x_device    },
     { &st506_xt_st11_m_device      },
     { &st506_xt_wd1002a_wx1_device },
@@ -103,6 +104,7 @@ static const struct {
     { &xta_wdxt150_device          },
     { &xtide_acculogic_device      },
     { &xtide_device                },
+    { &xtide_plus_device           },
     { &esdi_ps2_device             },
     { &ide_pci_device              },
     { &ide_pci_2ch_device          },

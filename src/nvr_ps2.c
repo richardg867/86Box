@@ -6,14 +6,14 @@
  *
  *          This file is part of the 86Box distribution.
  *
- *        Handling of the PS/2 series CMOS devices.
+ *          Handling of the PS/2 series CMOS devices.
  *
  *
  *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
- *          Sarah Walker, <tommowalker@tommowalker.co.uk>
+ *          Sarah Walker, <https://pcem-emulator.co.uk/>
  *
- *          Copyright 2017,2018 Fred N. van Kempen.
+ *          Copyright 2017-2018 Fred N. van Kempen.
  *          Copyright 2008-2018 Sarah Walker.
  *
  * This program is free software; you can redistribute it and/or modify

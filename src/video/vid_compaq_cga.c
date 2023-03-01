@@ -1,22 +1,22 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
- *		running old operating systems and software designed for IBM
- *		PC systems and compatibles from 1981 through fairly recent
- *		system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *		This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *		Emulation of the Compaq CGA graphics cards.
+ *          Emulation of the Compaq CGA graphics cards.
  *
  *
  *
- * Authors:	John Elliott, <jce@seasip.info>
- *		Sarah Walker, <http://pcem-emulator.co.uk/>
- *		Miran Grca, <mgrca8@gmail.com>
+ * Authors: John Elliott, <jce@seasip.info>
+ *          Sarah Walker, <https://pcem-emulator.co.uk/>
+ *          Miran Grca, <mgrca8@gmail.com>
  *
- *		Copyright 2016-2019 John Elliott.
- *		Copyright 2008-2019 Sarah Walker.
- *		Copyright 2016-2019 Miran Grca.
+ *          Copyright 2016-2019 John Elliott.
+ *          Copyright 2008-2019 Sarah Walker.
+ *          Copyright 2016-2019 Miran Grca.
  */
 #include <stdarg.h>
 #include <stdio.h>
@@ -134,10 +134,10 @@ compaq_cga_poll(void *p)
 #ifdef USE_CLI
                 if ((self->cga.displine % 8) == 0)
                     cli_render_cga(self->cga.ma / self->cga.crtc[1], self->cga.crtc[9] & 0x0f,
-                                   self->cga.crtc[1], 1,
-                                   self->cga.charbuffer, 0, sizeof(self->cga.charbuffer) - 1, 1,
-                                   self->cga.cgamode & 0x08, self->cga.cgamode & 0x20,
-                                   ca - self->cga.ma, !(self->cga.crtc[0x0a] & 0x20) && ((self->cga.crtc[0x0b] & 0x1f) >= (self->cga.crtc[0x0a] & 0x1f)));
+                        self->cga.crtc[1], 1,
+                        self->cga.charbuffer, 0, sizeof(self->cga.charbuffer) - 1, 1,
+                        self->cga.cgamode & 0x08, self->cga.cgamode & 0x20,
+                        ca - self->cga.ma, !(self->cga.crtc[0x0a] & 0x20) && ((self->cga.crtc[0x0b] & 0x1f) >= (self->cga.crtc[0x0a] & 0x1f)));
 #endif
                 for (x = 0; x < self->cga.crtc[1]; x++) {
                     chr        = self->cga.charbuffer[x << 1];
@@ -187,10 +187,10 @@ compaq_cga_poll(void *p)
 #ifdef USE_CLI
                 if ((self->cga.displine % 8) == 0)
                     cli_render_cga(self->cga.ma / self->cga.crtc[1], self->cga.crtc[9] & 0x0f,
-                                   self->cga.crtc[1], 1,
-                                   self->cga.vram, self->cga.ma << 1, 0x3fff, 1,
-                                   self->cga.cgamode & 0x08, self->cga.cgamode & 0x20,
-                                   ca, !(self->cga.crtc[0x0a] & 0x20) && ((self->cga.crtc[0x0b] & 0x1f) >= (self->cga.crtc[0x0a] & 0x1f)));
+                            self->cga.crtc[1], 1,
+                            self->cga.vram, self->cga.ma << 1, 0x3fff, 1,
+                            self->cga.cgamode & 0x08, self->cga.cgamode & 0x20,
+                            ca, !(self->cga.crtc[0x0a] & 0x20) && ((self->cga.crtc[0x0b] & 0x1f) >= (self->cga.crtc[0x0a] & 0x1f)));
 #endif
                 for (x = 0; x < self->cga.crtc[1]; x++) {
                     chr        = self->cga.vram[((self->cga.ma << 1) & 0x3fff)];
@@ -260,7 +260,8 @@ compaq_cga_poll(void *p)
                 Composite_Process(self->cga.cgamode & 0x7f, border, x >> 2, buffer32->line[self->cga.displine]);
             else
                 Composite_Process(self->cga.cgamode, border, x >> 2, buffer32->line[self->cga.displine]);
-        }
+        } else
+            video_process_8(x, self->cga.displine);
 
         self->cga.sc = oldsc;
         if (self->cga.vc == self->cga.crtc[7] && !self->cga.sc)
@@ -355,17 +356,10 @@ compaq_cga_poll(void *p)
                                 video_force_resize_set(0);
                         }
 
-                        if (enable_overscan) {
-                            if (self->cga.composite)
-                                video_blit_memtoscreen(0, self->cga.firstline - 8, xsize, (self->cga.lastline - self->cga.firstline) + 16);
-                            else
-                                video_blit_memtoscreen_8(0, self->cga.firstline - 8, xsize, (self->cga.lastline - self->cga.firstline) + 16);
-                        } else {
-                            if (self->cga.composite)
-                                video_blit_memtoscreen(8, self->cga.firstline, xsize, self->cga.lastline - self->cga.firstline);
-                            else
-                                video_blit_memtoscreen_8(8, self->cga.firstline, xsize, self->cga.lastline - self->cga.firstline);
-                        }
+                        if (enable_overscan)
+                            video_blit_memtoscreen(0, self->cga.firstline - 8, xsize, (self->cga.lastline - self->cga.firstline) + 16);
+                        else
+                            video_blit_memtoscreen(8, self->cga.firstline, xsize, self->cga.lastline - self->cga.firstline);
                     }
 
                     frames++;

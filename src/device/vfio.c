@@ -12,7 +12,7 @@
  *
  * Authors: RichardG, <richardg867@gmail.com>
  *
- *          Copyright 2021-2022 RichardG.
+ *          Copyright 2021-2023 RichardG.
  */
 #define _FILE_OFFSET_BITS   64
 #define _LARGEFILE64_SOURCE 1
@@ -32,6 +32,7 @@
 #define HAVE_STDARG_H
 #include "cpu.h"
 #include <86box/86box.h>
+#include <86box/ini.h>
 #include <86box/config.h>
 #include <86box/device.h>
 #include <86box/i2c.h> /* ceilpow2 */
@@ -2845,7 +2846,7 @@ vfio_map_dma(uint8_t *ptr, uint32_t offset, uint32_t size)
 }
 
 static void
-vfio_reset()
+vfio_reset(void)
 {
     vfio_log("VFIO: reset()\n");
 
@@ -3007,7 +3008,7 @@ next2:
 }
 
 void
-vfio_init()
+vfio_init(void)
 {
     vfio_log("VFIO: init()\n");
 

@@ -12,7 +12,7 @@
  *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *
- *          Copyright 2017,2018 Fred N. van Kempen.
+ *          Copyright 2017-2018 Fred N. van Kempen.
  *
  *          Redistribution and  use  in source  and binary forms, with
  *          or  without modification, are permitted  provided that the
@@ -288,7 +288,7 @@ main(int argc, char **argv)
         return (1);
     }
 
-/* Looks good, go and listen.. */
+    /* Looks good, go and listen.. */
     i = start_cap(interfaces[i - 1].device);
 
     dynld_close(pcap_handle);

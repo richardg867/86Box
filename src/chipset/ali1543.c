@@ -1,19 +1,18 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
- *		running old operating systems and software designed for IBM
- *		PC systems and compatibles from 1981 through fairly recent
- *		system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *		This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *		Implementation of the ALi M1543 Desktop South Bridge.
+ *          Implementation of the ALi M1543 Desktop South Bridge.
  *
  *
  *
- * Authors:	Tiseno100,
+ * Authors: Tiseno100,
  *
- *		Copyright 2021 Tiseno100.
- *
+ *          Copyright 2021 Tiseno100.
  */
 #include <stdarg.h>
 #include <stdint.h>
@@ -255,6 +254,14 @@ ali1533_write(int func, int addr, uint8_t val, void *priv)
                 dev->pci_conf[addr] = val & 0xcf;
             /* This actually enables/disables the USB *device* rather than the interface itself. */
             dev->usb_dev_enable = !(val & 0x40);
+            if (dev->type == 1) {
+                nvr_at_index_read_handler(0, 0x0070, dev->nvr);
+                nvr_at_index_read_handler(0, 0x0072, dev->nvr);
+                if (val & 0x20) {
+                    nvr_at_index_read_handler(1, 0x0070, dev->nvr);
+                    nvr_at_index_read_handler(1, 0x0072, dev->nvr);
+                }
+            }
             break;
 
         /* Hardware setting status bits, read-only (register 0x54) */

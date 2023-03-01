@@ -1,20 +1,20 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
- *		running old operating systems and software designed for IBM
- *		PC systems and compatibles from 1981 through fairly recent
- *		system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *		This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *		EGA renderers.
+ *          EGA renderers.
  *
  *
  *
- * Author:	Sarah Walker, <http://pcem-emulator.co.uk/>
- *		Miran Grca, <mgrca8@gmail.com>
+ * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
+ *          Miran Grca, <mgrca8@gmail.com>
  *
- *		Copyright 2008-2019 Sarah Walker.
- *		Copyright 2016-2019 Miran Grca.
+ *          Copyright 2008-2019 Sarah Walker.
+ *          Copyright 2016-2019 Miran Grca.
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -28,7 +28,6 @@
 #include <86box/video.h>
 #include <86box/vid_ega.h>
 #include <86box/vid_ega_render_remap.h>
-#include <86box/cli.h>
 
 int
 ega_display_line(ega_t *ega)
@@ -72,10 +71,6 @@ ega_render_blank(ega_t *ega)
                 break;
         }
     }
-
-#ifdef USE_CLI
-    cli_render_blank();
-#endif
 }
 
 void
@@ -278,10 +273,6 @@ ega_render_2bpp_lowres(ega_t *ega)
     if ((ega->displine + ega->y_add) < 0)
         return;
 
-#ifdef USE_CLI
-    cli_render_gfx("EGA %dx%d");
-#endif
-
     p = &buffer32->line[ega->displine + ega->y_add][ega->x_add];
 
     if (ega->firstline_draw == 2000)
@@ -289,6 +280,9 @@ ega_render_2bpp_lowres(ega_t *ega)
     ega->lastline_draw = ega->displine;
 
     for (x = 0; x <= (ega->hdisp + ega->scrollcache); x += 16) {
+#ifdef USE_CLI
+        cli_render_gfx("EGA %dx%d");
+#endif
         addr = ega->remap_func(ega, ega->ma);
 
         dat[0] = ega->vram[addr];
@@ -326,10 +320,6 @@ ega_render_2bpp_highres(ega_t *ega)
     if ((ega->displine + ega->y_add) < 0)
         return;
 
-#ifdef USE_CLI
-    cli_render_gfx("EGA %dx%d");
-#endif
-
     p = &buffer32->line[ega->displine + ega->y_add][ega->x_add];
 
     if (ega->firstline_draw == 2000)
@@ -337,6 +327,9 @@ ega_render_2bpp_highres(ega_t *ega)
     ega->lastline_draw = ega->displine;
 
     for (x = 0; x <= (ega->hdisp + ega->scrollcache); x += 8) {
+#ifdef USE_CLI
+        cli_render_gfx("EGA %dx%d");
+#endif
         addr = ega->remap_func(ega, ega->ma);
 
         dat[0] = ega->vram[addr];
@@ -374,10 +367,6 @@ ega_render_4bpp_lowres(ega_t *ega)
     if ((ega->displine + ega->y_add) < 0)
         return;
 
-#ifdef USE_CLI
-    cli_render_gfx("EGA %dx%d");
-#endif
-
     p = &buffer32->line[ega->displine + ega->y_add][ega->x_add];
 
     if (ega->firstline_draw == 2000)
@@ -385,6 +374,9 @@ ega_render_4bpp_lowres(ega_t *ega)
     ega->lastline_draw = ega->displine;
 
     for (x = 0; x <= (ega->hdisp + ega->scrollcache); x += 16) {
+#ifdef USE_CLI
+        cli_render_gfx("EGA %dx%d");
+#endif
         addr    = ega->remap_func(ega, ega->ma);
         oddeven = 0;
 
@@ -430,10 +422,6 @@ ega_render_4bpp_highres(ega_t *ega)
     if ((ega->displine + ega->y_add) < 0)
         return;
 
-#ifdef USE_CLI
-    cli_render_gfx("EGA %dx%d");
-#endif
-
     p = &buffer32->line[ega->displine + ega->y_add][ega->x_add];
 
     if (ega->firstline_draw == 2000)
@@ -441,6 +429,9 @@ ega_render_4bpp_highres(ega_t *ega)
     ega->lastline_draw = ega->displine;
 
     for (x = 0; x <= (ega->hdisp + ega->scrollcache); x += 8) {
+#ifdef USE_CLI
+        cli_render_gfx("EGA %dx%d");
+#endif
         addr    = ega->remap_func(ega, ega->ma);
         oddeven = 0;
 

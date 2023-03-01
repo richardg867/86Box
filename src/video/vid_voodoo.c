@@ -1,19 +1,19 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
- *		running old operating systems and software designed for IBM
- *		PC systems and compatibles from 1981 through fairly recent
- *		system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *		This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *		Voodoo Graphics, 2, Banshee, 3 emulation.
+ *          Voodoo Graphics, 2, Banshee, 3 emulation.
  *
  *
  *
- * Authors:	Sarah Walker, <http://pcem-emulator.co.uk/>
- *		leilei
+ * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
+ *          leilei
  *
- *		Copyright 2008-2020 Sarah Walker.
+ *          Copyright 2008-2020 Sarah Walker.
  */
 #include <stdarg.h>
 #include <stdio.h>
@@ -876,7 +876,7 @@ voodoo_force_blit(void *p)
 }
 
 void *
-voodoo_card_init()
+voodoo_card_init(void)
 {
     int       c;
     voodoo_t *voodoo = malloc(sizeof(voodoo_t));
@@ -1152,7 +1152,7 @@ voodoo_2d3d_card_init(int type)
 }
 
 void *
-voodoo_init()
+voodoo_init(const device_t *info)
 {
     voodoo_set_t *voodoo_set = malloc(sizeof(voodoo_set_t));
     uint32_t      tmuConfig  = 1;

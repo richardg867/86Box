@@ -55,11 +55,11 @@
  *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *          Miran Grca, <mgrca8@gmail.com>
- *          Sarah Walker, <tommowalker@tommowalker.co.uk>
+ *          Sarah Walker, <https://pcem-emulator.co.uk/>
  *
- *          Copyright 2018,2019 Fred N. van Kempen.
- *          Copyright 2018,2019 Miran Grca.
- *          Copyright 2018,2019 Sarah Walker.
+ *          Copyright 2018-2019 Fred N. van Kempen.
+ *          Copyright 2018-2019 Miran Grca.
+ *          Copyright 2018-2019 Sarah Walker.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -687,8 +687,8 @@ t1000_read_nvram(uint16_t addr, void *priv)
             tmp = fdc_read(0x03f7, t1000.fdc);
 
             tmp = (tmp & 0x80) >> 3;              /* Bit 4 is changeline */
-            tmp |= (sys->nvr_active & 0xc0);      /* Bits 6,7 are r/w mode */
-            tmp |= 0x2e;                          /* Bits 5,3,2,1 always 1 */
+            tmp |= (sys->nvr_active & 0xc0);      /* Bits 6, 7 are r/w mode */
+            tmp |= 0x2e;                          /* Bits 5, 3, 2, 1 always 1 */
             tmp |= (sys->nvr_active & 0x40) >> 6; /* Ready state */
             break;
     }
@@ -888,7 +888,7 @@ machine_xt_t1000_init(const machine_t *model)
     machine_common_init(model);
 
     pit_devs[0].set_out_func(pit_devs[0].data, 1, pit_refresh_timer_xt);
-    device_add(&keyboard_xt_device);
+    device_add(&keyboard_xt_t1x00_device);
     t1000.fdc = device_add(&fdc_xt_device);
     nmi_init();
 
@@ -897,7 +897,7 @@ machine_xt_t1000_init(const machine_t *model)
     t1000_nvr_load();
     nvr_set_ven_save(t1000_nvr_save);
 
-    if (gfxcard == VID_INTERNAL)
+    if (gfxcard[0] == VID_INTERNAL)
         device_add(&t1000_video_device);
 
     return ret;
@@ -948,7 +948,7 @@ machine_xt_t1200_init(const machine_t *model)
                     NULL, MEM_MAPPING_EXTERNAL, &t1000);
 
     pit_devs[0].set_out_func(pit_devs[0].data, 1, pit_refresh_timer_xt);
-    device_add(&keyboard_xt_device);
+    device_add(&keyboard_xt_t1x00_device);
     t1000.fdc = device_add(&fdc_xt_t1x00_device);
     nmi_init();
 
@@ -957,7 +957,7 @@ machine_xt_t1200_init(const machine_t *model)
     t1200_nvr_load();
     nvr_set_ven_save(t1200_nvr_save);
 
-    if (gfxcard == VID_INTERNAL)
+    if (gfxcard[0] == VID_INTERNAL)
         device_add(&t1200_video_device);
 
     if (hdc_current <= 1)

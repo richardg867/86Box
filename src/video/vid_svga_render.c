@@ -1,20 +1,20 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
- *		running old operating systems and software designed for IBM
- *		PC systems and compatibles from 1981 through fairly recent
- *		system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *		This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *		SVGA renderers.
+ *          SVGA renderers.
  *
  *
  *
- * Authors:	Sarah Walker, <http://pcem-emulator.co.uk/>
- *		Miran Grca, <mgrca8@gmail.com>
+ * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
+ *          Miran Grca, <mgrca8@gmail.com>
  *
- *		Copyright 2008-2019 Sarah Walker.
- *		Copyright 2016-2019 Miran Grca.
+ *          Copyright 2008-2019 Sarah Walker.
+ *          Copyright 2016-2019 Miran Grca.
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -28,7 +28,6 @@
 #include <86box/vid_svga.h>
 #include <86box/vid_svga_render.h>
 #include <86box/vid_svga_render_remap.h>
-#include <86box/cli.h>
 
 void
 svga_render_null(svga_t *svga)
@@ -68,8 +67,8 @@ svga_render_blank(svga_t *svga)
             break;
     }
 
-    uint32_t *line_ptr   = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
-    uint32_t  line_width = (svga->hdisp + svga->scrollcache) * char_width * sizeof(uint32_t);
+    uint32_t *line_ptr   = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
+    uint32_t  line_width = (uint32_t) (svga->hdisp + svga->scrollcache) * char_width * sizeof(uint32_t);
     memset(line_ptr, 0, line_width);
 
 #ifdef USE_CLI
@@ -91,7 +90,7 @@ svga_render_overscan_left(svga_t *svga)
     if (svga->scrblank || (svga->hdisp == 0))
         return;
 
-    uint32_t *line_ptr = buffer32->line[svga->displine + svga->y_add];
+    uint32_t *line_ptr = svga->monitor->target_buffer->line[svga->displine + svga->y_add];
     for (i = 0; i < svga->x_add; i++)
         *line_ptr++ = svga->overscan_color;
 }
@@ -107,7 +106,7 @@ svga_render_overscan_right(svga_t *svga)
     if (svga->scrblank || (svga->hdisp == 0))
         return;
 
-    uint32_t *line_ptr = &buffer32->line[svga->displine + svga->y_add][svga->x_add + svga->hdisp];
+    uint32_t *line_ptr = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add + svga->hdisp];
     right              = (overscan_x >> 1);
     for (i = 0; i < right; i++)
         *line_ptr++ = svga->overscan_color;
@@ -132,16 +131,16 @@ svga_render_text_40(svga_t *svga)
     svga->lastline_draw = svga->displine;
 
     if (svga->fullchange) {
-        p    = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+        p    = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
         xinc = (svga->seqregs[1] & 1) ? 16 : 18;
 
 #ifdef USE_CLI
-        if ((svga->sc == 0) && (svga->displine < get_actual_size_y()))
-            cli_render_cga((svga->ma >> 2) / 40, svga->rowcount,
-                    svga->hdisp + svga->scrollcache, xinc,
-                    svga->vram, svga->ma, svga->vram_display_mask, 4,
-                    svga->crtc[0x17] & 0x80, svga->attrregs[0x10] & 0x08,
-                    svga->ca, !(svga->crtc[0x0a] & 0x20) && ((svga->crtc[0x0b] & 0x1f) >= (svga->crtc[0x0a] & 0x1f)));
+    if ((svga->sc == 0) && (svga->displine < get_actual_size_y()))
+        cli_render_cga((svga->ma >> 2) / 40, svga->rowcount,
+                svga->hdisp + svga->scrollcache, xinc,
+                svga->vram, svga->ma, svga->vram_display_mask, 4,
+                svga->crtc[0x17] & 0x80, svga->attrregs[0x10] & 0x08,
+                svga->ca, !(svga->crtc[0x0a] & 0x20) && ((svga->crtc[0x0b] & 0x1f) >= (svga->crtc[0x0a] & 0x1f)));
 #endif
 
         for (x = 0; x < (svga->hdisp + svga->scrollcache); x += xinc) {
@@ -215,16 +214,16 @@ svga_render_text_80(svga_t *svga)
     svga->lastline_draw = svga->displine;
 
     if (svga->fullchange) {
-        p    = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+        p    = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
         xinc = (svga->seqregs[1] & 1) ? 8 : 9;
 
 #ifdef USE_CLI
-        if ((svga->sc == 0) && (svga->displine < get_actual_size_y()))
-            cli_render_cga((svga->ma >> 2) / 80, svga->rowcount,
-                    svga->hdisp + svga->scrollcache, xinc,
-                    svga->vram, svga->ma, svga->vram_display_mask, 4,
-                    svga->crtc[0x17] & 0x80, svga->attrregs[0x10] & 0x08,
-                    svga->ca, !(svga->crtc[0x0a] & 0x20) && ((svga->crtc[0x0b] & 0x1f) >= (svga->crtc[0x0a] & 0x1f)));
+    if ((svga->sc == 0) && (svga->displine < get_actual_size_y()))
+        cli_render_cga((svga->ma >> 2) / 80, svga->rowcount,
+                svga->hdisp + svga->scrollcache, xinc,
+                svga->vram, svga->ma, svga->vram_display_mask, 4,
+                svga->crtc[0x17] & 0x80, svga->attrregs[0x10] & 0x08,
+                svga->ca, !(svga->crtc[0x0a] & 0x20) && ((svga->crtc[0x0b] & 0x1f) >= (svga->crtc[0x0a] & 0x1f)));
 #endif
 
         for (x = 0; x < (svga->hdisp + svga->scrollcache); x += xinc) {
@@ -301,7 +300,7 @@ svga_render_text_80_ksc5601(svga_t *svga)
         cli_render_gfx("VGA KSC5601");
 #endif
 
-        p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+        p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
         xinc = (svga->seqregs[1] & 1) ? 8 : 9;
 
@@ -427,7 +426,8 @@ svga_render_2bpp_lowres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -478,7 +478,8 @@ svga_render_2bpp_lowres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -530,7 +531,8 @@ svga_render_2bpp_highres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -581,7 +583,8 @@ svga_render_2bpp_highres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -631,9 +634,10 @@ svga_render_2bpp_headland_highres(svga_t *svga)
 
     if (svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange) {
 #ifdef USE_CLI
-            cli_render_gfx("VGA %dx%d");
+        cli_render_gfx("VGA %dx%d");
 #endif
-        p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+        p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
         if (svga->firstline_draw == 2000)
             svga->firstline_draw = svga->displine;
@@ -689,7 +693,8 @@ svga_render_4bpp_lowres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -752,7 +757,8 @@ svga_render_4bpp_lowres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -813,7 +819,8 @@ svga_render_4bpp_highres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -876,7 +883,8 @@ svga_render_4bpp_highres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -934,7 +942,8 @@ svga_render_8bpp_lowres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -960,7 +969,8 @@ svga_render_8bpp_lowres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -1012,7 +1022,8 @@ svga_render_8bpp_highres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -1043,7 +1054,8 @@ svga_render_8bpp_highres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -1098,7 +1110,8 @@ svga_render_8bpp_tseng_lowres(svga_t *svga)
 #ifdef USE_CLI
         cli_render_gfx("VGA %dx%d");
 #endif
-        p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+        p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
         if (svga->firstline_draw == 2000)
             svga->firstline_draw = svga->displine;
@@ -1143,7 +1156,8 @@ svga_render_8bpp_tseng_highres(svga_t *svga)
 #ifdef USE_CLI
         cli_render_gfx("VGA %dx%d");
 #endif
-        p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+        p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
         if (svga->firstline_draw == 2000)
             svga->firstline_draw = svga->displine;
@@ -1207,7 +1221,8 @@ svga_render_15bpp_lowres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -1234,7 +1249,8 @@ svga_render_15bpp_lowres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -1284,7 +1300,8 @@ svga_render_15bpp_highres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -1317,7 +1334,8 @@ svga_render_15bpp_highres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -1371,7 +1389,8 @@ svga_render_15bpp_mix_lowres(svga_t *svga)
 #ifdef USE_CLI
         cli_render_gfx("VGA %dx%d");
 #endif
-        p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+        p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
         if (svga->firstline_draw == 2000)
             svga->firstline_draw = svga->displine;
@@ -1409,7 +1428,7 @@ svga_render_15bpp_mix_highres(svga_t *svga)
 #ifdef USE_CLI
         cli_render_gfx("VGA %dx%d");
 #endif
-        p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+        p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
         if (svga->firstline_draw == 2000)
             svga->firstline_draw = svga->displine;
@@ -1457,7 +1476,8 @@ svga_render_16bpp_lowres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -1482,7 +1502,8 @@ svga_render_16bpp_lowres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -1532,7 +1553,7 @@ svga_render_16bpp_highres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -1565,7 +1586,7 @@ svga_render_16bpp_highres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -1626,6 +1647,7 @@ svga_render_24bpp_lowres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
+
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
             svga->lastline_draw = svga->displine;
@@ -1634,7 +1656,7 @@ svga_render_24bpp_lowres(svga_t *svga)
                 fg = svga->vram[svga->ma] | (svga->vram[svga->ma + 1] << 8) | (svga->vram[svga->ma + 2] << 16);
                 svga->ma += 3;
                 svga->ma &= svga->vram_display_mask;
-                buffer32->line[svga->displine + svga->y_add][(x << 1) + svga->x_add] = buffer32->line[svga->displine + svga->y_add][(x << 1) + 1 + svga->x_add] = fg;
+                svga->monitor->target_buffer->line[svga->displine + svga->y_add][(x << 1) + svga->x_add] = svga->monitor->target_buffer->line[svga->displine + svga->y_add][(x << 1) + 1 + svga->x_add] = fg;
             }
         }
     } else {
@@ -1644,7 +1666,8 @@ svga_render_24bpp_lowres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -1702,7 +1725,8 @@ svga_render_24bpp_highres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -1732,7 +1756,7 @@ svga_render_24bpp_highres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -1797,7 +1821,7 @@ svga_render_32bpp_lowres(svga_t *svga)
                 dat = svga->vram[svga->ma] | (svga->vram[svga->ma + 1] << 8) | (svga->vram[svga->ma + 2] << 16);
                 svga->ma += 4;
                 svga->ma &= svga->vram_display_mask;
-                buffer32->line[svga->displine + svga->y_add][(x << 1) + svga->x_add] = buffer32->line[svga->displine + svga->y_add][(x << 1) + 1 + svga->x_add] = dat;
+                svga->monitor->target_buffer->line[svga->displine + svga->y_add][(x << 1) + svga->x_add] = svga->monitor->target_buffer->line[svga->displine + svga->y_add][(x << 1) + 1 + svga->x_add] = dat;
             }
         }
     } else {
@@ -1807,7 +1831,8 @@ svga_render_32bpp_lowres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -1850,7 +1875,8 @@ svga_render_32bpp_highres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -1870,7 +1896,8 @@ svga_render_32bpp_highres(svga_t *svga)
 #ifdef USE_CLI
             cli_render_gfx("VGA %dx%d");
 #endif
-            p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+            p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
             if (svga->firstline_draw == 2000)
                 svga->firstline_draw = svga->displine;
@@ -1913,7 +1940,8 @@ svga_render_ABGR8888_highres(svga_t *svga)
 #ifdef USE_CLI
         cli_render_gfx("VGA %dx%d");
 #endif
-        p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+        p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
         if (svga->firstline_draw == 2000)
             svga->firstline_draw = svga->displine;
@@ -1955,7 +1983,8 @@ svga_render_RGBA8888_highres(svga_t *svga)
 #ifdef USE_CLI
         cli_render_gfx("VGA %dx%d");
 #endif
-        p = &buffer32->line[svga->displine + svga->y_add][svga->x_add];
+
+        p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
 
         if (svga->firstline_draw == 2000)
             svga->firstline_draw = svga->displine;

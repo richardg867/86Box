@@ -12,9 +12,9 @@
  *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *          Miran Grca, <mgrca8@gmail.com>
- *          Sarah Walker, <tommowalker@tommowalker.co.uk>
+ *          Sarah Walker, <https://pcem-emulator.co.uk/>
  *
- *          Copyright 2017,2018 Fred N. van Kempen.
+ *          Copyright 2017-2018 Fred N. van Kempen.
  *          Copyright 2016-2018 Miran Grca.
  *          Copyright 2008-2018 Sarah Walker.
  *
@@ -84,7 +84,7 @@ cbm_io_write(uint16_t port, uint8_t val, void *p)
 }
 
 static void
-cbm_io_init()
+cbm_io_init(void)
 {
     io_sethandler(0x0230, 0x0001, NULL, NULL, NULL, cbm_io_write, NULL, NULL, NULL);
 }

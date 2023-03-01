@@ -1,25 +1,25 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
- *		running old operating systems and software designed for IBM
- *		PC systems and compatibles from 1981 through fairly recent
- *		system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *		This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *		Emulation of the Olivetti OGC 8-bit ISA (GO708) and
- *      M21/M24/M28 16-bit bus (GO317/318/380/709) video cards.
+ *          Emulation of the Olivetti OGC 8-bit ISA (GO708) and
+ *          M21/M24/M28 16-bit bus (GO317/318/380/709) video cards.
  *
  *
  *
- * Authors:	Sarah Walker, <http://pcem-emulator.co.uk/>
- *		Miran Grca, <mgrca8@gmail.com>
- *		Fred N. van Kempen, <decwiz@yahoo.com>
- *		EngiNerd, <webmaster.crrc@yahoo.it>
+ * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
+ *          Miran Grca, <mgrca8@gmail.com>
+ *          Fred N. van Kempen, <decwiz@yahoo.com>
+ *          EngiNerd, <webmaster.crrc@yahoo.it>
  *
- *		Copyright 2008-2019 Sarah Walker.
- *		Copyright 2016-2019 Miran Grca.
- *		Copyright 2017-2019 Fred N. van Kempen.
- *		Copyright 2020 EngiNerd.
+ *          Copyright 2008-2019 Sarah Walker.
+ *          Copyright 2016-2019 Miran Grca.
+ *          Copyright 2017-2019 Fred N. van Kempen.
+ *          Copyright 2020      EngiNerd.
  */
 
 #include <stdio.h>
@@ -197,7 +197,6 @@ ogc_poll(void *priv)
     int      oldsc;
     int      blink     = 0;
     int      underline = 0;
-    uint8_t  border;
 
     // composito colore appare blu scuro
 
@@ -226,10 +225,10 @@ ogc_poll(void *priv)
 #ifdef USE_CLI
                     if ((ogc->cga.displine % 8) == 0)
                         cli_render_cga(ogc->cga.ma / ogc->cga.crtc[1], ogc->cga.crtc[9] & 0x1f,
-                                       ogc->cga.crtc[1], 1,
-                                       ogc->cga.charbuffer, 0, sizeof(ogc->cga.charbuffer) - 1, 1,
-                                       ogc->cga.cgamode & 0x08, ogc->cga.cgamode & 0x20,
-                                       ca - ogc->cga.ma, !(ogc->cga.crtc[0x0a] & 0x20) && ((ogc->cga.crtc[0x0b] & 0x1f) >= (ogc->cga.crtc[0x0a] & 0x1f)));
+                                ogc->cga.crtc[1], 1,
+                                ogc->cga.charbuffer, 0, sizeof(ogc->cga.charbuffer) - 1, 1,
+                                ogc->cga.cgamode & 0x08, ogc->cga.cgamode & 0x20,
+                                ca - ogc->cga.ma, !(ogc->cga.crtc[0x0a] & 0x20) && ((ogc->cga.crtc[0x0b] & 0x1f) >= (ogc->cga.crtc[0x0a] & 0x1f)));
 #endif
                     /* for each text column */
                     for (x = 0; x < ogc->cga.crtc[1]; x++) {
@@ -287,10 +286,10 @@ ogc_poll(void *priv)
 #ifdef USE_CLI
                     if ((ogc->cga.displine % 8) == 0)
                         cli_render_cga(ogc->cga.ma / ogc->cga.crtc[1], ogc->cga.crtc[9] & 0x1f,
-                                       ogc->cga.crtc[1], 1,
-                                       ogc->cga.charbuffer, 0, sizeof(ogc->cga.charbuffer) - 1, 1,
-                                       ogc->cga.cgamode & 0x08, ogc->cga.cgamode & 0x20,
-                                       ca - ogc->cga.ma, !(ogc->cga.crtc[0x0a] & 0x20) && ((ogc->cga.crtc[0x0b] & 0x1f) >= (ogc->cga.crtc[0x0a] & 0x1f)));
+                                ogc->cga.crtc[1], 1,
+                                ogc->cga.charbuffer, 0, sizeof(ogc->cga.charbuffer) - 1, 1,
+                                ogc->cga.cgamode & 0x08, ogc->cga.cgamode & 0x20,
+                                ca - ogc->cga.ma, !(ogc->cga.crtc[0x0a] & 0x20) && ((ogc->cga.crtc[0x0b] & 0x1f) >= (ogc->cga.crtc[0x0a] & 0x1f)));
 #endif
                     for (x = 0; x < ogc->cga.crtc[1]; x++) {
                         if (ogc->cga.cgamode & 8) {
@@ -339,9 +338,6 @@ ogc_poll(void *priv)
                         ogc->cga.ma++;
                     }
                 } else {
-#ifdef USE_CLI
-                    cli_render_gfx("OGC %dx%d");
-#endif
                     /* 640x400 mode */
                     if (ogc->ctrl_3de & 1) {
                         dat2    = ((ogc->cga.sc & 1) * 0x4000) | (ogc->lineff * 0x2000);
@@ -363,22 +359,21 @@ ogc_poll(void *priv)
                         ogc->cga.ma++;
 
                         for (c = 0; c < 16; c++) {
+#ifdef USE_CLI
+                            cli_render_gfx("OGC %dx%d");
+#endif
                             buffer32->line[ogc->cga.displine][(x << 4) + c + 8] = cols[dat >> 15];
                             dat <<= 1;
                         }
                     }
                 }
             } else {
-
                 /* ogc specific */
                 cols[0] = ((ogc->cga.cgamode & 0x12) == 0x12) ? 0 : (ogc->cga.cgacol & 15) + 16;
-                if (ogc->cga.cgamode & 1) {
-                    hline(buffer32, 0, (ogc->cga.displine << 1), ((ogc->cga.crtc[1] << 3) + 16) << 2, cols[0]);
-                    hline(buffer32, 0, (ogc->cga.displine << 1) + 1, ((ogc->cga.crtc[1] << 3) + 16) << 2, cols[0]);
-                } else {
-                    hline(buffer32, 0, (ogc->cga.displine << 1), ((ogc->cga.crtc[1] << 4) + 16) << 2, cols[0]);
-                    hline(buffer32, 0, (ogc->cga.displine << 1) + 1, ((ogc->cga.crtc[1] << 4) + 16) << 2, cols[0]);
-                }
+                if (ogc->cga.cgamode & 1)
+                    hline(buffer32, 0, ogc->cga.displine, ((ogc->cga.crtc[1] << 3) + 16) << 2, cols[0]);
+                else
+                    hline(buffer32, 0, ogc->cga.displine, ((ogc->cga.crtc[1] << 4) + 16) << 2, cols[0]);
             }
 
             /* 80 columns */
@@ -387,15 +382,7 @@ ogc_poll(void *priv)
             else
                 x = (ogc->cga.crtc[1] << 4) + 16;
 
-            if (ogc->cga.composite) {
-                if (ogc->cga.cgamode & 0x10)
-                    border = 0x00;
-                else
-                    border = ogc->cga.cgacol & 0x0f;
-
-                Composite_Process(ogc->cga.cgamode, border, x >> 2, buffer32->line[(ogc->cga.displine << 1)]);
-                Composite_Process(ogc->cga.cgamode, border, x >> 2, buffer32->line[(ogc->cga.displine << 1) + 1]);
-            }
+            video_process_8(x, ogc->cga.displine);
 
             ogc->cga.sc = oldsc;
             if (ogc->cga.vc == ogc->cga.crtc[7] && !ogc->cga.sc)
@@ -498,19 +485,11 @@ ogc_poll(void *priv)
                                 }
                                 /* ogc specific */
                                 if (enable_overscan) {
-                                    if (ogc->cga.composite)
-                                        video_blit_memtoscreen(0, (ogc->cga.firstline - 8),
-                                                               xsize, (ogc->cga.lastline - ogc->cga.firstline) + 16);
-                                    else
-                                        video_blit_memtoscreen_8(0, (ogc->cga.firstline - 8),
-                                                                 xsize, (ogc->cga.lastline - ogc->cga.firstline) + 16);
+                                    video_blit_memtoscreen(0, (ogc->cga.firstline - 8),
+                                                           xsize, (ogc->cga.lastline - ogc->cga.firstline) + 16);
                                 } else {
-                                    if (ogc->cga.composite)
-                                        video_blit_memtoscreen(8, ogc->cga.firstline,
-                                                               xsize, (ogc->cga.lastline - ogc->cga.firstline));
-                                    else
-                                        video_blit_memtoscreen_8(8, ogc->cga.firstline,
-                                                                 xsize, (ogc->cga.lastline - ogc->cga.firstline));
+                                    video_blit_memtoscreen(8, ogc->cga.firstline,
+                                                           xsize, (ogc->cga.lastline - ogc->cga.firstline));
                                 }
                             }
                             frames++;
@@ -576,7 +555,7 @@ ogc_speed_changed(void *priv)
 }
 
 void
-ogc_mdaattr_rebuild()
+ogc_mdaattr_rebuild(void)
 {
     int c;
 
@@ -687,7 +666,7 @@ const device_config_t ogc_m24_config[] = {
     {
         .type = CONFIG_END
     }
-// clang-format on
+  // clang-format on
 };
 
 const device_t ogc_m24_device = {

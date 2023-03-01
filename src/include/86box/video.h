@@ -1,5 +1,5 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
  *          running old operating systems and software designed for IBM
  *          PC systems and compatibles from 1981 through fairly recent
  *          system designs based on the PCI bus.
@@ -10,7 +10,7 @@
  *
  *
  *
- * Authors: Sarah Walker, <http://pcem-emulator.co.uk/>
+ * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
  *
@@ -132,17 +132,16 @@ extern monitor_t          monitors[MONITORS_NUM];
 extern monitor_settings_t monitor_settings[MONITORS_NUM];
 extern atomic_bool        doresize_monitors[MONITORS_NUM];
 extern int                monitor_index_global;
-extern int                gfxcard_2;
 extern int                show_second_monitors;
 extern int                video_fullscreen_scale_maximized;
 
 typedef rgb_t PALETTE[256];
 
-// extern int	changeframecount;
+// extern int changeframecount;
 
 extern volatile int screenshots;
-extern void	(*screenshot_hook)(char *path, uint32_t *buf, int start_x, int start_y, int w, int h, int row_len);
-// extern bitmap_t	*buffer32;
+extern void                  (*screenshot_hook)(char *path, uint32_t *buf, int start_x, int start_y, int w, int h, int row_len);
+// extern bitmap_t *buffer32;
 #define buffer32             (monitors[monitor_index_global].target_buffer)
 #define pal_lookup           (monitors[monitor_index_global].mon_pal_lookup)
 #define overscan_x           (monitors[monitor_index_global].mon_overscan_x)
@@ -228,7 +227,7 @@ extern void video_setblit(void (*blit)(int, int, int, int, int));
 extern void video_blend(int x, int y);
 extern void video_blit_memtoscreen_8(int x, int y, int w, int h);
 extern void video_blend_monitor(int x, int y, int monitor_index);
-extern void video_blit_memtoscreen_8_monitor(int x, int y, int w, int h, int monitor_index);
+extern void video_process_8_monitor(int x, int y, int monitor_index);
 extern void video_blit_memtoscreen_monitor(int x, int y, int w, int h, int monitor_index);
 extern void video_blit_complete_monitor(int monitor_index);
 extern void video_wait_for_blit_monitor(int monitor_index);
@@ -263,7 +262,7 @@ extern uint32_t video_color_transform(uint32_t color);
 #define video_get_type()                      video_get_type_monitor(0)
 #define video_blend(x, y)                     video_blend_monitor(x, y, monitor_index_global)
 #define video_blit_memtoscreen(x, y, w, h)    video_blit_memtoscreen_monitor(x, y, w, h, monitor_index_global)
-#define video_blit_memtoscreen_8(x, y, w, h)  video_blit_memtoscreen_8_monitor(x, y, w, h, monitor_index_global)
+#define video_process_8(x, y)                 video_process_8_monitor(x, y, monitor_index_global)
 #define video_blit_complete()                 video_blit_complete_monitor(monitor_index_global)
 #define video_wait_for_blit()                 video_wait_for_blit_monitor(monitor_index_global)
 #define video_wait_for_buffer()               video_wait_for_buffer_monitor(monitor_index_global)
@@ -521,12 +520,20 @@ extern const device_t ps1vga_mca_device;
 extern const device_t voodoo_device;
 extern const device_t voodoo_banshee_device;
 extern const device_t creative_voodoo_banshee_device;
+extern const device_t voodoo_3_1000_device;
+extern const device_t voodoo_3_1000_agp_device;
 extern const device_t voodoo_3_2000_device;
 extern const device_t voodoo_3_2000_agp_device;
 extern const device_t voodoo_3_2000_agp_onboard_8m_device;
 extern const device_t voodoo_3_3000_device;
 extern const device_t voodoo_3_3000_agp_device;
+extern const device_t voodoo_3_3500_agp_ntsc_device;
+extern const device_t voodoo_3_3500_agp_pal_device;
+extern const device_t compaq_voodoo_3_3500_agp_device;
+extern const device_t voodoo_3_3500_se_agp_device;
+extern const device_t voodoo_3_3500_si_agp_device;
 extern const device_t velocity_100_agp_device;
+extern const device_t velocity_200_agp_device;
 
 /* Wyse 700 */
 extern const device_t wy700_device;

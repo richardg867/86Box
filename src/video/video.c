@@ -1,52 +1,52 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
- *		running old operating systems and software designed for IBM
- *		PC systems and compatibles from 1981 through fairly recent
- *		system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *		This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *		Main video-rendering module.
+ *          Main video-rendering module.
  *
- *		Video timing settings -
+ *          Video timing settings -
  *
- *		8-bit - 1mb/sec
- *		B = 8 ISA clocks
- *		W = 16 ISA clocks
- *		L = 32 ISA clocks
+ *            8-bit - 1mb/sec
+ *              B = 8 ISA clocks
+ *              W = 16 ISA clocks
+ *              L = 32 ISA clocks
  *
- *		Slow 16-bit - 2mb/sec
- *		B = 6 ISA clocks
- *		W = 8 ISA clocks
- *		L = 16 ISA clocks
+ *            Slow 16-bit - 2mb/sec
+ *              B = 6 ISA clocks
+ *              W = 8 ISA clocks
+ *              L = 16 ISA clocks
  *
- *		Fast 16-bit - 4mb/sec
- *		B = 3 ISA clocks
- *		W = 3 ISA clocks
- *		L = 6 ISA clocks
+ *            Fast 16-bit - 4mb/sec
+ *              B = 3 ISA clocks
+ *              W = 3 ISA clocks
+ *              L = 6 ISA clocks
  *
- *		Slow VLB/PCI - 8mb/sec (ish)
- *		B = 4 bus clocks
- *		W = 8 bus clocks
- *		L = 16 bus clocks
+ *            Slow VLB/PCI - 8mb/sec (ish)
+ *              B = 4 bus clocks
+ *              W = 8 bus clocks
+ *              L = 16 bus clocks
  *
- *		Mid VLB/PCI -
- *		B = 4 bus clocks
- *		W = 5 bus clocks
- *		L = 10 bus clocks
+ *            Mid VLB/PCI -
+ *              B = 4 bus clocks
+ *              W = 5 bus clocks
+ *              L = 10 bus clocks
  *
- *		Fast VLB/PCI -
- *		B = 3 bus clocks
- *		W = 3 bus clocks
- *		L = 4 bus clocks
+ *            Fast VLB/PCI -
+ *              B = 3 bus clocks
+ *              W = 3 bus clocks
+ *              L = 4 bus clocks
  *
  *
  *
- * Authors:	Sarah Walker, <http://pcem-emulator.co.uk/>
- *		Miran Grca, <mgrca8@gmail.com>
+ * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
+ *          Miran Grca, <mgrca8@gmail.com>
  *
- *		Copyright 2008-2019 Sarah Walker.
- *		Copyright 2016-2019 Miran Grca.
+ *          Copyright 2008-2019 Sarah Walker.
+ *          Copyright 2016-2019 Miran Grca.
  */
 #include <stdatomic.h>
 #define PNG_DEBUG 0
@@ -78,11 +78,12 @@
 #include <minitrace/minitrace.h>
 
 volatile int screenshots = 0;
-#ifdef USE_CLI
-int cli_blit = 0;
-#endif
-void         (*screenshot_hook)(char *path, uint32_t *buf, int start_x, int start_y, int w, int h, int row_len) = NULL;
 uint8_t      edatlookup[4][4];
+#ifdef USE_CLI
+int          cli_blit = 0;
+#endif
+void       (*screenshot_hook)(char *path, uint32_t *buf, int start_x, int start_y, int w, int h, int row_len) = NULL;
+//bitmap_t    *buffer32 = NULL;
 uint8_t      fontdat[2048][8];            /* IBM CGA font */
 uint8_t      fontdatm[2048][16];          /* IBM MDA font */
 uint8_t      fontdatw[512][32];           /* Wyse700 font */
@@ -110,7 +111,6 @@ void *__cdecl (*video_copy)(void *_Dst, const void *_Src, size_t _Size) = memcpy
 #else
 void *(*video_copy)(void *__restrict, const void *__restrict, size_t);
 #endif
-
 
 PALETTE		cgapal = {
     {0,0,0},    {0,42,0},   {42,0,0},   {42,21,0},
@@ -177,7 +177,6 @@ PALETTE		cgapal_mono[6] = {
 	{0x34,0x35,0x33},{0x37,0x37,0x34},{0x3e,0x3e,0x3a},{0x3f,0x3f,0x3b},
     }
 };
-
 
 const uint32_t shade[5][256] =
 {
@@ -393,6 +392,7 @@ void
 video_screenshot_monitor(uint32_t *buf, int start_x, int start_y, int row_len, int monitor_index)
 {
     char path[1024], fn[256];
+    blit_data_t *blit_data_ptr = monitors[monitor_index].mon_blit_data_ptr;
 
     memset(fn, 0, sizeof(fn));
     memset(path, 0, sizeof(path));
@@ -415,9 +415,9 @@ video_screenshot_monitor(uint32_t *buf, int start_x, int start_y, int row_len, i
     png_destroy_write_struct(&png_ptr[monitor_index], &info_ptr[monitor_index]);
 
     atomic_fetch_sub(&monitors[monitor_index].mon_screenshots, 1);
-}
+
     if (screenshot_hook)
-	screenshot_hook(path, buf, start_x, start_y, blit_data.w, blit_data.h, row_len);
+        screenshot_hook(path, buf, start_x, start_y, blit_data_ptr->w, blit_data_ptr->h, row_len);
 
     screenshots--;
 }
@@ -462,11 +462,12 @@ blit_thread(void *param)
         MTR_BEGIN("video", "blit_thread");
 
 #ifdef USE_CLI
-    if (cli_blit) {
-        if (buffer32 != NULL)
-            cli_render_gfx_blit(buffer32, blit_data.x, blit_data.y, blit_data.w, blit_data.h);
-    }
+//        if (cli_blit) {
+//          if (buffer32 != NULL)
+//                cli_render_gfx_blit(buffer32, data.x, data.y, data.w, data.h);
+//        }
 #endif
+
         if (blit_func)
             blit_func(data->x, data->y, data->w, data->h, data->monitor_index);
 
@@ -552,24 +553,16 @@ video_blend_monitor(int x, int y, int monitor_index)
 }
 
 void
-video_blit_memtoscreen_8_monitor(int x, int y, int w, int h, int monitor_index)
+video_process_8_monitor(int x, int y, int monitor_index)
 {
-    int yy, xx;
+    int xx;
 
-    if ((w > 0) && (h > 0)) {
-        for (yy = 0; yy < h; yy++) {
-            if ((y + yy) >= 0 && (y + yy) < monitors[monitor_index].target_buffer->h) {
-                for (xx = 0; xx < w; xx++) {
-                    if (monitors[monitor_index].target_buffer->line[y + yy][x + xx] <= 0xff)
-                        monitors[monitor_index].target_buffer->line[y + yy][x + xx] = monitors[monitor_index].mon_pal_lookup[monitors[monitor_index].target_buffer->line[y + yy][x + xx]];
-                    else
-                        monitors[monitor_index].target_buffer->line[y + yy][x + xx] = 0x00000000;
-                }
-            }
-        }
+    for (xx = 0; xx < x; xx++) {
+        if (monitors[monitor_index].target_buffer->line[y][xx] <= 0xff)
+            monitors[monitor_index].target_buffer->line[y][xx] = monitors[monitor_index].mon_pal_lookup[monitors[monitor_index].target_buffer->line[y][xx]];
+        else
+            monitors[monitor_index].target_buffer->line[y][xx] = 0x00000000;
     }
-
-    video_blit_memtoscreen_monitor(x, y, w, h, monitor_index);
 }
 
 void
@@ -828,7 +821,7 @@ create_bitmap(int x, int y)
     bitmap_t *b = malloc(sizeof(bitmap_t) + (y * sizeof(uint32_t *)));
     int       c;
 
-    b->dat = malloc(x * y * 4);
+    b->dat = malloc((size_t) x * y * 4);
     for (c = 0; c < y; c++)
         b->line[c] = &(b->dat[c * x]);
     b->w = x;
@@ -1100,12 +1093,11 @@ loadfont_common(FILE *f, int format)
                 (void) !fread(&fontdat12x18[c][0], 1, 36, f);
             break;
 
-        case 10: /* Pravetz */
+        case 10:                       /* Pravetz */
             for (c = 0; c < 1024; c++) /* Allow up to 1024 chars */
                 for (d = 0; d < 8; d++)
                     fontdat[c][d] = fgetc(f) & 0xff;
             break;
-
     }
 
     (void) fclose(f);

@@ -10,7 +10,7 @@
  *
  *
  *
- * Authors:  Sarah Walker, <http://pcem-emulator.co.uk/>
+ * Authors:  Sarah Walker, <https://pcem-emulator.co.uk/>
  *           Miran Grca, <mgrca8@gmail.com>
  *
  *           Copyright 2008-2019 Sarah Walker.
@@ -78,20 +78,20 @@ speaker_update(void)
             if (!speaker_enable)
                 was_speaker_enable = 0;
 
-		speaker_buffer[speaker_pos] = val;
+            speaker_buffer[speaker_pos] = val;
 
 #ifdef USE_CLI
-		if ((!!val) ^ speaker_bell) {
-			speaker_bell = !!val;
-			if (speaker_bell && (speaker_bell_cycles > 26)) {
-				fprintf(stderr, "\x07");
-				fflush(stderr);
-			}
-			speaker_bell_cycles = 0;
-		}
-		speaker_bell_cycles++;
+            if ((!!val) ^ speaker_bell) {
+                speaker_bell = !!val;
+                if (speaker_bell && (speaker_bell_cycles > 26)) {
+                    fprintf(stderr, "\x07");
+                    fflush(stderr);
+                }
+                speaker_bell_cycles = 0;
+            }
+            speaker_bell_cycles++;
 #endif
-	    }
+        }
     }
 }
 

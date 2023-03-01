@@ -13,8 +13,8 @@
  * Authors: Cacodemon345
  *          RichardG, <richardg867@gmail.com>
  *
- *          Copyright 2021 Cacodemon345.
- *          Copyright 2021-2022 RichardG.
+ *          Copyright 2021-2023 Cacodemon345.
+ *          Copyright 2021-2023 RichardG.
  */
 #include <errno.h>
 #include <stdint.h>
@@ -997,7 +997,7 @@ cli_monitor_init(int independent)
 }
 
 void
-cli_monitor_close()
+cli_monitor_close(void)
 {
 #ifndef _WIN32
     /* Stop and close libedit. */

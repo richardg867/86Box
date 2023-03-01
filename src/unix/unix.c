@@ -244,37 +244,37 @@ plat_get_string(int i)
             return L"Press CTRL-END or middle button to release mouse";
         case IDS_2080:
             return L"Failed to initialize FluidSynth";
-        case IDS_2130:
+        case IDS_2131:
             return L"Invalid configuration";
         case IDS_4099:
             return L"MFM/RLL or ESDI CD-ROM drives never existed";
-        case IDS_2093:
-            return L"Failed to set up PCap";
         case IDS_2094:
-            return L"No PCap devices found";
+            return L"Failed to set up PCap";
         case IDS_2095:
+            return L"No PCap devices found";
+        case IDS_2096:
             return L"Invalid PCap device";
-        case IDS_2110:
-            return L"Unable to initialize FreeType";
         case IDS_2111:
+            return L"Unable to initialize FreeType";
+        case IDS_2112:
             return L"Unable to initialize SDL, libsdl2 is required";
-        case IDS_2131:
-            return L"libfreetype is required for ESC/P printer emulation.";
         case IDS_2132:
-            return L"libgs is required for automatic conversion of PostScript files to PDF.\n\nAny documents sent to the generic PostScript printer will be saved as PostScript (.ps) files.";
+            return L"libfreetype is required for ESC/P printer emulation.";
         case IDS_2133:
+            return L"libgs is required for automatic conversion of PostScript files to PDF.\n\nAny documents sent to the generic PostScript printer will be saved as PostScript (.ps) files.";
+        case IDS_2134:
             return L"libfluidsynth is required for FluidSynth MIDI output.";
-        case IDS_2129:
+        case IDS_2130:
             return L"Make sure libpcap is installed and that you are on a libpcap-compatible network connection.";
-        case IDS_2114:
+        case IDS_2115:
             return L"Unable to initialize Ghostscript";
         case IDS_2063:
             return L"Machine \"%hs\" is not available due to missing ROMs in the roms/machines directory. Switching to an available machine.";
         case IDS_2064:
             return L"Video card \"%hs\" is not available due to missing ROMs in the roms/video directory. Switching to an available video card.";
-        case IDS_2128:
+        case IDS_2129:
             return L"Hardware not available";
-        case IDS_2142:
+        case IDS_2143:
             return L"Monitor in sleep mode";
     }
     return L"";
@@ -468,12 +468,12 @@ ui_sb_update_tip(int arg)
 }
 
 void
-ui_sb_update_panes()
+ui_sb_update_panes(void)
 {
 }
 
 void
-ui_sb_update_text()
+ui_sb_update_text(void)
 {
 }
 
@@ -624,11 +624,11 @@ ui_msgbox_header(int flags, void *header, void *message)
     SDL_MessageBoxData       msgdata;
     SDL_MessageBoxButtonData msgbtn;
     if (!header)
-        header = (flags & MBX_ANSI) ? "86Box" : L"86Box";
+        header = (void *) (flags & MBX_ANSI) ? "86Box" : L"86Box";
     if (header <= (void *) 7168)
-        header = plat_get_string(header);
+        header = (void *) plat_get_string((int) header);
     if (message <= (void *) 7168)
-        message = plat_get_string(message);
+        message = (void *) plat_get_string((int) message);
     msgbtn.buttonid = 1;
     msgbtn.text     = "OK";
     msgbtn.flags    = 0;
@@ -699,14 +699,14 @@ typedef struct mouseinputdata {
 SDL_mutex            *mousemutex;
 static mouseinputdata mousedata;
 void
-mouse_poll()
+mouse_poll(void)
 {
     SDL_LockMutex(mousemutex);
     mouse_x          = mousedata.deltax;
     mouse_y          = mousedata.deltay;
     mouse_z          = mousedata.deltaz;
     mousedata.deltax = mousedata.deltay = mousedata.deltaz = 0;
-    mouse_buttons    = mousedata.mousebuttons;
+    mouse_buttons                                          = mousedata.mousebuttons;
     SDL_UnlockMutex(mousemutex);
 }
 
@@ -754,7 +754,7 @@ plat_pause(int p)
 }
 
 void
-plat_init_rom_paths()
+plat_init_rom_paths(void)
 {
 #ifndef __APPLE__
     if (getenv("XDG_DATA_HOME")) {
@@ -810,7 +810,18 @@ plat_init_rom_paths()
 #endif
 }
 
-uint32_t timer_onesec(uint32_t interval, void* param)
+void
+plat_get_global_config_dir(char *strptr)
+{
+#ifdef __APPLE__
+    char *prefPath = SDL_GetPrefPath(NULL, "net.86Box.86Box")
+#else
+    char *prefPath = SDL_GetPrefPath(NULL, "86Box");
+#endif
+    strncpy(strptr, prefPath, 1024);
+    path_slash(strptr);
+}
+
 uint32_t
 timer_onesec(uint32_t interval, void *param)
 {
@@ -818,7 +829,7 @@ timer_onesec(uint32_t interval, void *param)
     return interval;
 }
 
-extern int gfxcard_2;
+extern int gfxcard[2];
 int
 main(int argc, char **argv)
 {
@@ -832,7 +843,7 @@ main(int argc, char **argv)
         return 6;
     }
 
-    gfxcard_2   = 0;
+    gfxcard[1]  = 0;
     eventthread = SDL_ThreadID();
     blitmtx     = SDL_CreateMutex();
     if (!blitmtx) {
@@ -935,7 +946,7 @@ main(int argc, char **argv)
                 case SDL_RENDER_DEVICE_RESET:
                 case SDL_RENDER_TARGETS_RESET:
                     {
-                        extern void sdl_reinit_texture();
+                        extern void sdl_reinit_texture(void);
                         sdl_reinit_texture();
                         break;
                     }
@@ -971,7 +982,7 @@ main(int argc, char **argv)
             sdl_blit(params.x, params.y, params.w, params.h);
         }
         if (title_set) {
-            extern void ui_window_title_real();
+            extern void ui_window_title_real(void);
             ui_window_title_real();
         }
         if (video_fullscreen && keyboard_isfsexit()) {
@@ -1034,13 +1045,13 @@ joystick_process(void)
 {
 }
 void
-startblit()
+startblit(void)
 {
     SDL_LockMutex(blitmtx);
 }
 
 void
-endblit()
+endblit(void)
 {
     SDL_UnlockMutex(blitmtx);
 }
@@ -1048,5 +1059,10 @@ endblit()
 /* API */
 void
 ui_sb_mt32lcd(char *str)
+{
+}
+
+void
+ui_hard_reset_completed(void)
 {
 }

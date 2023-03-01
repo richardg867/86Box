@@ -1,16 +1,16 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
- *		running old operating systems and software designed for IBM
- *		PC systems and compatibles from 1981 through fairly recent
- *		system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *		This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *		Epson Equity LT portable computer emulation.
+ *          Epson Equity LT portable computer emulation.
  *
- * Author:	Lubomir Rintel, <lkundrak@v3.sk>
+ * Authors: Lubomir Rintel, <lkundrak@v3.sk>
  *
- *		Copyright 2022 Lubomir Rintel.
+ *          Copyright 2022 Lubomir Rintel.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@
  *
  * This program is  distributed in the hope that it will be useful, but
  * WITHOUT   ANY  WARRANTY;  without  even   the  implied  warranty  of
- * MERCHANTABILITY  or FITNESS	FOR A PARTICULAR  PURPOSE. See	the GNU
+ * MERCHANTABILITY  or FITNESS  FOR A PARTICULAR  PURPOSE. See  the GNU
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
@@ -31,7 +31,6 @@
  *   USA.
  */
 
-// clang-format off
 #include <stdint.h>
 #include <stdio.h>
 #include <time.h>
@@ -51,7 +50,6 @@
 #include <86box/rom.h>
 #include <86box/video.h>
 #include <86box/vid_cga.h>
-// clang-format on
 
 static void
 elt_vid_off_poll(void *p)
@@ -180,7 +178,7 @@ machine_elt_init(const machine_t *model)
     if (fdc_type == FDC_INTERNAL)
         device_add(&fdc_xt_device);
 
-    if (gfxcard == VID_INTERNAL) {
+    if (gfxcard[0] == VID_INTERNAL) {
         cga = device_add(&cga_device);
         io_removehandler(0x03d0, 0x0010, cga_in, NULL, NULL, cga_out, NULL, NULL, cga);
         io_sethandler(0x03d0, 0x0010, elt_vid_in, NULL, NULL, elt_vid_out, NULL, NULL, cga);

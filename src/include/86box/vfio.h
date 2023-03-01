@@ -1,22 +1,22 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
- *		running old operating systems and software designed for IBM
- *		PC systems and compatibles from 1981 through fairly recent
- *		system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *		This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *		Definitions for Virtual Function I/O PCI passthrough.
+ *          Definitions for Virtual Function I/O PCI passthrough.
  *
  *
  *
- * Author:	RichardG, <richardg867@gmail.com>
+ * Authors: RichardG, <richardg867@gmail.com>
  *
- *		Copyright 2021 RichardG.
+ *          Copyright 2021-2023 RichardG.
  */
 #if !defined(EMU_VFIO_H) && defined(USE_VFIO)
 #    define EMU_VFIO_H
 
-extern void vfio_init();
+extern void vfio_init(void);
 
 #endif

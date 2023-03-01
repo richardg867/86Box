@@ -1,20 +1,20 @@
 /*
- * 86Box	A hypervisor and IBM PC system emulator that specializes in
- *		running old operating systems and software designed for IBM
- *		PC systems and compatibles from 1981 through fairly recent
- *		system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *		This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *		Hercules Plus emulation.
+ *          Hercules Plus emulation.
  *
  *
  *
- * Authors:	Sarah Walker, <http://pcem-emulator.co.uk/>
- *		Miran Grca, <mgrca8@gmail.com>
+ * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
+ *          Miran Grca, <mgrca8@gmail.com>
  *
- *		Copyright 2008-2018 Sarah Walker.
- *		Copyright 2016-2018 Miran Grca.
+ *          Copyright 2008-2018 Sarah Walker.
+ *          Copyright 2016-2018 Miran Grca.
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -424,9 +424,9 @@ text_line(herculesplus_t *dev, uint16_t ca)
         c = dev->crtc[HERCULESPLUS_CRTC_XMODE] & 5;
         if ((c == 0) || (c == 4))
             cli_render_mda(dev->crtc[1], dev->crtc[9] & 0x1f,
-                    dev->vram, dev->ma,
-                    dev->ctrl & 8, dev->ctrl & 0x20,
-                    ca, !(dev->crtc[0x0a] & 0x20) && ((dev->crtc[0x0b] & 0x1f) >= (dev->crtc[0x0a] & 0x1f)));
+                           dev->vram, dev->ma,
+                           dev->ctrl & 8, dev->ctrl & 0x20,
+                           ca, !(dev->crtc[0x0a] & 0x20) && ((dev->crtc[0x0b] & 0x1f) >= (dev->crtc[0x0a] & 0x1f)));
         else
             cli_render_gfx("Hercules Plus RAMfont");
     }
@@ -527,6 +527,13 @@ herculesplus_poll(void *priv)
                 graphics_line(dev);
             else
                 text_line(dev, ca);
+
+            if ((dev->ctrl & HERCULESPLUS_CTRL_GRAPH) && (dev->ctrl2 & HERCULESPLUS_CTRL2_GRAPH))
+                x = dev->crtc[1] << 4;
+            else
+                x = dev->crtc[1] * 9;
+
+            video_process_8(x, dev->displine);
         }
         dev->sc = oldsc;
         if (dev->vc == dev->crtc[7] && !dev->sc)
@@ -601,7 +608,7 @@ herculesplus_poll(void *priv)
                         if (video_force_resize_get())
                             video_force_resize_set(0);
                     }
-                    video_blit_memtoscreen_8(0, dev->firstline, xsize, dev->lastline - dev->firstline);
+                    video_blit_memtoscreen(0, dev->firstline, xsize, dev->lastline - dev->firstline);
                     frames++;
                     if ((dev->ctrl & HERCULESPLUS_CTRL_GRAPH) && (dev->ctrl2 & HERCULESPLUS_CTRL2_GRAPH)) {
                         video_res_x = dev->crtc[1] * 16;
@@ -747,7 +754,7 @@ static const device_config_t herculesplus_config[] = {
     {
         .type = CONFIG_END
     }
-// clang-format on
+  // clang-format on
 };
 
 const device_t herculesplus_device = {
