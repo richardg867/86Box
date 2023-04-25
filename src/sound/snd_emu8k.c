@@ -314,7 +314,7 @@ emu8k_log(const char *fmt, ...)
 #    define emu8k_log(fmt, ...)
 #endif
 
-static inline int16_t
+static int16_t
 EMU8K_READ(emu8k_t *emu8k, uint32_t addr)
 {
     const register emu8k_mem_pointers_t addrmem = { { addr } };
@@ -330,8 +330,8 @@ EMU8K_READ_INTERP_LINEAR(emu8k_t *emu8k, uint32_t int_addr, uint16_t fract)
      * Also, it has the consequence that the playback is delayed by one sample.
      * I simulate the "one sample later" than the address with addr+1 and addr+2
      * instead of +0 and +1 */
-    int16_t dat1 = EMU8K_READ(emu8k, int_addr + 1);
-    int32_t dat2 = EMU8K_READ(emu8k, int_addr + 2);
+    int16_t dat1 = emu8k->read(emu8k, int_addr + 1);
+    int32_t dat2 = emu8k->read(emu8k, int_addr + 2);
     dat1 += ((dat2 - (int32_t) dat1) * fract) >> 16;
     return dat1;
 }
@@ -356,17 +356,17 @@ EMU8K_READ_INTERP_CUBIC(emu8k_t *emu8k, uint32_t int_addr, uint16_t fract)
      * Also, it takes into account the "Note that the actual audio location is the point
      * 1 word higher than this value due to interpolation offset".
      * That's why the pointers are 0, 1, 2, 3 and not -1, 0, 1, 2 */
-    int32_t       dat2  = EMU8K_READ(emu8k, int_addr + 1);
+    int32_t       dat2  = emu8k->read(emu8k, int_addr + 1);
     const float  *table = &cubic_table[fract];
-    const int32_t dat1  = EMU8K_READ(emu8k, int_addr);
-    const int32_t dat3  = EMU8K_READ(emu8k, int_addr + 2);
-    const int32_t dat4  = EMU8K_READ(emu8k, int_addr + 3);
+    const int32_t dat1  = emu8k->read(emu8k, int_addr);
+    const int32_t dat3  = emu8k->read(emu8k, int_addr + 2);
+    const int32_t dat4  = emu8k->read(emu8k, int_addr + 3);
     /* Note: I've ended using float for the table values to avoid some cases of integer overflow. */
     dat2 = dat1 * table[0] + dat2 * table[1] + dat3 * table[2] + dat4 * table[3];
     return dat2;
 }
 
-static inline void
+static void
 EMU8K_WRITE(emu8k_t *emu8k, uint32_t addr, uint16_t val)
 {
     addr &= EMU8K_MEM_ADDRESS_MASK;
@@ -598,7 +598,7 @@ emu8k_inw(uint16_t addr, void *p)
                         case 26:
                             {
                                 uint16_t val       = emu8k->smld_buffer;
-                                emu8k->smld_buffer = EMU8K_READ(emu8k, emu8k->smalr);
+                                emu8k->smld_buffer = emu8k->read(emu8k, emu8k->smalr);
                                 emu8k->smalr       = (emu8k->smalr + 1) & EMU8K_MEM_ADDRESS_MASK;
                                 return val;
                             }
@@ -681,7 +681,7 @@ emu8k_inw(uint16_t addr, void *p)
                         case 26:
                             {
                                 uint16_t val       = emu8k->smrd_buffer;
-                                emu8k->smrd_buffer = EMU8K_READ(emu8k, emu8k->smarr);
+                                emu8k->smrd_buffer = emu8k->read(emu8k, emu8k->smarr);
                                 emu8k->smarr       = (emu8k->smarr + 1) & EMU8K_MEM_ADDRESS_MASK;
                                 return val;
                             }
@@ -920,7 +920,7 @@ emu8k_outw(uint16_t addr, uint16_t val, void *p)
                             return;
 
                         case 26:
-                            EMU8K_WRITE(emu8k, emu8k->smalw, val);
+                            emu8k->write(emu8k, emu8k->smalw, val);
                             emu8k->smalw = (emu8k->smalw + 1) & EMU8K_MEM_ADDRESS_MASK;
                             return;
 
@@ -1178,7 +1178,7 @@ emu8k_outw(uint16_t addr, uint16_t val, void *p)
 
                         case 26:
                             dmawritebit = 0x8000;
-                            EMU8K_WRITE(emu8k, emu8k->smarw, val);
+                            emu8k->write(emu8k, emu8k->smarw, val);
                             emu8k->smarw++;
                             return;
                     }
@@ -2057,62 +2057,11 @@ emu8k_change_addr(emu8k_t *emu8k, uint16_t emu_addr)
     }
 }
 
-/* onboard_ram in kilobytes */
 void
-emu8k_init(emu8k_t *emu8k, uint16_t emu_addr, int onboard_ram)
+emu8k_init_standalone(emu8k_t *emu8k)
 {
-    uint32_t const BLOCK_SIZE_WORDS = 0x10000;
-    FILE          *f;
-    int            c;
-    double         out;
-
-    f = rom_fopen("roms/sound/awe32.raw", "rb");
-    if (!f)
-        fatal("AWE32.RAW not found\n");
-
-    emu8k->rom = malloc(1024 * 1024);
-    if (fread(emu8k->rom, 1, 1048576, f) != 1048576)
-        fatal("emu8k_init(): Error reading data\n");
-    fclose(f);
-    /*AWE-DUMP creates ROM images offset by 2 bytes, so if we detect this
-      then correct it*/
-    if (emu8k->rom[3] == 0x314d && emu8k->rom[4] == 0x474d) {
-        memmove(&emu8k->rom[0], &emu8k->rom[1], (1024 * 1024) - 2);
-        emu8k->rom[0x7ffff] = 0;
-    }
-
-    emu8k->empty = malloc(2 * BLOCK_SIZE_WORDS);
-    memset(emu8k->empty, 0, 2 * BLOCK_SIZE_WORDS);
-
-    int j = 0;
-    for (; j < 0x8; j++) {
-        emu8k->ram_pointers[j] = emu8k->rom + (j * BLOCK_SIZE_WORDS);
-    }
-    for (; j < 0x20; j++) {
-        emu8k->ram_pointers[j] = emu8k->empty;
-    }
-
-    if (onboard_ram) {
-        /*Clip to 28MB, since that's the max that we can address. */
-        if (onboard_ram > 0x7000)
-            onboard_ram = 0x7000;
-        emu8k->ram = malloc(onboard_ram * 1024);
-        memset(emu8k->ram, 0, onboard_ram * 1024);
-        const int i_end = onboard_ram >> 7;
-        int       i     = 0;
-        for (; i < i_end; i++, j++) {
-            emu8k->ram_pointers[j] = emu8k->ram + (i * BLOCK_SIZE_WORDS);
-        }
-        emu8k->ram_end_addr = EMU8K_RAM_MEM_START + (onboard_ram << 9);
-    } else {
-        emu8k->ram          = 0;
-        emu8k->ram_end_addr = EMU8K_RAM_MEM_START;
-    }
-    for (; j < 0x100; j++) {
-        emu8k->ram_pointers[j] = emu8k->empty;
-    }
-
-    emu8k_change_addr(emu8k, emu_addr);
+    int    c;
+    double out;
 
     /*Create frequency table. (Convert initial pitch register value to a linear speed change)
      * The input is encoded such as 0xe000 is center note (no pitch shift)
@@ -2272,6 +2221,67 @@ emu8k_init(emu8k_t *emu8k, uint16_t emu_addr, int onboard_ram)
         cubic_table[c * 4 + 2] = (-1.5 * x * x * x + 2.0 * x * x + 0.5 * x);
         cubic_table[c * 4 + 3] = (0.5 * x * x * x - 0.5 * x * x);
     }
+}
+
+/* onboard_ram in kilobytes */
+void
+emu8k_init(emu8k_t *emu8k, uint16_t emu_addr, int onboard_ram)
+{
+    uint32_t const BLOCK_SIZE_WORDS = 0x10000;
+    FILE          *f;
+
+    f = rom_fopen("roms/sound/awe32.raw", "rb");
+    if (!f)
+        fatal("AWE32.RAW not found\n");
+
+    emu8k->rom = malloc(1024 * 1024);
+    if (fread(emu8k->rom, 1, 1048576, f) != 1048576)
+        fatal("emu8k_init(): Error reading data\n");
+    fclose(f);
+    /*AWE-DUMP creates ROM images offset by 2 bytes, so if we detect this
+      then correct it*/
+    if (emu8k->rom[3] == 0x314d && emu8k->rom[4] == 0x474d) {
+        memmove(&emu8k->rom[0], &emu8k->rom[1], (1024 * 1024) - 2);
+        emu8k->rom[0x7ffff] = 0;
+    }
+
+    emu8k->empty = malloc(2 * BLOCK_SIZE_WORDS);
+    memset(emu8k->empty, 0, 2 * BLOCK_SIZE_WORDS);
+
+    int j = 0;
+    for (; j < 0x8; j++) {
+        emu8k->ram_pointers[j] = emu8k->rom + (j * BLOCK_SIZE_WORDS);
+    }
+    for (; j < 0x20; j++) {
+        emu8k->ram_pointers[j] = emu8k->empty;
+    }
+
+    if (onboard_ram) {
+        /*Clip to 28MB, since that's the max that we can address. */
+        if (onboard_ram > 0x7000)
+            onboard_ram = 0x7000;
+        emu8k->ram = malloc(onboard_ram * 1024);
+        memset(emu8k->ram, 0, onboard_ram * 1024);
+        const int i_end = onboard_ram >> 7;
+        int       i     = 0;
+        for (; i < i_end; i++, j++) {
+            emu8k->ram_pointers[j] = emu8k->ram + (i * BLOCK_SIZE_WORDS);
+        }
+        emu8k->ram_end_addr = EMU8K_RAM_MEM_START + (onboard_ram << 9);
+    } else {
+        emu8k->ram          = 0;
+        emu8k->ram_end_addr = EMU8K_RAM_MEM_START;
+    }
+    for (; j < 0x100; j++) {
+        emu8k->ram_pointers[j] = emu8k->empty;
+    }
+
+    emu8k_change_addr(emu8k, emu_addr);
+
+    emu8k_init_standalone(emu8k);
+    emu8k->read = EMU8K_READ;
+    emu8k->write = EMU8K_WRITE;
+
     /* Even when the documentation says that this has to be written by applications to initialize the card,
      * several applications and drivers ( aweman on windows, linux oss driver..) read it to detect an AWE card. */
     emu8k->hwcf1 = 0x59;
@@ -2283,6 +2293,8 @@ emu8k_init(emu8k_t *emu8k, uint16_t emu_addr, int onboard_ram)
 void
 emu8k_close(emu8k_t *emu8k)
 {
-    free(emu8k->rom);
-    free(emu8k->ram);
+    if (emu8k->rom)
+        free(emu8k->rom);
+    if (emu8k->ram)
+        free(emu8k->ram);
 }

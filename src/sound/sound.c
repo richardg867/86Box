@@ -148,6 +148,7 @@ static const SOUND_CARD sound_cards[] = {
     { &cmi8338_device            },
     { &cmi8738_device            },
     { &es1371_device             },
+    { &sb_live_device            },
     { &ad1881_device             },
     { &cs4297a_device            },
     { NULL                       }

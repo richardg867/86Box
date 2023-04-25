@@ -139,6 +139,8 @@ extern const device_t sb_awe64_value_device;
 extern const device_t sb_awe64_device;
 extern const device_t sb_awe64_gold_device;
 
+extern const device_t sb_live_device;
+
 /* Innovation SSI-2001 */
 extern const device_t ssi2001_device;
 
