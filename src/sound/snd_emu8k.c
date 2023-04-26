@@ -543,11 +543,11 @@ emu8k_inw(uint16_t addr, void *p)
                     return ret;
 
                 case 4:
-                    READ16(addr, emu8k->voice[emu8k->cur_voice].unknown_data0_4);
+                    READ16(addr, emu8k->voice[emu8k->cur_voice].z2);
                     return ret;
 
                 case 5:
-                    READ16(addr, emu8k->voice[emu8k->cur_voice].unknown_data0_5);
+                    READ16(addr, emu8k->voice[emu8k->cur_voice].z1);
                     return ret;
 
                 case 6:
@@ -854,11 +854,11 @@ emu8k_outw(uint16_t addr, uint16_t val, void *p)
                     return;
 
                 case 4:
-                    WRITE16(addr, emu8k->voice[emu8k->cur_voice].unknown_data0_4, val);
+                    WRITE16(addr, emu8k->voice[emu8k->cur_voice].z2, val);
                     return;
 
                 case 5:
-                    WRITE16(addr, emu8k->voice[emu8k->cur_voice].unknown_data0_5, val);
+                    WRITE16(addr, emu8k->voice[emu8k->cur_voice].z1, val);
                     return;
 
                 case 6:
@@ -1675,7 +1675,7 @@ emu8k_update(emu8k_t *emu8k)
     memset(&emu8k->reverb_in_buffer[emu8k->pos], 0, (new_pos - emu8k->pos) * sizeof(emu8k->reverb_in_buffer[0]));
 
     /* Voices section  */
-    for (c = 0; c < 32; c++) {
+    for (c = 0; c < emu8k->nvoices; c++) {
         emu_voice = &emu8k->voice[c];
         buf       = &emu8k->buffer[emu8k->pos * 2];
 
@@ -2058,10 +2058,12 @@ emu8k_change_addr(emu8k_t *emu8k, uint16_t emu_addr)
 }
 
 void
-emu8k_init_standalone(emu8k_t *emu8k)
+emu8k_init_standalone(emu8k_t *emu8k, int nvoices)
 {
     int    c;
     double out;
+
+    emu8k->nvoices = nvoices;
 
     /*Create frequency table. (Convert initial pitch register value to a linear speed change)
      * The input is encoded such as 0xe000 is center note (no pitch shift)
@@ -2278,7 +2280,7 @@ emu8k_init(emu8k_t *emu8k, uint16_t emu_addr, int onboard_ram)
 
     emu8k_change_addr(emu8k, emu_addr);
 
-    emu8k_init_standalone(emu8k);
+    emu8k_init_standalone(emu8k, 32);
     emu8k->read = EMU8K_READ;
     emu8k->write = EMU8K_WRITE;
 
@@ -2297,4 +2299,6 @@ emu8k_close(emu8k_t *emu8k)
         free(emu8k->rom);
     if (emu8k->ram)
         free(emu8k->ram);
+    if (emu8k->voice)
+        free(emu8k->voice);
 }

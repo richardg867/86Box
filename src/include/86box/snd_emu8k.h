@@ -195,8 +195,8 @@ typedef struct emu8k_voice_t {
      * something, similarly to targets and current, but... of what?
      * what is curious is that if they are already zero, they are not written to, so it really
      * looks like they are information about the status of the channel. (lfo position maybe?) */
-    uint32_t unknown_data0_4;
-    uint32_t unknown_data0_5;
+    uint32_t z2;
+    uint32_t z1;
     union {
         uint32_t psst;
         struct {
@@ -229,6 +229,9 @@ typedef struct emu8k_voice_t {
 #define CCCA_DMA_ACTIVE(ccca)      (ccca & 0x04000000)
 #define CCCA_DMA_WRITE_MODE(ccca)  (ccca & 0x02000000)
 #define CCCA_DMA_WRITE_RIGHT(ccca) (ccca & 0x01000000)
+
+    /* EMU10K1-specific */
+    uint32_t ccr, clp, fxrt, mapa, mapb;
 
     uint16_t envvol;
 #define ENVVOL_NODELAY(envol) (envvol & 0x8000)
@@ -340,7 +343,8 @@ typedef struct emu8k_voice_t {
 } emu8k_voice_t;
 
 typedef struct emu8k_t {
-    emu8k_voice_t voice[32];
+    int           nvoices;
+    emu8k_voice_t voice[64];
 
     uint16_t hwcf1, hwcf2, hwcf3;
     uint32_t hwcf4, hwcf5, hwcf6, hwcf7;
@@ -379,8 +383,10 @@ typedef struct emu8k_t {
     void    (*write)(struct emu8k_t *emu8k, uint32_t addr, uint16_t val);
 } emu8k_t;
 
+uint16_t emu8k_inw(uint16_t addr, void *p);
+void emu8k_outw(uint16_t addr, uint16_t val, void *p);
 void emu8k_change_addr(emu8k_t *emu8k, uint16_t emu_addr);
-void emu8k_init_standalone(emu8k_t *emu8k);
+void emu8k_init_standalone(emu8k_t *emu8k, int nvoices);
 void emu8k_init(emu8k_t *emu8k, uint16_t emu_addr, int onboard_ram);
 void emu8k_close(emu8k_t *emu8k);
 
