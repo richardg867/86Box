@@ -734,7 +734,7 @@ emu8k_inw(uint16_t addr, void *p)
                     return emu8k->voice[emu8k->cur_voice].fm2frq2;
 
                 case 6:
-                    return 0xffff;
+                    return emu8k->voice[emu8k->cur_voice].tempenv;
 
                 case 7: /*ID?*/
                     return 0x1c | ((emu8k->id & 0x0002) ? 0xff02 : 0);
@@ -1428,6 +1428,12 @@ emu8k_outw(uint16_t addr, uint16_t val, void *p)
                     }
                     return;
 
+                case 6:
+                    if (!emu8k->emu10k1_fxsends)
+                        break;
+                    the_voice->tempenv = val;
+                    return;
+
                 case 7: /*ID? I believe that this allows applications to know if the emu is in use by another application */
                     emu8k->id = val;
                     return;
@@ -1663,16 +1669,21 @@ emu8k_update(emu8k_t *emu8k)
     if (emu8k->pos >= new_pos)
         return;
 
-    int32_t       *buf;
+    int32_t       *buf, *fx_buf[sizeof(emu8k->fx_buf) / sizeof(emu8k->fx_buf[0])];
     emu8k_voice_t *emu_voice;
     int            pos;
-    int            c;
+    int            c, i;
 
     /* Clean the buffers since we will accumulate into them. */
     buf = &emu8k->buffer[emu8k->pos * 2];
     memset(buf, 0, 2 * (new_pos - emu8k->pos) * sizeof(emu8k->buffer[0]));
-    memset(&emu8k->chorus_in_buffer[emu8k->pos], 0, (new_pos - emu8k->pos) * sizeof(emu8k->chorus_in_buffer[0]));
-    memset(&emu8k->reverb_in_buffer[emu8k->pos], 0, (new_pos - emu8k->pos) * sizeof(emu8k->reverb_in_buffer[0]));
+    if (emu8k->emu10k1_fxbuses) {
+        for (i = 0; i < emu8k->emu10k1_fxbuses; i++)
+            memset(&emu8k->fx_buf[i][emu8k->pos], 0, (new_pos - emu8k->pos) * sizeof(emu8k->fx_buf[0][0]));
+    } else {
+        memset(&emu8k->chorus_in_buffer[emu8k->pos], 0, (new_pos - emu8k->pos) * sizeof(emu8k->chorus_in_buffer[0]));
+        memset(&emu8k->reverb_in_buffer[emu8k->pos], 0, (new_pos - emu8k->pos) * sizeof(emu8k->reverb_in_buffer[0]));
+    }
 
     /* Voices section  */
     for (c = 0; c < emu8k->nvoices; c++) {
@@ -1775,19 +1786,28 @@ emu8k_update(emu8k_t *emu8k)
 
 #endif
                 }
-                if ((emu8k->hwcf3 & 0x04) && !CCCA_DMA_ACTIVE(emu_voice->ccca)) {
+                if (emu8k->emu10k1_fxsends || ((emu8k->hwcf3 & 0x04) && !CCCA_DMA_ACTIVE(emu_voice->ccca))) {
                     /*volume and pan*/
                     dat = (dat * emu_voice->cvcf_curr_volume) >> 16;
 
-                    (*buf++) += (dat * emu_voice->vol_l) >> 8;
-                    (*buf++) += (dat * emu_voice->vol_r) >> 8;
+                    if (emu8k->emu10k1_fxsends) {
+                        fx_buf[emu_voice->fx_send[0]][pos] += (dat * emu_voice->ptrx_pan_aux) >> 8;
+                        fx_buf[emu_voice->fx_send[1]][pos] += (dat * emu_voice->ptrx_revb_send) >> 8;
+                        fx_buf[emu_voice->fx_send[2]][pos] += (dat * emu_voice->psst_pan) >> 8;
+                        fx_buf[emu_voice->fx_send[3]][pos] += (dat * emu_voice->csl_chor_send) >> 8;
+                        for (i = 4; i < emu8k->emu10k1_fxsends; i++)
+                            fx_buf[emu_voice->fx_send[i]][pos] += (dat * ((uint8_t *) &emu_voice->sendamounts)[i - 4]) >> 8;
+                    } else {
+                        (*buf++) += (dat * emu_voice->vol_l) >> 8;
+                        (*buf++) += (dat * emu_voice->vol_r) >> 8;
 
-                    /* Effects section */
-                    if (emu_voice->ptrx_revb_send > 0) {
-                        emu8k->reverb_in_buffer[pos] += (dat * emu_voice->ptrx_revb_send) >> 8;
-                    }
-                    if (emu_voice->csl_chor_send > 0) {
-                        emu8k->chorus_in_buffer[pos] += (dat * emu_voice->csl_chor_send) >> 8;
+                        /* Effects section */
+                        if (emu_voice->ptrx_revb_send > 0) {
+                            emu8k->reverb_in_buffer[pos] += (dat * emu_voice->ptrx_revb_send) >> 8;
+                        }
+                        if (emu_voice->csl_chor_send > 0) {
+                            emu8k->chorus_in_buffer[pos] += (dat * emu_voice->csl_chor_send) >> 8;
+                        }
                     }
                 }
             }
@@ -2015,9 +2035,16 @@ emu8k_update(emu8k_t *emu8k)
     }
 
     buf = &emu8k->buffer[emu8k->pos * 2];
-    emu8k_work_reverb(&emu8k->reverb_in_buffer[emu8k->pos], buf, &emu8k->reverb_engine, new_pos - emu8k->pos);
-    emu8k_work_chorus(&emu8k->chorus_in_buffer[emu8k->pos], buf, &emu8k->chorus_engine, new_pos - emu8k->pos);
-    emu8k_work_eq(buf, new_pos - emu8k->pos);
+    if (emu8k->emu10k1_fxsends) {
+        i = 0;
+        for (pos = emu8k->pos; pos < new_pos; pos++) {
+            buf[i] += (dat * emu_voice->ptrx_pan_aux) >> 8;
+        }
+    } else {
+        emu8k_work_reverb(&emu8k->reverb_in_buffer[emu8k->pos], buf, &emu8k->reverb_engine, new_pos - emu8k->pos);
+        emu8k_work_chorus(&emu8k->chorus_in_buffer[emu8k->pos], buf, &emu8k->chorus_engine, new_pos - emu8k->pos);
+        emu8k_work_eq(buf, new_pos - emu8k->pos);
+    }
 
     // Clip signal
     for (pos = emu8k->pos; pos < new_pos; pos++) {
@@ -2064,6 +2091,7 @@ emu8k_init_standalone(emu8k_t *emu8k, int nvoices)
     double out;
 
     emu8k->nvoices = nvoices;
+    emu8k->tempenv = 0xffff;
 
     /*Create frequency table. (Convert initial pitch register value to a linear speed change)
      * The input is encoded such as 0xe000 is center note (no pitch shift)

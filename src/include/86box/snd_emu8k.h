@@ -226,12 +226,11 @@ typedef struct emu8k_voice_t {
 #define CCCA_FILTQ_GET(ccca)    (ccca >> 28)
 #define CCCA_FILTQ_SET(ccca, q) ccca = (ccca & 0x0FFFFFFF) | (q << 28)
 /* Bit 27 should always be zero */
-#define CCCA_DMA_ACTIVE(ccca)      (ccca & 0x04000000)
+#define CCCA_DMA_ACTIVE(ccca)      (!emu8k->is10k1 && (ccca & 0x04000000))
 #define CCCA_DMA_WRITE_MODE(ccca)  (ccca & 0x02000000)
 #define CCCA_DMA_WRITE_RIGHT(ccca) (ccca & 0x01000000)
 
-    /* EMU10K1-specific */
-    uint32_t ccr, clp, fxrt, mapa, mapb;
+    uint32_t ccr, clp, fxrt, mapa, mapb, sendamounts; /* EMU10K1 */
 
     uint16_t envvol;
 #define ENVVOL_NODELAY(envol) (envvol & 0x8000)
@@ -312,6 +311,7 @@ typedef struct emu8k_voice_t {
             int8_t  fm2frq2_lfo2_vibrato;
         };
     };
+    uint16_t tempenv;
 
     int env_engine_on;
 
@@ -326,7 +326,13 @@ typedef struct emu8k_voice_t {
     int64_t              lfo1_speed, lfo2_speed;
     emu8k_mem_internal_t lfo1_count, lfo2_count;
     int32_t              lfo1_delay_samples, lfo2_delay_samples;
-    int                  vol_l, vol_r;
+    union {
+        struct { /* EMU8000 */
+            int vol_l;
+            int vol_r;
+        };
+        int fx_send[8]; /* EMU10K1 */
+    };
 
     int16_t fixed_modenv_filter_height;
     int16_t fixed_modenv_pitch_height;
@@ -343,7 +349,7 @@ typedef struct emu8k_voice_t {
 } emu8k_voice_t;
 
 typedef struct emu8k_t {
-    int           nvoices;
+    int           nvoices, fxs10k1;
     emu8k_voice_t voice[64];
 
     uint16_t hwcf1, hwcf2, hwcf3;
@@ -354,7 +360,7 @@ typedef struct emu8k_t {
     uint32_t smalr, smarr, smalw, smarw;
     uint16_t smld_buffer, smrd_buffer;
 
-    uint16_t wc;
+    uint32_t wc;
 
     uint16_t id;
 
@@ -369,10 +375,15 @@ typedef struct emu8k_t {
 
     int16_t out_l, out_r;
 
-    emu8k_chorus_eng_t chorus_engine;
-    int32_t            chorus_in_buffer[SOUNDBUFLEN];
-    emu8k_reverb_eng_t reverb_engine;
-    int32_t            reverb_in_buffer[SOUNDBUFLEN];
+    union {
+        struct { /* EMU8000 */
+            emu8k_chorus_eng_t chorus_engine;
+            int32_t chorus_in_buffer[SOUNDBUFLEN];
+            emu8k_reverb_eng_t reverb_engine;
+            int32_t reverb_in_buffer[SOUNDBUFLEN];
+        };
+        int32_t fx_buffer[64][SOUNDBUFLEN]; /* EMU10K1 */
+    };
 
     int     pos;
     int32_t buffer[SOUNDBUFLEN * 2];
