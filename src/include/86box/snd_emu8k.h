@@ -168,6 +168,8 @@ typedef struct emu8k_voice_t {
             uint16_t cpf_curr_pitch;     /* 0x4000 = no shift. Linear increment */
         };
     };
+#define CPF_10K1_STEREO(cpf) (cpf & 0x00008000)
+#define CPF_10K1_STOP(cpf)   (cpf & 0x00008000)
     union {
         uint32_t ptrx;
         struct {
@@ -225,10 +227,11 @@ typedef struct emu8k_voice_t {
     };
 #define CCCA_FILTQ_GET(ccca)    (ccca >> 28)
 #define CCCA_FILTQ_SET(ccca, q) ccca = (ccca & 0x0FFFFFFF) | (q << 28)
-/* Bit 27 should always be zero */
-#define CCCA_DMA_ACTIVE(ccca)      (!emu8k->is10k1 && (ccca & 0x04000000))
+/* Bit 27 should always be zero on EMU8000 */
+#define CCCA_DMA_ACTIVE(ccca)      (ccca & 0x04000000)
 #define CCCA_DMA_WRITE_MODE(ccca)  (ccca & 0x02000000)
 #define CCCA_DMA_WRITE_RIGHT(ccca) (ccca & 0x01000000)
+#define CCCA_10K1_8BITSELECT(ccca) (ccca & 0x01000000)
 
     uint32_t ccr, clp, fxrt, mapa, mapb, sendamounts; /* EMU10K1 */
 

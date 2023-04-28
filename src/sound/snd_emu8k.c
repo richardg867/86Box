@@ -2025,7 +2025,7 @@ emu8k_update(emu8k_t *emu8k)
 
         /* Update EMU voice registers. */
         emu_voice->ccca               = (((uint32_t) emu_voice->ccca_qcontrol) << 24) | emu_voice->addr.int_address;
-        emu_voice->cpf_curr_frac_addr = emu_voice->addr.fract_address;
+        emu_voice->cpf_curr_frac_addr = (emu8k->emu10k1_fxsends ? (emu_voice->cpf_curr_frac_addr & 0xc000) : 0) | emu_voice->addr.fract_address;
 
         // if ( emu_voice->cvcf_curr_volume != old_vol[c]) {
         //     pclog("EMUVOL (%d):%d\n", c, emu_voice->cvcf_curr_volume);
@@ -2038,7 +2038,7 @@ emu8k_update(emu8k_t *emu8k)
     if (emu8k->emu10k1_fxsends) {
         i = 0;
         for (pos = emu8k->pos; pos < new_pos; pos++) {
-            buf[i] += (dat * emu_voice->ptrx_pan_aux) >> 8;
+            buf[i] += /* run dsp */;
         }
     } else {
         emu8k_work_reverb(&emu8k->reverb_in_buffer[emu8k->pos], buf, &emu8k->reverb_engine, new_pos - emu8k->pos);
