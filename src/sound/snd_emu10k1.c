@@ -111,8 +111,9 @@ typedef struct _emu10k1_ {
 
     struct {
         int64_t acc; /* 67-bit in hardware */
-        uint32_t regs[256], tram_frac[256];
-        uint16_t itram[8192];
+        uint32_t regs[256], etram_mask;
+        uint16_t tram_frac[256], /* lower bits of TRAM address only visible to the DSP */
+                 itram[8192]; /* internal TRAM */
     } dsp;
 
     void *gameport;
@@ -161,25 +162,44 @@ static void emu10k1_writel(uint16_t addr, uint32_t val, void *priv);
 static __inline uint32_t
 emu10k1_dsp_read(emu10k1_t *dev, int addr)
 {
-    if (addr < 0x100) {
+    if (addr < 0x100) { /* DSP registers */
         return dev->dsp.regs[addr];
-    } else if (addr < 0x200) {
+    } else if (addr < 0x300) { /* GPR and TRAM data */
         return dev->indirect_regs[addr];
-    } else if (addr < 0x300) {
-        return dev->indirect_regs[addr]; /* special handle tram data */
-    } else if (addr < 0x400) {
-        return ((dev->indirect_regs[addr] & 0xfffff) << 11) | dev->dsp.tram_frac[addr & 0xff];
+    } else if (addr < 0x400) { /* TRAM address */
+        return ((dev->indirect_regs[addr] & 0x000fffff) << 11) | dev->dsp.tram_frac[addr & 0xff];
     }
 }
 
 /* The accumulator can only be read as an A operand. Others always read 0. */
 #define emu10k1_dsp_read_a(dev, a) ((addr == 0x56) ? dev->dsp.acc : (int64_t) emu10k1_dsp_read(dev, a))
-#define emu10k1_dsp_saturate(i) (((i) > 0xffffffff) ? 0xffffffffL : ((i) < -0xffffffff) ? -0xffffffffL : (i));
 
-static void
+static __inline void
 emu10k1_dsp_write(emu10k1_t *dev, int addr, uint32_t val)
 {
     /* if i'm reading things right, acc should not be writable as R! */
+    if (addr < 0x100) { /* DSP registers */
+        dev->dsp.regs[addr] = val;
+    } else if (addr < 0x300) { /* GPR and TRAM data */
+        dev->indirect_regs[addr] = val;
+    } else if (addr < 0x400) { /* TRAM address */
+        dev->indirect_regs[addr] = (dev->indirect_regs[addr] & 0xfff00000) | ((val >> 11) & 0x000fffff);
+        dev->dsp.tram_frac[addr & 0xff] = val & 0x07ff;
+    }
+}
+
+static __inline int32_t
+emu10k1_dsp_saturate(emu10k1_t *dev, int64_t i) {
+    /* replace result write with a function with one that sets all flags and optionally saturates */
+    if (i > 2147483647) {
+        dev->dsp.regs[0x57] |= 0x10; /* CCR.S */
+        return 2147483647;
+    } else if (i < -2147483648) {
+        dev->dsp.regs[0x57] |= 0x10; /* CCR.S */
+        return -2147483648;
+    } else {
+        return i;
+    }
 }
 
 static int
@@ -187,7 +207,7 @@ emu10k1_dsp_opMACS(emu10k1_t *dev, int r, int a, int x, int y)
 {
     dev->dsp.acc = emu10k1_dsp_read_a(dev, a) + (((int64_t) emu10k1_dsp_read(dev, x) * (int64_t) emu10k1_dsp_read(dev, y)) >> 31);
     emu10k1_dsp_write(dev, r, emu10k1_dsp_saturate(dev->dsp.acc));
-    return 1;
+    return 0;
 }
 
 static int
@@ -195,7 +215,7 @@ emu10k1_dsp_opMACS1(emu10k1_t *dev, int r, int a, int x, int y)
 {
     dev->dsp.acc = emu10k1_dsp_read_a(dev, a) + (((int64_t) -emu10k1_dsp_read(dev, x) * (int64_t) emu10k1_dsp_read(dev, y)) >> 31);
     emu10k1_dsp_write(dev, r, emu10k1_dsp_saturate(dev->dsp.acc));
-    return 1;
+    return 0;
 }
 
 static int
@@ -203,7 +223,7 @@ emu10k1_dsp_opMACW(emu10k1_t *dev, int r, int a, int x, int y)
 {
     dev->dsp.acc = emu10k1_dsp_read_a(dev, a) + (((int64_t) emu10k1_dsp_read(dev, x) * (int64_t) emu10k1_dsp_read(dev, y)) >> 31);
     emu10k1_dsp_write(dev, r, dev->dsp.acc);
-    return 1;
+    return 0;
 }
 
 static int
@@ -211,7 +231,7 @@ emu10k1_dsp_opMACW1(emu10k1_t *dev, int r, int a, int x, int y)
 {
     dev->dsp.acc = emu10k1_dsp_read_a(dev, a) + (((int64_t) -emu10k1_dsp_read(dev, x) * (int64_t) emu10k1_dsp_read(dev, y)) >> 31);
     emu10k1_dsp_write(dev, r, dev->dsp.acc);
-    return 1;
+    return 0;
 }
 
 static int
@@ -219,7 +239,7 @@ emu10k1_dsp_opMACINTS(emu10k1_t *dev, int r, int a, int x, int y)
 {
     dev->dsp.acc = emu10k1_dsp_read_a(dev, a) + ((int64_t) -emu10k1_dsp_read(dev, x) * (int64_t) emu10k1_dsp_read(dev, y));
     emu10k1_dsp_write(dev, r, dev->dsp.acc);
-    return 1;
+    return 0;
 }
 
 static int
@@ -227,7 +247,7 @@ emu10k1_dsp_opMACINTW(emu10k1_t *dev, int r, int a, int x, int y)
 {
     dev->dsp.acc = emu10k1_dsp_read_a(dev, a) + ((int64_t) -emu10k1_dsp_read(dev, x) * (int64_t) emu10k1_dsp_read(dev, y));
     emu10k1_dsp_write(dev, r, dev->dsp.acc & 0x7fffffff);
-    return 1;
+    return 0;
 }
 
 static int
@@ -235,7 +255,7 @@ emu10k1_dsp_opACC3(emu10k1_t *dev, int r, int a, int x, int y)
 {
     dev->dsp.acc = (emu10k1_dsp_read_a(dev, a) + (int64_t) emu10k1_dsp_read(dev, x) + (int64_t) emu10k1_dsp_read(dev, y)) << 31;
     emu10k1_dsp_write(dev, r, dev->dsp.acc >> 31);
-    return 1;
+    return 0;
 }
 
 static int
@@ -244,7 +264,7 @@ emu10k1_dsp_opMACMV(emu10k1_t *dev, int r, int a, int x, int y)
     /* The order isn't 100% clear, but code examples suggest it's MAC *then* move. */
     dev->dsp.acc += (int64_t) emu10k1_dsp_read(dev, x) * (int64_t) emu10k1_dsp_read(dev, y);
     emu10k1_dsp_write(dev, r, emu10k1_dsp_read_a(dev, a));
-    return 1;
+    return 0;
 }
 
 static int
@@ -252,7 +272,7 @@ emu10k1_dsp_opANDXOR(emu10k1_t *dev, int r, int a, int x, int y)
 {
     dev->dsp.acc = (emu10k1_dsp_read_a(dev, a) & (int64_t) emu10k1_dsp_read(dev, x)) ^ (int64_t) emu10k1_dsp_read(dev, y);
     emu10k1_dsp_write(dev, r, dev->dsp.acc);
-    return 1;
+    return 0;
 }
 
 static int
@@ -262,7 +282,7 @@ emu10k1_dsp_opTSTNEG(emu10k1_t *dev, int r, int a, int x, int y)
     if (emu10k1_dsp_read_a(dev, a) < (int64_t) emu10k1_dsp_read(dev, y))
         ret = ~ret;
     emu10k1_dsp_write(dev, r, ret);
-    return 1;
+    return 0;
 }
 
 static int
@@ -270,7 +290,7 @@ emu10k1_dsp_opLIMIT(emu10k1_t *dev, int r, int a, int x, int y)
 {
     int64_t ret = emu10k1_dsp_read(dev, (emu10k1_dsp_read_a(dev, a) >= (int64_t) emu10k1_dsp_read(dev, y)) ? x : y);
     emu10k1_dsp_write(dev, r, ret);
-    return 1;
+    return 0;
 }
 
 static int
@@ -278,15 +298,12 @@ emu10k1_dsp_opLIMIT1(emu10k1_t *dev, int r, int a, int x, int y)
 {
     int64_t ret = emu10k1_dsp_read(dev, (emu10k1_dsp_read_a(dev, a) < (int64_t) emu10k1_dsp_read(dev, y)) ? x : y);
     emu10k1_dsp_write(dev, r, ret);
-    return 1;
+    return 0;
 }
 
-static int
-emu10k1_dsp_opLOG(emu10k1_t *dev, int r, int a, int x, int y)
+static uint32_t
+emu10k1_dsp_logcompress(int32_t val, int max_exp)
 {
-    int32_t val = emu10k1_dsp_read(dev, a);
-    int max_exp = emu10k1_dsp_read(dev, x);
-
     /* Based on a kX driver function written by someone smarter than me. */
     int exp_bits = log2(max_exp) + 1;
     uint32_t ret = abs(val);
@@ -301,8 +318,13 @@ emu10k1_dsp_opLOG(emu10k1_t *dev, int r, int a, int x, int y)
         exp = 0;
     }
     ret = (exp << (31 - exp_bits)) | (ret >> (exp_bits + 1));
-    if (val < 0)
-        ret = -ret;
+    return (val < 0) ? -ret : ret;
+}
+
+static int
+emu10k1_dsp_opLOG(emu10k1_t *dev, int r, int a, int x, int y)
+{
+    uint32_t ret = emu10k1_dsp_logcompress(emu10k1_dsp_read(dev, a), emu10k1_dsp_read(dev, x) & 0x1f);
 
     /* Apply one's complement transformations. */
     switch (emu10k1_dsp_read(dev, y) & 0x3) {
@@ -312,16 +334,13 @@ emu10k1_dsp_opLOG(emu10k1_t *dev, int r, int a, int x, int y)
     }
 
     emu10k1_dsp_write(dev, r, ret);
-    return 1;
+    return 0;
 }
 
-static int
-emu10k1_dsp_opEXP(emu10k1_t *dev, int r, int a, int x, int y)
+static uint32_t
+emu10k1_dsp_logdecompress(int32_t val, int max_exp)
 {
-    int32_t val = emu10k1_dsp_read(dev, a);
-    int max_exp = emu10k1_dsp_read(dev, x);
-
-    /* Same note as opLOG. */
+    /* Same note as logcompress. */
     int exp_bits = log2(max_exp) + 1;
     uint32_t ret = abs(val); 
     int msb = 32 - log2(ret);
@@ -338,8 +357,13 @@ emu10k1_dsp_opEXP(emu10k1_t *dev, int r, int a, int x, int y)
         ret <<= msb - exp_bits - 1;
         ret >>= msb + max_exp - exp_bits;
     }
-    if (val < 0)
-        ret = -ret;
+    return (val < 0) ? -ret : ret;
+}
+
+static int
+emu10k1_dsp_opEXP(emu10k1_t *dev, int r, int a, int x, int y)
+{
+    uint32_t ret = emu10k1_dsp_logdecompress(emu10k1_dsp_read(dev, a), emu10k1_dsp_read(dev, x) & 0x1f);
 
     /* Apply one's complement transformations. */
     switch (emu10k1_dsp_read(dev, y) & 0x3) {
@@ -349,7 +373,7 @@ emu10k1_dsp_opEXP(emu10k1_t *dev, int r, int a, int x, int y)
     }
 
     emu10k1_dsp_write(dev, r, val);
-    return 1;
+    return 0;
 }
 
 static int
@@ -357,14 +381,15 @@ emu10k1_dsp_opINTERP(emu10k1_t *dev, int r, int a, int x, int y)
 {
     dev->dsp.acc = emu10k1_dsp_read_a(dev, a) + (((int64_t) -emu10k1_dsp_read(dev, x) * ((int64_t) emu10k1_dsp_read(dev, y) - emu10k1_dsp_read_a(dev, a))) >> 31);
     emu10k1_dsp_write(dev, r, dev->dsp.acc);
-    return 1;
+    return 0;
 }
 
 static int
 emu10k1_dsp_opSKIP(emu10k1_t *dev, int r, int a, int x, int y)
 {
     uint32_t flags = emu10k1_dsp_read(dev, a),
-             mask = emu10k1_dsp_read(dev, x);
+             mask = emu10k1_dsp_read(dev, x),
+             skip = emu10k1_dsp_read(dev, y);
 
     /* Generate CC bit string. */
     uint32_t cmp = flags & 0x1f; /* S Z M B N */
@@ -395,7 +420,7 @@ emu10k1_dsp_opSKIP(emu10k1_t *dev, int r, int a, int x, int y)
     }
 
     emu10k1_dsp_write(dev, r, flags);
-    return 1;
+    return cmp ? skip : 0;
 }
 
 static int (*emu10k1_dsp_ops[])(emu10k1_t *dev, int r, int a, int x, int y) = {
@@ -417,9 +442,48 @@ static int (*emu10k1_dsp_ops[])(emu10k1_t *dev, int r, int a, int x, int y) = {
     emu10k1_dsp_opSKIP
 }
 
+/* Calculation of effective TRAM addresses (addr + DBAC) */
+#define itram_addr ((tram_op + dev->dsp.regs[0x5b]) & ((sizeof(dev->dsp.itram) / sizeof(dev->dsp.itram[0])) - 1))
+#define etram_addr (dev->indirect_regs[0x41] + ((tram_op + dev->dsp.regs[0x5b]) & dev->dsp.etram_mask))
+
 static void
 emu10k1_dsp_exec(emu10k1_t *dev)
 {
+    /* Don't execute if the DSP is in single step mode. */
+    if (dev->indirect_regs[0x52] & 0x00004000)
+        return;
+
+    /* Update TRAM. Unknown behaviors so far:
+       - CLEAR
+       - |ALIGN
+       - multiple ops set
+       - address alignment
+       - 16-bit logarithmic compression format (IEEE binary16 assumed)
+       - unaligned external TRAM base */
+    int tram = 0;
+    for (; tram < 0x80; tram++) {
+        uint32_t tram_op = dev->indirect_regs[0x300 | tram];
+        if (tram_op & 0x00800000) /* CLEAR (effect unknown) */
+            dev->dsp.itram[itram_addr] = 0;
+        else if (tram_op & 0x00200000) /* WRITE (effect of |ALIGN unknown) */
+            dev->dsp.itram[itram_addr] = emu10k1_dsp_logcompress(dev->indirect_regs[0x200 | tram], 31);
+        else if (tram_op & 0x00100000) /* READ (effect of |ALIGN unknown) */
+            dev->indirect_regs[0x200 | tram] = emu10k1_dsp_logdecompress(dev->dsp.itram[itram_addr], 31);
+    }
+    if (dev->io_regs[0x14] & 0x00000004) { /* ignore external TRAM if LOCKTANKCACHE is set */
+        for (; tram < 0xa0; tram++) {
+            uint32_t tram_op = dev->indirect_regs[0x300 | tram];
+            if (tram_op & 0x00800000) /* CLEAR (effect unknown) */
+                mem_writew_phys(etram_addr, 0);
+            else if (tram_op & 0x00200000) /* WRITE (effect of |ALIGN unknown) */
+                mem_writew_phys(etram_addr, emu10k1_dsp_logcompress(dev->indirect_regs[0x200 | tram], 31));
+            else if (tram_op & 0x00100000) /* READ (effect of |ALIGN unknown) */
+                dev->indirect_regs[0x200 | tram] = emu10k1_dsp_logdecompress(mem_readw_phys(etram_addr), 31);
+        }
+    }
+
+    /* THREAD SAFETY BARRIER */
+
     /* Execute DSP instruction stream. */
     uint32_t *p = &dev->indirect_regs[0x400],
              *p_end = &dev->indirect_regs[0x400 + (0x200 * 2)];
@@ -432,8 +496,8 @@ emu10k1_dsp_exec(emu10k1_t *dev)
         r = (*p >> 10) & 0x3ff;
         op = (*p++ >> 20) & 0xf;
 
-        /* Execute operation. */
-        emu10k1_dsp_ops[op](dev, r, a, x, y);
+        /* Execute operation, then skip instructions if required. */
+        p += emu10k1_dsp_ops[op](dev, r, a, x, y) << 1;
     }
 }
 
@@ -1050,6 +1114,11 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                 case 0x43: /* FXWC */
                     /* Masking only the bits declared by kernel constants. */
                     val &= 0x00fc3003;
+                    break;
+
+                case 0x44: /* TCBS */
+                    val &= 0x00000007;
+                    dev->dsp.etram_mask = (16384 << val) - 1;
                     break;
 
                 case 0x48: /* A_HWM */
