@@ -26,12 +26,16 @@
 #define HAVE_STDARG_H
 #include <86box/86box.h>
 #include <86box/device.h>
+#include <86box/io.h>
 #include <86box/mem.h>
+#include <86box/timer.h>
+#include <86box/nmi.h>
 #include <86box/pci.h>
 #include <86box/gameport.h>
 #include <86box/sound.h>
 #include <86box/snd_ac97.h>
 #include <86box/snd_emu8k.h>
+#include <86box/snd_mpu401.h>
 
 enum {
     EMU10K1 = 0x0002,
@@ -114,11 +118,13 @@ typedef struct _emu10k1_ {
         uint32_t regs[256], etram_mask;
         uint16_t tram_frac[256], /* lower bits of TRAM address only visible to the DSP */
                  itram[8192]; /* internal TRAM */
+        int skip, stop: 1, interrupt: 1;
     } dsp;
 
-    void *gameport;
+    ac97_codec_t *codec;
     mpu_t mpu[2];
-    emu10k1_io_trap_t *io_traps[TRAP_MAX];
+    void *gameport;
+    emu10k1_io_trap_t io_traps[TRAP_MAX];
 } emu10k1_t;
 
 #define ENABLE_EMU10K1_LOG 1
@@ -154,151 +160,120 @@ static const uint32_t dsp_constants[] = {
     0xffffffff, 0xfffffffe, 0xc0000000, 0x4f1bbcdc, 0x5a7ef9db, 0x00100000
 };
 
+static void emu10k1_update_irqs(emu10k1_t *dev);
 static uint16_t emu10k1_readw(uint16_t addr, void *priv);
 static uint32_t emu10k1_readl(uint16_t addr, void *priv);
 static void emu10k1_writew(uint16_t addr, uint16_t val, void *priv);
 static void emu10k1_writel(uint16_t addr, uint32_t val, void *priv);
 
-static __inline uint32_t
-emu10k1_dsp_read(emu10k1_t *dev, int addr)
-{
-    if (addr < 0x100) { /* DSP registers */
-        return dev->dsp.regs[addr];
-    } else if (addr < 0x300) { /* GPR and TRAM data */
-        return dev->indirect_regs[addr];
-    } else if (addr < 0x400) { /* TRAM address */
-        return ((dev->indirect_regs[addr] & 0x000fffff) << 11) | dev->dsp.tram_frac[addr & 0xff];
-    }
-}
-
-/* The accumulator can only be read as an A operand. Others always read 0. */
-#define emu10k1_dsp_read_a(dev, a) ((addr == 0x56) ? dev->dsp.acc : (int64_t) emu10k1_dsp_read(dev, a))
-
-static __inline void
-emu10k1_dsp_write(emu10k1_t *dev, int addr, uint32_t val)
-{
-    /* if i'm reading things right, acc should not be writable as R! */
-    if (addr < 0x100) { /* DSP registers */
-        dev->dsp.regs[addr] = val;
-    } else if (addr < 0x300) { /* GPR and TRAM data */
-        dev->indirect_regs[addr] = val;
-    } else if (addr < 0x400) { /* TRAM address */
-        dev->indirect_regs[addr] = (dev->indirect_regs[addr] & 0xfff00000) | ((val >> 11) & 0x000fffff);
-        dev->dsp.tram_frac[addr & 0xff] = val & 0x07ff;
-    }
-}
-
 static __inline int32_t
 emu10k1_dsp_saturate(emu10k1_t *dev, int64_t i) {
-    /* replace result write with a function with one that sets all flags and optionally saturates */
+    uint32_t ret;
     if (i > 2147483647) {
-        dev->dsp.regs[0x57] |= 0x10; /* CCR.S */
-        return 2147483647;
+        ret = 2147483647;
+saturated:
+        /* Set saturation flag. */
+        dev->dsp.regs[0x57] |= 0x10; /* S */
     } else if (i < -2147483648) {
-        dev->dsp.regs[0x57] |= 0x10; /* CCR.S */
-        return -2147483648;
+        ret = -2147483648;
+        goto saturated;
     } else {
-        return i;
+        ret = i;
     }
+    return ret;
 }
 
-static int
-emu10k1_dsp_opMACS(emu10k1_t *dev, int r, int a, int x, int y)
+static __inline int64_t
+emu10k1_dsp_subtract(emu10k1_t *dev, int64_t a, int64_t b) {
+    if ((b < 0) && (a < b)) {
+        /* Set borrow flag. */
+        dev->dsp.regs[0x57] |= 0x01; /* B */
+    }
+    return a - b;
+}
+
+static int32_t
+emu10k1_dsp_opMACS(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = emu10k1_dsp_read_a(dev, a) + (((int64_t) emu10k1_dsp_read(dev, x) * (int64_t) emu10k1_dsp_read(dev, y)) >> 31);
-    emu10k1_dsp_write(dev, r, emu10k1_dsp_saturate(dev->dsp.acc));
-    return 0;
+    dev->dsp.acc = a + (((int64_t) x * y) >> 31);
+    return emu10k1_dsp_saturate(dev, dev->dsp.acc);
 }
 
-static int
-emu10k1_dsp_opMACS1(emu10k1_t *dev, int r, int a, int x, int y)
+static int32_t
+emu10k1_dsp_opMACS1(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = emu10k1_dsp_read_a(dev, a) + (((int64_t) -emu10k1_dsp_read(dev, x) * (int64_t) emu10k1_dsp_read(dev, y)) >> 31);
-    emu10k1_dsp_write(dev, r, emu10k1_dsp_saturate(dev->dsp.acc));
-    return 0;
+    dev->dsp.acc = a + (((int64_t) -x * y) >> 31);
+    return emu10k1_dsp_saturate(dev, dev->dsp.acc);
 }
 
-static int
-emu10k1_dsp_opMACW(emu10k1_t *dev, int r, int a, int x, int y)
+static int32_t
+emu10k1_dsp_opMACW(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = emu10k1_dsp_read_a(dev, a) + (((int64_t) emu10k1_dsp_read(dev, x) * (int64_t) emu10k1_dsp_read(dev, y)) >> 31);
-    emu10k1_dsp_write(dev, r, dev->dsp.acc);
-    return 0;
+    dev->dsp.acc = a + (((int64_t) x * y) >> 31);
+    return dev->dsp.acc;
 }
 
-static int
-emu10k1_dsp_opMACW1(emu10k1_t *dev, int r, int a, int x, int y)
+static int32_t
+emu10k1_dsp_opMACW1(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = emu10k1_dsp_read_a(dev, a) + (((int64_t) -emu10k1_dsp_read(dev, x) * (int64_t) emu10k1_dsp_read(dev, y)) >> 31);
-    emu10k1_dsp_write(dev, r, dev->dsp.acc);
-    return 0;
+    dev->dsp.acc = a + (((int64_t) -x * y) >> 31);
+    return dev->dsp.acc;
 }
 
-static int
-emu10k1_dsp_opMACINTS(emu10k1_t *dev, int r, int a, int x, int y)
+static int32_t
+emu10k1_dsp_opMACINTS(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = emu10k1_dsp_read_a(dev, a) + ((int64_t) -emu10k1_dsp_read(dev, x) * (int64_t) emu10k1_dsp_read(dev, y));
-    emu10k1_dsp_write(dev, r, dev->dsp.acc);
-    return 0;
+    dev->dsp.acc = a + ((int64_t) x * y);
+    return emu10k1_dsp_saturate(dev, dev->dsp.acc);
 }
 
-static int
-emu10k1_dsp_opMACINTW(emu10k1_t *dev, int r, int a, int x, int y)
+static int32_t
+emu10k1_dsp_opMACINTW(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = emu10k1_dsp_read_a(dev, a) + ((int64_t) -emu10k1_dsp_read(dev, x) * (int64_t) emu10k1_dsp_read(dev, y));
-    emu10k1_dsp_write(dev, r, dev->dsp.acc & 0x7fffffff);
-    return 0;
+    dev->dsp.acc = a + ((int64_t) x * y);
+    return dev->dsp.acc & 0x7fffffff;
 }
 
-static int
-emu10k1_dsp_opACC3(emu10k1_t *dev, int r, int a, int x, int y)
+static int32_t
+emu10k1_dsp_opACC3(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = (emu10k1_dsp_read_a(dev, a) + (int64_t) emu10k1_dsp_read(dev, x) + (int64_t) emu10k1_dsp_read(dev, y)) << 31;
-    emu10k1_dsp_write(dev, r, dev->dsp.acc >> 31);
-    return 0;
+    dev->dsp.acc = ((a + (int64_t) x) + y) << 31;
+    return emu10k1_dsp_saturate(dev, dev->dsp.acc >> 31);
 }
 
-static int
-emu10k1_dsp_opMACMV(emu10k1_t *dev, int r, int a, int x, int y)
+static int32_t
+emu10k1_dsp_opMACMV(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
     /* The order isn't 100% clear, but code examples suggest it's MAC *then* move. */
-    dev->dsp.acc += (int64_t) emu10k1_dsp_read(dev, x) * (int64_t) emu10k1_dsp_read(dev, y);
-    emu10k1_dsp_write(dev, r, emu10k1_dsp_read_a(dev, a));
-    return 0;
+    dev->dsp.acc += (int64_t) x * y;
+    return a;
 }
 
-static int
-emu10k1_dsp_opANDXOR(emu10k1_t *dev, int r, int a, int x, int y)
+static int32_t
+emu10k1_dsp_opANDXOR(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = (emu10k1_dsp_read_a(dev, a) & (int64_t) emu10k1_dsp_read(dev, x)) ^ (int64_t) emu10k1_dsp_read(dev, y);
-    emu10k1_dsp_write(dev, r, dev->dsp.acc);
-    return 0;
+    dev->dsp.acc = (a & x) ^ y; /* unknown behavior: does this use the accumulator? do any of the non arithmetic ops use the accumulator? */
+    return dev->dsp.acc;
 }
 
-static int
-emu10k1_dsp_opTSTNEG(emu10k1_t *dev, int r, int a, int x, int y)
+static int32_t
+emu10k1_dsp_opTSTNEG(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    int64_t ret = emu10k1_dsp_read(dev, x);
-    if (emu10k1_dsp_read_a(dev, a) < (int64_t) emu10k1_dsp_read(dev, y))
-        ret = ~ret;
-    emu10k1_dsp_write(dev, r, ret);
-    return 0;
+    if (a < y)
+        x = ~x;
+    return x;
 }
 
-static int
-emu10k1_dsp_opLIMIT(emu10k1_t *dev, int r, int a, int x, int y)
+static int32_t
+emu10k1_dsp_opLIMIT(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    int64_t ret = emu10k1_dsp_read(dev, (emu10k1_dsp_read_a(dev, a) >= (int64_t) emu10k1_dsp_read(dev, y)) ? x : y);
-    emu10k1_dsp_write(dev, r, ret);
-    return 0;
+    return (a >= y) ? x : y;
 }
 
-static int
-emu10k1_dsp_opLIMIT1(emu10k1_t *dev, int r, int a, int x, int y)
+static int32_t
+emu10k1_dsp_opLIMIT1(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    int64_t ret = emu10k1_dsp_read(dev, (emu10k1_dsp_read_a(dev, a) < (int64_t) emu10k1_dsp_read(dev, y)) ? x : y);
-    emu10k1_dsp_write(dev, r, ret);
-    return 0;
+    return (a < y) ? x : y;
 }
 
 static uint32_t
@@ -321,20 +296,19 @@ emu10k1_dsp_logcompress(int32_t val, int max_exp)
     return (val < 0) ? -ret : ret;
 }
 
-static int
-emu10k1_dsp_opLOG(emu10k1_t *dev, int r, int a, int x, int y)
+static int32_t
+emu10k1_dsp_opLOG(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    uint32_t ret = emu10k1_dsp_logcompress(emu10k1_dsp_read(dev, a), emu10k1_dsp_read(dev, x) & 0x1f);
+    uint32_t r = emu10k1_dsp_logcompress(a, x & 0x1f);
 
     /* Apply one's complement transformations. */
-    switch (emu10k1_dsp_read(dev, y) & 0x3) {
-        case 0x1: if (ret & 0x80000000) ret = ~ret; break;
-        case 0x2: if (ret & 0x80000000) break; /* fall-through */
-        case 0x3: ret = ~ret; break;
+    switch (y & 0x3) {
+        case 0x1: if (r & 0x80000000) r = ~r; break;
+        case 0x2: if (r & 0x80000000) break; /* fall-through */
+        case 0x3: r = ~r; break;
     }
 
-    emu10k1_dsp_write(dev, r, ret);
-    return 0;
+    return r;
 }
 
 static uint32_t
@@ -360,53 +334,47 @@ emu10k1_dsp_logdecompress(int32_t val, int max_exp)
     return (val < 0) ? -ret : ret;
 }
 
-static int
-emu10k1_dsp_opEXP(emu10k1_t *dev, int r, int a, int x, int y)
+static int32_t
+emu10k1_dsp_opEXP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    uint32_t ret = emu10k1_dsp_logdecompress(emu10k1_dsp_read(dev, a), emu10k1_dsp_read(dev, x) & 0x1f);
+    uint32_t r = emu10k1_dsp_logdecompress(a, x & 0x1f);
 
     /* Apply one's complement transformations. */
-    switch (emu10k1_dsp_read(dev, y) & 0x3) {
-        case 0x1: if (ret & 0x80000000) ret = ~ret; break;
-        case 0x2: if (ret & 0x80000000) break; /* fall-through */
-        case 0x3: ret = ~ret; break;
+    switch (y & 0x3) {
+        case 0x1: if (r & 0x80000000) r = ~r; break;
+        case 0x2: if (r & 0x80000000) break; /* fall-through */
+        case 0x3: r = ~r; break;
     }
 
-    emu10k1_dsp_write(dev, r, val);
-    return 0;
+    return r;
 }
 
-static int
-emu10k1_dsp_opINTERP(emu10k1_t *dev, int r, int a, int x, int y)
+static int32_t
+emu10k1_dsp_opINTERP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = emu10k1_dsp_read_a(dev, a) + (((int64_t) -emu10k1_dsp_read(dev, x) * ((int64_t) emu10k1_dsp_read(dev, y) - emu10k1_dsp_read_a(dev, a))) >> 31);
-    emu10k1_dsp_write(dev, r, dev->dsp.acc);
-    return 0;
+    dev->dsp.acc = a + (((int64_t) -x * ((int64_t) y - a)) >> 31);
+    return emu10k1_dsp_saturate(dev, dev->dsp.acc);
 }
 
-static int
-emu10k1_dsp_opSKIP(emu10k1_t *dev, int r, int a, int x, int y)
+static int32_t
+emu10k1_dsp_opSKIP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    uint32_t flags = emu10k1_dsp_read(dev, a),
-             mask = emu10k1_dsp_read(dev, x),
-             skip = emu10k1_dsp_read(dev, y);
-
     /* Generate CC bit string. */
-    uint32_t cmp = flags & 0x1f; /* S Z M B N */
+    uint32_t cmp = a & 0x1f; /* S Z M B N */
     cmp = (cmp << 5) | (~cmp & 0x1f); /* S Z M B N S' Z' M' B' N' (hereinafter flags) */
     cmp = (cmp << 20) | (cmp << 10) | cmp; /* across 3 instances */
 
     /* Perform bit testing. */
-    cmp = ~cmp & mask; /* comparisons are inverse (example: 0x8 = zero is set, 0x100 = zero is not set) */
-    uint32_t i = mask & 0x3ff00000, icmp = cmp & 0x3ff00000,
-             j = mask & 0x000ffc00, jcmp = cmp & 0x000ffc00,
-             k = mask & 0x000003ff, kcmp = cmp & 0x000003ff;
-    switch (mask >> 30) { /* boolean equation */
+    cmp = ~cmp & x; /* comparisons are inverse (example: 0x8 = zero is set, 0x100 = zero is not set) */
+    uint32_t i = x & 0x3ff00000, icmp = cmp & 0x3ff00000,
+             j = x & 0x000ffc00, jcmp = cmp & 0x000ffc00,
+             k = x & 0x000003ff, kcmp = cmp & 0x000003ff;
+    switch (x >> 30) { /* boolean equation */
         case 0x0: /* OR(AND(flags), AND(flags), AND(flags)) => only one used by open source applications... */
             cmp = (i && (icmp == i)) || (j && (jcmp == j)) || (k && (kcmp == k));
             break;
 
-        case 0x1: /* AND(OR(flags), OR(flags), OR(flags)) => ...with the exception of a magic always skip (0x7fffffff) */
+        case 0x1: /* AND(OR(flags), OR(flags), OR(flags)) => ...except this one as a magic always skip (0x7fffffff) */
             cmp = (!i || icmp) && (!j || jcmp) && (!k || kcmp);
             break;
 
@@ -419,11 +387,14 @@ emu10k1_dsp_opSKIP(emu10k1_t *dev, int r, int a, int x, int y)
             break;
     }
 
-    emu10k1_dsp_write(dev, r, flags);
-    return cmp ? skip : 0;
+    /* Mark instruction skip if the test resulted in true. */
+    if (cmp)
+        dev->dsp.skip = y;
+
+    return a;
 }
 
-static int (*emu10k1_dsp_ops[])(emu10k1_t *dev, int r, int a, int x, int y) = {
+static int32_t (*emu10k1_dsp_ops[])(emu10k1_t *dev, int64_t a, int32_t x, int32_t y) = {
     emu10k1_dsp_opMACS,
     emu10k1_dsp_opMACS1,
     emu10k1_dsp_opMACW,
@@ -440,18 +411,42 @@ static int (*emu10k1_dsp_ops[])(emu10k1_t *dev, int r, int a, int x, int y) = {
     emu10k1_dsp_opEXP,
     emu10k1_dsp_opINTERP,
     emu10k1_dsp_opSKIP
-}
+};
 
 /* Calculation of effective TRAM addresses (addr + DBAC) */
 #define itram_addr ((tram_op + dev->dsp.regs[0x5b]) & ((sizeof(dev->dsp.itram) / sizeof(dev->dsp.itram[0])) - 1))
 #define etram_addr (dev->indirect_regs[0x41] + ((tram_op + dev->dsp.regs[0x5b]) & dev->dsp.etram_mask))
 
-static void
-emu10k1_dsp_exec(emu10k1_t *dev)
+static __inline uint32_t
+emu10k1_dsp_read(emu10k1_t *dev, int addr)
+{
+    if (addr == 0x5b) /* DBAC */
+        return dev->dsp.regs[0x5b] << 11; /* shifted from DSP point of view */
+    else if (addr < 0x100) /* DSP registers */
+        return dev->dsp.regs[addr];
+    else if (addr < 0x300) /* GPR and TRAM data */
+        return dev->indirect_regs[addr];
+    else /* TRAM address */
+        return ((dev->indirect_regs[addr] & 0x000fffff) << 11) | dev->dsp.tram_frac[addr & 0xff]; /* shifted + fractional address from DSP point of view */
+}
+
+void
+emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
 {
     /* Don't execute if the DSP is in single step mode. */
-    if (dev->indirect_regs[0x52] & 0x00004000)
+    if (dev->indirect_regs[0x52] & 0x00008000)
         return;
+
+    if (UNLIKELY(dev->dsp.stop))
+        return;
+
+    /* Send DSP outputs from the previous run to the audio buffer. */
+    buf[0] = (int32_t) dev->dsp.regs[0x20];
+    buf[1] = (int32_t) dev->dsp.regs[0x21];
+
+    /* Populate FX bus inputs. */
+    for (int i = 0; i < dev->emu8k.emu10k1_fxbuses; i++)
+        dev->dsp.regs[i] = dev->emu8k.fx_buffer[i][pos];
 
     /* Update TRAM. Unknown behaviors so far:
        - CLEAR
@@ -482,22 +477,79 @@ emu10k1_dsp_exec(emu10k1_t *dev)
         }
     }
 
+    /* Trigger DSP interrupt if requested and enabled. */
+    if (dev->dsp.interrupt) {
+        if (dev->io_regs[0x0d] & 0x10) { /* INTE_FXDSPENABLE */
+            dev->io_regs[0x0a] |= 0x80; /* IPR_FXDSP */
+            emu10k1_update_irqs(dev);
+        }
+        dev->dsp.interrupt = 0;
+    }
+
+    /* Decrement DBAC. */
+    if (--dev->dsp.regs[0x5b] == ((uint32_t) -1)) {
+        dev->dsp.regs[0x5b] = 0xfffff;
+    }
+
     /* THREAD SAFETY BARRIER */
 
     /* Execute DSP instruction stream. */
     uint32_t *p = &dev->indirect_regs[0x400],
              *p_end = &dev->indirect_regs[0x400 + (0x200 * 2)];
-    unsigned int op, r, a, x, y;
     while (p < p_end) {
         /* Decode instruction. */
-        y = *p & 0x3ff;
-        x = (*p++ >> 10) & 0x3ff;
-        a = *p & 0x3ff;
-        r = (*p >> 10) & 0x3ff;
-        op = (*p++ >> 20) & 0xf;
+        int y = *p & 0x3ff;
+        int x = (*p++ >> 10) & 0x3ff;
+        int a = *p & 0x3ff;
+        int r = (*p >> 10) & 0x3ff;
+        int op = (*p++ >> 20) & 0xf;
 
-        /* Execute operation, then skip instructions if required. */
-        p += emu10k1_dsp_ops[op](dev, r, a, x, y) << 1;
+        /* Clear flags now, as operation code may set them. */
+        dev->dsp.regs[0x57] = 0;
+
+        /* Execute operation. */
+        int32_t rval = emu10k1_dsp_ops[op](dev,
+            (a == 0x56) ? dev->dsp.acc : emu10k1_dsp_read(dev, a), /* accumulator can only be specified as A, otherwise it reads as 0 */
+            emu10k1_dsp_read(dev, x),
+            emu10k1_dsp_read(dev, y));
+
+        /* Calculate remaining flags. */
+        dev->dsp.regs[0x57] |=
+            (((rval & emu10k1_dsp_read(dev, r)) & 0x80000000) >> 30) | /* N = 0x02 */
+            ((rval < 0) << 2) | /* M = 0x04 */
+            ((rval == 0) << 3); /* Z = 0x08 */
+
+        /* Set debug register.
+           R/WC? writable? unknown for pretty much all of the debug register */
+        uint32_t debug = (dev->indirect_regs[0x52] & ~0x01ff0000) | (dev->dsp.regs[0x57] << 9);
+        if (dev->dsp.regs[0x57] & 0x10)
+            debug |= 0x02000000 | (r << 16);
+        dev->indirect_regs[0x52] = debug;
+
+        /* Write result operand.
+           Unknown behaviors:
+           - writing to inputs
+           - writing to accum (will depend if there are ops that can bypass the accum), CCR, DBAC
+           - writing to unknown and unimplemented areas
+           - reading from interrupt register */
+        if (r < 0x20) { /* inputs */
+            /* no-op */
+        } else if (r == 0x5a) { /* interrupt register */
+            dev->dsp.interrupt = 1;
+        } else if ((r & ~0x1f) == 0x40) { /* constants and hardware registers */
+            /* no-op */
+        } else if (r < 0x100) { /* DSP registers */
+            dev->dsp.regs[r] = rval;
+        } else if (r < 0x300) { /* GPR and TRAM data */
+            dev->indirect_regs[r] = rval;
+        } else { /* TRAM address */
+            dev->indirect_regs[r] = (dev->indirect_regs[r] & 0xfff00000) | ((rval >> 11) & 0x000fffff);
+            dev->dsp.tram_frac[r & 0xff] = rval & 0x07ff;
+        }
+
+        /* Skip instructions if required. */
+        p += dev->dsp.skip << 1;
+        dev->dsp.skip = 0;
     }
 }
 
@@ -564,7 +616,7 @@ emu10k1_mpu1_irq_pending(void *priv)
 static void
 emu10k1_io_trap(int size, uint16_t addr, uint8_t write, uint8_t val, void *priv)
 {
-    emu10k1_io_trap_t trap = (emu10k1_t *) priv;
+    emu10k1_io_trap_t *trap = (emu10k1_io_trap_t *) priv;
 
 #ifdef ENABLE_EMU10K1_LOG
     if (write)
@@ -584,13 +636,13 @@ emu10k1_io_trap(int size, uint16_t addr, uint8_t write, uint8_t val, void *priv)
 static void
 emu10k1_remap_traps(emu10k1_t *dev)
 {
-    io_trap_remap(dev->io_traps[TRAP_DMA1], enable, 0x00, 16);
-    io_trap_remap(dev->io_traps[TRAP_DMA2], enable, 0xc0, 32);
-    io_trap_remap(dev->io_traps[TRAP_PIC1], enable, 0x20, 2);
-    io_trap_remap(dev->io_traps[TRAP_PIC2], enable, 0xa0, 2);
-    io_trap_remap(dev->io_traps[TRAP_SB], enable, 0x220 + (dev->io_regs[0x0f] >> 1), 16);
-    io_trap_remap(dev->io_traps[TRAP_OPL], enable, 0x388, 4);
-    io_trap_remap(dev->io_traps[TRAP_MPU], enable, 0x300 | (dev->io_regs[0x0f] & 0x30), 2);
+    io_trap_remap(dev->io_traps[TRAP_DMA1].trap, dev->io_regs[0x0f] & 0x08, 0x00, 16);
+    io_trap_remap(dev->io_traps[TRAP_DMA2].trap, dev->io_regs[0x0f] & 0x04, 0xc0, 32);
+    io_trap_remap(dev->io_traps[TRAP_PIC1].trap, dev->io_regs[0x0f] & 0x02, 0x20, 2);
+    io_trap_remap(dev->io_traps[TRAP_PIC2].trap, dev->io_regs[0x0f] & 0x01, 0xa0, 2);
+    io_trap_remap(dev->io_traps[TRAP_SB].trap, dev->io_regs[0x0e] & 0x80, 0x220 + (dev->io_regs[0x0f] >> 1), 16);
+    io_trap_remap(dev->io_traps[TRAP_OPL].trap, dev->io_regs[0x0e] & 0x40, 0x388, 4);
+    io_trap_remap(dev->io_traps[TRAP_MPU].trap, dev->io_regs[0x0e] & 0x20, 0x300 | (dev->io_regs[0x0f] & 0x30), 2);
 }
 
 static uint32_t
@@ -735,7 +787,7 @@ emu10k1_readw(uint16_t addr, void *priv)
                     break;
 
                 case 0x10 ... 0x17: /* ENVVOL ... LFO2VAL */
-                    emu8k->cur_reg = 4 | (emu8k->cur_reg >> 1);
+                    dev->emu8k.cur_reg = 4 | (dev->emu8k.cur_reg >> 1);
                     ret = (addr & 2) ? 0 : emu8k_inw(0xa00 | ((reg & 1) << 1), &dev->emu8k);
                     break;
 
@@ -869,7 +921,7 @@ emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
     emu10k1_t *dev = (emu10k1_t *) priv;
     addr &= 0x1f;
 #ifdef ENABLE_EMU10K1_LOG
-    if ((addr < 0x04) || (addr > 0x07))
+    if (addr >= 0x08)
         emu10k1_log("EMU10K1: write(%02X, %02X)\n", addr, val);
 #endif
     int reg;
@@ -881,7 +933,7 @@ emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
             break;
 
         case 0x02: /* PTR_ADDRESS[7:0] */
-            emu8k->cur_reg = val & 7;
+            dev->emu8k.cur_reg = val & 7;
             break;
 
         case 0x03: /* PTR_ADDRESS[10:8] */
@@ -997,7 +1049,7 @@ emu10k1_writew(uint16_t addr, uint16_t val, void *priv)
     emu10k1_t *dev = (emu10k1_t *) priv;
     addr &= 0x1f;
 #ifdef ENABLE_EMU10K1_LOG
-    if ((addr != 0x04) && (addr != 0x06))
+    if ((addr != 0x00) && (addr != 0x02) && (addr != 0x04) && (addr != 0x06))
         emu10k1_log("EMU10K1: write(%02X, %04X)\n", addr, val);
 #endif
     int reg;
@@ -1017,7 +1069,7 @@ emu10k1_writew(uint16_t addr, uint16_t val, void *priv)
                     break;
 
                 case 0x10 ... 0x17: /* ENVVOL ... LFO2VAL */
-                    emu8k->cur_reg = 4 | (emu8k->cur_reg >> 1);
+                    dev->emu8k.cur_reg = 4 | (dev->emu8k.cur_reg >> 1);
                     if (!(addr & 2))
                         emu8k_outw(0xa00 | ((reg & 1) << 1), val, &dev->emu8k);
                     break;
@@ -1062,7 +1114,7 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
     emu10k1_t *dev = (emu10k1_t *) priv;
     addr &= 0x1f;
 #ifdef ENABLE_EMU10K1_LOG
-    if (addr != 0x04)
+    if ((addr != 0x00) && (addr != 0x04))
         emu10k1_log("EMU10K1: write(%02X, %08X)\n", addr, val);
 #endif
     int reg, i;
@@ -1131,6 +1183,26 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                     val &= 0x0000001f;
                     break;
 
+                case 0x52: /* DBG / A_SPSC */
+                    if (dev->type != EMU10K1)
+                        return;
+
+                    /* Reset DBAC if requested. */
+                    if (val & 0x80000000)
+                        dev->dsp.regs[0x5b] = 0;
+
+                    val &= 0x3ffffff;
+                    break;
+
+                case 0x53: /* REG53 / A_DBG */
+                    if (dev->type != EMU10K1) {
+                        /* Reset DBAC if requested. */
+                        if (val & 0x40000000)
+                            dev->dsp.regs[0x5b] = 0;
+                        val &= 0x2ffe03ff;
+                    }
+                    break;
+
                 case 0x54 ... 0x56: /* SPCS0 ... SPCS2 */
                     val &= 0x3fffffff;
                     break;
@@ -1174,7 +1246,7 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                 case 0x7e: /* A_FXRT1 */
                     if (dev->type == EMU10K1)
                         return;
-                    val &= 0xbf3f3f3f; /* "high bit is used for filtering" */
+                    val &= 0xbf3f3f3f; /* whatever "high bit is used for filtering" means */
                     for (i = 0; i < 4; i++)
                         dev->emu8k.voice[dev->emu8k.cur_voice].fx_send[((addr & 2) << 1) | i] = (val >> (i << 3)) & 0x3f;
                     break;
@@ -1260,7 +1332,7 @@ static uint8_t
 emu10k1_pci_read(int func, int addr, void *priv)
 {
     emu10k1_t *dev = (emu10k1_t *) priv;
-    uint8_t    ret = 0xff;
+    uint8_t    ret;
 
     switch (func) {
         case 0:
@@ -1270,9 +1342,13 @@ emu10k1_pci_read(int func, int addr, void *priv)
         case 1:
             ret = dev->pci_game_regs[addr];
             break;
+
+        default:
+            return 0xff;
     }
 
     emu10k1_log("EMU10K1: pci_read(%d, %02X) = %02X\n", func, addr, ret);
+    return ret;
 }
 
 static void
@@ -1457,6 +1533,7 @@ emu10k1_init(const device_t *info)
 
     /* Initialize EMU8000 synth. */
     emu8k_init_standalone(&dev->emu8k, 64);
+    dev->emu8k.freq = FREQ_48000;
     dev->emu8k.emu10k1_fxbuses = (dev->type == EMU10K1) ? 16 : 64;
     dev->emu8k.emu10k1_fxsends = (dev->type == EMU10K1) ? 4 : 8;
     dev->emu8k.read = emu10k1_mem_read;
@@ -1551,6 +1628,7 @@ static const device_config_t sb_live_config[] = {
         .default_string = "",
         .default_int = 1
     },
+    { .name = "", .description = "", .type = CONFIG_END }
 };
 
 const device_t sb_live_device = {

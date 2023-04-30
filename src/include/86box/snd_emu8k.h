@@ -352,7 +352,7 @@ typedef struct emu8k_voice_t {
 } emu8k_voice_t;
 
 typedef struct emu8k_t {
-    int           nvoices, fxs10k1;
+    int           nvoices, freq, emu10k1_fxbuses, emu10k1_fxsends;
     emu8k_voice_t voice[64];
 
     uint16_t hwcf1, hwcf2, hwcf3;
