@@ -169,7 +169,7 @@ typedef struct emu8k_voice_t {
         };
     };
 #define CPF_10K1_STEREO(cpf) (cpf & 0x00008000)
-#define CPF_10K1_STOP(cpf)   (cpf & 0x00008000)
+#define CPF_10K1_STOP(cpf)   (cpf & 0x00004000)
     union {
         uint32_t ptrx;
         struct {
@@ -242,7 +242,8 @@ typedef struct emu8k_voice_t {
 
     uint16_t dcysusv;
 #define DCYSUSV_IS_RELEASE(dcysusv)          (dcysusv & 0x8000)
-#define DCYSUSV_GENERATOR_ENGINE_ON(dcysusv) !(dcysusv & 0x0080)
+/* Everything agrees this bit is inverted on EMU10K1 (except for a single Linux define comment). */
+#define DCYSUSV_GENERATOR_ENGINE_ON(dcysusv) !!emu8k->emu10k1_fxsends ^ !(dcysusv & 0x0080)
 #define DCYSUSV_SUSVALUE_GET(dcysusv)        ((dcysusv >> 8) & 0x7F)
 /* Inverting the range compared to documentation because the envelope runs from 0dBFS = 0 to -96dBFS = (1 <<21) */
 #define DCYSUSV_SUS_TO_ENV_RANGE(susvalue) (((0x7F - susvalue) << 21) / 0x7F)
@@ -334,7 +335,10 @@ typedef struct emu8k_voice_t {
             int vol_l;
             int vol_r;
         };
-        int fx_send[8]; /* EMU10K1 */
+        struct { /* EMU10K1 */
+            int fx_send[8];
+            int half_looped;
+        };
     };
 
     int16_t fixed_modenv_filter_height;
@@ -388,6 +392,10 @@ typedef struct emu8k_t {
         int32_t fx_buffer[64][SOUNDBUFLEN]; /* EMU10K1 */
     };
 
+    /* EMU10K1 */
+    uint64_t *clie, *clip, *hlie, *hlip, *sole; /* loop interrupt/stop */
+    int       lip; /* any pending interrupt? */
+
     int     pos;
     int32_t buffer[SOUNDBUFLEN * 2];
 
@@ -400,7 +408,7 @@ typedef struct emu8k_t {
 uint16_t emu8k_inw(uint16_t addr, void *p);
 void emu8k_outw(uint16_t addr, uint16_t val, void *p);
 void emu8k_change_addr(emu8k_t *emu8k, uint16_t emu_addr);
-void emu8k_init_standalone(emu8k_t *emu8k, int nvoices);
+void emu8k_init_standalone(emu8k_t *emu8k, int nvoices, int freq);
 void emu8k_init(emu8k_t *emu8k, uint16_t emu_addr, int onboard_ram);
 void emu8k_close(emu8k_t *emu8k);
 

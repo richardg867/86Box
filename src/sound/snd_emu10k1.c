@@ -23,6 +23,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include <inttypes.h>
 #define HAVE_STDARG_H
 #include <86box/86box.h>
 #include <86box/device.h>
@@ -121,10 +122,15 @@ typedef struct _emu10k1_ {
         int skip, stop: 1, interrupt: 1;
     } dsp;
 
+    pc_timer_t poll_timer;
+    uint64_t timer_latch;
+
     ac97_codec_t *codec;
     mpu_t mpu[2];
     void *gameport;
     emu10k1_io_trap_t io_traps[TRAP_MAX];
+
+    int master_vol_l, master_vol_r, pcm_vol_l, pcm_vol_r, cd_vol_l, cd_vol_r;
 } emu10k1_t;
 
 #define ENABLE_EMU10K1_LOG 1
@@ -184,60 +190,59 @@ saturated:
 }
 
 static __inline int64_t
-emu10k1_dsp_subtract(emu10k1_t *dev, int64_t a, int64_t b) {
-    if ((b < 0) && (a < b)) {
-        /* Set borrow flag. */
+emu10k1_dsp_add(emu10k1_t *dev, int64_t a, int64_t b) {
+    /* Set borrow flag if we're subtracting and have a borrow. */
+    if ((b < 0) && (a < b))
         dev->dsp.regs[0x57] |= 0x01; /* B */
-    }
-    return a - b;
+    return a + b;
 }
 
 static int32_t
 emu10k1_dsp_opMACS(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = a + (((int64_t) x * y) >> 31);
+    dev->dsp.acc = emu10k1_dsp_add(dev, a, (((uint64_t) x * y) >> 31));
     return emu10k1_dsp_saturate(dev, dev->dsp.acc);
 }
 
 static int32_t
 emu10k1_dsp_opMACS1(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = a + (((int64_t) -x * y) >> 31);
+    dev->dsp.acc = emu10k1_dsp_add(dev, a, (((uint64_t) -x * y) >> 31));
     return emu10k1_dsp_saturate(dev, dev->dsp.acc);
 }
 
 static int32_t
 emu10k1_dsp_opMACW(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = a + (((int64_t) x * y) >> 31);
+    dev->dsp.acc = emu10k1_dsp_add(dev, a, (((uint64_t) x * y) >> 31));
     return dev->dsp.acc;
 }
 
 static int32_t
 emu10k1_dsp_opMACW1(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = a + (((int64_t) -x * y) >> 31);
+    dev->dsp.acc = emu10k1_dsp_add(dev, a, (((uint64_t) -x * y) >> 31));
     return dev->dsp.acc;
 }
 
 static int32_t
 emu10k1_dsp_opMACINTS(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = a + ((int64_t) x * y);
+    dev->dsp.acc = emu10k1_dsp_add(dev, a, ((uint64_t) x * y));
     return emu10k1_dsp_saturate(dev, dev->dsp.acc);
 }
 
 static int32_t
 emu10k1_dsp_opMACINTW(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = a + ((int64_t) x * y);
+    dev->dsp.acc = emu10k1_dsp_add(dev, a, ((uint64_t) x * y));
     return dev->dsp.acc & 0x7fffffff;
 }
 
 static int32_t
 emu10k1_dsp_opACC3(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = ((a + (int64_t) x) + y) << 31;
+    dev->dsp.acc = emu10k1_dsp_add(dev, emu10k1_dsp_add(dev, a, x), y) << 31;
     return emu10k1_dsp_saturate(dev, dev->dsp.acc >> 31);
 }
 
@@ -245,7 +250,7 @@ static int32_t
 emu10k1_dsp_opMACMV(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
     /* The order isn't 100% clear, but code examples suggest it's MAC *then* move. */
-    dev->dsp.acc += (int64_t) x * y;
+    dev->dsp.acc = emu10k1_dsp_add(dev, dev->dsp.acc, (int64_t) x * y);
     return a;
 }
 
@@ -352,7 +357,7 @@ emu10k1_dsp_opEXP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opINTERP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = a + (((int64_t) -x * ((int64_t) y - a)) >> 31);
+    dev->dsp.acc = emu10k1_dsp_add(dev, a, (((int64_t) -x * emu10k1_dsp_add(dev, y, -a)) >> 31));
     return emu10k1_dsp_saturate(dev, dev->dsp.acc);
 }
 
@@ -440,13 +445,38 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
     if (UNLIKELY(dev->dsp.stop))
         return;
 
-    /* Send DSP outputs from the previous run to the audio buffer. */
-    buf[0] = (int32_t) dev->dsp.regs[0x20];
-    buf[1] = (int32_t) dev->dsp.regs[0x21];
+    /* Send DSP outputs from the previous run to the audio buffer.
+       This should actually be 20 bits sent to the AC97 codec. */
+#ifdef CREATIVE_DESCRIBED_BEHAVIOR
+    buf[0] = (int16_t) ((int32_t) dev->dsp.regs[0x20] >> 14);
+    buf[1] = (int16_t) ((int32_t) dev->dsp.regs[0x21] >> 14);
+#else
+    buf[0] = (int16_t) ((int32_t) dev->dsp.regs[0x20] >> 2);
+    buf[1] = (int16_t) ((int32_t) dev->dsp.regs[0x21] >> 2);
+#endif
 
     /* Populate FX bus inputs. */
-    for (int i = 0; i < dev->emu8k.emu10k1_fxbuses; i++)
-        dev->dsp.regs[i] = dev->emu8k.fx_buffer[i][pos];
+    for (int i = 0; i < dev->emu8k.emu10k1_fxbuses; i++) {
+        int32_t clip = dev->emu8k.fx_buffer[i][pos];
+        if (clip < -32768)
+            clip = -32768;
+        else if (clip > 32767)
+            clip = 32767;
+#ifdef CREATIVE_DESCRIBED_BEHAVIOR
+        dev->dsp.regs[i] = (uint16_t) clip << 14;
+#else
+        dev->dsp.regs[i] = (uint16_t) clip;
+#endif
+    }
+
+#define RUNNING_CODE() (fetch)
+#define ANY_REG(v) ((r == (v)) || (a == (v)) || (x == (v)) || (y == (v)))
+#define ANY_REG_VAL(v) ((rval == (v)) || (aval == (v)) || (xval == (v)) || (yval == (v)))
+//#define EMU10K1_DSP_TRACE dev->dsp.regs[4] && RUNNING_CODE() && (ANY_REG(0x04) || ANY_REG(0x20) || ANY_REG(0x102) || ANY_REG(0x10c) || ANY_REG(0x114))
+//#ifdef EMU10K1_DSP_TRACE
+    if (dev->dsp.regs[0])
+        pclog("EMU10K1: DSP out %08" PRIX32 " %08" PRIX32 " in %08" PRIX32 " %08" PRIX32 " %08" PRIX32 " %08" PRIX32 "\n", buf[0], buf[1], dev->dsp.regs[0], dev->dsp.regs[1], dev->dsp.regs[4], dev->dsp.regs[5]);
+//#endif
 
     /* Update TRAM. Unknown behaviors so far:
        - CLEAR
@@ -477,47 +507,42 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         }
     }
 
-    /* Trigger DSP interrupt if requested and enabled. */
-    if (dev->dsp.interrupt) {
-        if (dev->io_regs[0x0d] & 0x10) { /* INTE_FXDSPENABLE */
-            dev->io_regs[0x0a] |= 0x80; /* IPR_FXDSP */
-            emu10k1_update_irqs(dev);
-        }
-        dev->dsp.interrupt = 0;
-    }
-
     /* Decrement DBAC. */
-    if (--dev->dsp.regs[0x5b] == ((uint32_t) -1)) {
-        dev->dsp.regs[0x5b] = 0xfffff;
-    }
+    dev->dsp.regs[0x5b] = (dev->dsp.regs[0x5b] - 1) & 0xfffff;
 
     /* THREAD SAFETY BARRIER */
 
     /* Execute DSP instruction stream. */
-    uint32_t *p = &dev->indirect_regs[0x400],
-             *p_end = &dev->indirect_regs[0x400 + (0x200 * 2)];
-    while (p < p_end) {
+    uint64_t *code = (uint64_t *) &dev->indirect_regs[0x400];
+    uint32_t pc = 0;
+    while (pc < 0x200) {
         /* Decode instruction. */
-        int y = *p & 0x3ff;
-        int x = (*p++ >> 10) & 0x3ff;
-        int a = *p & 0x3ff;
-        int r = (*p >> 10) & 0x3ff;
-        int op = (*p++ >> 20) & 0xf;
+        uint64_t fetch = code[pc];
+        int y = fetch & 0x3ff;
+        int x = (fetch >> 10) & 0x3ff;
+        int a = (fetch >> 32) & 0x3ff;
+        int r = (fetch >> 42) & 0x3ff;
+        int op = (fetch >> 52) & 0xf;
 
         /* Clear flags now, as operation code may set them. */
         dev->dsp.regs[0x57] = 0;
 
         /* Execute operation. */
-        int32_t rval = emu10k1_dsp_ops[op](dev,
-            (a == 0x56) ? dev->dsp.acc : emu10k1_dsp_read(dev, a), /* accumulator can only be specified as A, otherwise it reads as 0 */
-            emu10k1_dsp_read(dev, x),
-            emu10k1_dsp_read(dev, y));
+        uint64_t aval = (a == 0x56) ? dev->dsp.acc : emu10k1_dsp_read(dev, a); /* accumulator can only be specified as A, otherwise it reads as 0 */
+        uint32_t xval = emu10k1_dsp_read(dev, x), yval = emu10k1_dsp_read(dev, y);
+        int32_t rval = emu10k1_dsp_ops[op](dev, aval, xval, yval);
 
         /* Calculate remaining flags. */
         dev->dsp.regs[0x57] |=
             (((rval & emu10k1_dsp_read(dev, r)) & 0x80000000) >> 30) | /* N = 0x02 */
             ((rval < 0) << 2) | /* M = 0x04 */
             ((rval == 0) << 3); /* Z = 0x08 */
+
+#ifdef EMU10K1_DSP_TRACE
+        if (EMU10K1_DSP_TRACE)
+            emu10k1_log("EMU10K1: %03X OP(%X, %03X:%08" PRIX32 ", %03X:%08" PRIX64 ", %03X:%08" PRIX32 ", %03X:%08" PRIX32 ") fl=%02" PRIX32 "\n",
+                pc, op, r, rval, a, aval, x, xval, y, yval, dev->dsp.regs[0x57] & 0x1f);
+#endif
 
         /* Set debug register.
            R/WC? writable? unknown for pretty much all of the debug register */
@@ -547,8 +572,8 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
             dev->dsp.tram_frac[r & 0xff] = rval & 0x07ff;
         }
 
-        /* Skip instructions if required. */
-        p += dev->dsp.skip << 1;
+        /* Advance program counter, skipping instructions if required. */
+        pc += 1 + dev->dsp.skip;
         dev->dsp.skip = 0;
     }
 }
@@ -556,12 +581,32 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
 static void
 emu10k1_update_irqs(emu10k1_t *dev)
 {
-    /* Set INTE FORCEINT interrupt flag. */
-    if (dev->io_regs[0x0e] & 0x10)
-        dev->io_regs[0x0a] |= 0x40;
+    /* Set channel loop interrupts. */
+    if (dev->emu8k.lip) {
+        /* Calculate highest active channel for IPR_CHANNELNUMBER. */
+        uint64_t any_ip = *((uint64_t *) &dev->indirect_regs[0x5a]) | *((uint64_t *) &dev->indirect_regs[0x68]);
+        int channel = -1;
+        while (any_ip) {
+            any_ip >>= 1;
+            channel++;
+        }
+
+        /* Does any channel still have pending interrupts? */
+        if (channel > -1) {
+            dev->io_regs[0x08] = (dev->io_regs[0x08] & ~0x7f) | 0x40 | channel; /* IPR_CHANNELLOOP | IPR_CHANNELNUMBER */
+        } else {
+            /* Clear interrupt if no channels are left. */
+            dev->emu8k.lip = 0;
+            dev->io_regs[0x08] &= ~0x7f; /* clear IPR_CHANNELLOOP | IPR_CHANNELNUMBER */
+        }
+    }
+
+    /* Set forced interrupt flag. */
+    if (dev->io_regs[0x0e] & 0x10) /* INTE_FORCEINT */
+        dev->io_regs[0x0a] |= 0x40; /* IPR_FORCEINT */
 
     /* Raise or lower IRQ according to interrupt flags. */
-    if (*((uint32_t *) &dev->io_regs[0x08]) & 0xffffffc0) {
+    if (*((uint32_t *) &dev->io_regs[0x08])) {
         pci_set_irq(dev->slot, PCI_INTA);
         emu10k1_log("EMU10K1: Raising IRQ\n");
     } else {
@@ -659,7 +704,7 @@ emu10k1_mmutranslate(emu10k1_t *dev, uint32_t page)
             /* Add TLB entry. */
             if (dev->tlb[dev->tlb_pos] != EMU10K1_TLB_UNCACHED)
                 dev->pages[dev->tlb[dev->tlb_pos]] = EMU10K1_MMU_UNMAPPED;
-            dev->tlb[dev->tlb_pos++] = pte;
+            dev->tlb[dev->tlb_pos++] = page;
 
             return pte;
         }
@@ -668,12 +713,16 @@ emu10k1_mmutranslate(emu10k1_t *dev, uint32_t page)
 }
 
 static void
-emu10k1_resetmmucache(emu10k1_t *dev)
+emu10k1_flushmmucache(emu10k1_t *dev)
 {
+    emu10k1_log("EMU10K1: flushmmucache()\n");
+
     /* Clear TLB entries. */
     for (int i = 0; i < (sizeof(dev->tlb) / sizeof(dev->tlb[0])); i++) {
-        dev->pages[dev->tlb[i]] = EMU10K1_MMU_UNMAPPED;
-        dev->tlb[i] = EMU10K1_TLB_UNCACHED;
+        if (dev->tlb[i] != EMU10K1_TLB_UNCACHED) {
+            dev->pages[dev->tlb[i]] = EMU10K1_MMU_UNMAPPED;
+            dev->tlb[i] = EMU10K1_TLB_UNCACHED;
+        }
     }
     dev->tlb_pos = 0;
 }
@@ -683,6 +732,7 @@ emu10k1_mem_read(emu8k_t *emu8k, uint32_t addr)
 {
     emu10k1_t *dev = (emu10k1_t *) emu8k;
 
+    addr <<= 1;
     uint32_t page = addr >> 12;
     if (dev->pages[page] == EMU10K1_MMU_UNMAPPED) {
         if ((dev->pages[page] = emu10k1_mmutranslate(dev, page)) == EMU10K1_MMU_UNMAPPED)
@@ -696,6 +746,7 @@ emu10k1_mem_write(emu8k_t *emu8k, uint32_t addr, uint16_t val)
 {
     emu10k1_t *dev = (emu10k1_t *) emu8k;
 
+    addr <<= 1;
     uint32_t page = addr >> 12;
     if (dev->pages[page] == EMU10K1_MMU_UNMAPPED) {
         if ((dev->pages[page] = emu10k1_mmutranslate(dev, page)) == EMU10K1_MMU_UNMAPPED)
@@ -955,14 +1006,20 @@ emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
             return;
 
         case 0x08: /* IPR[7:0] */
-            val = dev->io_regs[addr] & ~(val & 0xc0);
-            if (!(val & 0x40)) /* clear CHANNELNUMBER when clearing CHANNELLOOP */
-                val &= ~0x3f;
-            break;
+            dev->io_regs[addr] &= ~(val & 0xc0);
+            /* Clear pending interrupt flags for a channel when it's written back. */
+            if (val & 0x40) {
+                val &= 0x3f;
+                *((uint64_t *) &dev->indirect_regs[0x5a]) &= ~(1ULL << val);
+                *((uint64_t *) &dev->indirect_regs[0x68]) &= ~(1ULL << val);
+            }
+            emu10k1_update_irqs(dev);
+            return;
 
         case 0x09 ... 0x0b: /* IPR[31:8] */
-            val = dev->io_regs[addr] & ~val;
-            break;
+            dev->io_regs[addr] &= ~val;
+            emu10k1_update_irqs(dev);
+            return;
 
         case 0x0c: /* INTE[7:0] */
             dev->io_regs[addr] = val;
@@ -1094,8 +1151,14 @@ emu10k1_writew(uint16_t addr, uint16_t val, void *priv)
 
         case 0x1c: /* AC97DATA */
             /* Codec functions discard the MSB and LSB of AC97ADDRESS. */
-            if (dev->codec)
+            if (dev->codec) {
                 ac97_codec_writew(dev->codec, dev->io_regs[0x1e], val);
+
+                /* Update volumes. */
+                ac97_codec_getattn(dev->codec, 0x02, &dev->master_vol_l, &dev->master_vol_r);
+                ac97_codec_getattn(dev->codec, 0x18, &dev->pcm_vol_l, &dev->pcm_vol_r);
+                ac97_codec_getattn(dev->codec, 0x12, &dev->cd_vol_l, &dev->cd_vol_r);
+            }
             break;
 
         default: /* 8-bit registers or unaligned operation */
@@ -1125,11 +1188,11 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
             emu10k1_log("EMU10K1: write_i(%d, %03X, %08X)\n", dev->emu8k.cur_voice, reg, val);
             switch (reg) {
                 case 0x09: /* CCR */
-                    dev->emu8k.voice[dev->emu8k.cur_voice].ccr = val;
-                    return;
+                    dev->emu8k.voice[dev->emu8k.cur_voice].ccr = (val & 0xfe3f0000) | (dev->emu8k.voice[dev->emu8k.cur_voice].ccr & ~0xfe3f0000);
 
-                case 0x0a: /* CLP */
-                    dev->emu8k.voice[dev->emu8k.cur_voice].clp = val & 0x0000ffff;
+                    /* Invalidate TLB if a cache invalidation size is set. */
+                    if (val & 0xfe000000)
+                        emu10k1_flushmmucache(dev);
                     return;
 
                 case 0x0b: /* FXRT */
@@ -1209,14 +1272,16 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
 
                 case 0x58 ... 0x59: /* CLIEL ... CLIEH */
                 case 0x66 ... 0x67: /* HLIEL ... HLIEH */
-                    /* update interrupts */
+                    /* Clear any pending interrupts that are being disabled. */
+                    dev->indirect_regs[addr + 2] &= val;
+                    emu10k1_update_irqs(dev);
                     break;
 
                 case 0x5a ... 0x5b: /* CLIPL ... CLIPH */
                 case 0x68 ... 0x69: /* HLIPL ... HLIPH */
-                    val = dev->indirect_regs[reg] & ~val;
-                    /* update interrupts */
-                    break;
+                    dev->indirect_regs[addr] &= ~val;
+                    emu10k1_update_irqs(dev);
+                    return;
 
                 case 0x5e: /* SPBYPASS */
                     val &= 0x00000f0f;
@@ -1262,7 +1327,7 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                         val &= 0x1f;
                     break;
 
-                case 0x2a0 ... 0x2ff: /* extended TANKMEMDATAREG */
+                case 0x2a0 ... 0x2ff: /* A_TANKMEMDATAREG */
                     if (dev->type == EMU10K1)
                         return;
                     /* fall-through */
@@ -1271,7 +1336,7 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                     val &= 0x000fffff; 
                     break;
 
-                case 0x3a0 ... 0x3ff: /* extended TANKMEMADDRREG */
+                case 0x3a0 ... 0x3ff: /* A_TANKMEMADDRREG */
                     if (dev->type == EMU10K1)
                         return;
                     /* fall-through */
@@ -1281,11 +1346,18 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                     break;
 
                 case 0x400 ... 0x5ff: /* MICROCODE / A_FXGPREG */
-                    if (dev->type == EMU10K1)
-                        val &= 0x00ffffff; /* unknown if DSP opcodes should be masked */
+                    if (dev->type == EMU10K1) /* unknown if DSP opcodes should be masked */
+                        val &= 0x00ffffff;
                     break;
 
-                case 0x600 ... 0x9ff: /* A_MICROCODE */
+                case 0x600 ... 0x7ff: /* overlapped MICROCODE / A_MICROCODE */
+                    if (dev->type == EMU10K1) /* unknown if DSP opcodes should be masked */
+                        val &= 0x00ffffff;
+                    else
+                        val &= 0x0f7ff7ff;
+                    break;
+
+                case 0x800 ... 0x9ff: /* A_MICROCODE */
                     if (dev->type == EMU10K1)
                         return;
                     val &= 0x0f7ff7ff; /* unknown if DSP opcodes should be masked */
@@ -1430,19 +1502,74 @@ emu10k1_poll(void *priv)
 {
     emu10k1_t *dev = (emu10k1_t *) priv;
 
+    /* Schedule next run. */
+    timer_advance_u64(&dev->poll_timer, dev->timer_latch);
+
+    /* Run EMU8000 update routine. */
+    emu8k_update(&dev->emu8k);
+
+    /* Process channel loop interrupts. */
+    int do_update_irqs = dev->emu8k.lip;
+
     /* Advance and check sample timer. */
     if (++dev->timer_count == dev->timer_interval) {
         dev->timer_count = 0;
         if (dev->io_regs[0x0c] & 0x04) {
             dev->io_regs[0x09] |= 0x02;
-            emu10k1_update_irqs(dev);
+            do_update_irqs = 1;
         }
     }
+
+    /* Process DSP interrupt. */
+    if (UNLIKELY(dev->dsp.interrupt)) {
+        if (dev->io_regs[0x0d] & 0x10) { /* INTE_FXDSPENABLE */
+            dev->io_regs[0x0a] |= 0x80; /* IPR_FXDSP */
+            do_update_irqs = 1;
+        }
+        dev->dsp.interrupt = 0;
+    }
+
+    /* Update interrupts if requested. */
+    if (do_update_irqs)
+        emu10k1_update_irqs(dev);
+}
+
+static void
+emu10k1_filter_cd_audio(int channel, double *buffer, void *priv)
+{
+    emu10k1_t *dev = (emu10k1_t *) priv;
+    double      c, volume = channel ? dev->cd_vol_r : dev->cd_vol_l;
+
+    c       = ((*buffer) * volume) / 65536.0;
+    *buffer = c;
+}
+
+static void
+emu10k1_get_buffer(int32_t *buffer, int len, void *priv)
+{
+    emu10k1_t *dev = (emu10k1_t *) priv;
+
+    /* Run EMU8000 update routine. */
+    emu8k_update(&dev->emu8k);
+
+    /* Apply HCFG_AUDIOENABLE mute. */
+    if (dev->io_regs[0x14] & 0x01) {
+        /* Fill buffer. */
+        for (int c = 0; c < len * 2; c += 2) {
+            buffer[c] += (((dev->emu8k.buffer[c] * dev->pcm_vol_l) >> 15) * dev->master_vol_l) >> 15;
+            buffer[c + 1] += (((dev->emu8k.buffer[c + 1] * dev->pcm_vol_r) >> 15) * dev->master_vol_r) >> 15;
+        }
+    }
+
+    dev->emu8k.pos = 0;
 }
 
 static void
 emu10k1_speed_changed(void *priv)
 {
+    emu10k1_t *dev = (emu10k1_t *) priv;
+
+    dev->timer_latch = (uint64_t) ((double) TIMER_USEC * dev->emu8k.freq);
 }
 
 static void
@@ -1496,15 +1623,17 @@ emu10k1_reset(void *priv)
     dev->pci_game_regs[0xdf] = 0x06;
 
     /* Reset I/O space registers. */
-    dev->io_regs[0x1e] = 0x80; /* AC97ADDRESS_READY */
+    dev->io_regs[0x1e] = 0x80; /* AC97ADDRESS_READY - codec ready - unknown behavior */
     dev->indirect_regs[0x48] = 0x0000003f;
 
     /* Reset I/O mappings. */
     emu10k1_remap(dev);
     gameport_remap(dev->gameport, 0);
 
-    /* Reset MMU. */
-    emu10k1_resetmmucache(dev);
+    /* Invalidate any existing TLB. */
+    for (int i = 0; i < (sizeof(dev->pages) / sizeof(dev->pages[0])); i++)
+        dev->pages[i] = EMU10K1_MMU_UNMAPPED;
+    emu10k1_flushmmucache(dev);
 }
 
 static void *
@@ -1532,12 +1661,16 @@ emu10k1_init(const device_t *info)
     memcpy(&dev->dsp.regs[0x40], dsp_constants, sizeof(dsp_constants));
 
     /* Initialize EMU8000 synth. */
-    emu8k_init_standalone(&dev->emu8k, 64);
-    dev->emu8k.freq = FREQ_48000;
+    emu8k_init_standalone(&dev->emu8k, 64, FREQ_48000);
     dev->emu8k.emu10k1_fxbuses = (dev->type == EMU10K1) ? 16 : 64;
     dev->emu8k.emu10k1_fxsends = (dev->type == EMU10K1) ? 4 : 8;
     dev->emu8k.read = emu10k1_mem_read;
     dev->emu8k.write = emu10k1_mem_write;
+    dev->emu8k.clie = (uint64_t *) &dev->indirect_regs[0x58];
+    dev->emu8k.clip = (uint64_t *) &dev->indirect_regs[0x5a];
+    dev->emu8k.hlie = (uint64_t *) &dev->indirect_regs[0x66];
+    dev->emu8k.hlip = (uint64_t *) &dev->indirect_regs[0x68];
+    dev->emu8k.sole = (uint64_t *) &dev->indirect_regs[0x5c];
 
     /* Initialize AC97 codec. */
     ac97_codec = &dev->codec;
@@ -1545,6 +1678,15 @@ emu10k1_init(const device_t *info)
     ac97_codec_id = 0;
     if (emu10k1_models[i].codec)
         device_add(emu10k1_models[i].codec);
+
+    /* Initialize playback timer. */
+    timer_add(&dev->poll_timer, emu10k1_poll, dev, 0);
+    emu10k1_speed_changed(dev);
+    timer_advance_u64(&dev->poll_timer, dev->timer_latch);
+
+    /* Initialize playback handler and CD audio filter. */
+    sound_add_handler(emu10k1_get_buffer, dev);
+    sound_set_cd_audio_filter(emu10k1_filter_cd_audio, dev);
 
     /* Initialize MPU-401. */
     mpu401_init(&dev->mpu[0], 0, 0, M_UART, device_get_config_int("receive_input"));

@@ -321,25 +321,26 @@ EMU8K_READ(emu8k_t *emu8k, uint32_t addr)
     return emu8k->ram_pointers[addrmem.hb_address][addrmem.lw_address];
 }
 
-#if NOTUSED
-static inline int16_t
-EMU8K_READ_INTERP_LINEAR(emu8k_t *emu8k, uint32_t int_addr, uint16_t fract)
+static inline int32_t
+emu8k_interp(emu8k_t *emu8k, 
+#ifndef RESAMPLER_LINEAR
+                  int32_t dat0,
+#endif
+                  int32_t dat1, int32_t dat2,
+#ifndef RESAMPLER_LINEAR
+                  int32_t dat3,
+#endif
+                  uint16_t fract)
 {
+#ifdef RESAMPLER_LINEAR
     /* The interpolation in AWE32 used a so-called patented 3-point interpolation
      * ( I guess some sort of spline having one point before and one point after).
      * Also, it has the consequence that the playback is delayed by one sample.
      * I simulate the "one sample later" than the address with addr+1 and addr+2
      * instead of +0 and +1 */
-    int16_t dat1 = emu8k->read(emu8k, int_addr + 1);
-    int32_t dat2 = emu8k->read(emu8k, int_addr + 2);
-    dat1 += ((dat2 - (int32_t) dat1) * fract) >> 16;
+    dat1 += ((dat2 - dat1) * fract) >> 16;
     return dat1;
-}
-#endif
-
-static inline int32_t
-EMU8K_READ_INTERP_CUBIC(emu8k_t *emu8k, uint32_t int_addr, uint16_t fract)
-{
+#elif defined RESAMPLER_CUBIC
     /*Since there are four floats in the table for each fraction, the position is 16byte aligned. */
     fract >>= 16 - CUBIC_RESOLUTION_LOG;
     fract <<= 2;
@@ -356,14 +357,12 @@ EMU8K_READ_INTERP_CUBIC(emu8k_t *emu8k, uint32_t int_addr, uint16_t fract)
      * Also, it takes into account the "Note that the actual audio location is the point
      * 1 word higher than this value due to interpolation offset".
      * That's why the pointers are 0, 1, 2, 3 and not -1, 0, 1, 2 */
-    int32_t       dat2  = emu8k->read(emu8k, int_addr + 1);
     const float  *table = &cubic_table[fract];
-    const int32_t dat1  = emu8k->read(emu8k, int_addr);
-    const int32_t dat3  = emu8k->read(emu8k, int_addr + 2);
-    const int32_t dat4  = emu8k->read(emu8k, int_addr + 3);
     /* Note: I've ended using float for the table values to avoid some cases of integer overflow. */
-    dat2 = dat1 * table[0] + dat2 * table[1] + dat3 * table[2] + dat4 * table[3];
-    return dat2;
+    return dat0 * table[0] + dat1 * table[1] + dat2 * table[2] + dat3 * table[3];
+#else
+    return dat0;
+#endif
 }
 
 static void
@@ -867,7 +866,7 @@ emu8k_outw(uint16_t addr, uint16_t val, void *p)
                         WRITE16(addr, emu_voice->psst, val);
                         /* TODO: Should we update only on MSB update, or this could be used as some sort of hack by applications? */
                         emu_voice->loop_start.int_address = emu_voice->psst & EMU8K_MEM_ADDRESS_MASK;
-                        if (addr & 2) {
+                        if (!emu8k->emu10k1_fxsends && (addr & 2)) { /* psst_pan became a FX send in EMU10K1 */
                             emu_voice->vol_l = emu_voice->psst_pan;
                             emu_voice->vol_r = 255 - (emu_voice->psst_pan);
                         }
@@ -1119,6 +1118,7 @@ emu8k_outw(uint16_t addr, uint16_t val, void *p)
                         uint32_t paramq             = CCCA_FILTQ_GET(emu_voice->ccca);
                         emu_voice->filt_att         = filter_atten[paramq];
                         emu_voice->filterq_idx      = paramq;
+                        emu_voice->half_looped      = 0;
                     }
                     return;
 
@@ -1143,7 +1143,7 @@ emu8k_outw(uint16_t addr, uint16_t val, void *p)
                                 double osc_speed = emu8k->hwcf5; //*1.316;
 #if 1                                                            // milliHz
                                 /*milliHz to lfotable samples.*/
-                                osc_speed *= 65.536 / 44100.0;
+                                osc_speed *= 65.536 / (double) emu8k->freq;
 #elif 0 // periods
                                 /* 44.1Khz ticks to lfotable samples.*/
                                 osc_speed = 65.536 / osc_speed;
@@ -1368,8 +1368,15 @@ emu8k_outw(uint16_t addr, uint16_t val, void *p)
                             return;
                         }
                         the_voice->ifatn           = val;
-                        the_voice->initial_att     = (((int32_t) the_voice->ifatn_attenuation << 21) / 0xFF);
-                        the_voice->vtft_vol_target = attentable[the_voice->ifatn_attenuation];
+                        if (emu8k->emu10k1_fxsends && (val == 0x00ff)) {
+                            /* Nasty hack for EMU10K1. The Linux driver sets up an envelope which
+                               starts with maximum attenuation but never leaves the delay stage. */
+                            the_voice->initial_att     = 0;
+                            the_voice->vtft_vol_target = attentable[0];
+                        } else {
+                            the_voice->initial_att     = (((int32_t) the_voice->ifatn_attenuation << 21) / 0xFF);
+                            the_voice->vtft_vol_target = attentable[the_voice->ifatn_attenuation];
+                        }
 
                         the_voice->initial_filter = (((int32_t) the_voice->ifatn_init_filter << 21) / 0xFF);
                         if (the_voice->ifatn_init_filter == 0xFF) {
@@ -1695,14 +1702,81 @@ emu8k_update(emu8k_t *emu8k)
 
             if (emu_voice->cvcf_curr_volume) {
                 /* Waveform oscillator */
-#ifdef RESAMPLER_LINEAR
-                dat = EMU8K_READ_INTERP_LINEAR(emu8k, emu_voice->addr.int_address,
-                                               emu_voice->addr.fract_address);
-
-#elif defined RESAMPLER_CUBIC
-                dat = EMU8K_READ_INTERP_CUBIC(emu8k, emu_voice->addr.int_address,
-                                              emu_voice->addr.fract_address);
+                uint16_t dat0, dat1, dat2, dat3;
+                if (emu8k->emu10k1_fxsends) {
+                    /* EMU10K1-specific stereo and 8-bit modes. */
+                    if (CPF_10K1_STEREO(emu_voice->cpf)) {
+                        if (CCCA_10K1_8BITSELECT(emu_voice->ccca)) {
+#ifndef RESAMPLER_LINEAR
+                            dat0 = emu8k->read(emu8k, emu_voice->addr.int_address);
+                            dat3 = emu8k->read(emu8k, emu_voice->addr.int_address + 3);
 #endif
+                            dat1 = emu8k->read(emu8k, emu_voice->addr.int_address + 1);
+                            dat2 = emu8k->read(emu8k, emu_voice->addr.int_address + 2);
+                            if (c & 1) {
+#ifndef RESAMPLER_LINEAR
+                                dat0 &= 0xff00;
+                                dat3 &= 0xff00;
+#endif
+                                dat1 &= 0xff00;
+                                dat2 &= 0xff00;
+                            } else {
+#ifndef RESAMPLER_LINEAR
+                                dat0 <<= 8;
+                                dat3 <<= 8;
+#endif
+                                dat1 <<= 8;
+                                dat2 <<= 8;
+                            }
+                        } else {
+#ifndef RESAMPLER_LINEAR
+                            dat0 = emu8k->read(emu8k, (emu_voice->addr.int_address << 1) + !(c & 1));
+                            dat3 = emu8k->read(emu8k, ((emu_voice->addr.int_address + 3) << 1) + !(c & 1));
+#endif
+                            dat1 = emu8k->read(emu8k, ((emu_voice->addr.int_address + 1) << 1) + !(c & 1));
+                            dat2 = emu8k->read(emu8k, ((emu_voice->addr.int_address + 2) << 1) + !(c & 1));
+                        }
+                    } else if (CCCA_10K1_8BITSELECT(emu_voice->ccca)) {
+                        dat0 = emu8k->read(emu8k, emu_voice->addr.int_address >> 1);
+                        dat2 = emu8k->read(emu8k, (emu_voice->addr.int_address >> 1) + 1);
+                        if (emu_voice->addr.int_address & 1) {
+#ifndef RESAMPLER_LINEAR
+                            dat0 &= 0xff00;
+#endif
+                            dat1 = dat2 << 8;
+                            dat2 &= 0xff00;
+#ifndef RESAMPLER_LINEAR
+                            dat3 = emu8k->read(emu8k, (emu_voice->addr.int_address >> 1) + 2) << 8;
+#endif
+                        } else {
+                            dat1 = dat0 & 0xff00;
+#ifndef RESAMPLER_LINEAR
+                            dat0 <<= 8;
+                            dat3 = dat2 & 0xff00;
+#endif
+                            dat2 <<= 8;
+                        }
+                    } else {
+                        goto mono_16b;
+                    }
+                } else {
+mono_16b:
+#ifndef RESAMPLER_LINEAR
+                    dat0 = emu8k->read(emu8k, emu_voice->addr.int_address);
+                    dat3 = emu8k->read(emu8k, emu_voice->addr.int_address + 3);
+#endif
+                    dat1 = emu8k->read(emu8k, emu_voice->addr.int_address + 1);
+                    dat2 = emu8k->read(emu8k, emu_voice->addr.int_address + 2);
+                }
+                dat = emu8k_interp(emu8k,
+#ifndef RESAMPLER_LINEAR
+                                   (int16_t) dat0,
+#endif
+                                   (int16_t) dat1, (int16_t) dat2,
+#ifndef RESAMPLER_LINEAR
+                                   (int16_t) dat3,
+#endif
+                                   emu_voice->addr.fract_address);
 
                 /* Filter section */
                 if (emu_voice->filterq_idx || emu_voice->cvcf_curr_filt_ctoff != 0xFFFF) {
@@ -1796,7 +1870,7 @@ emu8k_update(emu8k_t *emu8k)
                         emu8k->fx_buffer[emu_voice->fx_send[2]][pos] += (dat * emu_voice->psst_pan) >> 8;
                         emu8k->fx_buffer[emu_voice->fx_send[3]][pos] += (dat * emu_voice->csl_chor_send) >> 8;
                         for (i = 4; i < emu8k->emu10k1_fxsends; i++)
-                            emu8k->fx_buffer[emu_voice->fx_send[i]][pos] += (dat * ((uint8_t *) &emu_voice->sendamounts)[i - 4]) >> 8;
+                            emu8k->fx_buffer[emu_voice->fx_send[i]][pos] += (dat * ((uint8_t *) &emu_voice->sendamounts)[i & 3]) >> 8;
                     } else {
                         (*buf++) += (dat * emu_voice->vol_l) >> 8;
                         (*buf++) += (dat * emu_voice->vol_r) >> 8;
@@ -1825,7 +1899,9 @@ emu8k_update(emu8k_t *emu8k)
                             volenv->state         = ENV_ATTACK;
                             volenv->delay_samples = 0;
                         }
-                        attenuation = 0x1FFFFF;
+                        /* Second part of the nasty EMU10K1 Linux attenuation hack. */
+                        if (!(emu8k->emu10k1_fxsends && (emu_voice->ifatn == 0x00ff)))
+                            attenuation = 0x1FFFFF;
                         break;
 
                     case ENV_ATTACK:
@@ -2015,6 +2091,38 @@ emu8k_update(emu8k_t *emu8k)
             if (emu_voice->addr.addr >= emu_voice->loop_end.addr) {
                 emu_voice->addr.int_address -= (emu_voice->loop_end.int_address - emu_voice->loop_start.int_address);
                 emu_voice->addr.int_address &= EMU8K_MEM_ADDRESS_MASK;
+
+                if (emu8k->emu10k1_fxsends) {
+                    emu_voice->half_looped = 0;
+
+                    /* Trigger loop interrupt. */
+                    if (*(emu8k->clie) & (1ULL << c)) {
+                        *(emu8k->clip) |= 1ULL << c;
+                        emu8k->lip = 1;
+                    }
+
+                    /* Set cache loop registers. */
+                    emu_voice->ccr |= 0x100 | emu_voice->csl_hw_address; /* CCR_LOOPFLAG | CCR_CACHELOOPADDRHI */
+                    emu_voice->clp = emu_voice->csl_lw_address; /* CLP_CACHELOOPADDR */
+
+                    /* Stop if requested. */
+                    if (*(emu8k->sole) & (1ULL << c))
+                        emu_voice->cpf_curr_pitch = 0; /* how does it stop? */
+                }
+            } else if (emu8k->emu10k1_fxsends) {
+                /* Clear cache loop registers, which are only set for one sample. */
+                emu_voice->ccr &= ~0x1ff; /* CCR_LOOPFLAG | CCR_CACHELOOPADDRHI */
+                emu_voice->clp = 0; /* CLP_CACHELOOPADDR */
+
+                if (!emu_voice->half_looped && (emu_voice->addr.addr >= (emu_voice->loop_end.addr >> 1))) {
+                    emu_voice->half_looped = 1;
+
+                    /* Trigger half loop interrupt. */
+                    if (*(emu8k->hlie) & (1ULL << c)) {
+                        *(emu8k->hlip) |= 1ULL << c;
+                        emu8k->lip = 1;
+                    }
+                }
             }
 
             /* TODO: How and when are the target and current values updated */
@@ -2025,7 +2133,10 @@ emu8k_update(emu8k_t *emu8k)
 
         /* Update EMU voice registers. */
         emu_voice->ccca               = (((uint32_t) emu_voice->ccca_qcontrol) << 24) | emu_voice->addr.int_address;
-        emu_voice->cpf_curr_frac_addr = (emu8k->emu10k1_fxsends ? (emu_voice->cpf_curr_frac_addr & 0xc000) : 0) | emu_voice->addr.fract_address;
+        if (emu8k->emu10k1_fxsends)
+            emu_voice->cpf_curr_frac_addr = (emu_voice->cpf_curr_frac_addr & 0xc000) | (emu_voice->addr.fract_address & 0x3fff);
+        else
+            emu_voice->cpf_curr_frac_addr = emu_voice->addr.fract_address;
 
         // if ( emu_voice->cvcf_curr_volume != old_vol[c]) {
         //     pclog("EMUVOL (%d):%d\n", c, emu_voice->cvcf_curr_volume);
@@ -2088,12 +2199,13 @@ emu8k_change_addr(emu8k_t *emu8k, uint16_t emu_addr)
 }
 
 void
-emu8k_init_standalone(emu8k_t *emu8k, int nvoices)
+emu8k_init_standalone(emu8k_t *emu8k, int nvoices, int freq)
 {
     int    c;
     double out;
 
     emu8k->nvoices = nvoices;
+    emu8k->freq = freq;
 
     /*Create frequency table. (Convert initial pitch register value to a linear speed change)
      * The input is encoded such as 0xe000 is center note (no pitch shift)
@@ -2151,6 +2263,7 @@ emu8k_init_standalone(emu8k_t *emu8k, int nvoices)
     env_mod_hertz_to_octave[0x10000] = 65536;
 
     /* This formula comes from vince vu/judge dredd's awe32p10 and corresponds to what the freebsd/linux AWE32 driver has. */
+    out = emu8k->freq / 1000.0;
     float millis;
     for (c = 0; c < 128; c++) {
         if (c == 0)
@@ -2160,7 +2273,7 @@ emu8k_init_standalone(emu8k_t *emu8k, int nvoices)
         else
             millis = 360 * exp((c - 32) / (16.0 / log(1.0 / 2.0)));
 
-        env_attack_to_samples[c] = 44.1 * millis;
+        env_attack_to_samples[c] = out * millis;
         /* This is an alternate formula with linear increments, but probably incorrect:
          * millis = (256+4096*(0x7F-c)) */
     }
@@ -2177,7 +2290,7 @@ emu8k_init_standalone(emu8k_t *emu8k, int nvoices)
     /* The 65536 * 65536 is in order to left-shift the 32bit value to a 64bit value as a 32.32 fixed point. */
     out = 0.01;
     for (c = 0; c < 256; c++) {
-        lfofreqtospeed[c] = (uint64_t) (out * 65536.0 / 44100.0 * 65536.0 * 65536.0);
+        lfofreqtospeed[c] = (uint64_t) (out * 65536.0 / (double) emu8k->freq * 65536.0 * 65536.0);
         out += 0.042;
     }
 
@@ -2191,7 +2304,7 @@ emu8k_init_standalone(emu8k_t *emu8k, int nvoices)
         out = 125.0; /* Start at 125Hz */
         for (c = 0; c < 256; c++) {
 #ifdef FILTER_INITIAL
-            float w0 = sin(2.0 * M_PI * out / 44100.0);
+            float w0 = sin(2.0 * M_PI * out / (double) emu8k->freq);
             /* The value 102.5f has been selected a bit randomly. Pretends to reach 0.2929 at w0 = 1.0 */
             float q = (qidx / 102.5f) * (1.0 + 1.0 / w0);
             /* Limit max value. Else it would be 470. */
@@ -2201,7 +2314,7 @@ emu8k_init_standalone(emu8k_t *emu8k, int nvoices)
             filt_coeffs[qidx][c][1] = 16777216.0;
             filt_coeffs[qidx][c][2] = (int32_t) ((1.0f / (0.7071f + q)) * 16777216.0);
 #elif defined FILTER_MOOG
-            float w0 = sin(2.0 * M_PI * out / 44100.0);
+            float w0 = sin(2.0 * M_PI * out / (double) emu8k->freq);
             float q_factor = 1.0f - w0;
             float p = w0 + 0.8f * w0 * q_factor;
             float f = p + p - 1.0f;
@@ -2212,7 +2325,7 @@ emu8k_init_standalone(emu8k_t *emu8k, int nvoices)
             filt_coeffs[qidx][c][2] = (int32_t) (q * 16777216.0);
 #elif defined FILTER_CONSTANT
             float q = (1.0 - pow(2.0, -qidx * 24.0 / 90.0)) * 0.8;
-            float coef0 = sin(2.0 * M_PI * out / 44100.0);
+            float coef0 = sin(2.0 * M_PI * out / (double) emu8k->freq);
             float coef1 = 1.0 - coef0;
             float coef2 = q * (1.0 + 1.0 / coef1);
             filt_coeffs[qidx][c][0] = (int32_t) (coef0 * 16777216.0);
@@ -2310,8 +2423,7 @@ emu8k_init(emu8k_t *emu8k, uint16_t emu_addr, int onboard_ram)
 
     emu8k_change_addr(emu8k, emu_addr);
 
-    emu8k_init_standalone(emu8k, 32);
-    emu8k->freq = FREQ_44100;
+    emu8k_init_standalone(emu8k, 32, FREQ_44100);
     emu8k->read = EMU8K_READ;
     emu8k->write = EMU8K_WRITE;
 

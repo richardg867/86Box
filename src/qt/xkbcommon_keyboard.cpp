@@ -172,7 +172,7 @@ static std::unordered_map<std::string, uint16_t> xkb_keycodes = {
     {"RWIN", 0x15c},
     {"RMTA", 0x15c},
     {"MENU", 0x15d},
-    {"COMP", 0x15d}, /* Compose as Menu */
+    {"COMP", 0x15d}, /* Compose => Menu */
 
     /* Multimedia keys. Same notes as evdev_keyboard apply here. */
     {"KPEQ", 0x59},  /* Num= */
