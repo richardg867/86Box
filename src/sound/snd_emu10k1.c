@@ -190,10 +190,17 @@ saturated:
 }
 
 static __inline int64_t
-emu10k1_dsp_add(emu10k1_t *dev, int64_t a, int64_t b) {
-    /* Set borrow flag if we're subtracting and have a borrow. */
-    if ((b < 0) && (a < b))
-        dev->dsp.regs[0x57] |= 0x01; /* B */
+emu10k1_dsp_add(emu10k1_t *dev, int64_t a, int64_t b)
+{
+    /* The borrow flag follows this truth table:
+       1) a + b = always set
+       2) a + -b = a < abs(b)
+       3) -a + b = b < abs(a)
+       4) -a + -b = never set */
+    if (((a >= 0) && (b >= 0)) ||
+        ((a >= 0) && (b < 0) && (a < abs(b))) ||
+        ((a < 0) && (b >= 0) && (b < abs(a))))
+        dev->dsp.regs[0x57] |= 0x02; /* B */
     return a + b;
 }
 
@@ -228,43 +235,62 @@ emu10k1_dsp_opMACW1(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opMACINTS(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = emu10k1_dsp_add(dev, a, ((uint64_t) x * y));
-    return emu10k1_dsp_saturate(dev, dev->dsp.acc);
+    /* MACINT operations have weird borrow flag handling, seemingly a >= 0 */
+    dev->dsp.acc = a + ((uint64_t) x * y);
+    if (a >= 0)
+        dev->dsp.regs[0x57] |= 0x02; /* B */
+    /* MACINT operations set the accumulator to the result's upper 32 bits. */
+    int64_t ret = dev->dsp.acc;
+    dev->dsp.acc >>= 32;
+    return emu10k1_dsp_saturate(dev, ret);
 }
 
 static int32_t
 emu10k1_dsp_opMACINTW(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = emu10k1_dsp_add(dev, a, ((uint64_t) x * y));
-    return dev->dsp.acc & 0x7fffffff;
+    dev->dsp.acc = a + ((uint64_t) x * y);
+    if (a >= 0)
+        dev->dsp.regs[0x57] |= 0x02; /* B */
+    int64_t ret = dev->dsp.acc;
+    dev->dsp.acc >>= 32;
+    return ret & 0x7fffffff;
 }
 
 static int32_t
 emu10k1_dsp_opACC3(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = emu10k1_dsp_add(dev, emu10k1_dsp_add(dev, a, x), y) << 31;
-    return emu10k1_dsp_saturate(dev, dev->dsp.acc >> 31);
+    /* Borrow check only performed when adding a to x+y.
+       The accumulator's lower 32 bits are used, despite documentation.
+       Saturation happens at the accumulator. */
+    dev->dsp.acc = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, a, x + y));
+    return dev->dsp.acc;
 }
 
 static int32_t
 emu10k1_dsp_opMACMV(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    /* The order isn't 100% clear, but code examples suggest it's MAC *then* move. */
-    dev->dsp.acc = emu10k1_dsp_add(dev, dev->dsp.acc, (int64_t) x * y);
+    /* Clearing up unclear documentation:
+       - The order is MAC *then* move.
+       - The multiplication result is shifted like MACS/MACW, then saturated. */
+    dev->dsp.acc = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, dev->dsp.acc, ((uint64_t) x * y) >> 31));
     return a;
 }
 
 static int32_t
 emu10k1_dsp_opANDXOR(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = (a & x) ^ y; /* unknown behavior: does this use the accumulator? do any of the non arithmetic ops use the accumulator? */
-    return dev->dsp.acc;
+    /* The A operand is copied to the accumulator, which is apparently
+       subtracted by 1 if a is positive and b is negative. */
+    dev->dsp.acc = a - ((a >= 0) && (b < 0));
+    return (a & x) ^ y;
 }
 
 static int32_t
 emu10k1_dsp_opTSTNEG(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    if (a < y)
+    /* For the 3 test opcodes, hardware subtracts the operands into the accumulator and compares on that. */
+    dev->dsp.acc = a - y;
+    if (dev->dsp.acc < 0)
         x = ~x;
     return x;
 }
@@ -272,18 +298,24 @@ emu10k1_dsp_opTSTNEG(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opLIMIT(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    return (a >= y) ? x : y;
+    dev->dsp.acc = a - y;
+    return (dev->dsp.acc < 0) ? y : x;
 }
 
 static int32_t
 emu10k1_dsp_opLIMIT1(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    return (a < y) ? x : y;
+    dev->dsp.acc = a - y;
+    return (dev->dsp.acc < 0) ? x : y;
 }
 
 static uint32_t
 emu10k1_dsp_logcompress(int32_t val, int max_exp)
 {
+    /* Special cases: 0 divides by 2, and 1 returns the same value. */
+    if (UNLIKELY(max_exp < 2))
+        return val >> (max_exp ^ 1);
+
     /* Based on a kX driver function written by someone smarter than me. */
     int exp_bits = log2(max_exp) + 1;
     uint32_t ret = abs(val);
@@ -304,6 +336,8 @@ emu10k1_dsp_logcompress(int32_t val, int max_exp)
 static int32_t
 emu10k1_dsp_opLOG(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
+    /* On both LOG and EXP, the A operand is copied to the accumulator. */
+    dev->dsp.acc = a;
     uint32_t r = emu10k1_dsp_logcompress(a, x & 0x1f);
 
     /* Apply one's complement transformations. */
@@ -319,6 +353,10 @@ emu10k1_dsp_opLOG(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 static uint32_t
 emu10k1_dsp_logdecompress(int32_t val, int max_exp)
 {
+    /* Special cases: 0 multiplies by 2 (and adds 1 if negative), and 1 returns the same value. */
+    if (UNLIKELY(max_exp < 2))
+        return (val << (max_exp ^ 1)) + ((max_exp == 0) && (val < 0));
+
     /* Same note as logcompress. */
     int exp_bits = log2(max_exp) + 1;
     uint32_t ret = abs(val); 
@@ -342,6 +380,7 @@ emu10k1_dsp_logdecompress(int32_t val, int max_exp)
 static int32_t
 emu10k1_dsp_opEXP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
+    dev->dsp.acc = a;
     uint32_t r = emu10k1_dsp_logdecompress(a, x & 0x1f);
 
     /* Apply one's complement transformations. */
@@ -357,7 +396,9 @@ emu10k1_dsp_opEXP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opINTERP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = emu10k1_dsp_add(dev, a, (((int64_t) -x * emu10k1_dsp_add(dev, y, -a)) >> 31));
+    /* Borrow flag apparently always set. */
+    dev->dsp.regs[0x57] |= 0x02; /* B */
+    dev->dsp.acc = emu10k1_dsp_add(dev, a, (((int64_t) x * (y - a)) >> 31));
     return emu10k1_dsp_saturate(dev, dev->dsp.acc);
 }
 
@@ -462,6 +503,7 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
             clip = -32768;
         else if (clip > 32767)
             clip = 32767;
+        if (i < 2) buf[i] = clip;
 #ifdef CREATIVE_DESCRIBED_BEHAVIOR
         dev->dsp.regs[i] = (uint16_t) clip << 14;
 #else
@@ -524,12 +566,16 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         int r = (fetch >> 42) & 0x3ff;
         int op = (fetch >> 52) & 0xf;
 
+        /* Read operands.
+           The accumulator can only be specified as A, otherwise it
+           reads as 0, except on MACMV where it always reads as 0. */
+        uint64_t aval = ((a == 0x56) && (op != 0x7)) ? dev->dsp.acc : emu10k1_dsp_read(dev, a);
+        uint32_t xval = emu10k1_dsp_read(dev, x), yval = emu10k1_dsp_read(dev, y);
+
         /* Clear flags now, as operation code may set them. */
         dev->dsp.regs[0x57] = 0;
 
         /* Execute operation. */
-        uint64_t aval = (a == 0x56) ? dev->dsp.acc : emu10k1_dsp_read(dev, a); /* accumulator can only be specified as A, otherwise it reads as 0 */
-        uint32_t xval = emu10k1_dsp_read(dev, x), yval = emu10k1_dsp_read(dev, y);
         int32_t rval = emu10k1_dsp_ops[op](dev, aval, xval, yval);
 
         /* Calculate remaining flags. */
