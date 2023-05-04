@@ -70,11 +70,11 @@ static const struct {
     {
         .type = EMU10K1,
         .id = SB_LIVE_CT4670,
-        .codec = NULL /* CT1297 */
+        .codec = &ct1297_device
     }, {
         .type = EMU10K1,
         .id = SB_LIVE_CT4620,
-        .codec = NULL /* CT1297 */
+        .codec = &ct1297_device
     }, {
         .type = EMU10K1,
         .id = SB_LIVE_CT4780,
@@ -174,14 +174,14 @@ static void emu10k1_writel(uint16_t addr, uint32_t val, void *priv);
 
 static __inline int32_t
 emu10k1_dsp_saturate(emu10k1_t *dev, int64_t i) {
-    uint32_t ret;
-    if (i > 2147483647) {
-        ret = 2147483647;
+    int32_t ret;
+    if (i > 0x7fffffff) {
+        ret = 0x7fffffff;
 saturated:
         /* Set saturation flag. */
         dev->dsp.regs[0x57] |= 0x10; /* S */
-    } else if (i < -2147483648) {
-        ret = -2147483648;
+    } else if (i < -0x80000000) {
+        ret = -0x80000000;
         goto saturated;
     } else {
         ret = i;
@@ -207,15 +207,15 @@ emu10k1_dsp_add(emu10k1_t *dev, int64_t a, int64_t b)
 static int32_t
 emu10k1_dsp_opMACS(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = emu10k1_dsp_add(dev, a, (((uint64_t) x * y) >> 31));
-    return emu10k1_dsp_saturate(dev, dev->dsp.acc);
+    dev->dsp.acc = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, a, (((uint64_t) x * y) >> 31)));
+    return dev->dsp.acc;
 }
 
 static int32_t
 emu10k1_dsp_opMACS1(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = emu10k1_dsp_add(dev, a, (((uint64_t) -x * y) >> 31));
-    return emu10k1_dsp_saturate(dev, dev->dsp.acc);
+    dev->dsp.acc = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, a, (((uint64_t) -x * y) >> 31)));
+    return dev->dsp.acc;
 }
 
 static int32_t
@@ -279,19 +279,25 @@ emu10k1_dsp_opMACMV(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opANDXOR(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    /* The A operand is copied to the accumulator, which is apparently
-       subtracted by 1 if a is positive and b is negative. */
-    dev->dsp.acc = a - ((a >= 0) && (b < 0));
+    /* Borrow flag apparently always set. */
+    dev->dsp.regs[0x57] |= 0x02; /* B */
+    /* The A operand is copied to the accumulator, which is
+       subtracted by 1 if a is positive and y is negative. */
+    dev->dsp.acc = a - ((a >= 0) && (y < 0));
     return (a & x) ^ y;
 }
 
 static int32_t
 emu10k1_dsp_opTSTNEG(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    /* For the 3 test opcodes, hardware subtracts the operands into the accumulator and compares on that. */
+    /* For the 3 test operations, the operands are subtracted
+       into the accumulator and the comparison is done on that.
+       The borrow flag is set if the accumulator is negative. */
     dev->dsp.acc = a - y;
-    if (dev->dsp.acc < 0)
+    if (dev->dsp.acc < 0) {
         x = ~x;
+        dev->dsp.regs[0x57] |= 0x02; /* B */
+    }
     return x;
 }
 
@@ -299,14 +305,22 @@ static int32_t
 emu10k1_dsp_opLIMIT(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
     dev->dsp.acc = a - y;
-    return (dev->dsp.acc < 0) ? y : x;
+    if (dev->dsp.acc < 0) {
+        dev->dsp.regs[0x57] |= 0x02; /* B */
+        return y;
+    }
+    return x;
 }
 
 static int32_t
 emu10k1_dsp_opLIMIT1(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
     dev->dsp.acc = a - y;
-    return (dev->dsp.acc < 0) ? x : y;
+    if (dev->dsp.acc < 0) {
+        dev->dsp.regs[0x57] |= 0x02; /* B */
+        return x;
+    }
+    return y;
 }
 
 static uint32_t
@@ -336,9 +350,11 @@ emu10k1_dsp_logcompress(int32_t val, int max_exp)
 static int32_t
 emu10k1_dsp_opLOG(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    /* On both LOG and EXP, the A operand is copied to the accumulator. */
+    /* On both LOG and EXP, the A operand is copied to the accumulator... */
     dev->dsp.acc = a;
     uint32_t r = emu10k1_dsp_logcompress(a, x & 0x1f);
+    /* ...and the borrow flag is always set. */
+    dev->dsp.regs[0x57] |= 0x02; /* B */
 
     /* Apply one's complement transformations. */
     switch (y & 0x3) {
@@ -382,6 +398,7 @@ emu10k1_dsp_opEXP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
     dev->dsp.acc = a;
     uint32_t r = emu10k1_dsp_logdecompress(a, x & 0x1f);
+    dev->dsp.regs[0x57] |= 0x02; /* B */
 
     /* Apply one's complement transformations. */
     switch (y & 0x3) {
@@ -396,9 +413,10 @@ emu10k1_dsp_opEXP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opINTERP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    /* Borrow flag apparently always set. */
+    /* Borrow flag always set. The minus flag has further nonsense; it's apparently
+       independent from the result, but my attempts at reverse engineering it failed. */
     dev->dsp.regs[0x57] |= 0x02; /* B */
-    dev->dsp.acc = emu10k1_dsp_add(dev, a, (((int64_t) x * (y - a)) >> 31));
+    dev->dsp.acc = a + (((int64_t) x * (y - a)) >> 31);
     return emu10k1_dsp_saturate(dev, dev->dsp.acc);
 }
 
@@ -580,7 +598,7 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
 
         /* Calculate remaining flags. */
         dev->dsp.regs[0x57] |=
-            (((rval & emu10k1_dsp_read(dev, r)) & 0x80000000) >> 30) | /* N = 0x02 */
+            ((rval < -0x40000000) || (rval >= 0x40000000)) | /* N = 0x01 */
             ((rval < 0) << 2) | /* M = 0x04 */
             ((rval == 0) << 3); /* Z = 0x08 */
 
@@ -806,7 +824,7 @@ emu10k1_readb(uint16_t addr, void *priv)
 {
     emu10k1_t *dev = (emu10k1_t *) priv;
     addr &= 0x1f;
-    uint8_t ret;
+    uint8_t ret = 0;
     int reg;
 #ifdef ENABLE_EMU10K1_LOG
     reg = -1;
@@ -819,8 +837,6 @@ emu10k1_readb(uint16_t addr, void *priv)
                 case 0x70 ... 0x73: /* A_MUDATA1 ... A_MUCMD2 */
                     if ((dev->type != EMU10K1) && !(addr & 3))
                         ret = mpu401_read(reg, &dev->mpu[(reg & 2) >> 1]);
-                    else
-                        ret = 0;
                     break;
 
                 default:
@@ -836,6 +852,11 @@ emu10k1_readb(uint16_t addr, void *priv)
                 goto io_reg;
             break;
 
+        case 0x1e: /* AC97ADDRESS */
+            if (dev->codec)
+                ret = 0x80; /* AC97ADDRESS_READY */
+            goto io_reg;
+
         case 0x10: /* 16/32-bit registers */
         case 0x1c ... 0x1d:
 readb_fallback:
@@ -846,7 +867,7 @@ readb_fallback:
 
         default:
 io_reg:
-            ret = dev->io_regs[addr];
+            ret |= dev->io_regs[addr];
             break;
     }
 
@@ -1123,7 +1144,7 @@ emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
             break;
 
         case 0x1e: /* AC97ADDRESS */
-            val = (val & 0x7f) | (dev->io_regs[addr] & ~0x7f);
+            val &= 0x7f;
             break;
 
         case 0x1c ... 0x1d: /* 16-bit registers */
@@ -1786,10 +1807,18 @@ static const device_config_t sb_live_config[] = {
         .description = "Model",
         .type = CONFIG_SELECTION,
         .default_string = "",
-        .default_int = SB_LIVE_CT4760,
+        .default_int = SB_LIVE_CT4670,
         .file_filter = "",
         .spinner = { 0 },
         .selection = {
+            {
+                .description = "CT4620 (Creative CT1297)",
+                .value = SB_LIVE_CT4620
+            },
+            {
+                .description = "CT4670 (Creative CT1297)",
+                .value = SB_LIVE_CT4670
+            },
             {
                 .description = "CT4760 (SigmaTel STAC9721)",
                 .value = SB_LIVE_CT4760

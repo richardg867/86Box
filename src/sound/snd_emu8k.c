@@ -1715,18 +1715,18 @@ emu8k_update(emu8k_t *emu8k)
                             dat2 = emu8k->read(emu8k, emu_voice->addr.int_address + 2);
                             if (c & 1) {
 #ifndef RESAMPLER_LINEAR
-                                dat0 &= 0xff00;
-                                dat3 &= 0xff00;
+                                dat0 = (dat0 << 8) ^ 0x8000;
+                                dat3 = (dat3 << 8) ^ 0x8000;
 #endif
-                                dat1 &= 0xff00;
-                                dat2 &= 0xff00;
+                                dat1 = (dat1 << 8) ^ 0x8000;
+                                dat2 = (dat2 << 8) ^ 0x8000;
                             } else {
 #ifndef RESAMPLER_LINEAR
-                                dat0 <<= 8;
-                                dat3 <<= 8;
+                                dat0 = (dat0 & 0xff00) ^ 0x8000;
+                                dat3 = (dat3 & 0xff00) ^ 0x8000;
 #endif
-                                dat1 <<= 8;
-                                dat2 <<= 8;
+                                dat1 = (dat1 & 0xff00) ^ 0x8000;
+                                dat2 = (dat2 & 0xff00) ^ 0x8000;
                             }
                         } else {
 #ifndef RESAMPLER_LINEAR
@@ -1741,20 +1741,18 @@ emu8k_update(emu8k_t *emu8k)
                         dat2 = emu8k->read(emu8k, (emu_voice->addr.int_address >> 1) + 1);
                         if (emu_voice->addr.int_address & 1) {
 #ifndef RESAMPLER_LINEAR
-                            dat0 &= 0xff00;
+                            dat0 = (dat0 & 0xff00) ^ 0x8000;
+                            dat3 = (emu8k->read(emu8k, (emu_voice->addr.int_address >> 1) + 2) << 8) ^ 0x8000;
 #endif
-                            dat1 = dat2 << 8;
-                            dat2 &= 0xff00;
-#ifndef RESAMPLER_LINEAR
-                            dat3 = emu8k->read(emu8k, (emu_voice->addr.int_address >> 1) + 2) << 8;
-#endif
+                            dat1 = (dat2 << 8) ^ 0x8000;
+                            dat2 = (dat2 & 0xff00) ^ 0x8000;
                         } else {
-                            dat1 = dat0 & 0xff00;
+                            dat1 = (dat0 & 0xff00) ^ 0x8000;
 #ifndef RESAMPLER_LINEAR
-                            dat0 <<= 8;
-                            dat3 = dat2 & 0xff00;
+                            dat0 = (dat0 << 8) ^ 0x8000;
+                            dat3 = (dat2 & 0xff00) ^ 0x8000;
 #endif
-                            dat2 <<= 8;
+                            dat2 = (dat2 << 8) ^ 0x8000;
                         }
                     } else {
                         goto mono_16b;
