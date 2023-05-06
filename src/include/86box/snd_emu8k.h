@@ -233,7 +233,25 @@ typedef struct emu8k_voice_t {
 #define CCCA_DMA_WRITE_RIGHT(ccca) (ccca & 0x01000000)
 #define CCCA_10K1_8BITSELECT(ccca) (ccca & 0x01000000)
 
-    uint32_t ccr, clp, fxrt, mapa, mapb, sendamounts; /* EMU10K1 */
+    /* EMU10K1 */
+    union {
+        uint32_t ccr;
+        struct {
+            uint8_t clp_hw_address;
+            uint8_t ccr_loopinval;
+            uint8_t ccr_readaddr;
+            uint8_t ccr_cacheinval;
+        };
+    };
+    union {
+        uint32_t clp_fxrt;
+        struct {
+            uint16_t clp_lw_address;
+            uint16_t fxrt;
+        };
+    };
+    uint32_t map[2], sendamounts;
+    int tlb_pos, request_cache_loop;
 
     uint16_t envvol;
 #define ENVVOL_NODELAY(envol) (envvol & 0x8000)
@@ -337,7 +355,9 @@ typedef struct emu8k_voice_t {
         };
         struct { /* EMU10K1 */
             int fx_send[8];
-            int half_looped;
+            int half_looped, addr_shift, stereo_offset;
+            uint8_t cd[64]; /* cache */
+            uint32_t fifo_pos, fifo_end;
         };
     };
 
@@ -359,13 +379,31 @@ typedef struct emu8k_t {
     int           nvoices, freq, emu10k1_fxbuses, emu10k1_fxsends;
     emu8k_voice_t voice[64];
 
-    uint16_t hwcf1, hwcf2, hwcf3;
-    uint32_t hwcf4, hwcf5, hwcf6, hwcf7;
+    union {
+        struct { /* EMU8000 */
+            uint16_t hwcf1, hwcf2, hwcf3;
+            uint32_t hwcf4, hwcf5, hwcf6, hwcf7;
 
-    uint16_t init1[32], init2[32], init3[32], init4[32];
+            uint16_t init1[32], init2[32], init3[32], init4[32];
 
-    uint32_t smalr, smarr, smalw, smarw;
-    uint16_t smld_buffer, smrd_buffer;
+            uint32_t smalr, smarr, smalw, smarw;
+            uint16_t smld_buffer, smrd_buffer;
+
+            /* RAM pointers are a way to avoid checking ram boundaries on read */
+            int16_t *ram_pointers[0x100];
+            uint32_t ram_end_addr;
+
+            emu8k_chorus_eng_t chorus_engine;
+            int32_t chorus_in_buffer[SOUNDBUFLEN];
+            emu8k_reverb_eng_t reverb_engine;
+            int32_t reverb_in_buffer[SOUNDBUFLEN];
+
+            uint16_t addr;
+        };
+        struct { /* EMU10K1 */
+            int32_t fx_buffer[64][SOUNDBUFLEN];
+        };
+    };
 
     uint32_t wc;
 
@@ -374,23 +412,9 @@ typedef struct emu8k_t {
     /* The empty block is used to act as an unallocated memory returning zero. */
     int16_t *ram, *rom, *empty;
 
-    /* RAM pointers are a way to avoid checking ram boundaries on read */
-    int16_t *ram_pointers[0x100];
-    uint32_t ram_end_addr;
-
     int cur_reg, cur_voice;
 
     int16_t out_l, out_r;
-
-    union {
-        struct { /* EMU8000 */
-            emu8k_chorus_eng_t chorus_engine;
-            int32_t chorus_in_buffer[SOUNDBUFLEN];
-            emu8k_reverb_eng_t reverb_engine;
-            int32_t reverb_in_buffer[SOUNDBUFLEN];
-        };
-        int32_t fx_buffer[64][SOUNDBUFLEN]; /* EMU10K1 */
-    };
 
     /* EMU10K1 */
     uint64_t *clie, *clip, *hlie, *hlip, *sole; /* loop interrupt/stop */
@@ -399,10 +423,7 @@ typedef struct emu8k_t {
     int     pos;
     int32_t buffer[SOUNDBUFLEN * 2];
 
-    uint16_t addr;
-
-    int16_t (*read)(struct emu8k_t *emu8k, uint32_t addr);
-    void    (*write)(struct emu8k_t *emu8k, uint32_t addr, uint16_t val);
+    uint32_t (*readl)(struct emu8k_t *emu8k, emu8k_voice_t *voice, uint32_t addr);
 } emu8k_t;
 
 uint16_t emu8k_inw(uint16_t addr, void *p);
