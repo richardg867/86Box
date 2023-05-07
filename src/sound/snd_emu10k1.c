@@ -170,13 +170,13 @@ static __inline int32_t
 emu10k1_dsp_saturate(emu10k1_t *dev, int64_t i)
 {
     int32_t ret;
-    if (i > 0x7fffffff) {
-        ret = 0x7fffffff;
+    if (i > 2147483647) {
+        ret = 2147483647;
 saturated:
         /* Set saturation flag. */
         dev->dsp.regs[0x57] |= 0x10; /* S */
-    } else if (i < -0x80000000) {
-        ret = -0x80000000;
+    } else if (i < -2147483648) {
+        ret = -2147483648;
         goto saturated;
     } else {
         ret = i;
@@ -200,52 +200,50 @@ emu10k1_dsp_add(emu10k1_t *dev, int64_t a, int64_t b)
 static int32_t
 emu10k1_dsp_opMACS(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, a, (((uint64_t) x * y) >> 31)));
+    dev->dsp.acc = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, a, ((int64_t) x * y) >> 31));
     return dev->dsp.acc;
 }
 
 static int32_t
 emu10k1_dsp_opMACS1(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, a, (((uint64_t) -x * y) >> 31)));
+    dev->dsp.acc = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, a, ((int64_t) -x * y) >> 31));
     return dev->dsp.acc;
 }
 
 static int32_t
 emu10k1_dsp_opMACW(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = emu10k1_dsp_add(dev, a, (((uint64_t) x * y) >> 31));
+    dev->dsp.acc = emu10k1_dsp_add(dev, a, ((int64_t) x * y) >> 31);
     return dev->dsp.acc;
 }
 
 static int32_t
 emu10k1_dsp_opMACW1(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = emu10k1_dsp_add(dev, a, (((uint64_t) -x * y) >> 31));
+    dev->dsp.acc = emu10k1_dsp_add(dev, a, ((int64_t) -x * y) >> 31);
     return dev->dsp.acc;
 }
 
 static int32_t
 emu10k1_dsp_opMACINTS(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    /* MACINT operations have weird borrow flag handling, seemingly a >= 0 */
-    dev->dsp.acc = a + ((uint64_t) x * y);
+    /* MACINT operations have weird borrow flag handling, seemingly a >= 0... */
+    int64_t ret = a + ((int64_t) x * y);
     if (a >= 0)
         dev->dsp.regs[0x57] |= 0x02; /* B */
-    /* MACINT operations set the accumulator to the result's upper 32 bits. */
-    int64_t ret = dev->dsp.acc;
-    dev->dsp.acc >>= 32;
+    /* ...and set the accumulator to the result's upper 32 bits. */
+    dev->dsp.acc = ret >> 32;
     return emu10k1_dsp_saturate(dev, ret);
 }
 
 static int32_t
 emu10k1_dsp_opMACINTW(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = a + ((uint64_t) x * y);
+    int64_t ret = a + ((int64_t) x * y);
     if (a >= 0)
         dev->dsp.regs[0x57] |= 0x02; /* B */
-    int64_t ret = dev->dsp.acc;
-    dev->dsp.acc >>= 32;
+    dev->dsp.acc = ret >> 32;
     return ret & 0x7fffffff;
 }
 
@@ -265,7 +263,7 @@ emu10k1_dsp_opMACMV(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
     /* Clearing up unclear documentation:
        - The order is MAC *then* move.
        - The multiplication result is shifted like MACS/MACW, then saturated. */
-    dev->dsp.acc = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, dev->dsp.acc, ((uint64_t) x * y) >> 31));
+    dev->dsp.acc = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, dev->dsp.acc, ((int64_t) x * y) >> 31));
     return a;
 }
 
@@ -503,15 +501,17 @@ emu10k1_dsp_read(emu10k1_t *dev, int addr)
         return ((dev->indirect_regs[addr] & 0x000fffff) << 11) | dev->dsp.tram_frac[addr & 0xff];
 }
 
-#define SAMPLE_CONV_FACTOR -15403.9065734013 /* average observed across 8192 discrete sample values */
+#define SAMPLE_CONV_FACTOR -15406.5397154191 /* average observed through probing 218k sample values (>3 laps around the full range)
+                                                on hardware; produces an average ~0.498 and maximum ~0.996 sample value error */
+#define CLAMP(x, min, max) (((x) < (min)) ? (min) : (((x) > (max)) ? (max) : (x)))
 
 void
 emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
 {
     /* Send DSP outputs from the previous run to the audio buffer.
        This should actually be 20 bits sent to the AC97 codec. */
-    buf[0] = (int16_t) (int32_t) dev->dsp.regs[0x20] * (SAMPLE_CONV_FACTOR * 4);
-    buf[1] = (int16_t) (int32_t) dev->dsp.regs[0x21] * (SAMPLE_CONV_FACTOR * 4);
+    buf[0] = CLAMP((int32_t) dev->dsp.regs[0x20] / (SAMPLE_CONV_FACTOR * 4), -32768, 32767);
+    buf[1] = CLAMP((int32_t) dev->dsp.regs[0x21] / (SAMPLE_CONV_FACTOR * 4), -32768, 32767);
 
     /* Loop DSP outputs back into the FX buffer if enabled. */
     int i;
@@ -533,14 +533,8 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
 
     /* Populate FX bus inputs. */
     for (i = 0; i < dev->emu8k.emu10k1_fxbuses; i++) {
-        int32_t clip = dev->emu8k.fx_buffer[i][pos];
-        if (clip < -32768)
-            clip = -32768;
-        else if (clip > 32767)
-            clip = 32767;
-        if (i < 2)
-            buf[i] = clip;
-        dev->dsp.regs[i] = clip * SAMPLE_CONV_FACTOR;
+        int64_t sample = dev->emu8k.fx_buffer[i][pos] * SAMPLE_CONV_FACTOR;
+        dev->dsp.regs[i] = CLAMP(sample, -2147483648, 2147483647);
     }
 
     /* Don't execute if the DSP is stopped. */
@@ -552,11 +546,11 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
 #define RUNNING_CODE() (fetch)
 #define ANY_REG(v)     ((r == (v)) || (a == (v)) || (x == (v)) || (y == (v)))
 #define ANY_REG_VAL(v) ((rval == (v)) || (aval == (v)) || (xval == (v)) || (yval == (v)))
-    // #define EMU10K1_DSP_TRACE dev->dsp.regs[4] && RUNNING_CODE() && (ANY_REG(0x04) || ANY_REG(0x20) || ANY_REG(0x102) || ANY_REG(0x10c) || ANY_REG(0x114))
-    // #ifdef EMU10K1_DSP_TRACE
+//#define EMU10K1_DSP_TRACE dev->dsp.regs[0] && RUNNING_CODE() && (ANY_REG(0x00) || ANY_REG(0x04) || ANY_REG(0x20) || ANY_REG(0x100) || ANY_REG(0x102) || ANY_REG(0x10c) || ANY_REG(0x114))
+    #ifdef EMU10K1_DSP_TRACE
     if (dev->dsp.regs[0])
-        pclog("EMU10K1: DSP out %08" PRIX32 " %08" PRIX32 " in %08" PRIX32 " %08" PRIX32 " %08" PRIX32 " %08" PRIX32 "\n", buf[0], buf[1], dev->dsp.regs[0], dev->dsp.regs[1], dev->dsp.regs[4], dev->dsp.regs[5]);
-    // #endif
+        pclog("EMU10K1: DSP out %08" PRIX32 " %08" PRIX32 " in %08" PRIX32 " %08" PRIX32 " %08" PRIX32 " %08" PRIX32 "\n", buf[0], buf[1], dev->dsp.regs[0], dev->dsp.regs[1], dev->emu8k.fx_buffer[0][pos], dev->emu8k.fx_buffer[1][pos]);
+    #endif
 
     /* Update TRAM. Unknown behaviors so far:
        - CLEAR
@@ -607,8 +601,8 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         /* Read operands.
            The accumulator can only be specified as A, otherwise it
            reads as 0, except on MACMV where it always reads as 0. */
-        uint64_t aval = ((a == 0x56) && (op != 0x7)) ? dev->dsp.acc : emu10k1_dsp_read(dev, a);
-        uint32_t xval = emu10k1_dsp_read(dev, x), yval = emu10k1_dsp_read(dev, y);
+        int64_t aval = ((a == 0x56) && (op != 0x7)) ? dev->dsp.acc : (int32_t) emu10k1_dsp_read(dev, a);
+        int32_t xval = emu10k1_dsp_read(dev, x), yval = emu10k1_dsp_read(dev, y);
 
         /* Clear flags now, as operation code may set them. */
         dev->dsp.regs[0x57] = 0;

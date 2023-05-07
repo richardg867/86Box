@@ -869,6 +869,10 @@ emu8k_outw(uint16_t addr, uint16_t val, void *p)
                 case 2:
                     /* The docs says that this value is constantly updating, and it should have no actual effect. Actions should be done over vtft */
                     WRITE16(addr, emu8k->voice[emu8k->cur_voice].cvcf, val);
+
+                    /* EMU10K1 Linux PCM sets both cvcf_curr_volume and vtft_vol_target to 0xffff to maintain a constant volume.
+                       Therefore, the volume slide must be updated so that it doesn't immediately reset to 0 then ramp back up. */
+                    emu8k->voice[emu8k->cur_voice].volumeslide.last = emu8k->voice[emu8k->cur_voice].cvcf_curr_volume;
                     return;
 
                 case 3:
@@ -1394,15 +1398,8 @@ emu8k_outw(uint16_t addr, uint16_t val, void *p)
                             return;
                         }
                         the_voice->ifatn = val;
-                        if (emu8k->emu10k1_fxsends && (val == 0x00ff)) {
-                            /* Nasty hack for EMU10K1. The Linux driver sets up an envelope which
-                               starts with maximum attenuation but never leaves the delay stage. */
-                            the_voice->initial_att     = 0;
-                            the_voice->vtft_vol_target = attentable[0];
-                        } else {
-                            the_voice->initial_att     = (((int32_t) the_voice->ifatn_attenuation << 21) / 0xFF);
-                            the_voice->vtft_vol_target = attentable[the_voice->ifatn_attenuation];
-                        }
+                        the_voice->initial_att     = (((int32_t) the_voice->ifatn_attenuation << 21) / 0xFF);
+                        the_voice->vtft_vol_target = attentable[the_voice->ifatn_attenuation];
 
                         the_voice->initial_filter = (((int32_t) the_voice->ifatn_init_filter << 21) / 0xFF);
                         if (the_voice->ifatn_init_filter == 0xFF) {
@@ -1731,24 +1728,33 @@ emu8k_update(emu8k_t *emu8k)
                 /* Waveform oscillator */
                 uint16_t dat0, dat1, dat2, dat3;
                 if (emu8k->emu10k1_fxsends) { /* EMU10K1: 8/16-bit, mono/stereo, FIFO */
-#define FIFO_HAS_ROOM ((emu_voice->fifo_end - emu_voice->fifo_pos) < (sizeof(emu_voice->cd) >> 1))
-                    if (FIFO_HAS_ROOM) {
-                        uint32_t addr = (emu_voice->addr.int_address << emu_voice->addr_shift) + emu_voice->stereo_offset + (emu_voice->fifo_end - emu_voice->fifo_pos),
+                    /* Fetch samples into FIFO if it's empty. */
+                    int fifo_delta = emu_voice->fifo_end - emu_voice->fifo_pos;
+                    if (fifo_delta < 16) {
+                        uint32_t addr = (emu_voice->addr.int_address << emu_voice->addr_shift) + emu_voice->stereo_offset + fifo_delta,
                                  end_addr = (emu_voice->loop_end.int_address << emu_voice->addr_shift) + emu_voice->stereo_offset;
+
+                        /* Make sure unaligned writes past the end of the FIFO don't happen. */
+                        addr -= emu_voice->fifo_end & 3;
+                        emu_voice->fifo_end &= ~3;
+
                         do {
+                            /* Loop back to the start if the address has overflowed. */
+                            int overflow = addr - end_addr;
+                            if (UNLIKELY(overflow >= 0)) {
+                                overflow &= 3;
+                                emu_voice->fifo_end -= overflow;
+                                addr -= ((emu_voice->loop_end.int_address - emu_voice->loop_start.int_address) << emu_voice->addr_shift) + overflow;
+                            }
+
+                            /* Read data into the FIFO. */
                             *((uint32_t *) &emu_voice->cd[emu_voice->fifo_end & (sizeof(emu_voice->cd) - 1)]) = emu8k->readl(emu8k, emu_voice, addr);
                             emu_voice->fifo_end += 4;
                             addr += 4;
-
-                            /* Discard reads beyond the end of the loop region. */
-                            int overflow = addr - end_addr;
-                            if (UNLIKELY(overflow >= 0)) {
-                                emu_voice->fifo_end -= overflow;
-                                addr = (emu_voice->loop_start.int_address << emu_voice->addr_shift) + emu_voice->stereo_offset;
-                            }
-                        } while (FIFO_HAS_ROOM);
+                        } while ((emu_voice->fifo_end - emu_voice->fifo_pos) < (sizeof(emu_voice->cd) >> 1)); /* Creative specifies 8 dwords per fetch */
                     }
 
+                    /* Read sample points. */
                     if (CCCA_10K1_8BITSELECT(emu_voice->ccca)) {
                         if (CPF_10K1_STEREO(emu_voice->cpf)) { /* 8-bit stereo */
                             dat0 = emu_voice->cd[emu_voice->fifo_pos & (sizeof(emu_voice->cd) - 1)];
@@ -1777,7 +1783,12 @@ emu8k_update(emu8k_t *emu8k)
                         dat3 = *((uint16_t *) &emu_voice->cd[(emu_voice->fifo_pos + 6) & (sizeof(emu_voice->cd) - 1)]);
                     }
 
+                    /* Advance FIFO to the next sample. */
                     emu_voice->fifo_pos += ((new_addr >> 32) - emu_voice->addr.int_address) << emu_voice->addr_shift;
+                    if (UNLIKELY(emu_voice->fifo_end < emu_voice->fifo_pos)) {
+                        /* Reposition FIFO due to overflow. */
+                        emu_voice->fifo_end = emu_voice->fifo_pos;
+                    }
                 } else {
                     dat0 = EMU8K_READ(emu8k, emu_voice->addr.int_address);
                     dat1 = EMU8K_READ(emu8k, emu_voice->addr.int_address + 1);
@@ -1901,9 +1912,8 @@ emu8k_update(emu8k_t *emu8k)
                     }
                 }
             } else {
-                /* Reset EMU10K1 FIFO due to address desync. */
-                emu_voice->fifo_pos = 0;
-                emu_voice->fifo_end = 0;
+                /* Reposition EMU10K1 FIFO due to address desync. */
+                emu_voice->fifo_end = emu_voice->fifo_pos;
             }
 
             if (emu_voice->env_engine_on) {
@@ -1919,9 +1929,6 @@ emu8k_update(emu8k_t *emu8k)
                             volenv->state         = ENV_ATTACK;
                             volenv->delay_samples = 0;
                         }
-                        /* Second part of the nasty EMU10K1 Linux attenuation hack. */
-                        if (!(emu8k->emu10k1_fxsends && (emu_voice->ifatn == 0x00ff)))
-                            attenuation = 0x1FFFFF;
                         break;
 
                     case ENV_ATTACK:
