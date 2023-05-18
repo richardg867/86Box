@@ -251,7 +251,7 @@ typedef struct emu8k_voice_t {
         };
     };
     uint32_t map[2], sendamounts;
-    int tlb_pos, request_cache_loop;
+    int      tlb_pos, request_cache_loop;
 
     uint16_t envvol;
 #define ENVVOL_NODELAY(envol) (envvol & 0x8000)
@@ -259,7 +259,7 @@ typedef struct emu8k_voice_t {
 #define ENVVOL_TO_EMU_SAMPLES(envvol) (envvol & 0x8000) ? 0 : ((0x8000 - (envvol & 0x7FFF)) << 5)
 
     uint16_t dcysusv;
-#define DCYSUSV_IS_RELEASE(dcysusv)          (dcysusv & 0x8000)
+#define DCYSUSV_IS_RELEASE(dcysusv) (dcysusv & 0x8000)
 /* Everything agrees this bit is inverted on EMU10K1 (except for a single Linux define comment). */
 #define DCYSUSV_GENERATOR_ENGINE_ON(dcysusv) !!emu8k->emu10k1_fxsends ^ !(dcysusv & 0x0080)
 #define DCYSUSV_SUSVALUE_GET(dcysusv)        ((dcysusv >> 8) & 0x7F)
@@ -349,14 +349,17 @@ typedef struct emu8k_voice_t {
     emu8k_mem_internal_t lfo1_count, lfo2_count;
     int32_t              lfo1_delay_samples, lfo2_delay_samples;
     union {
-        struct { /* EMU8000 */
+        struct {       /* EMU8000 */
+            int vol_r; /* reusing fx_send[0,2] positions as only [1,3] are used */
+            int revb_send;
             int vol_l;
-            int vol_r;
+            int chor_send;
         };
         struct { /* EMU10K1 */
-            int fx_send[8];
-            int half_looped, addr_shift, stereo_offset;
-            uint8_t cd[64]; /* cache */
+            int      fx_send[8];
+            int      fx_send_bus[8];
+            int      half_looped, addr_shift, dword_multiplier, stereo_offset;
+            uint8_t  cd[64]; /* cache */
             uint32_t fifo_pos, fifo_end;
         };
     };
@@ -394,14 +397,14 @@ typedef struct emu8k_t {
             uint32_t ram_end_addr;
 
             emu8k_chorus_eng_t chorus_engine;
-            int32_t chorus_in_buffer[SOUNDBUFLEN];
+            int32_t            chorus_in_buffer[SOUNDBUFLEN];
             emu8k_reverb_eng_t reverb_engine;
-            int32_t reverb_in_buffer[SOUNDBUFLEN];
+            int32_t            reverb_in_buffer[SOUNDBUFLEN];
 
             uint16_t addr;
         };
         struct { /* EMU10K1 */
-            int32_t fx_buffer[64][SOUNDBUFLEN];
+            int32_t fx_buffer[SOUNDBUFLEN][64];
         };
     };
 
@@ -418,7 +421,7 @@ typedef struct emu8k_t {
 
     /* EMU10K1 */
     uint64_t *clie, *clip, *hlie, *hlip, *sole; /* loop interrupt/stop */
-    int       lip; /* any pending interrupt? */
+    int       lip;                              /* any pending interrupt? */
 
     int     pos;
     int32_t buffer[SOUNDBUFLEN * 2];
@@ -427,11 +430,11 @@ typedef struct emu8k_t {
 } emu8k_t;
 
 uint16_t emu8k_inw(uint16_t addr, void *p);
-void emu8k_outw(uint16_t addr, uint16_t val, void *p);
-void emu8k_change_addr(emu8k_t *emu8k, uint16_t emu_addr);
-void emu8k_init_standalone(emu8k_t *emu8k, int nvoices, int freq);
-void emu8k_init(emu8k_t *emu8k, uint16_t emu_addr, int onboard_ram);
-void emu8k_close(emu8k_t *emu8k);
+void     emu8k_outw(uint16_t addr, uint16_t val, void *p);
+void     emu8k_change_addr(emu8k_t *emu8k, uint16_t emu_addr);
+void     emu8k_init_standalone(emu8k_t *emu8k, int nvoices, int freq);
+void     emu8k_init(emu8k_t *emu8k, uint16_t emu_addr, int onboard_ram);
+void     emu8k_close(emu8k_t *emu8k);
 
 void emu8k_update(emu8k_t *emu8k);
 
