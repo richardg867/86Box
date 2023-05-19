@@ -404,7 +404,7 @@ emu8k_10k1_recalc_format(emu8k_t *emu8k)
     }
 
     /* Add stereo channel offset. For the formats we deal with, addr_shift == ((1 << addr_shift) >> 1) as a shortcut. */
-    emu_voice->stereo_offset = ((emu_voice->ccr_readaddr & 0x80) && !(emu8k->cur_voice & 1)) ? emu_voice->addr_shift : 0;
+    emu_voice->stereo_offset = ((emu_voice->ccr_readaddr & 0x80) && (emu8k->cur_voice & 1)) ? emu_voice->addr_shift : 0;
 
     /* Reset FIFO due to format change. */
     emu_voice->fifo_pos = 0;
@@ -877,9 +877,9 @@ emu8k_outw(uint16_t addr, uint16_t val, void *p)
                     {
                         emu8k_voice_t *emu_voice = &emu8k->voice[emu8k->cur_voice];
                         WRITE16(addr, emu_voice->ptrx, val);
+                        emu_voice->fx_send[0] = emu_voice->ptrx_revb_send * 0x0101;
                         if (emu8k->emu10k1_fxsends)
-                            emu_voice->fx_send[0] = emu_voice->ptrx_pan_aux * 0x0101;
-                        emu_voice->fx_send[1] = emu_voice->ptrx_revb_send * 0x0101;
+                            emu_voice->fx_send[1] = emu_voice->ptrx_pan_aux * 0x0101;
                     }
                     return;
 
@@ -1935,8 +1935,8 @@ emu8k_update(emu8k_t *emu8k)
 
                     if (emu8k->emu10k1_fxsends) {
                         pclog("voice %d fxrt %08X bus %02X->%04X->%X %02X->%04X->%X %02X->%04X->%X %02X->%04X->%X\n", c, emu_voice->clp_fxrt,
-                            emu_voice->ptrx_pan_aux, emu_voice->fx_send[0], emu_voice->fx_send_bus[0],
-                            emu_voice->ptrx_revb_send, emu_voice->fx_send[1], emu_voice->fx_send_bus[1],
+                            emu_voice->ptrx_revb_send, emu_voice->fx_send[0], emu_voice->fx_send_bus[0],
+                            emu_voice->ptrx_pan_aux, emu_voice->fx_send[1], emu_voice->fx_send_bus[1],
                             emu_voice->psst_pan, emu_voice->fx_send[2], emu_voice->fx_send_bus[2],
                             emu_voice->csl_chor_send, emu_voice->fx_send[3], emu_voice->fx_send_bus[3]);
                         for (int i = 0; i < emu8k->emu10k1_fxsends; i++)

@@ -350,8 +350,8 @@ typedef struct emu8k_voice_t {
     int32_t              lfo1_delay_samples, lfo2_delay_samples;
     union {
         struct {       /* EMU8000 */
-            int vol_r; /* reusing fx_send[0,2] positions as only [1,3] are used */
-            int revb_send;
+            int revb_send; /* reusing fx_send[0,3] positions as only [1,2] are used */
+            int vol_r;
             int vol_l;
             int chor_send;
         };

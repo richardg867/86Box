@@ -323,7 +323,7 @@ emu10k1_dsp_logcompress(int32_t val, int max_exp)
 
     /* Based on a kX plugin API function written by someone smarter than me. */
     int      exp_bits = log2(max_exp) + 1;
-    uint32_t ret      = abs(val);
+    uint32_t ret      = (val < 0) ? ~val : val; /* actually's one complement */
     int      msb      = 31 - log2i(ret);
     ret <<= msb;
     int exp = max_exp - msb;
@@ -335,7 +335,7 @@ emu10k1_dsp_logcompress(int32_t val, int max_exp)
         exp = 0;
     }
     ret = (exp << (31 - exp_bits)) | (ret >> (exp_bits + 1));
-    return (val < 0) ? ~ret : ret; /* one's complement */
+    return (val < 0) ? ~ret : ret; /* same here */
 }
 
 static int32_t
@@ -344,8 +344,8 @@ emu10k1_dsp_opLOG(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
     /* On both LOG and EXP, the A operand is copied to the accumulator... */
     dev->dsp.acc = a;
     uint32_t r   = emu10k1_dsp_logcompress(a, x & 0x1f);
-    /* ...and the normalize and borrow flags are always set. */
-    dev->dsp.regs[0x57] |= 0x03; /* N | B */
+    /* ...and the borrow flag is always set. */
+    dev->dsp.regs[0x57] |= 0x02; /* B */
 
     /* Apply one's complement transformations. */
     switch (y & 0x3) {
@@ -385,7 +385,7 @@ emu10k1_dsp_logdecompress(int32_t val, int max_exp)
     else
         ret <<= shift;
     ret |= (1 << exp) << (31 - max_exp); /* add expanded exponent part to shifted mantissa part */
-    return (val < 0) ? -ret : ret;
+    return (val < 0) ? ~ret : ret;
 }
 
 static int32_t
@@ -499,13 +499,13 @@ emu10k1_dsp_tramcompress(int32_t val)
     return ret >> 16;
 }
 
-static __inline int32_t
+static __inline uint32_t
 emu10k1_dsp_tramdecompress(int16_t val)
 {
     /* Extrapolated from compression. The added 0xffff for negative values reduces error. */
     if (val & 0x8000)
         val ^= 0x7000;
-    return emu10k1_dsp_logdecompress((val << 16) | (0xffff * (val < 0)), 7) >> 12;
+    return (uint32_t) emu10k1_dsp_logdecompress((val << 16) | (0xffff * (val < 0)), 7) >> 12;
 }
 
 static __inline uint32_t
@@ -564,8 +564,8 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
        This should actually be 20 bits sent to the AC97 codec. */
     buf[0] = SAMPLE_32_TO_16(dev->dsp.regs[0x20]);
     buf[1] = SAMPLE_32_TO_16(dev->dsp.regs[0x21]);
-    buf[0] += SAMPLE_32_TO_16(dev->dsp.regs[0x22]);
-    buf[1] += SAMPLE_32_TO_16(dev->dsp.regs[0x23]);
+    /*buf[0] += SAMPLE_32_TO_16(dev->dsp.regs[0x22]);
+    buf[1] += SAMPLE_32_TO_16(dev->dsp.regs[0x23]);*/
 
     /* Loop DSP outputs back into the FX capture buffer if enabled. */
     int i;
