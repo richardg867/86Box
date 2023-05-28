@@ -141,7 +141,48 @@ emu10k1_log(const char *fmt, ...)
 #    define emu10k1_log_pop()
 #endif
 
-#define EMU10K1_MMU_UNMAPPED ((uint32_t) -1)
+#define EMU10K1_SAMPLE_DUMP 1
+#ifdef EMU10K1_SAMPLE_DUMP
+#    ifdef _WIN32
+#        include <windows.h>
+#    endif
+static const char *sample_dump_fn[2] = {"e10k1fx.wav", "e10k1out.wav"}; /* short names for Audacity UI */
+static FILE *sample_dump_f[sizeof(sample_dump_fn) / sizeof(sample_dump_fn[0])] = {0};
+static struct {
+    struct {
+        char signature[4];
+        uint32_t size;
+        char type[4];
+    } riff;
+    struct {
+        char signature[4];
+        uint32_t size;
+        uint16_t format, channels;
+        uint32_t sample_rate, byte_rate;
+        uint16_t block_align, bits_sample;
+    } fmt;
+    struct {
+        char signature[4];
+        uint32_t size;
+    } data;
+} wav_header = {
+    .riff = {
+        .signature = {'R', 'I', 'F', 'F'},
+        .size = 0,
+        .type = {'W', 'A', 'V', 'E'}
+    },
+    .fmt = {
+        .signature = {'f', 'm', 't', ' '},
+        .size = 16,
+        .format = 1,
+        .bits_sample = 16
+    },
+    .data = {
+        .signature = {'d', 'a', 't', 'a'},
+        .size = 0
+    }
+};
+#endif
 
 static const uint32_t dsp_constants[] = {
     0x00000000, 0x00000001, 0x00000002, 0x00000003, 0x00000004, 0x00000008, 0x00000010, 0x00000020, /* 40 */
@@ -252,8 +293,10 @@ static int32_t
 emu10k1_dsp_opACC3(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
     /* The accumulator's lower 32 bits are used, despite documentation.
+       Borrow flag behavior is hard to predict; this implementation produced
+       the least discrepancies in a random value test with sample size 1000.
        Saturation happens at the accumulator. */
-    dev->dsp.acc = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, emu10k1_dsp_add(dev, a, x), y));
+    dev->dsp.acc = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, a, x + y));
     return dev->dsp.acc;
 }
 
@@ -315,14 +358,14 @@ emu10k1_dsp_opLIMIT1(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 }
 
 static uint32_t
-emu10k1_dsp_logcompress(int32_t val, int max_exp)
+emu10k1_dsp_logcompress(int32_t val, int max_exp, int *point)
 {
     /* Special case: 0 divides the value by 2. */
     if (UNLIKELY(max_exp == 0))
         return val >> 1;
 
-    /* Based on a kX plugin API function written by someone smarter than me. */
-    int      exp_bits = log2(max_exp) + 1;
+    /* Tweaked from a kX plugin API function written by someone smarter than me. */
+    int exp_bits = log2(max_exp) + 1;
     uint32_t ret      = (val < 0) ? ~val : val; /* actually's one complement */
     int      msb      = 31 - log2i(ret);
     ret <<= msb;
@@ -334,28 +377,50 @@ emu10k1_dsp_logcompress(int32_t val, int max_exp)
         ret >>= -1 - exp;
         exp = 0;
     }
-    ret = (exp << (31 - exp_bits)) | (ret >> (exp_bits + 1));
+    *point = 31 - exp_bits;
+    ret = (exp << *point) | (ret >> (exp_bits + 1));
     return (val < 0) ? ~ret : ret; /* same here */
+}
+
+static __inline void
+emu10k1_dsp_logexp_acc(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
+{
+    /* Both LOG and EXP are meant to be used with X = 2~31 and Y = 0~3. While their intended main
+       behavior just bit-masks X and Y into range, there is a whole other secondary behavior with
+       regards to the accumulator involving unmasked X and Y. Accessing the accumulator result of
+       these instructions could be undefined for all I know, but we don't have internal docs to
+       prove it, and we won't know if any real-world DSP programs abuse this until one shows up.
+       This code is an imperfect approximation (values start deviating from hardware when X < 0
+       or Y < 0), but I'm not burning any more time on what appears to be an unlikely scenario. */
+    int point = 31 - (int) (log2(x & 0x7fffffff) + 1); /* how much to shift Y by (including sign bit) */
+    double scale = (unsigned int) ((x + 1) << point) / 2147483648.0; /* factor for scaling Y, shifted towards MSB so Y can be scaled in place */
+    dev->dsp.acc = a + ((int64_t) (y * scale) >> point); /* scale Y in place, then shift towards LSB */
+    if (x < 0) {
+        dev->dsp.acc -= y; /* subtract Y when X is negative */
+        if (dev->dsp.acc < -2147483648) /* saturate without flag */
+            dev->dsp.acc = -2147483648;
+    }
 }
 
 static int32_t
 emu10k1_dsp_opLOG(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    /* On both LOG and EXP, the A operand is copied to the accumulator... */
-    dev->dsp.acc = a;
-    uint32_t r   = emu10k1_dsp_logcompress(a, x & 0x1f);
-    /* ...and the borrow flag is always set. */
+    int point;
+    uint32_t r = emu10k1_dsp_logcompress(a, x & 0x1f, &point);
+    emu10k1_dsp_logexp_acc(dev, a, x, y);
+
+    /* The borrow flag is also always set. */
     dev->dsp.regs[0x57] |= 0x02; /* B */
 
     /* Apply one's complement transformations. */
     switch (y & 0x3) {
         case 0x1:
-            if (r & 0x80000000)
+            if (r < 0)
                 r = ~r;
             break;
 
         case 0x2:
-            if (r & 0x80000000)
+            if (r < 0)
                 break;
             /* fall-through */
 
@@ -374,52 +439,58 @@ emu10k1_dsp_logdecompress(int32_t val, int max_exp)
     if (UNLIKELY(max_exp == 0))
         return (val << 1) + (val < 0);
 
-    /* Not based on kX but still validated on hardware. */
-    uint32_t ret      = abs(val);
+    /* Also based on kX and validated on hardware. */
+    uint32_t ret      = (val < 0) ? ~val : val; /* still two's complement */
     int      exp_bits = log2(max_exp) + 1;
-    int      exp      = (ret >> (31 - exp_bits)) - 1; /* extract exponent bits and subtract by 1 */
-    ret &= (1 << (31 - exp_bits)) - 1;                /* extract mantissa bits */
-    int shift = MAX(exp, 0) - (max_exp - exp_bits);   /* determine mantissa shifting */
-    if (shift < 0)
-        ret >>= -shift;
-    else
-        ret <<= shift;
-    ret |= (1 << exp) << (31 - max_exp); /* add expanded exponent part to shifted mantissa part */
+    int      msb      = 32 - (log2i(ret) + 1);
+    if (msb <= exp_bits) {
+        int exp = ret >> (31 - exp_bits);
+        ret <<= exp_bits + 1;
+        ret >>= exp_bits + 1;
+        ret <<= exp_bits + 1;
+        ret >>= 1;
+        ret += 2147483648;
+        ret >>= max_exp + 1 - exp;
+    } else {
+        uint64_t ret64 = (uint64_t) ret << (exp_bits + 1);
+        ret64 <<= msb - exp_bits - 1;
+        ret64 >>= msb + max_exp - exp_bits;
+        ret = ret64;
+    }
     return (val < 0) ? ~ret : ret;
 }
 
 static int32_t
 emu10k1_dsp_opEXP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    dev->dsp.acc = a;
-    uint32_t r   = emu10k1_dsp_logdecompress(a, x & 0x1f);
-    dev->dsp.regs[0x57] |= 0x03; /* N | B */
+    emu10k1_dsp_logexp_acc(dev, a, x, y);
+    dev->dsp.regs[0x57] |= 0x02; /* B */
 
     /* Apply one's complement transformations. */
     switch (y & 0x3) {
         case 0x1:
-            if (r & 0x80000000)
-                r = ~r;
+            if (a < 0)
+                a = ~a;
             break;
 
         case 0x2:
-            if (r & 0x80000000)
+            if (a < 0)
                 break;
             /* fall-through */
 
         case 0x3:
-            r = ~r;
+            a = ~a;
             break;
     }
 
-    return r;
+    return emu10k1_dsp_logdecompress(a, x & 0x1f);
 }
 
 static int32_t
 emu10k1_dsp_opINTERP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    /* Borrow flag always set. The minus flag has further nonsense; it's apparently
-       independent from the result, but my attempts at reverse engineering it failed. */
+    /* Borrow flag always set. The minus flag has further nonsense; hardware sometimes
+       doesn't match the result, but my attempts at reverse engineering it failed. */
     dev->dsp.regs[0x57] |= 0x02; /* B */
     dev->dsp.acc = a + (((int64_t) x * (y - a)) >> 31);
     return emu10k1_dsp_saturate(dev, dev->dsp.acc);
@@ -447,26 +518,25 @@ emu10k1_dsp_opSKIP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
             break;
 
         case 0x1: /* AND(OR(flags), OR(flags), OR(flags)) => ...except this one as a magic always skip (0x7fffffff) */
-            /*if (x != 0x7fffffff)
-                fatal("DEBUG: unknown skip %08X\n", x);*/
             cmp = (!i || icmp) && (!j || jcmp) && (!k || kcmp);
             break;
 
         case 0x2: /* OR(AND(flags), AND(flags), OR(flags)) */
-            fatal("DEBUG: unknown skip %08X\n", x);
             cmp = (i && (icmp == i)) || (j && (jcmp == j)) || (!k || kcmp);
             break;
 
         case 0x3: /* AND(OR(flags), OR(flags), AND(flags)) */
-            fatal("DEBUG: unknown skip %08X\n", x);
             cmp = (!i || icmp) && (!j || jcmp) && (k && (kcmp == k));
             break;
     }
 
     /* Mark instruction skip if the test resulted in true. */
     if (cmp)
-        dev->dsp.skip = y & 0x1ff;
+        dev->dsp.skip = y & 0x1ff; /* can go past the end, skipping all remaining instructions, but the value is masked */
 
+    /* A and accumulator behavior is probably undefined, as all DSP programs
+       observed so far only pass read-only registers (GPR, DBAC) as R.
+       Accumulator behavior is handled by the fetch process. */
     return a;
 }
 
@@ -493,7 +563,8 @@ static __inline uint16_t
 emu10k1_dsp_tramcompress(int32_t val)
 {
     /* Based on the ALSA DSP code's ETRAM-based playback handler. */
-    int32_t ret = emu10k1_dsp_logcompress(val << 12, 7);
+    int point;
+    int32_t ret = emu10k1_dsp_logcompress(val << 12, 7, &point);
     if (ret & 0x80000000)
         ret ^= 0x70000000;
     return ret >> 16;
@@ -507,7 +578,7 @@ emu10k1_dsp_tramdecompress(int16_t val)
         val ^= 0x7000;
     return (uint32_t) emu10k1_dsp_logdecompress((val << 16) | (0xffff * (val < 0)), 7) >> 12;
 }
-
+int tramd_acc = 0, trama_acc = 0;
 static __inline uint32_t
 emu10k1_dsp_read(emu10k1_t *dev, int addr, int last_wo_reg, uint32_t last_wo_val)
 {
@@ -525,10 +596,12 @@ emu10k1_dsp_read(emu10k1_t *dev, int addr, int last_wo_reg, uint32_t last_wo_val
             return dev->indirect_regs[addr];
 
         case 0x200 ... 0x2ff: /* TRAM data */
+            tramd_acc++;
             /* Justified to most significant bit from the DSP's point of view */
             return dev->indirect_regs[addr] << 12;
 
         case 0x300 ... 0x3ff: /* TRAM address */
+            trama_acc++;
             /* Justified to second most significant bit from the DSP's point of view.
                The opcode in the upper bits is discarded and therefore not visible. */
             return (dev->indirect_regs[addr] & 0x000fffff) << 11;
@@ -556,7 +629,6 @@ emu10k1_dsp_read(emu10k1_t *dev, int addr, int last_wo_reg, uint32_t last_wo_val
 #define itram_addr(align) tram_addr(align, (sizeof(dev->dsp.itram) / sizeof(dev->dsp.itram[0])) - 1)
 #define etram_addr(align) (dev->indirect_regs[0x41] + (tram_addr(align, dev->dsp.etram_mask) << 1))
 
-FILE *debugf = NULL, *debugof = NULL, *dsptracef = NULL;
 void
 emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
 {
@@ -564,8 +636,6 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
        This should actually be 20 bits sent to the AC97 codec. */
     buf[0] = SAMPLE_32_TO_16(dev->dsp.regs[0x20]);
     buf[1] = SAMPLE_32_TO_16(dev->dsp.regs[0x21]);
-    /*buf[0] += SAMPLE_32_TO_16(dev->dsp.regs[0x22]);
-    buf[1] += SAMPLE_32_TO_16(dev->dsp.regs[0x23]);*/
 
     /* Loop DSP outputs back into the FX capture buffer if enabled. */
     int i;
@@ -636,18 +706,24 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
     }
 
     /* Populate FX bus inputs. */
-    int16_t debugw[dev->emu8k.emu10k1_fxbuses];
-    if (!debugof) debugof = fopen("debugo.pcm", "wb");
-    for (i = 0; i < 16; i++) debugw[i] = SAMPLE_32_TO_16(dev->dsp.regs[0x20 | i]);
-    fwrite(debugw, sizeof(int16_t), 16, debugof);
+#ifdef EMU10K1_SAMPLE_DUMP
+    int16_t fx_samples[dev->emu8k.emu10k1_fxbuses], out_samples[dev->emu8k.emu10k1_fxbuses];
+#endif
     for (i = 0; i < dev->emu8k.emu10k1_fxbuses; i++) {
         /* Each FX bus is copied to an equivalent output by default. The
            DSP program can overwrite the outputs to do its own routing. */
+#ifdef EMU10K1_SAMPLE_DUMP
+        fx_samples[i] = CLAMP(dev->emu8k.fx_buffer[pos][i], -32768, 32767);
+        out_samples[i] = SAMPLE_32_TO_16(dev->dsp.regs[0x20 | i]); /* from previous run */
+#endif
         dev->dsp.regs[i] = dev->dsp.regs[0x20 | i] = SAMPLE_16_TO_32(dev->emu8k.fx_buffer[pos][i]);
-        debugw[i] = CLAMP(dev->emu8k.fx_buffer[pos][i], -32768, 32767);
     }
-    if (!debugf) debugf = fopen("debug.pcm", "wb");
-    fwrite(debugw, sizeof(int16_t), dev->emu8k.emu10k1_fxbuses, debugf);
+#ifdef EMU10K1_SAMPLE_DUMP
+    if (sample_dump_f[0])
+        fwrite(fx_samples, sizeof(fx_samples[0]), dev->emu8k.emu10k1_fxbuses, sample_dump_f[0]);
+    if (sample_dump_f[1])
+        fwrite(out_samples, sizeof(out_samples[0]), dev->emu8k.emu10k1_fxbuses, sample_dump_f[1]);
+#endif
 
     /* Don't execute if the DSP is stopped. */
     if ((dev->indirect_regs[0x52] & 0x00008000) || UNLIKELY(dev->dsp.stop)) {
@@ -693,21 +769,12 @@ extern uint8_t keyboard_get_shift(void);
     dev->dsp.regs[0x5b] = (dev->dsp.regs[0x5b] - 1) & 0xfffff;
 
     /* THREAD SAFETY BARRIER */
-
+tramd_acc = trama_acc = 0;
     /* Execute DSP instruction stream. */
     uint64_t *code = (uint64_t *) &dev->indirect_regs[0x400];
     int pc = 0;
     int last_wo_reg = -1;
     uint32_t last_wo_val = 0;
-    struct {
-        uint8_t op;
-        uint8_t flags;
-        uint16_t pc;
-        int32_t rval;
-        int32_t aval;
-        int32_t xval;
-        int32_t yval;
-    } dsptrace[0x200]; int dsptrace_pc = 0;
     while (pc < 0x200) {
         /* Decode instruction. */
         uint64_t fetch = code[pc];
@@ -747,16 +814,6 @@ extern uint8_t keyboard_get_shift(void);
         dev->dsp.regs[0x57] |= ((rval < -0x40000000) || (rval >= 0x40000000)) | /* N = 0x01 */
             ((rval < 0) << 2) |                                                 /* M = 0x04 */
             ((rval == 0) << 3);                                                 /* Z = 0x08 */
-
-        /*if ((dev->dsp.regs[0] || dev->dsp.regs[1] || dev->dsp.regs[2]) && (r != 0x40 || a != 0x40 || x != 0x40 || y != 0x40)) {
-            dsptrace[dsptrace_pc].op = 0x80 | op;
-            dsptrace[dsptrace_pc].flags = dev->dsp.regs[0x57];
-            dsptrace[dsptrace_pc].pc = pc;
-            dsptrace[dsptrace_pc].rval = rval;
-            dsptrace[dsptrace_pc].aval = aval;
-            dsptrace[dsptrace_pc].xval = xval;
-            dsptrace[dsptrace_pc++].yval = yval;
-        }*/
 
 #ifdef EMU10K1_DSP_TRACE
         if (EMU10K1_DSP_TRACE)
@@ -810,9 +867,7 @@ extern uint8_t keyboard_get_shift(void);
            out of the direct skip as we need it to be fetched for accumulator behavior. */
         pc += MAX(dev->dsp.skip, 1);
     }
-
-    /*if (!dsptracef) dsptracef = fopen("dsptrace.bin", "wb");
-    fwrite(dsptrace, sizeof(dsptrace[0]), dsptrace_pc, dsptracef);*/
+//pclog("TRAM data %d addr %d\n", tramd_acc, trama_acc);
 }
 
 static void
@@ -911,10 +966,10 @@ emu10k1_io_trap(int size, uint16_t addr, uint8_t write, uint8_t val, void *priv)
 
     /* Set trap event data in HCFG. */
     trap->dev->io_regs[0x16] = (trap->dev->io_regs[0x16] & ~0xc0) | (write ? 0x80 : 0x00) | ((size > 1) ? 0x40 : 0x00) | 0x20;
-    trap->dev->io_regs[0x17] = trap->flag | (addr & 0x1f); /* mask and comments disagree on [5:0] or [4:0] of address; whether or not unused bits are masked is unknown */
+    trap->dev->io_regs[0x17] = trap->flag | (addr & 0x1f); /* irrelevant address bits (such as OPL[4:3]) are still passed through */
 
     /* Raise NMI. */
-    //nmi = 1;
+    nmi = 1;
 }
 
 static void
@@ -924,10 +979,12 @@ emu10k1_remap_traps(emu10k1_t *dev)
     io_trap_remap(dev->io_traps[TRAP_DMA2].trap, dev->io_regs[0x0f] & 0x04, 0xc0, 32);
     io_trap_remap(dev->io_traps[TRAP_PIC1].trap, dev->io_regs[0x0f] & 0x02, 0x20, 2);
     io_trap_remap(dev->io_traps[TRAP_PIC2].trap, dev->io_regs[0x0f] & 0x01, 0xa0, 2);
-    io_trap_remap(dev->io_traps[TRAP_SB].trap, dev->io_regs[0x0e] & 0x80, 0x220 + (dev->io_regs[0x0f] >> 1), 16);
+    io_trap_remap(dev->io_traps[TRAP_SB].trap, dev->io_regs[0x0e] & 0x80, 0x220 + ((dev->io_regs[0x0f] & 0xc0) >> 1), 16);
     io_trap_remap(dev->io_traps[TRAP_OPL].trap, dev->io_regs[0x0e] & 0x40, 0x388, 4);
     io_trap_remap(dev->io_traps[TRAP_MPU].trap, dev->io_regs[0x0e] & 0x20, 0x300 | (dev->io_regs[0x0f] & 0x30), 2);
 }
+
+#define EMU10K1_MMU_UNMAPPED ((uint32_t) -1)
 
 static __inline uint32_t
 emu10k1_mmutranslate(emu10k1_t *dev, emu8k_voice_t *voice, uint32_t page)
@@ -999,7 +1056,7 @@ emu10k1_readb(uint16_t addr, void *priv)
             break;
 
         case 0x08: /* IPR */
-            /* If no interrupt flags are set, update interrupts beforehand. This
+            /* If no interrupt flags are read, update interrupts beforehand. This
                helps synchronize our threaded MPU-401 input on the ALSA driver. */
             if (!*((uint32_t *) &dev->io_regs[0x08]))
                 emu10k1_update_irqs(dev);
@@ -1280,8 +1337,10 @@ emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
             break;
 
         case 0x16:          /* HCFG[23:16] */
-            if (val & 0x20) /* clear LEGACYINT */
+            if (val & 0x20) { /* clear LEGACYINT */
                 dev->io_regs[addr] &= ~0x20;
+                nmi = 0;
+            }
             reg = (dev->type == EMU10K1) ? 0x19 : 0x1d;
             val = (val & reg) | (dev->io_regs[addr] & ~reg);
             break;
@@ -1477,7 +1536,12 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                     val &= 0x0000001f;
                     if (!dev->indirect_regs[reg] && val) {
                         dev->indirect_regs[reg + 0x1a] = 0; /* buffer position is reset when transitioning from 0 to non-0 */
-                        dev->fxbuf_half_looped = 0;
+                        if (reg == 0x49)
+                            dev->micbuf_half_looped = 0;
+                        else if (reg == 0x4a)
+                            dev->adcbuf_half_looped = 0;
+                        else
+                            dev->fxbuf_half_looped = 0;
                     }
                     break;
 
@@ -1611,6 +1675,11 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
 
             dev->indirect_regs[reg] = val;
             return;
+
+        case 0x08: /* IPR */
+            /* fall-through */
+            /*if (val == 0x00000000)
+                val = ~0x0000003f;*/
 
         default: /* 8/16-bit registers or unaligned operation */
 writel_fallback:
@@ -1931,14 +2000,16 @@ emu10k1_reset(void *priv)
     dev->indirect_regs[0x19f] = 0xfbb75e9f;
     if (dev->type == EMU10K1) {
         /* Default DSP program: ACC3 C_00000000, C_00000000, C_00000000, C_00000000 */
-        for (i = 0x200; i < 0x800; i += 2) {
+        for (i = 0x400; i < 0x800; i += 2) {
             dev->indirect_regs[i]     = 0x00010040;
             dev->indirect_regs[i | 1] = 0x00610040;
         }
     }
+    dev->dsp.etram_mask = 0;
 
     /* Reset I/O mappings. */
     emu10k1_remap(dev);
+    emu10k1_remap_traps(dev);
     gameport_remap(dev->gameport, 0);
 
     /* Invalidate any existing TLB. */
@@ -2022,28 +2093,50 @@ emu10k1_init(const device_t *info)
     dev->gameport = gameport_add(&gameport_pnp_device);
 
     /* Initialize I/O traps. */
-    dev->io_traps[TRAP_DMA1].trap = io_trap_add(emu10k1_io_trap, &dev->io_traps[TRAP_DMA1]);
-    dev->io_traps[TRAP_DMA1].flag = 0xa0;
-    dev->io_traps[TRAP_DMA2].trap = io_trap_add(emu10k1_io_trap, &dev->io_traps[TRAP_DMA2]);
-    dev->io_traps[TRAP_DMA2].flag = 0xe0;
-    dev->io_traps[TRAP_PIC1].trap = io_trap_add(emu10k1_io_trap, &dev->io_traps[TRAP_PIC1]);
-    dev->io_traps[TRAP_PIC1].flag = 0x80;
-    dev->io_traps[TRAP_PIC2].trap = io_trap_add(emu10k1_io_trap, &dev->io_traps[TRAP_PIC2]);
-    dev->io_traps[TRAP_PIC2].flag = 0xc0;
-    dev->io_traps[TRAP_SB].trap   = io_trap_add(emu10k1_io_trap, &dev->io_traps[TRAP_SB]);
-    dev->io_traps[TRAP_SB].flag   = 0x40;
-    dev->io_traps[TRAP_OPL].trap  = io_trap_add(emu10k1_io_trap, &dev->io_traps[TRAP_OPL]);
-    dev->io_traps[TRAP_OPL].flag  = 0x60;
-    dev->io_traps[TRAP_MPU].trap  = io_trap_add(emu10k1_io_trap, &dev->io_traps[TRAP_MPU]);
-    /* TRAP_MPU flag is 0x00 */
-    for (i = 0; i < (sizeof(dev->io_traps) / sizeof(dev->io_traps[0])); i++)
+    for (i = 0; i < (sizeof(dev->io_traps) / sizeof(dev->io_traps[0])); i++) {
+        dev->io_traps[i].trap = io_trap_add(emu10k1_io_trap, &dev->io_traps[i]);
         dev->io_traps[i].dev = dev;
+    }
+    dev->io_traps[TRAP_DMA1].flag = 0xa0;
+    dev->io_traps[TRAP_DMA2].flag = 0xe0;
+    dev->io_traps[TRAP_PIC1].flag = 0x80;
+    dev->io_traps[TRAP_PIC2].flag = 0xc0;
+    dev->io_traps[TRAP_SB].flag   = 0x40;
+    dev->io_traps[TRAP_OPL].flag  = 0x60;
+    /* TRAP_MPU flag is 0x00 */
 
     /* Add PCI card. */
     dev->slot = pci_add_card(PCI_ADD_NORMAL, emu10k1_pci_read, emu10k1_pci_write, dev);
 
     /* Perform initial reset. */
     emu10k1_reset(dev);
+
+#ifdef EMU10K1_SAMPLE_DUMP
+    wav_header.fmt.sample_rate = dev->emu8k.freq;
+    wav_header.fmt.channels = dev->emu8k.emu10k1_fxbuses;
+    wav_header.fmt.byte_rate = (wav_header.fmt.sample_rate * wav_header.fmt.bits_sample * wav_header.fmt.channels) / 8;
+    wav_header.fmt.block_align = (wav_header.fmt.bits_sample * wav_header.fmt.channels) / 8;
+
+    for (i = 0; i < (sizeof(sample_dump_f) / sizeof(sample_dump_f[0])); i++) {
+        sample_dump_f[i] = fopen(sample_dump_fn[i], "wb");
+        if (!sample_dump_f[i])
+            continue;
+
+#ifdef _WIN32
+        /* Enable NTFS compression on dump files. This works despite the file being open. */
+        HANDLE *hf = CreateFileA(sample_dump_fn[i], GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+        if (hf) {
+            SHORT method = COMPRESSION_FORMAT_DEFAULT;
+            DWORD ret;
+            DeviceIoControl(hf, FSCTL_SET_COMPRESSION, &method, sizeof(method), NULL, 0, &ret, NULL);
+            CloseHandle(hf);
+        }
+#endif
+
+        /* Write initial WAVE header. */
+        fwrite(&wav_header, sizeof(wav_header), 1, sample_dump_f[i]);
+    }
+#endif
 
     return dev;
 }
@@ -2054,6 +2147,23 @@ emu10k1_close(void *priv)
     emu10k1_t *dev = (emu10k1_t *) priv;
 
     emu10k1_log("EMU10K1: close()\n");
+
+#ifdef EMU10K1_SAMPLE_DUMP
+    for (int i = 0; i < (sizeof(sample_dump_f) / sizeof(sample_dump_f[0])); i++) {
+        if (!sample_dump_f[i])
+            continue;
+
+        /* Retroactively fill data sizes in the WAVE header. */
+        uint64_t pos = ftello64(sample_dump_f[i]);
+        wav_header.riff.size = MIN(pos - 8, (uint32_t) -1);
+        wav_header.data.size = MIN(pos - sizeof(wav_header), (uint32_t) -1);
+        fseek(sample_dump_f[i], 0, SEEK_SET);
+        fwrite(&wav_header, sizeof(wav_header), 1, sample_dump_f[i]);
+
+        fclose(sample_dump_f[i]);
+        sample_dump_f[i] = NULL;
+    }
+#endif
 
     free(dev);
 }

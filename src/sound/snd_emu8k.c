@@ -1934,11 +1934,6 @@ emu8k_update(emu8k_t *emu8k)
                     dat = (dat * emu_voice->cvcf_curr_volume) >> 16;
 
                     if (emu8k->emu10k1_fxsends) {
-                        pclog("voice %d fxrt %08X bus %02X->%04X->%X %02X->%04X->%X %02X->%04X->%X %02X->%04X->%X\n", c, emu_voice->clp_fxrt,
-                            emu_voice->ptrx_revb_send, emu_voice->fx_send[0], emu_voice->fx_send_bus[0],
-                            emu_voice->ptrx_pan_aux, emu_voice->fx_send[1], emu_voice->fx_send_bus[1],
-                            emu_voice->psst_pan, emu_voice->fx_send[2], emu_voice->fx_send_bus[2],
-                            emu_voice->csl_chor_send, emu_voice->fx_send[3], emu_voice->fx_send_bus[3]);
                         for (int i = 0; i < emu8k->emu10k1_fxsends; i++)
                             emu8k->fx_buffer[pos][emu_voice->fx_send_bus[i]] += (dat * emu_voice->fx_send[i]) >> 16;
                     } else {

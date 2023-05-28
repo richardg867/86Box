@@ -84,7 +84,7 @@ static const struct {
     .reset_flags = (26 << AC97_3D_SHIFT) | AC97_DAC_18B | AC97_ADC_18B,
     .extid_flags = AC97_SDAC,
     .powerdown_mask = 0x2ff,
-    .vendor_regs = (const ac97_vendor_reg_t []) {{0x6c, 0x0000, 0x0003}, {0x74, 0x0000, 0x0003}, {0}},
+    .vendor_regs = (const ac97_vendor_reg_t[]) {{0x6c, 0x0000, 0x0003}, {0x74, 0x0000, 0x0003}, {0}},
     .device = &stac9708_device
     },
     [AC97_CODEC_STAC9721] = {
@@ -93,7 +93,7 @@ static const struct {
     .reset_flags = (26 << AC97_3D_SHIFT) | AC97_DAC_18B | AC97_ADC_18B,
     .extid_flags = AC97_AMAP,
     .powerdown_mask = 0x0ff,
-    .vendor_regs = (const ac97_vendor_reg_t []) {{0x6c, 0x0000, 0x0000}, {0x6e, 0x0000, 0x0003}, {0x70, 0x0000, 0xffff}, {0x72, 0x0000, 0x0006}, {0x74, 0x0000, 0x0003}, {0x76, 0x0000, 0xffff}, {0x78, 0x0000, 0x3802}, {0}},
+    .vendor_regs = (const ac97_vendor_reg_t[]) {{0x6c, 0x0000, 0x0000}, {0x6e, 0x0000, 0x0003}, {0x70, 0x0000, 0xffff}, {0x72, 0x0000, 0x0006}, {0x74, 0x0000, 0x0003}, {0x76, 0x0000, 0xffff}, {0x78, 0x0000, 0x3802}, {0}},
     .device = &stac9721_device
     },
     [AC97_CODEC_TR28023] = {
