@@ -97,13 +97,13 @@ typedef struct _emu10k1_ {
 
     uint8_t  pci_regs[256], pci_game_regs[256], io_regs[32];
     uint32_t indirect_regs[4096], pagemask, temp_ipr, timer_wc, timer_target;
-    int      timer_interval, mpu_irq[2], fxbuf_half_looped: 1, adcbuf_half_looped: 1, micbuf_half_looped: 1;
+    int      timer_interval, mpu_irq, fxbuf_half_looped: 1, adcbuf_half_looped: 1, micbuf_half_looped: 1;
 
     struct {
         int64_t  acc;            /* 67-bit in hardware */
         uint32_t regs[256], etram_mask;
         uint16_t itram[8192];         /* internal TRAM */
-        int skip, stop : 1, interrupt : 1;
+        int skip, interrupt, stop : 1;
     } dsp;
 
     pc_timer_t poll_timer;
@@ -358,7 +358,7 @@ emu10k1_dsp_opLIMIT1(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 }
 
 static uint32_t
-emu10k1_dsp_logcompress(int32_t val, int max_exp, int *point)
+emu10k1_dsp_logcompress(int32_t val, int max_exp)
 {
     /* Special case: 0 divides the value by 2. */
     if (UNLIKELY(max_exp == 0))
@@ -377,8 +377,7 @@ emu10k1_dsp_logcompress(int32_t val, int max_exp, int *point)
         ret >>= -1 - exp;
         exp = 0;
     }
-    *point = 31 - exp_bits;
-    ret = (exp << *point) | (ret >> (exp_bits + 1));
+    ret = (exp << (31 - exp_bits)) | (ret >> (exp_bits + 1));
     return (val < 0) ? ~ret : ret; /* same here */
 }
 
@@ -405,8 +404,7 @@ emu10k1_dsp_logexp_acc(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opLOG(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    int point;
-    uint32_t r = emu10k1_dsp_logcompress(a, x & 0x1f, &point);
+    uint32_t r = emu10k1_dsp_logcompress(a, x & 0x1f);
     emu10k1_dsp_logexp_acc(dev, a, x, y);
 
     /* The borrow flag is also always set. */
@@ -563,8 +561,7 @@ static __inline uint16_t
 emu10k1_dsp_tramcompress(int32_t val)
 {
     /* Based on the ALSA DSP code's ETRAM-based playback handler. */
-    int point;
-    int32_t ret = emu10k1_dsp_logcompress(val << 12, 7, &point);
+    int32_t ret = emu10k1_dsp_logcompress(val << 12, 7);
     if (ret & 0x80000000)
         ret ^= 0x70000000;
     return ret >> 16;
@@ -578,7 +575,7 @@ emu10k1_dsp_tramdecompress(int16_t val)
         val ^= 0x7000;
     return (uint32_t) emu10k1_dsp_logdecompress((val << 16) | (0xffff * (val < 0)), 7) >> 12;
 }
-int tramd_acc = 0, trama_acc = 0;
+
 static __inline uint32_t
 emu10k1_dsp_read(emu10k1_t *dev, int addr, int last_wo_reg, uint32_t last_wo_val)
 {
@@ -596,12 +593,10 @@ emu10k1_dsp_read(emu10k1_t *dev, int addr, int last_wo_reg, uint32_t last_wo_val
             return dev->indirect_regs[addr];
 
         case 0x200 ... 0x2ff: /* TRAM data */
-            tramd_acc++;
             /* Justified to most significant bit from the DSP's point of view */
             return dev->indirect_regs[addr] << 12;
 
         case 0x300 ... 0x3ff: /* TRAM address */
-            trama_acc++;
             /* Justified to second most significant bit from the DSP's point of view.
                The opcode in the upper bits is discarded and therefore not visible. */
             return (dev->indirect_regs[addr] & 0x000fffff) << 11;
@@ -658,10 +653,10 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         /* Process loop interrupts. */
         buf_size /= 2; /* compare against half buffer size */
         if (!dev->fxbuf_half_looped && (idx >= buf_size)) {
-            dev->temp_ipr |= (*((uint32_t *) &dev->io_regs[0x0c]) & 0x00000020) << 8; /* INTE_EFXBUFENABLE into IPR_EFXBUFFULL = 0x00002000 */
+            dev->temp_ipr |= (*((uint32_t *) &dev->io_regs[0x0c]) & 0x00000020) << 7; /* INTE_EFXBUFENABLE into IPR_EFXBUFHALFFULL = 0x00001000 */
             dev->fxbuf_half_looped = 1;
         } else if (dev->fxbuf_half_looped && (idx < buf_size)) {
-            dev->temp_ipr |= (*((uint32_t *) &dev->io_regs[0x0c]) & 0x00000020) << 7; /* INTE_EFXBUFENABLE into IPR_EFXBUFHALFFULL = 0x00001000 */
+            dev->temp_ipr |= (*((uint32_t *) &dev->io_regs[0x0c]) & 0x00000020) << 8; /* INTE_EFXBUFENABLE into IPR_EFXBUFFULL = 0x00002000 */
             dev->fxbuf_half_looped = 0;
         }
     }
@@ -678,10 +673,10 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         /* Process loop interrupts. */
         buf_size /= 2; /* compare against half buffer size */
         if (!dev->micbuf_half_looped && (idx >= buf_size)) {
-            dev->temp_ipr |= (*((uint32_t *) &dev->io_regs[0x0c]) & 0x00000080) << 10; /* INTE_MICBUFENABLE into IPR_MICBUFFULL = 0x00020000 */
+            dev->temp_ipr |= (*((uint32_t *) &dev->io_regs[0x0c]) & 0x00000080) << 9; /* INTE_MICBUFENABLE into IPR_MICBUFHALFFULL = 0x00010000 */
             dev->micbuf_half_looped = 1;
         } else if (dev->micbuf_half_looped && (idx < buf_size)) {
-            dev->temp_ipr |= (*((uint32_t *) &dev->io_regs[0x0c]) & 0x00000080) << 9; /* INTE_MICBUFENABLE into IPR_MICBUFHALFFULL = 0x00010000 */
+            dev->temp_ipr |= (*((uint32_t *) &dev->io_regs[0x0c]) & 0x00000080) << 10; /* INTE_MICBUFENABLE into IPR_MICBUFFULL = 0x00020000 */
             dev->micbuf_half_looped = 0;
         }
     }
@@ -697,10 +692,10 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         /* Process loop interrupts. */
         buf_size /= 2; /* compare against half buffer size */
         if (!dev->adcbuf_half_looped && (idx >= buf_size)) {
-            dev->temp_ipr |= (*((uint32_t *) &dev->io_regs[0x0c]) & 0x00000040) << 9; /* INTE_ADCBUFENABLE into IPR_ADCBUFFULL = 0x00008000 */
+            dev->temp_ipr |= (*((uint32_t *) &dev->io_regs[0x0c]) & 0x00000040) << 8; /* INTE_ADCBUFENABLE into IPR_ADCBUFHALFFULL = 0x00004000 */
             dev->adcbuf_half_looped = 1;
         } else if (dev->adcbuf_half_looped && (idx < buf_size)) {
-            dev->temp_ipr |= (*((uint32_t *) &dev->io_regs[0x0c]) & 0x00000040) << 8; /* INTE_ADCBUFENABLE into IPR_ADCBUFHALFFULL = 0x00004000 */
+            dev->temp_ipr |= (*((uint32_t *) &dev->io_regs[0x0c]) & 0x00000040) << 9; /* INTE_ADCBUFENABLE into IPR_ADCBUFFULL = 0x00008000 */
             dev->adcbuf_half_looped = 0;
         }
     }
@@ -769,7 +764,7 @@ extern uint8_t keyboard_get_shift(void);
     dev->dsp.regs[0x5b] = (dev->dsp.regs[0x5b] - 1) & 0xfffff;
 
     /* THREAD SAFETY BARRIER */
-tramd_acc = trama_acc = 0;
+
     /* Execute DSP instruction stream. */
     uint64_t *code = (uint64_t *) &dev->indirect_regs[0x400];
     int pc = 0;
@@ -867,7 +862,6 @@ tramd_acc = trama_acc = 0;
            out of the direct skip as we need it to be fetched for accumulator behavior. */
         pc += MAX(dev->dsp.skip, 1);
     }
-//pclog("TRAM data %d addr %d\n", tramd_acc, trama_acc);
 }
 
 static void
@@ -898,6 +892,7 @@ emu10k1_update_irqs(emu10k1_t *dev)
     }
 
     /* Set MPU-401 receive buffer non-empty interrupt as long as there's a byte in the queue. */
+    ipr &= ~0x08000080; /* automatically cleared once conditions clear */
     if (dev->mpu[0].queue_used)
         ipr |= (inte & 0x00000001) << 7; /* INTE_MIDIRXENABLE into IPR_MIDIRECVBUFEMPTY (a misnomer) = 0x00000080 */
     if (dev->mpu[1].queue_used)
@@ -919,14 +914,13 @@ emu10k1_update_irqs(emu10k1_t *dev)
 }
 
 static void
-emu10k1_mpu0_irq_update(void *priv, int set)
+emu10k1_mpu_irq_update(void *priv, int set)
 {
     emu10k1_t *dev = (emu10k1_t *) priv;
     /* Our current MPU-401 implementation calls this from a thread.
        Set a flag so that interrupts can be updated from the poll timer.
-       This results in a slight desync, but that's the best we can do for now. */
-    if (set)
-        dev->mpu_irq[0] = 1;
+       Timing will be slightly off, but that's the best we can do for now. */
+    dev->mpu_irq = 1;
 }
 
 static int
@@ -934,15 +928,6 @@ emu10k1_mpu0_irq_pending(void *priv)
 {
     emu10k1_t *dev = (emu10k1_t *) priv;
     return dev->io_regs[0x08] & 0x80;
-}
-
-static void
-emu10k1_mpu1_irq_update(void *priv, int set)
-{
-    emu10k1_t *dev = (emu10k1_t *) priv;
-    /* Same note as MPU0. */
-    if (set)
-        dev->mpu_irq[1] = 1;
 }
 
 static int
@@ -1278,14 +1263,12 @@ emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
                         mpu401_write(reg, val, &dev->mpu[(reg & 2) >> 1]);
 
                         /* We have no transmit buffer, so raise the transmit buffer empty interrupt after every data write. */
-                        if (!(reg & 1)) {
-                            if (!(reg & 2) && (dev->io_regs[0x0c] & 0x02)) { /* IPR_MIDITRANSBUFEMPTY gated by INTE_MIDITXENABLE */
-                                dev->io_regs[0x09] |= 0x01;
-                                emu10k1_update_irqs(dev);
-                            } else if (dev->io_regs[0x0e] & 0x02) { /* IPR_A_MIDITRANSBUFEMPTY2 gated by INTE_A_MIDITXENABLE2 */
-                                dev->io_regs[0x0b] |= 0x10;
-                                emu10k1_update_irqs(dev);
-                            }
+                        if (!(reg & 1) && (dev->io_regs[!(reg & 2) ? 0x0c : 0x0e] & 0x02)) { /* INTE_MIDITXENABLE : IPR_MIDITRANSBUFEMPTY */
+                            if (!(reg & 2))
+                                dev->io_regs[0x09] |= 0x01; /* IPR_MIDITRANSBUFEMPTY */
+                            else
+                                dev->io_regs[0x0b] |= 0x10; /* IPR_A_MIDITRANSBUFEMPTY2 */
+                            emu10k1_update_irqs(dev);
                         }
                     }
                     break;
@@ -1676,10 +1659,12 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
             dev->indirect_regs[reg] = val;
             return;
 
-        case 0x08: /* IPR */
-            /* fall-through */
+        case 0x0c:
             /*if (val == 0x00000000)
                 val = ~0x0000003f;*/
+            /*if (val == 1)
+                writememll(cs + cpu_state.pc, 0xcccccccc);*/
+            /* fall-through */
 
         default: /* 8/16-bit registers or unaligned operation */
 writel_fallback:
@@ -1819,16 +1804,6 @@ emu10k1_poll(void *priv)
     /* Process channel loop interrupts. */
     ipr |= dev->emu8k.lip << 6; /* IPR_CHANNELLOOP = 0x00000040 */
 
-    /* Process threaded MPU-401 interrupts. */
-    if (dev->mpu_irq[0]) {
-        dev->mpu_irq[0] = 0;
-        ipr |= (inte & 0x00000001) << 7; /* INTE_MIDIRXENABLE into IPR_MIDIRECVBUFEMPTY (a misnomer) = 0x00000080 */
-    }
-    if (dev->mpu_irq[1]) {
-        dev->mpu_irq[1] = 0;
-        ipr |= (inte & 0x00010000) << 11; /* INTE_A_MIDIRXENABLE2 into IPR_A_MIDIRECVBUFEMPTY2 (a misnomer) = 0x08000000 */
-    }
-
     /* Check sample timer. */
     if (dev->emu8k.wc - dev->timer_target) {
         ipr |= (inte & 0x00000004) << 7; /* INTE_INTERVALTIMERENB into IPR_INTERVALTIMER = 0x00000200 */
@@ -1842,7 +1817,8 @@ emu10k1_poll(void *priv)
     }
 
     /* Update interrupts if requested. */
-    if (ipr) {
+    if (ipr || dev->mpu_irq) {
+        dev->mpu_irq = 0;
         *((uint32_t *) &dev->io_regs[0x08]) |= ipr;
         emu10k1_update_irqs(dev);
     }
@@ -2083,10 +2059,10 @@ emu10k1_init(const device_t *info)
 
     /* Initialize MPU-401. */
     mpu401_init(&dev->mpu[0], 0, 0, M_UART, device_get_config_int("receive_input"));
-    mpu401_irq_attach(&dev->mpu[0], emu10k1_mpu0_irq_update, emu10k1_mpu0_irq_pending, dev);
+    mpu401_irq_attach(&dev->mpu[0], emu10k1_mpu_irq_update, emu10k1_mpu0_irq_pending, dev);
     if (dev->type != EMU10K1) {
         mpu401_init(&dev->mpu[1], 0, 0, M_UART, 0);
-        mpu401_irq_attach(&dev->mpu[1], emu10k1_mpu1_irq_update, emu10k1_mpu1_irq_pending, dev);
+        mpu401_irq_attach(&dev->mpu[1], emu10k1_mpu_irq_update, emu10k1_mpu1_irq_pending, dev);
     }
 
     /* Initialize game port. */
