@@ -1981,7 +1981,7 @@ emu10k1_reset(void *priv)
             dev->indirect_regs[i | 1] = 0x00610040;
         }
     }
-    dev->dsp.etram_mask = 0;
+    dev->dsp.etram_mask = (8192 << 0) - 1;
 
     /* Reset I/O mappings. */
     emu10k1_remap(dev);
