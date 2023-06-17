@@ -296,7 +296,7 @@ emu10k1_dsp_opACC3(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
        Borrow flag behavior is hard to predict; this implementation produced
        the least discrepancies in a random value test with sample size 1000.
        Saturation happens at the accumulator. */
-    dev->dsp.acc = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, a, x + y));
+    dev->dsp.acc = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, a, (int64_t) x + y));
     return dev->dsp.acc;
 }
 
@@ -404,7 +404,7 @@ emu10k1_dsp_logexp_acc(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opLOG(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    uint32_t r = emu10k1_dsp_logcompress(a, x & 0x1f);
+    int32_t r = emu10k1_dsp_logcompress(a, x & 0x1f);
     emu10k1_dsp_logexp_acc(dev, a, x, y);
 
     /* The borrow flag is also always set. */
@@ -535,7 +535,8 @@ emu10k1_dsp_opSKIP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
     /* A and accumulator behavior is probably undefined, as all DSP programs
        observed so far only pass read-only registers (GPR, DBAC) as R.
        Accumulator behavior is handled by the fetch process. */
-    return a;
+    dev->dsp.acc = a;
+    return 0;
 }
 
 static int32_t (*emu10k1_dsp_ops[])(emu10k1_t *dev, int64_t a, int32_t x, int32_t y) = {
