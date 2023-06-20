@@ -999,8 +999,7 @@ emu8k_outw(uint16_t addr, uint16_t val, void *p)
                                 break;
                             case 0x5:
                                 {
-                                    int c;
-                                    for (c = 0; c < 8; c++) {
+                                    for (uint8_t c = 0; c < 8; c++) {
                                         emu8k->reverb_engine.allpass[c].feedback = (val & 0xFF) / ((float) 0xFF);
                                     }
                                 }
@@ -1271,8 +1270,7 @@ emu8k_outw(uint16_t addr, uint16_t val, void *p)
                                 break;
                             case 0x1d:
                                 {
-                                    int c;
-                                    for (c = 0; c < 6; c++) {
+                                    for (uint8_t c = 0; c < 6; c++) {
                                         emu8k->reverb_engine.reflections[c].damp1       = (val & 0xFF) / 255.0;
                                         emu8k->reverb_engine.reflections[c].damp2       = (0xFF - (val & 0xFF)) / 255.0;
                                         emu8k->reverb_engine.reflections[c].filterstore = 0;
@@ -1529,8 +1527,7 @@ emu8k_outb(uint16_t addr, uint8_t val, void *p)
 void
 emu8k_work_chorus(int32_t *inbuf, int32_t *outbuf, emu8k_chorus_eng_t *engine, int count)
 {
-    int pos;
-    for (pos = 0; pos < count; pos++) {
+    for (int pos = 0; pos < count; pos++) {
         double lfo_inter1 = chortable[engine->lfo_pos.int_address];
         // double lfo_inter2 = chortable[(engine->lfo_pos.int_address+1)&0xFFFF];
 
@@ -1656,7 +1653,10 @@ emu8k_work_reverb(int32_t *inbuf, int32_t *outbuf, emu8k_reverb_eng_t *engine, i
     int pos;
     if (engine->link_return_type) {
         for (pos = 0; pos < count; pos++) {
-            int32_t dat1, dat2, in, in2;
+            int32_t dat1;
+            int32_t dat2;
+            int32_t in;
+            int32_t in2;
             in   = emu8k_reverb_damper_work(&engine->damper, inbuf[pos]);
             in2  = (in * engine->refl_in_amp) >> 8;
             dat2 = emu8k_reverb_comb_work(&engine->reflections[0], in2);
@@ -1674,7 +1674,10 @@ emu8k_work_reverb(int32_t *inbuf, int32_t *outbuf, emu8k_reverb_eng_t *engine, i
         }
     } else {
         for (pos = 0; pos < count; pos++) {
-            int32_t dat1, dat2, in, in2;
+            int32_t dat1;
+            int32_t dat2;
+            int32_t in;
+            int32_t in2;
             in   = emu8k_reverb_damper_work(&engine->damper, inbuf[pos]);
             in2  = (in * engine->refl_in_amp) >> 8;
             dat1 = emu8k_reverb_comb_work(&engine->reflections[0], in2);
@@ -2349,8 +2352,7 @@ emu8k_init_standalone(emu8k_t *emu8k, int nvoices, int freq)
     }
 
     /* Filter coefficients tables. Note: Values are multiplied by *16777216 to left shift 24 bits. (i.e. 8.24 fixed point) */
-    int qidx;
-    for (qidx = 0; qidx < 16; qidx++) {
+    for (uint8_t qidx = 0; qidx < 16; qidx++) {
         out = 125.0; /* Start at 125Hz */
         for (c = 0; c < 256; c++) {
 #ifdef FILTER_INITIAL

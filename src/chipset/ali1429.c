@@ -124,7 +124,9 @@ typedef struct
 static void
 ali1429_shadow_recalc(ali1429_t *dev)
 {
-    uint32_t base, i, can_write, can_read;
+    uint32_t base;
+    uint32_t can_write;
+    uint32_t can_read;
 
     shadowbios       = (dev->regs[0x13] & 0x40) && (dev->regs[0x14] & 0x01);
     shadowbios_write = (dev->regs[0x13] & 0x40) && (dev->regs[0x14] & 0x02);
@@ -132,7 +134,7 @@ ali1429_shadow_recalc(ali1429_t *dev)
     can_write = (dev->regs[0x14] & 0x02) ? MEM_WRITE_INTERNAL : MEM_WRITE_EXTANY;
     can_read  = (dev->regs[0x14] & 0x01) ? MEM_READ_INTERNAL : MEM_READ_EXTANY;
 
-    for (i = 0; i < 8; i++) {
+    for (uint8_t i = 0; i < 8; i++) {
         base = 0xc0000 + (i << 15);
 
         if (dev->regs[0x13] & (1 << i))
@@ -164,7 +166,7 @@ ali1429_write(uint16_t addr, uint8_t val, void *priv)
                 dev->cfg_locked = (val != 0xc5);
 
             if (!dev->cfg_locked) {
-                pclog("M1429: dev->regs[%02x] = %02x\n", dev->index, val);
+                ali1429_log("M1429: dev->regs[%02x] = %02x\n", dev->index, val);
 
                 /* Common M1429 Registers */
                 switch (dev->index) {

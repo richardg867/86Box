@@ -154,8 +154,8 @@ typedef struct {
 
     void *priv;
 
-    char fn[1024],        /* Name of current image file */
-        vhd_parent[1041]; /* Differential VHD parent file */
+    char fn[1024];         /* Name of current image file */
+    char vhd_parent[1041]; /* Differential VHD parent file */
 
     uint32_t res0, pad1,
         base,

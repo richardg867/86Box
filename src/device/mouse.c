@@ -36,16 +36,16 @@ typedef struct {
 } mouse_t;
 
 int mouse_type = 0;
-int mouse_x,
-    mouse_y,
-    mouse_z,
-    mouse_buttons,
-    mouse_mode,
-    mouse_tablet_in_proximity = 0,
-    tablet_tool_type          = 1; /* 0 = Puck/Cursor, 1 = Pen */
+int mouse_x;
+int mouse_y;
+int mouse_z;
+int mouse_buttons;
+int mouse_mode;
+int mouse_tablet_in_proximity = 0;
+int tablet_tool_type          = 1; /* 0 = Puck/Cursor, 1 = Pen */
 
-double mouse_x_abs,
-    mouse_y_abs;
+double mouse_x_abs;
+double mouse_y_abs;
 
 pc_timer_t mouse_timer; /* mouse event timer */
 
@@ -102,6 +102,8 @@ static int             mouse_nbut;
 static int (*mouse_dev_poll)(int x, int y, int z, int b, void *priv);
 static void (*mouse_poll_ex)(void) = NULL;
 
+static double          sample_rate = 200.0;
+
 #ifdef ENABLE_MOUSE_LOG
 int mouse_do_log = ENABLE_MOUSE_LOG;
 
@@ -153,12 +155,21 @@ static void
 mouse_timer_poll(void *priv)
 {
     /* Poll at 255 Hz, maximum supported by PS/2 mic. */
-    timer_on_auto(&mouse_timer, 1000000.0 / 255.0);
+    timer_on_auto(&mouse_timer, 1000000.0 / sample_rate);
 
 #ifdef USE_GDBSTUB /* avoid a KBC FIFO overflow when CPU emulation is stalled */
     if (gdbstub_step == GDBSTUB_EXEC)
 #endif
         mouse_process();
+}
+
+void
+mouse_set_sample_rate(double new_rate)
+{
+    timer_stop(&mouse_timer);
+
+    sample_rate = new_rate;
+    timer_on_auto(&mouse_timer, 1000000.0 / sample_rate);
 }
 
 void
@@ -179,15 +190,16 @@ mouse_reset(void)
     if (mouse_type == 0)
         return;
 
+    timer_add(&mouse_timer, mouse_timer_poll, NULL, 0);
+
+    /* Poll at 100 Hz, the default of a PS/2 mouse. */
+    sample_rate = 100.0;
+    timer_on_auto(&mouse_timer, 1000000.0 / sample_rate);
+
     mouse_curr = mouse_devices[mouse_type].device;
 
     if (mouse_curr != NULL)
         mouse_priv = device_add(mouse_curr);
-
-    timer_add(&mouse_timer, mouse_timer_poll, NULL, 0);
-
-    /* Poll at 255 Hz, maximum supported by PS/2 mic. */
-    timer_on_auto(&mouse_timer, 1000000.0 / 255.0);
 }
 
 /* Callback from the hardware driver. */
@@ -254,18 +266,18 @@ mouse_get_from_internal_name(char *s)
 
     while (mouse_devices[c].device != NULL) {
         if (!strcmp((char *) mouse_devices[c].device->internal_name, s))
-            return (c);
+            return c;
         c++;
     }
 
-    return (0);
+    return 0;
 }
 
 int
 mouse_has_config(int mouse)
 {
     if (mouse_devices[mouse].device == NULL)
-        return (0);
+        return 0;
 
     return (mouse_devices[mouse].device->config ? 1 : 0);
 }
@@ -279,7 +291,7 @@ mouse_get_device(int mouse)
 int
 mouse_get_buttons(void)
 {
-    return (mouse_nbut);
+    return mouse_nbut;
 }
 
 /* Return number of MOUSE types we know about. */

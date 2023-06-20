@@ -157,8 +157,6 @@
     mem_set_access((smm ? ACCESS_CPU_SMM : ACCESS_CPU), 1, base, size, is_smram)
 #define mem_set_access_smram_bus(smm, base, size, is_smram) \
     mem_set_access((smm ? ACCESS_BUS_SMM : ACCESS_BUS), 1, base, size, is_smram)
-#define flushmmucache_cr3 \
-    flushmmucache_nopc
 
 typedef struct {
     uint16_t x : 5,
@@ -228,7 +226,7 @@ typedef struct page_t {
 } page_t;
 
 extern uint32_t purgable_page_list_head;
-static inline int
+__attribute__((always_inline)) static inline int
 page_in_evict_list(page_t *p)
 {
     return (p->evict_prev != EVICT_NOT_IN_LIST);
@@ -270,27 +268,27 @@ extern int        writelnext;
 extern uint32_t   ram_mapped_addr[64];
 extern uint8_t    page_ff[4096];
 
-extern mem_mapping_t ram_low_mapping,
+extern mem_mapping_t ram_low_mapping;
 #if 1
-    ram_mid_mapping,
+extern mem_mapping_t ram_mid_mapping;
 #endif
-    ram_remapped_mapping,
-    ram_high_mapping,
-    ram_2gb_mapping,
-    bios_mapping,
-    bios_high_mapping;
+extern mem_mapping_t ram_remapped_mapping;
+extern mem_mapping_t ram_high_mapping;
+extern mem_mapping_t ram_2gb_mapping;
+extern mem_mapping_t bios_mapping;
+extern mem_mapping_t bios_high_mapping;
 
 extern uint32_t mem_logical_addr;
 
-extern page_t *pages,
-    **page_lookup;
+extern page_t  *pages;
+extern page_t **page_lookup;
 
 extern uint32_t get_phys_virt, get_phys_phys;
 
-extern int shadowbios,
-    shadowbios_write;
-extern int readlnum,
-    writelnum;
+extern int shadowbios;
+extern int shadowbios_write;
+extern int readlnum;
+extern int writelnum;
 
 extern int memspeed[11];
 
@@ -299,9 +297,9 @@ extern uint8_t high_page; /* if a high (> 4 gb) page was detected */
 
 extern uint32_t pages_sz; /* #pages in table */
 
-extern int mem_a20_state,
-    mem_a20_alt,
-    mem_a20_key;
+extern int mem_a20_state;
+extern int mem_a20_alt;
+extern int mem_a20_key;
 
 extern uint8_t  read_mem_b(uint32_t addr);
 extern uint16_t read_mem_w(uint32_t addr);
@@ -415,7 +413,6 @@ extern void mem_reset_page_blocks(void);
 
 extern void flushmmucache(void);
 extern void flushmmucache_nopc(void);
-extern void mmu_invalidate(uint32_t addr);
 
 extern void mem_a20_init(void);
 extern void mem_a20_recalc(void);
