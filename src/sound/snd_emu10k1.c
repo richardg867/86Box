@@ -141,7 +141,7 @@ emu10k1_log(const char *fmt, ...)
 #    define emu10k1_log_pop()
 #endif
 
-#define EMU10K1_SAMPLE_DUMP 1
+//#define EMU10K1_SAMPLE_DUMP 1
 #ifdef EMU10K1_SAMPLE_DUMP
 #    ifdef _WIN32
 #        include <windows.h>
@@ -208,19 +208,18 @@ static void     emu10k1_writel(uint16_t addr, uint32_t val, void *priv);
 static __inline int32_t
 emu10k1_dsp_saturate(emu10k1_t *dev, int64_t i)
 {
-    int32_t ret;
-    if (i > 2147483647) {
-        ret = 2147483647;
-saturated:
-        /* Set saturation flag. */
-        dev->dsp.regs[0x57] |= 0x10; /* S */
-    } else if (i < -2147483648) {
-        ret = -2147483648;
-        goto saturated;
-    } else {
-        ret = i;
-    }
-    return ret;
+    /* Check for overflow. */
+    if (i > 2147483647)
+        i = 2147483647;
+    else if (i < -2147483648)
+        i = -2147483648;
+    else
+        return i; /* no overflow */
+
+    /* Set saturation flag. */
+    dev->dsp.regs[0x57] |= 0x10; /* S */
+
+    return i;
 }
 
 static __inline int64_t
@@ -293,10 +292,10 @@ static int32_t
 emu10k1_dsp_opACC3(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
     /* The accumulator's lower 32 bits are used, despite documentation.
-       Borrow flag behavior is hard to predict; this implementation produced
-       the least discrepancies in a random value test with sample size 1000.
-       Saturation happens at the accumulator. */
-    dev->dsp.acc = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, a, (int64_t) x + y));
+       X and Y are added with saturation (important for borrow flag behavior)
+       first, then A is added to X+Y also with saturation at the accumulator. */
+    int32_t xy = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, x, y));
+    dev->dsp.acc = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, a, xy));
     return dev->dsp.acc;
 }
 
