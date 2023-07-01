@@ -63,7 +63,8 @@ SDL_mutex      *blitmtx;
 SDL_threadID    eventthread;
 static int      exit_event         = 0;
 static int      fullscreen_pending = 0;
-uint32_t        lang_id = 0x0409, lang_sys = 0x0409; // Multilangual UI variables, for now all set to LCID of en-US
+uint32_t        lang_id  = 0x0409; // Multilangual UI variables, for now all set to LCID of en-US
+uint32_t        lang_sys = 0x0409; // Multilangual UI variables, for now all set to LCID of en-US
 char            icon_set[256] = "";                  /* name of the iconset to be used */
 
 static const uint16_t sdl_to_xt[0x200] = {
@@ -175,7 +176,10 @@ static const uint16_t sdl_to_xt[0x200] = {
 };
 
 typedef struct sdl_blit_params {
-    int x, y, w, h;
+    int x;
+    int y;
+    int w;
+    int h;
 } sdl_blit_params;
 
 sdl_blit_params params  = { 0, 0, 0, 0 };
@@ -307,7 +311,7 @@ path_normalize(char *path)
 void
 path_slash(char *path)
 {
-    if ((path[strlen(path) - 1] != '/')) {
+    if (path[strlen(path) - 1] != '/') {
         strcat(path, "/");
     }
     path_normalize(path);
@@ -347,7 +351,7 @@ path_get_filename(char *s)
         c--;
     }
 
-    return (s);
+    return s;
 }
 
 char *
@@ -356,7 +360,7 @@ path_get_extension(char *s)
     int c = strlen(s) - 1;
 
     if (c <= 0)
-        return (s);
+        return s;
 
     while (c && s[c] != '.')
         c--;
@@ -417,7 +421,8 @@ plat_timer_read(void)
 static uint64_t
 plat_get_ticks_common(void)
 {
-    uint64_t EndingTime, ElapsedMicroseconds;
+    uint64_t EndingTime;
+    uint64_t ElapsedMicroseconds;
     if (first_use) {
         Frequency    = SDL_GetPerformanceFrequency();
         StartingTime = SDL_GetPerformanceCounter();
@@ -519,8 +524,10 @@ strnicmp(const char *s1, const char *s2, size_t n)
 void
 main_thread(void *param)
 {
-    uint32_t old_time, new_time;
-    int      drawits, frames;
+    uint32_t old_time;
+    uint32_t new_time;
+    int      drawits;
+    int      frames;
 
     SDL_SetThreadPriority(SDL_THREAD_PRIORITY_HIGH);
     framecountx = 0;
@@ -693,7 +700,9 @@ ui_sb_bugui(char *str)
 extern void sdl_blit(int x, int y, int w, int h);
 
 typedef struct mouseinputdata {
-    int deltax, deltay, deltaz;
+    int deltax;
+    int deltay;
+    int deltaz;
     int mousebuttons;
 } mouseinputdata;
 SDL_mutex            *mousemutex;
@@ -710,7 +719,8 @@ mouse_poll(void)
     SDL_UnlockMutex(mousemutex);
 }
 
-int real_sdl_w, real_sdl_h;
+int real_sdl_w;
+int real_sdl_h;
 void
 ui_sb_set_ready(int ready)
 {
@@ -721,7 +731,8 @@ char *xargv[512];
 char *
 local_strsep(char **str, const char *sep)
 {
-    char *s = *str, *end;
+    char *s = *str;
+    char *end;
     if (!s)
         return NULL;
     end = s + strcspn(s, sep);
@@ -814,7 +825,7 @@ void
 plat_get_global_config_dir(char *strptr)
 {
 #ifdef __APPLE__
-    char *prefPath = SDL_GetPrefPath(NULL, "net.86Box.86Box")
+    char *prefPath = SDL_GetPrefPath(NULL, "net.86Box.86Box");
 #else
     char *prefPath = SDL_GetPrefPath(NULL, "86Box");
 #endif

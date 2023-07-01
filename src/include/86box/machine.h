@@ -26,18 +26,20 @@
 #define MACHINE_BUS_NONE 0x00000000 /* sys has no bus */
 /* Feature flags for BUS'es. */
 #define MACHINE_BUS_ISA       0x00000001 /* sys has ISA bus */
-#define MACHINE_BUS_CARTRIDGE 0x00000002 /* sys has two cartridge bays */
-#define MACHINE_BUS_ISA16     0x00000004 /* sys has ISA16 bus - PC/AT architecture */
-#define MACHINE_BUS_CBUS      0x00000008 /* sys has C-BUS bus */
-#define MACHINE_BUS_PS2       0x00000010 /* system has PS/2 keyboard and mouse ports */
-#define MACHINE_BUS_EISA      0x00000020 /* sys has EISA bus */
-#define MACHINE_BUS_VLB       0x00000040 /* sys has VL bus */
-#define MACHINE_BUS_MCA       0x00000080 /* sys has MCA bus */
-#define MACHINE_BUS_PCI       0x00000100 /* sys has PCI bus */
-#define MACHINE_BUS_PCMCIA    0x00000200 /* sys has PCMCIA bus */
-#define MACHINE_BUS_AGP       0x00000400 /* sys has AGP bus */
-#define MACHINE_BUS_AC97      0x00000800 /* sys has AC97 bus (ACR/AMR/CNR slot) */
+#define MACHINE_BUS_CASSETTE  0x00000002 /* sys has cassette port */
+#define MACHINE_BUS_CARTRIDGE 0x00000004 /* sys has two cartridge bays */
+#define MACHINE_BUS_ISA16     0x00000008 /* sys has ISA16 bus - PC/AT architecture */
+#define MACHINE_BUS_CBUS      0x00000010 /* sys has C-BUS bus */
+#define MACHINE_BUS_PS2       0x00000020 /* system has PS/2 keyboard and mouse ports */
+#define MACHINE_BUS_EISA      0x00000040 /* sys has EISA bus */
+#define MACHINE_BUS_VLB       0x00000080 /* sys has VL bus */
+#define MACHINE_BUS_MCA       0x00000100 /* sys has MCA bus */
+#define MACHINE_BUS_PCI       0x00000200 /* sys has PCI bus */
+#define MACHINE_BUS_PCMCIA    0x00000400 /* sys has PCMCIA bus */
+#define MACHINE_BUS_AGP       0x00000800 /* sys has AGP bus */
+#define MACHINE_BUS_AC97      0x00001000 /* sys has AC97 bus (ACR/AMR/CNR slot) */
 /* Aliases. */
+#define MACHINE_CASSETTE  (MACHINE_BUS_CASSETTE)  /* sys has cassette port */
 #define MACHINE_CARTRIDGE (MACHINE_BUS_CARTRIDGE) /* sys has two cartridge bays */
 /* Combined flags. */
 #define MACHINE_PC        (MACHINE_BUS_ISA)                     /* sys is PC/XT-compatible (ISA) */
@@ -57,16 +59,17 @@
 #define MACHINE_AGP       (MACHINE_BUS_AGP | MACHINE_PCI)       /* sys is AT-compatible with AGP  */
 #define MACHINE_AGP98     (MACHINE_BUS_AGP | MACHINE_PCI98)     /* sys is NEC PC-98x1 series with AGP (did that even exist?) */
 
-#define MACHINE_PCJR      (MACHINE_PC | MACHINE_CARTRIDGE)     /* sys is PCjr */
-#define MACHINE_PS2       (MACHINE_AT | MACHINE_BUS_PS2)       /* sys is PS/2 */
-#define MACHINE_PS2_MCA   (MACHINE_MCA | MACHINE_BUS_PS2)      /* sys is MCA PS/2 */
-#define MACHINE_PS2_VLB   (MACHINE_VLB | MACHINE_BUS_PS2)      /* sys is VLB PS/2 */
-#define MACHINE_PS2_PCI   (MACHINE_PCI | MACHINE_BUS_PS2)      /* sys is PCI PS/2 */
-#define MACHINE_PS2_PCIV  (MACHINE_PCIV | MACHINE_BUS_PS2)     /* sys is VLB/PCI PS/2 */
-#define MACHINE_PS2_AGP   (MACHINE_AGP | MACHINE_BUS_PS2)      /* sys is AGP PS/2 */
-#define MACHINE_PS2_A97   (MACHINE_PS2_AGP | MACHINE_BUS_AC97) /* sys is AGP/AC97 PS/2 */
-#define MACHINE_PS2_NOISA (MACHINE_PS2_AGP & ~MACHINE_AT)      /* sys is AGP PS/2 without ISA */
-#define MACHINE_PS2_NOI97 (MACHINE_PS2_A97 & ~MACHINE_AT)      /* sys is AGP/AC97 PS/2 without ISA */
+#define MACHINE_PC5150    (MACHINE_PC | MACHINE_CASSETTE)                     /* sys is IBM PC 5150 */
+#define MACHINE_PCJR      (MACHINE_PC | MACHINE_CASSETTE | MACHINE_CARTRIDGE) /* sys is PCjr */
+#define MACHINE_PS2       (MACHINE_AT | MACHINE_BUS_PS2)                      /* sys is PS/2 */
+#define MACHINE_PS2_MCA   (MACHINE_MCA | MACHINE_BUS_PS2)                     /* sys is MCA PS/2 */
+#define MACHINE_PS2_VLB   (MACHINE_VLB | MACHINE_BUS_PS2)                     /* sys is VLB PS/2 */
+#define MACHINE_PS2_PCI   (MACHINE_PCI | MACHINE_BUS_PS2)                     /* sys is PCI PS/2 */
+#define MACHINE_PS2_PCIV  (MACHINE_PCIV | MACHINE_BUS_PS2)                    /* sys is VLB/PCI PS/2 */
+#define MACHINE_PS2_AGP   (MACHINE_AGP | MACHINE_BUS_PS2)                     /* sys is AGP PS/2 */
+#define MACHINE_PS2_A97   (MACHINE_PS2_AGP | MACHINE_BUS_AC97)                /* sys is AGP/AC97 PS/2 */
+#define MACHINE_PS2_NOISA (MACHINE_PS2_AGP & ~MACHINE_AT)                     /* sys is AGP PS/2 without ISA */
+#define MACHINE_PS2_NOI97 (MACHINE_PS2_A97 & ~MACHINE_AT)                     /* sys is AGP/AC97 PS/2 without ISA */
 /* Feature flags for miscellaneous internal devices. */
 #define MACHINE_FLAGS_NONE 0x00000000 /* sys has no int devices */
 #define MACHINE_VIDEO      0x00000001 /* sys has int video */
@@ -143,31 +146,31 @@
 #endif
 
 enum {
-    MACHINE_TYPE_NONE = 0,
-    MACHINE_TYPE_8088,
-    MACHINE_TYPE_8086,
-    MACHINE_TYPE_286,
-    MACHINE_TYPE_386SX,
-    MACHINE_TYPE_486SLC,
-    MACHINE_TYPE_386DX,
-    MACHINE_TYPE_386DX_486,
-    MACHINE_TYPE_486,
-    MACHINE_TYPE_486_S2,
-    MACHINE_TYPE_486_S3,
-    MACHINE_TYPE_486_MISC,
-    MACHINE_TYPE_SOCKET4,
-    MACHINE_TYPE_SOCKET5,
-    MACHINE_TYPE_SOCKET7_3V,
-    MACHINE_TYPE_SOCKET7,
-    MACHINE_TYPE_SOCKETS7,
-    MACHINE_TYPE_SOCKET8,
-    MACHINE_TYPE_SLOT1,
-    MACHINE_TYPE_SLOT1_2,
-    MACHINE_TYPE_SLOT1_370,
-    MACHINE_TYPE_SLOT2,
-    MACHINE_TYPE_SOCKET370,
-    MACHINE_TYPE_MISC,
-    MACHINE_TYPE_MAX
+    MACHINE_TYPE_NONE       = 0,
+    MACHINE_TYPE_8088       = 1,
+    MACHINE_TYPE_8086       = 2,
+    MACHINE_TYPE_286        = 3,
+    MACHINE_TYPE_386SX      = 4,
+    MACHINE_TYPE_486SLC     = 5,
+    MACHINE_TYPE_386DX      = 6,
+    MACHINE_TYPE_386DX_486  = 7,
+    MACHINE_TYPE_486        = 8,
+    MACHINE_TYPE_486_S2     = 9,
+    MACHINE_TYPE_486_S3     = 10,
+    MACHINE_TYPE_486_MISC   = 11,
+    MACHINE_TYPE_SOCKET4    = 12,
+    MACHINE_TYPE_SOCKET5    = 13,
+    MACHINE_TYPE_SOCKET7_3V = 14,
+    MACHINE_TYPE_SOCKET7    = 15,
+    MACHINE_TYPE_SOCKETS7   = 16,
+    MACHINE_TYPE_SOCKET8    = 17,
+    MACHINE_TYPE_SLOT1      = 18,
+    MACHINE_TYPE_SLOT1_2    = 19,
+    MACHINE_TYPE_SLOT1_370  = 20,
+    MACHINE_TYPE_SLOT2      = 21,
+    MACHINE_TYPE_SOCKET370  = 22,
+    MACHINE_TYPE_MISC       = 23,
+    MACHINE_TYPE_MAX        = 24
 };
 
 enum {
@@ -281,7 +284,10 @@ typedef struct _machine_ {
     uint32_t    type;
     uintptr_t   chipset;
     int (*init)(const struct _machine_ *);
-    uintptr_t              pad, pad0, pad1, pad2;
+    uintptr_t              pad;
+    uintptr_t              pad0;
+    uintptr_t              pad1;
+    uintptr_t              pad2;
     const machine_cpu_t    cpu;
     uintptr_t              bus_flags;
     uintptr_t              flags;
@@ -317,8 +323,8 @@ typedef struct _machine_ {
 } machine_t;
 
 /* Global variables. */
-extern const machine_filter_t machine_types[],
-    machine_chipsets[];
+extern const machine_filter_t machine_types[];
+extern const machine_filter_t machine_chipsets[];
 extern const machine_t machines[];
 extern int             bios_only;
 extern int             machine;
@@ -770,6 +776,7 @@ extern int machine_ps2_model_65sx_init(const machine_t *);
 extern int machine_ps2_model_70_type3_init(const machine_t *);
 extern int machine_ps2_model_80_init(const machine_t *);
 extern int machine_ps2_model_80_axx_init(const machine_t *);
+extern int machine_ps2_model_70_type4_init(const machine_t *);
 
 /* m_tandy.c */
 extern int tandy1k_eeprom_read(void);

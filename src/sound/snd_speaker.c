@@ -27,13 +27,17 @@
 #include <86box/snd_speaker.h>
 #include <86box/sound.h>
 
-int speaker_mute = 0, speaker_gated = 0;
-int speaker_enable = 0, was_speaker_enable = 0;
+int speaker_mute       = 0;
+int speaker_gated      = 0;
+int speaker_enable     = 0;
+int was_speaker_enable = 0;
 #ifdef USE_CLI
 int speaker_bell = 0, speaker_bell_cycles = 0;
 #endif
 
-int gated, speakval, speakon;
+int gated;
+int speakval;
+int speakon;
 
 static int32_t speaker_buffer[SOUNDBUFLEN];
 static int     speaker_pos = 0;
@@ -98,12 +102,12 @@ speaker_update(void)
 void
 speaker_get_buffer(int32_t *buffer, int len, void *p)
 {
-    int32_t c, val;
+    int32_t val;
 
     speaker_update();
 
     if (!speaker_mute) {
-        for (c = 0; c < len * 2; c += 2) {
+        for (int c = 0; c < len * 2; c += 2) {
             val = speaker_buffer[c >> 1];
             buffer[c] += val;
             buffer[c + 1] += val;

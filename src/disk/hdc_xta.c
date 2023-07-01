@@ -185,12 +185,12 @@ enum {
 typedef struct {
     uint8_t cmd; /* [7:5] class, [4:0] opcode    */
 
-    uint8_t head   : 5, /* [4:0] head number        */
-        drvsel     : 1, /* [5] drive select        */
-        mbz        : 2; /* [7:6] 00            */
+    uint8_t head   : 5; /* [4:0] head number        */
+    uint8_t drvsel : 1; /* [5] drive select        */
+    uint8_t mbz    : 2; /* [7:6] 00            */
 
-    uint8_t sector : 6, /* [5:0] sector number 0-63    */
-        cyl_high   : 2; /* [7:6] cylinder [9:8] bits    */
+    uint8_t sector   : 6; /* [5:0] sector number 0-63    */
+    uint8_t cyl_high : 2; /* [7:6] cylinder [9:8] bits    */
 
     uint8_t cyl_low; /* [7:0] cylinder [7:0] bits    */
 
@@ -216,19 +216,19 @@ typedef struct {
 
 /* Define an attached drive. */
 typedef struct {
-    int8_t id,   /* drive ID on bus */
-        present, /* drive is present */
-        hdd_num, /* index to global disk table */
-        type;    /* drive type ID */
+    int8_t id;   /* drive ID on bus */
+    int8_t present; /* drive is present */
+    int8_t hdd_num; /* index to global disk table */
+    int8_t type;    /* drive type ID */
 
     uint16_t cur_cyl; /* last known position of heads */
 
-    uint8_t spt, /* active drive parameters */
-        hpc;
+    uint8_t  spt; /* active drive parameters */
+    uint8_t  hpc;
     uint16_t tracks;
 
-    uint8_t cfg_spt, /* configured drive parameters */
-        cfg_hpc;
+    uint8_t  cfg_spt; /* configured drive parameters */
+    uint8_t  cfg_hpc;
     uint16_t cfg_tracks;
 } drive_t;
 
@@ -252,17 +252,17 @@ typedef struct {
     pc_timer_t timer;
 
     /* Data transfer. */
-    int16_t buf_idx, /* buffer index and pointer */
-        buf_len;
+    int16_t  buf_idx; /* buffer index and pointer */
+    int16_t  buf_len;
     uint8_t *buf_ptr;
 
     /* Current operation parameters. */
-    dcb_t    dcb;   /* device control block */
-    uint16_t track; /* requested track# */
-    uint8_t  head,  /* requested head# */
-        sector,     /* requested sector# */
-        comp;       /* operation completion byte */
-    int count;      /* requested sector count */
+    dcb_t    dcb;    /* device control block */
+    uint16_t track;  /* requested track# */
+    uint8_t  head;   /* requested head# */
+    uint8_t  sector; /* requested sector# */
+    uint8_t  comp;   /* operation completion byte */
+    int count;       /* requested sector count */
 
     drive_t drives[XTA_NUM]; /* the attached drive(s) */
 
@@ -308,25 +308,25 @@ get_sector(hdc_t *dev, drive_t *drive, off64_t *addr)
         xta_log("%s: get_sector: wrong cylinder %d/%d\n",
                 dev->name, drive->cur_cyl, dev->track);
         dev->sense = ERR_ILLADDR;
-        return (1);
+        return 1;
     }
 
     if (dev->head >= drive->hpc) {
         xta_log("%s: get_sector: past end of heads\n", dev->name);
         dev->sense = ERR_ILLADDR;
-        return (1);
+        return 1;
     }
 
     if (dev->sector >= drive->spt) {
         xta_log("%s: get_sector: past end of sectors\n", dev->name);
         dev->sense = ERR_ILLADDR;
-        return (1);
+        return 1;
     }
 
     /* Calculate logical address (block number) of desired sector. */
     *addr = ((((off64_t) dev->track * drive->hpc) + dev->head) * drive->spt) + dev->sector;
 
-    return (0);
+    return 0;
 }
 
 static void
@@ -375,10 +375,11 @@ do_seek(hdc_t *dev, drive_t *drive, int cyl)
 static void
 do_format(hdc_t *dev, drive_t *drive, dcb_t *dcb)
 {
-    int     start_cyl, end_cyl;
-    int     start_hd, end_hd;
+    int     start_cyl;
+    int     end_cyl;
+    int     start_hd;
+    int     end_hd;
     off64_t addr;
-    int     h, s;
 
     /* Get the parameters from the DCB. */
     if (dcb->cmd == CMD_FORMAT_DRIVE) {
@@ -413,8 +414,8 @@ do_fmt:
              * data to fill the sectors with, so we will use
              * that at least.
              */
-            for (h = start_hd; h < end_hd; h++) {
-                for (s = 0; s < drive->spt; s++) {
+            for (int h = start_hd; h < end_hd; h++) {
+                for (uint8_t s = 0; s < drive->spt; s++) {
                     /* Set the sector we need to write. */
                     dev->head   = h;
                     dev->sector = s;
@@ -901,7 +902,7 @@ hdc_read(uint16_t port, void *priv)
             break;
     }
 
-    return (ret);
+    return ret;
 }
 
 /* Write to one of the controller registers. */
@@ -957,7 +958,9 @@ hdc_write(uint16_t port, uint8_t val, void *priv)
             break;
 
         case 3: /* DMA/IRQ intr register */
-            // xta_log("%s: WriteMASK(%02X)\n", dev->name, val);
+#if 0
+            xta_log("%s: WriteMASK(%02X)\n", dev->name, val);
+#endif
             dev->intr = val;
             break;
     }
@@ -970,7 +973,7 @@ xta_init(const device_t *info)
     char    *bios_rev = NULL;
     char    *fn       = NULL;
     hdc_t   *dev;
-    int      c, i;
+    int      c;
     int      max = XTA_NUM;
 
     /* Allocate and initialize device block. */
@@ -1007,7 +1010,7 @@ xta_init(const device_t *info)
 
     /* Load any disks for this device class. */
     c = 0;
-    for (i = 0; i < HDD_NUM; i++) {
+    for (uint8_t i = 0; i < HDD_NUM; i++) {
         if ((hdd[i].bus == HDD_BUS_XTA) && (hdd[i].xta_channel < max)) {
             drive = &dev->drives[hdd[i].xta_channel];
 
@@ -1051,7 +1054,7 @@ xta_init(const device_t *info)
     /* Create a timer for command delays. */
     timer_add(&dev->timer, hdc_callback, dev, 0);
 
-    return (dev);
+    return dev;
 }
 
 static void
@@ -1059,14 +1062,13 @@ xta_close(void *priv)
 {
     hdc_t   *dev = (hdc_t *) priv;
     drive_t *drive;
-    int      d;
 
     /* Remove the I/O handler. */
     io_removehandler(dev->base, 4,
                      hdc_read, NULL, NULL, hdc_write, NULL, NULL, dev);
 
     /* Close all disks and their images. */
-    for (d = 0; d < XTA_NUM; d++) {
+    for (uint8_t d = 0; d < XTA_NUM; d++) {
         drive = &dev->drives[d];
 
         hdd_image_close(drive->hdd_num);

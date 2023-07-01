@@ -90,6 +90,11 @@ SettingsMachine::SettingsMachine(QWidget *parent)
 
     ui->comboBoxMachineType->setCurrentIndex(-1);
     ui->comboBoxMachineType->setCurrentIndex(selectedMachineType);
+
+#ifndef USE_DYNAREC
+    ui->checkBoxDynamicRecompiler->setEnabled(false);
+    ui->checkBoxDynamicRecompiler->setVisible(false);
+#endif
 }
 
 SettingsMachine::~SettingsMachine()
@@ -105,6 +110,12 @@ SettingsMachine::save()
     cpu             = ui->comboBoxSpeed->currentData().toInt();
     fpu_type        = ui->comboBoxFPU->currentData().toInt();
     cpu_use_dynarec = ui->checkBoxDynamicRecompiler->isChecked() ? 1 : 0;
+    fpu_softfloat   = (ui->checkBoxFPUSoftfloat->isChecked() && !cpu_use_dynarec) ? 1 : 0;
+    if (!strcmp(machines[machine].internal_name, "ibmps2_m70_type4")) {
+        cpu_use_dynarec = 0;
+        fpu_softfloat = 1;
+    }
+
     int64_t temp_mem_size;
     if (machine_get_ram_granularity(machine) < 1024) {
         temp_mem_size = ui->spinBoxRAM->value();
@@ -194,7 +205,7 @@ SettingsMachine::on_comboBoxMachine_currentIndexChanged(int index)
     ui->comboBoxCPU->setCurrentIndex(selectedCpuFamilyRow);
 
     int divisor;
-    if ((machine_get_ram_granularity(machineId) < 1024)) {
+    if (machine_get_ram_granularity(machineId) < 1024) {
         divisor = 1;
         ui->spinBoxRAM->setSuffix(QCoreApplication::translate("", "KB").prepend(' '));
     } else {
@@ -270,13 +281,22 @@ SettingsMachine::on_comboBoxSpeed_currentIndexChanged(int index)
     if (!(flags & CPU_SUPPORTS_DYNAREC)) {
         ui->checkBoxDynamicRecompiler->setChecked(false);
         ui->checkBoxDynamicRecompiler->setEnabled(false);
+        ui->checkBoxFPUSoftfloat->setChecked(fpu_softfloat);
+        ui->checkBoxFPUSoftfloat->setEnabled(cpu_use_dynarec ? false : true);
     } else if (flags & CPU_REQUIRES_DYNAREC) {
         ui->checkBoxDynamicRecompiler->setChecked(true);
         ui->checkBoxDynamicRecompiler->setEnabled(false);
+        ui->checkBoxFPUSoftfloat->setChecked(false);
+        ui->checkBoxFPUSoftfloat->setEnabled(false);
     } else {
         ui->checkBoxDynamicRecompiler->setChecked(cpu_use_dynarec);
         ui->checkBoxDynamicRecompiler->setEnabled(true);
+        ui->checkBoxFPUSoftfloat->setChecked(fpu_softfloat);
+        ui->checkBoxFPUSoftfloat->setEnabled(cpu_use_dynarec ? false : true);
     }
+#else
+    ui->checkBoxFPUSoftfloat->setChecked(fpu_softfloat);
+    ui->checkBoxFPUSoftfloat->setEnabled(true);
 #endif
 
     // win_settings_machine_recalc_fpu

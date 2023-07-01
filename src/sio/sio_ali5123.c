@@ -131,15 +131,13 @@ ali5123_serial_handler(ali5123_t *dev, int uart)
 static void
 ali5123_reset(ali5123_t *dev)
 {
-    int i = 0;
-
     memset(dev->regs, 0, 48);
 
     dev->regs[0x20] = 0x43;
     dev->regs[0x21] = 0x15;
     dev->regs[0x2d] = 0x20;
 
-    for (i = 0; i < 13; i++)
+    for (uint8_t i = 0; i < 13; i++)
         memset(dev->ld_regs[i], 0, 256);
 
     /* Logical device 0: FDD */
@@ -174,6 +172,7 @@ ali5123_reset(ali5123_t *dev)
     serial_setup(dev->uart[1], 0x03e8, dev->ld_regs[5][0x70]);
 
     /* Logical device 7: Keyboard */
+    dev->ld_regs[7][0x30] = 1;
     dev->ld_regs[7][0x70] = 1;
     /* TODO: Register F0 bit 6: 0 = PS/2, 1 = AT */
 
@@ -208,7 +207,8 @@ ali5123_write(uint16_t port, uint8_t val, void *priv)
 {
     ali5123_t *dev    = (ali5123_t *) priv;
     uint8_t    index  = (port & 1) ? 0 : 1;
-    uint8_t    valxor = 0x00, cur_ld = dev->regs[7];
+    uint8_t    valxor = 0x00;
+    uint8_t    cur_ld = dev->regs[7];
 
     if (index) {
         if (((val == 0x51) && (!dev->tries) && (!dev->locked)) || ((val == 0x23) && (dev->tries) && (!dev->locked))) {
@@ -253,6 +253,9 @@ ali5123_write(uint16_t port, uint8_t val, void *priv)
                         case 0x06:
                         case 0x08 ... 0x0a:
                             return;
+                        case 0x07:
+                            if (dev->cur_reg == 0xf0)
+                                val &= 0xbf;
                     }
                 dev->ld_regs[cur_ld][dev->cur_reg] = val;
             }
@@ -398,7 +401,8 @@ ali5123_read(uint16_t port, void *priv)
 {
     ali5123_t *dev   = (ali5123_t *) priv;
     uint8_t    index = (port & 1) ? 0 : 1;
-    uint8_t    ret   = 0xff, cur_ld;
+    uint8_t    ret   = 0xff;
+    uint8_t    cur_ld;
 
     if (dev->locked) {
         if (index)

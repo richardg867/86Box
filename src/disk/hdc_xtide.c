@@ -43,6 +43,7 @@
 #include <86box/device.h>
 #include <86box/hdc.h>
 #include <86box/hdc_ide.h>
+#include <86box/plat_unused.h>
 
 #define ROM_PATH_XT     "roms/hdd/xtide/ide_xt.bin"
 #define ROM_PATH_XTP    "roms/hdd/xtide/ide_xtp.bin"
@@ -145,7 +146,7 @@ xtide_init(const device_t *info)
                   xtide_read, NULL, NULL,
                   xtide_write, NULL, NULL, xtide);
 
-    return (xtide);
+    return xtide;
 }
 
 static int
@@ -177,7 +178,7 @@ xtide_at_init(const device_t *info)
 
     device_add(&ide_isa_2ch_device);
 
-    return (xtide);
+    return xtide;
 }
 
 static int
@@ -193,7 +194,7 @@ xtide_at_386_available(void)
 }
 
 static void *
-xtide_acculogic_init(const device_t *info)
+xtide_acculogic_init(UNUSED(const device_t *info))
 {
     xtide_t *xtide = malloc(sizeof(xtide_t));
 
@@ -208,7 +209,7 @@ xtide_acculogic_init(const device_t *info)
                   xtide_read, NULL, NULL,
                   xtide_write, NULL, NULL, xtide);
 
-    return (xtide);
+    return xtide;
 }
 
 static int
@@ -228,7 +229,7 @@ xtide_close(void *priv)
 }
 
 static void *
-xtide_at_ps2_init(const device_t *info)
+xtide_at_ps2_init(UNUSED(const device_t *info))
 {
     xtide_t *xtide = malloc(sizeof(xtide_t));
 
@@ -239,7 +240,7 @@ xtide_at_ps2_init(const device_t *info)
 
     device_add(&ide_isa_2ch_device);
 
-    return (xtide);
+    return xtide;
 }
 
 static int
