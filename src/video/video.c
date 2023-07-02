@@ -460,10 +460,10 @@ blit_thread(void *param)
         MTR_BEGIN("video", "blit_thread");
 
 #ifdef USE_CLI
-//        if (cli_blit) {
-//          if (buffer32 != NULL)
-//                cli_render_gfx_blit(buffer32, data.x, data.y, data.w, data.h);
-//        }
+        if (cli_blit && (data->monitor_index == 0)) {
+          if (monitors[data->monitor_index].target_buffer)
+                cli_render_gfx_blit(monitors[data->monitor_index].target_buffer, data->x, data->y, data->w, data->h);
+        }
 #endif
 
         if (blit_func)
