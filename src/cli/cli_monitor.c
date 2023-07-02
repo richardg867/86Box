@@ -31,8 +31,10 @@
 #include <86box/86box.h>
 #include <86box/cli.h>
 #include <86box/config.h>
+#include <86box/device.h>
 #include <86box/plat.h>
 #include <86box/plat_dynld.h>
+#include <86box/thread.h>
 #include <86box/version.h>
 #include <86box/video.h>
 
@@ -148,6 +150,9 @@ static void *libedit_handle = NULL;
 
 typedef struct {
     void       *func;
+    int        *writeprot;
+    void       *notify;
+    void       *array;
     int         ndrives;
     const char *drive;
 } media_cmd_t;
@@ -476,15 +481,11 @@ cli_monitor_screenshot(int argc, char **argv, const void *priv)
     screenshot_hook  = cli_monitor_screenshot_hook;
 
     /* Take screenshot. */
-#ifdef _WIN32 /* temporary, while unix take_screenshot is not implemented */
-    take_screenshot();
-#else
     startblit();
-    screenshots++;
+    for (int i = 0; i < MONITORS_NUM; i++)
+        monitors[i].mon_screenshots++;
     endblit();
-#    include <86box/device.h>
     device_force_redraw();
-#endif
 
     /* Wait for the hook. */
     thread_wait_event(screenshot_event, -1);
@@ -514,6 +515,7 @@ static const struct {
     void (*handler)(int argc, char **argv, const void *priv);
     const void *priv;
 } commands[] = {
+#if 0
     {.name     = "fddload",
      .helptext = "Load floppy disk image <filename> into drive <id>.\n[wp] enables write protection when set to 1.",
      .args     = (const char *[]) { "id", "filename", "wp" },
@@ -521,15 +523,15 @@ static const struct {
      .args_max = 3,
      .category = MONITOR_CATEGORY_MEDIALOAD,
      .handler  = cli_monitor_mediaload,
-     .priv     = (const media_cmd_t[]) { [0] = { floppy_mount, 4, "floppy drive" } } },
+     .priv     = (const media_cmd_t[]) { [0] = { floppy_mount, ui_writeprot, NULL, NULL, 4, "floppy drive" } } },
     { .name     = "cdload",
      .helptext = "Load CD-ROM image <filename> into drive <id>.",
      .args     = (const char *[]) { "id", "filename" },
      .args_min = 2,
      .args_max = 2,
      .category = MONITOR_CATEGORY_MEDIALOAD,
-     .handler  = cli_monitor_mediaload_nowp,
-     .priv     = (const media_cmd_t[]) { [0] = { cdrom_mount, 4, "CD-ROM drive" } } },
+     .handler  = cli_monitor_mediaload,
+     .priv     = (const media_cmd_t[]) { [0] = { cdrom_image_open, NULL, NULL, cdrom, 4, "CD-ROM drive" } } },
     { .name     = "zipload",
      .helptext = "Load ZIP disk image <filename> into drive <id>.\n[wp] enables write protection when set to 1.",
      .args     = (const char *[]) { "id", "filename", "wp" },
@@ -537,7 +539,7 @@ static const struct {
      .args_max = 3,
      .category = MONITOR_CATEGORY_MEDIALOAD,
      .handler  = cli_monitor_mediaload,
-     .priv     = (const media_cmd_t[]) { [0] = { zip_mount, 4, "ZIP drive" } } },
+     .priv     = (const media_cmd_t[]) { [0] = { zip_load, 4, "ZIP drive" } } },
     { .name     = "moload",
      .helptext = "Load MO disk image <filename> into drive <id>.\n[wp] enables write protection when set to 1.",
      .args     = (const char *[]) { "id", "filename", "wp" },
@@ -552,8 +554,8 @@ static const struct {
      .args_min = 2,
      .args_max = 3,
      .category = MONITOR_CATEGORY_MEDIALOAD,
-     .handler  = cli_monitor_mediaload,
-     .priv     = (const media_cmd_t[]) { [0] = { cartridge_mount, 2, "cartridge slot" } } },
+     .handler  = cli_monitor_mediaload_nowp,
+     .priv     = (const media_cmd_t[]) { [0] = { cart_load, 2, "cartridge slot" } } },
 
     { .name     = "fddeject",
      .helptext = "Eject disk from floppy drive <id>.",
@@ -595,7 +597,7 @@ static const struct {
      .category = MONITOR_CATEGORY_MEDIAEJECT,
      .handler  = cli_monitor_mediaeject,
      .priv     = (const media_cmd_t[]) { [0] = { cartridge_eject, 2, "cartridge slot" } } },
-
+#endif
     {
      .name     = "sendkey",
      .helptext = "Send key combination <combo>.",

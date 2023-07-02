@@ -29,6 +29,7 @@
 #include <86box/video.h>
 #include <86box/vid_ega.h>
 #include <86box/vid_ega_render_remap.h>
+#include <86box/cli.h>
 
 int
 ega_display_line(ega_t *ega)
@@ -129,7 +130,7 @@ ega_render_text(ega_t *ega)
 #ifdef USE_CLI
             if (ega->sc == 0)
                 cli_render_cga((ega->ma >> 2) / 80, ega->rowcount,
-                        ega->hdisp + ega->scrollcache, xinc,
+                        ega->hdisp + ega->scrollcache, charwidth,
                         ega->vram, ega->ma, ega->vrammask, 4,
                         ega->crtc[0x17] & 0x80, ega->attrregs[0x10] & 0x08,
                         ega->ca, !(ega->crtc[0x0a] & 0x20) && ((ega->crtc[0x0b] & 0x1f) >= (ega->crtc[0x0a] & 0x1f)));

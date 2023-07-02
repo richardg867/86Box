@@ -240,7 +240,7 @@ svga_out(uint16_t addr, uint8_t val, void *p)
                     else
                         svga->pallook[index] = makecol32(video_6to8[svga->vgapal[index].r & 0x3f], video_6to8[svga->vgapal[index].g & 0x3f], video_6to8[svga->vgapal[index].b & 0x3f]);
 #ifdef USE_CLI
-                    for (c = 0; c < 16; c++)
+                    for (uint8_t c = 0; c < 16; c++)
                         cli_render_setpal(cga_ansi_palette[c], svga->pallook[svga->egapal[c]]);
 #endif
                     svga->dac_pos  = 0;

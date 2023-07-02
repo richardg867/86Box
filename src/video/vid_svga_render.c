@@ -28,6 +28,7 @@
 #include <86box/vid_svga.h>
 #include <86box/vid_svga_render.h>
 #include <86box/vid_svga_render_remap.h>
+#include <86box/cli.h>
 
 void
 svga_render_null(svga_t *svga)

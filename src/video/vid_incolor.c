@@ -749,7 +749,7 @@ text_line(incolor_t *dev, uint16_t ca)
 
 #ifdef USE_CLI
     if ((dev->displine % 8) == 0) {
-        c = dev->crtc[INCOLOR_CRTC_XMODE] & 5;
+        uint8_t c = dev->crtc[INCOLOR_CRTC_XMODE] & 5;
         if ((c == 0) || (c == 4)) {
             if (dev->crtc[INCOLOR_CRTC_EXCEPT] & INCOLOR_EXCEPT_ALTATTR)
                 cli_render_mda(dev->crtc[1], dev->crtc[9] & 0x1f,

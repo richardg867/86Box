@@ -87,15 +87,15 @@ extern int cli_blit;
 extern void cli_term_setcolor(uint8_t level, char *source);
 extern void cli_term_setsize(int size_x, int size_y, char *source);
 
-extern void cli_init();
-extern void cli_close();
+extern void cli_init(void);
+extern void cli_close(void);
 
 /* cli_input.c */
-extern void cli_input_init();
-extern void cli_input_close();
+extern void cli_input_init(void);
+extern void cli_input_close(void);
 
 /* cli_render.c */
-extern void cli_render_blank();
+extern void cli_render_blank(void);
 extern void cli_render_gfx(char *str);
 extern void cli_render_gfx_box(char *str);
 #    ifdef EMU_VIDEO_H
@@ -114,18 +114,18 @@ extern void cli_render_mda(int xlimit, uint8_t rowcount,
 extern void cli_render_write(int slot, char *s);
 extern void cli_render_write_title(wchar_t *s);
 
-extern void cli_render_monitorenter();
-extern void cli_render_monitorexit();
+extern void cli_render_monitorenter(void);
+extern void cli_render_monitorexit(void);
 
 extern int  cli_render_setcolor_none(char *p, uint8_t index, uint8_t is_background);
-extern void cli_render_setcolorlevel();
+extern void cli_render_setcolorlevel(void);
 extern void cli_render_setpal(uint8_t index, uint32_t color);
-extern void cli_render_updatescreen();
+extern void cli_render_updatescreen(void);
 
 extern void cli_render_process_screenshot(char *path, uint32_t *buf, int start_x, int start_y, int w, int h, int row_len);
 
-extern void cli_render_init();
-extern void cli_render_close();
+extern void cli_render_init(void);
+extern void cli_render_close(void);
 #endif
 
 enum {

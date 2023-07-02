@@ -34,8 +34,10 @@
 #define HAVE_STDARG_H
 #include <86box/86box.h>
 #include <86box/cli.h>
+#include <86box/path.h>
 #include <86box/plat.h>
 #include <86box/plat_dynld.h>
+#include <86box/thread.h>
 #include <86box/timer.h>
 #include <86box/video.h>
 

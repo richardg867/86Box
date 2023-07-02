@@ -37,6 +37,7 @@
 #include <86box/device.h>
 #include <86box/keyboard.h>
 #include <86box/plat.h>
+#include <86box/thread.h>
 
 #ifdef USE_CLI
 /* Escape sequence parser states. */

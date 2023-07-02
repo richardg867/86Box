@@ -551,6 +551,7 @@ sigma_gfx200(sigma_t *sigma)
 {
     unsigned char *vram = &sigma->vram[((sigma->ma << 1) & 0x1FFF) + (sigma->sc & 2) * 0x1000];
     uint8_t        plane[4];
+    uint8_t        col;
 
 #ifdef USE_CLI
     cli_render_gfx("Sigma Color %dx%d");
@@ -580,6 +581,7 @@ sigma_gfx4col(sigma_t *sigma)
     unsigned char *vram = &sigma->vram[((sigma->ma << 1) & 0x1FFF) + (sigma->sc & 2) * 0x1000];
     uint8_t        plane[4];
     uint8_t        mask;
+    uint8_t        col;
 
 #ifdef USE_CLI
     cli_render_gfx("Sigma Color %dx%d");
