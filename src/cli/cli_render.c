@@ -172,6 +172,7 @@ static char    infobox[256];
 static uint8_t palette_4bit[16], palette_8bit[16], sixel_color_mask[3],
     cursor_x = -1, cursor_y = -1;
 static uint32_t            colors_8bit[256], palette_24bit[16];
+static double              sixel_color_factor[3];
 static time_t              gfx_last = 0;
 static int                 png_size = 0, sixel_color_regs = -1;
 static cli_render_png_t   *png_first, *png_current;
@@ -803,18 +804,16 @@ cli_render_process_sixel(uint8_t *fb, int sx, int sy)
         sixel_color_regs = cli_term.sixel_color_regs;
 
         /* Calculate color mask. This limits incoming colors to the palette size. */
-        i = sixel_color_regs - 1;
-        sixel_color_mask[0] = sixel_color_mask[1] = sixel_color_mask[2] = 0;
-        if (sixel_color_regs >= 64) { /* minimum 2 bits per component */
-            for (j = 0; i; i >>= 1) {
-                sixel_color_mask[j] = 0x80 | (sixel_color_mask[j] >> 1);
+        memset(sixel_color_mask, 0, sizeof(sixel_color_mask));
+        for (i = sixel_color_regs - 1, j = 0; i; i >>= 1) {
+            sixel_color_mask[j] = 0x80 | (sixel_color_mask[j] >> 1);
+            if (sixel_color_regs >= 64) /* force grayscale mode if <= 2 bits per component */
                 j = (j + 1) % 3;
-            }
-        } else {
-            /* Grayscale mode if there are too few color registers. */
-            for (; i; i >>= 1)
-                sixel_color_mask[0] = 0x80 | (sixel_color_mask[0] >> 1);
         }
+
+        /* Calculate factors used to convert masked 0-255 values into sixel's 0-100 scale. */
+        for (i = 0; (i < 3) && sixel_color_mask[i]; i++)
+            sixel_color_factor[i] = 2.55 / (255.0 / sixel_color_mask[i]);
 
         /* Initialize palette array. */
         if (sixel_colors)
@@ -836,10 +835,11 @@ cli_render_process_sixel(uint8_t *fb, int sx, int sy)
             for (x = 0; x < sx; x++) {
                 /* Convert color to sixel scale. */
                 uint32_t color;
-                if (sixel_color_regs >= 64) {
-                    color = (*p++ & sixel_color_mask[0]) / 2.55;
-                    color |= (uint8_t) ((*p++ & sixel_color_mask[1]) / 2.55) << 8;
-                    color |= (uint8_t) ((*p++ & sixel_color_mask[2]) / 2.55) << 16;
+                if (sixel_color_mask[1]) {
+                    /* Component bit priority: green -> red -> blue */
+                    color = (*p++ & sixel_color_mask[1]) / sixel_color_factor[1];
+                    color |= (uint8_t) ((*p++ & sixel_color_mask[0]) / sixel_color_factor[0]) << 8;
+                    color |= (uint8_t) ((*p++ & sixel_color_mask[2]) / sixel_color_factor[2]) << 16;
                 } else {
                     /* Apply conversion in grayscale mode. */
                     if (video_graytype) {
@@ -849,7 +849,7 @@ cli_render_process_sixel(uint8_t *fb, int sx, int sy)
                             color = ((uint32_t) p[2] + (uint32_t) p[1] + (uint32_t) p[0]) / 3;
                     } else
                         color = ((76 * (uint32_t) p[2]) + (150 * (uint32_t) p[1]) + (29 * (uint32_t) p[0])) / 255;
-                    color = (uint8_t) ((color & sixel_color_mask[0]) / 2.55);
+                    color = (uint8_t) ((color & sixel_color_mask[0]) / sixel_color_factor[0]);
                     color = color | (color << 8) | (color << 16);
                     p += 3;
                 }
