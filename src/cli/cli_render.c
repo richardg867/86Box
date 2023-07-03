@@ -821,7 +821,6 @@ cli_render_process_sixel(uint8_t *fb, int sx, int sy)
             free(sixel_colors);
         sixel_colors = (cli_render_sixel_t *) calloc(sixel_color_regs, sizeof(cli_render_sixel_t));
     }
-    fprintf(CLI_RENDER_OUTPUT, "\033]0;color_mask r%02X g%02X b%02X\a", sixel_color_mask[0], sixel_color_mask[1], sixel_color_mask[2]);
 
     /* Reset color state while clearing the color palette. */
     for (j = 0; j < sixel_color_regs; j++)
