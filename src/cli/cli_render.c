@@ -831,7 +831,7 @@ cli_render_process_sixel(uint8_t *fb, int sx, int sy)
     /* Render each sixel row, which corresponds to 6 pixel rows. */
     for (int y = 0; (y < sy) && (y < (CLI_RENDER_GFXBUF_H - 6)); y += 6) {
         /* Go through columns on this sixel row, building the sixmap for each color. */
-        for (i = 0; i < 6; i++) {
+        for (i = 1; i < (1 << 6); i <<= 1) {
             for (x = 0; x < sx; x++) {
                 /* Convert color to sixel scale. */
                 uint32_t color;
@@ -859,16 +859,17 @@ cli_render_process_sixel(uint8_t *fb, int sx, int sy)
                 for (j = 0; j < sixel_color_regs; j++) {
                     color_entry = &sixel_colors[j];
                     if (color_entry->rgb & SIXEL_COLOR_AVAILABLE) {
-                        /* This palette entry is up for grabs. */
+                        /* Palette end reached, assign new color. */
                         color_entry->rgb = color;
                         break;
                     } else if ((color_entry->rgb & 0x00ffffff) == color) {
+                        /* Color found in palette. */
                         break;
                     }
                 }
 
                 /* Set bit in sixmap, and mark this color for rendering. */
-                color_entry->sixmap[x] |= 1 << i;
+                color_entry->sixmap[x] |= i;
                 color_entry->rgb |= SIXEL_COLOR_RENDER;
             }
         }
@@ -887,7 +888,7 @@ cli_render_process_sixel(uint8_t *fb, int sx, int sy)
 
             /* Activate color register. */
             fprintf(CLI_RENDER_OUTPUT, "#%d", j);
-            if (!(color_entry->rgb & SIXEL_COLOR_SET)) {
+            if (UNLIKELY(!(color_entry->rgb & SIXEL_COLOR_SET))) {
                 /* Set color register if it wasn't already set. */
                 color_entry->rgb |= SIXEL_COLOR_SET;
                 fprintf(CLI_RENDER_OUTPUT, ";2;%d;%d;%d",
