@@ -351,7 +351,7 @@ cli_input_raw(void)
     in_raw = 1;
 
 #    ifdef _WIN32
-    /* Enable ANSI input. */
+    /* Disable quickedit mode. Note that we use ReadConsoleInput instead of ANSI mode. */
     HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
     if (h) {
         /* Save existing mode for restoration purposes. */
@@ -361,7 +361,7 @@ cli_input_raw(void)
             cli_input_log("CLI Input: GetConsoleMode failed (%08X)\n", GetLastError());
 
         /* Set new mode. */
-        if (!SetConsoleMode(h, ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_EXTENDED_FLAGS)) /* ENABLE_EXTENDED_FLAGS disables quickedit */
+        if (!SetConsoleMode(h, ENABLE_EXTENDED_FLAGS)) /* ENABLE_EXTENDED_FLAGS disables quickedit */
             cli_input_log("CLI Input: SetConsoleMode failed (%08X)\n", GetLastError());
     } else {
         cli_input_log("CLI Input: GetStdHandle failed (%08X)\n", GetLastError());
@@ -762,6 +762,11 @@ void
 cli_input_process(void *priv)
 {
     int c = 0, state = VT_GROUND, prev_state = VT_GROUND;
+#ifdef _WIN32
+    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+    INPUT_RECORD ir;
+    int prev_key = 0, prev_ctrl_state = 0;
+#endif
 
     /* Run state machine loop. */
     while (1) {
@@ -773,14 +778,72 @@ cli_input_process(void *priv)
         prev_state = state;
 
         /* Read character. */
+#ifdef _WIN32
+        if (!ReadConsoleInput(h, &ir, 1, (LPDWORD) &c)) {
+            cli_input_log("CLI Input: stdin read error (%08X)\n", GetLastError());
+            return;
+        }
+        if ((c > 0) && (ir.EventType == KEY_EVENT)) { /* key events only */
+            if (ir.Event.KeyEvent.wVirtualScanCode == 0) {
+                /* A null scancode indicates a pseudo-terminal, which may or
+                   may not be inputting ANSI, so we parse as that instead. */
+                if (ir.Event.KeyEvent.bKeyDown) /* only on press or one-shot */
+                    c = ir.Event.KeyEvent.uChar.AsciiChar;
+                else
+                    continue;
+            } else {
+                cli_input_log("CLI Input: Win32 process(%d, %04X, %04X)\n", ir.Event.KeyEvent.bKeyDown,
+                              ir.Event.KeyEvent.wVirtualScanCode, ir.Event.KeyEvent.dwControlKeyState);
+
+                /* Check for Esc Enter monitor sequence. */
+                c = (ir.Event.KeyEvent.dwControlKeyState & ENHANCED_KEY) | /* conveniently sets 0x100 for E0 keys */
+                    ir.Event.KeyEvent.wVirtualScanCode;
+                if (ir.Event.KeyEvent.bKeyDown) {
+                    if ((prev_key == 0x0001) && (c == 0x001c) && (ir.Event.KeyEvent.dwControlKeyState == prev_ctrl_state)) {
+                        prev_key = c;
+                        prev_ctrl_state = ir.Event.KeyEvent.dwControlKeyState;
+                        goto monitor;
+                    }
+                    prev_key = c;
+                    prev_ctrl_state = ir.Event.KeyEvent.dwControlKeyState;
+                }
+
+                /* Send modifier keys. */
+                if (ir.Event.KeyEvent.dwControlKeyState & LEFT_ALT_PRESSED)
+                    keyboard_input(ir.Event.KeyEvent.bKeyDown, 0x0038);
+                if (ir.Event.KeyEvent.dwControlKeyState & LEFT_CTRL_PRESSED)
+                    keyboard_input(ir.Event.KeyEvent.bKeyDown, 0x001d);
+                if (ir.Event.KeyEvent.dwControlKeyState & RIGHT_ALT_PRESSED)
+                    keyboard_input(ir.Event.KeyEvent.bKeyDown, 0xe038);
+                if (ir.Event.KeyEvent.dwControlKeyState & RIGHT_CTRL_PRESSED)
+                    keyboard_input(ir.Event.KeyEvent.bKeyDown, 0xe01d);
+                if (ir.Event.KeyEvent.dwControlKeyState & SHIFT_PRESSED)
+                    keyboard_input(ir.Event.KeyEvent.bKeyDown, 0x002a);
+
+                /* Send key. . */
+                keyboard_input(ir.Event.KeyEvent.bKeyDown, c);
+
+                /* Update lock states. */
+                keyboard_update_states(!!(ir.Event.KeyEvent.dwControlKeyState & CAPSLOCK_ON),
+                                       !!(ir.Event.KeyEvent.dwControlKeyState & NUMLOCK_ON),
+                                       !!(ir.Event.KeyEvent.dwControlKeyState & SCROLLLOCK_ON));
+
+                /* Don't process as ANSI. */
+                continue;
+            }
+        } else {
+            continue;
+        }
+#else
         c = getchar();
+#endif
         cli_input_log_key("process", c);
 
         /* Interpret conditions for any state. */
         switch (c) {
             case 0x1b:
-                /* Interpret ESC ESC as escaped ESC. Note that some terminals
-                   may emit extended codes prefixed with ESC ESC, but there's
+                /* Interpret Esc Esc as escaped Esc. Note that some terminals
+                   may emit extended codes prefixed with Esc Esc, but there's
                    not much we can do to parse those. */
                 if (state == VT_ESCAPE) {
                     cli_input_send(0x0001, 0);
@@ -831,6 +894,9 @@ cli_input_process(void *priv)
 
                     case 0x0a: /* Esc Enter */
                     case 0x0d: /* Esc Enter (Windows) */
+#ifdef _WIN32
+monitor:
+#endif
                         /* Block render thread. */
                         cli_render_monitorenter();
 
