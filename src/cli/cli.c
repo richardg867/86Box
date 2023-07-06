@@ -61,6 +61,7 @@ static const struct {
     { "xterm",          TERM_COLOR_8BIT,  0,                                    0                            }, /* queries unlock additional color and sixel if available */
     { "xterm-256color", TERM_COLOR_8BIT,  0,                                    0                            }, /* same as above */
     { "xterm-16color",  TERM_COLOR_4BIT,  0,                                    0                            }, /* same as above */
+    { "xterm-color",    TERM_COLOR_4BIT,  0,                                    0                            }, /* same as above */
     { "vt340",          TERM_COLOR_4BIT,  0,                                    TERM_GFX_SIXEL               },
     { "vt100",          TERM_COLOR_NONE,  0,                                    0                            },
     { "vt240",          TERM_COLOR_NONE,  0,                                    TERM_GFX_SIXEL               },
