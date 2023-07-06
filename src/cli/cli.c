@@ -281,7 +281,7 @@ cmd_nt10:
                 cli_term.size_x = 80;
                 cli_term.size_y = 25;
             }
-        } else if (!strcmp(term_types[id].name, "xterm")) {
+        } else if (!strncmp(term_types[id].name, "xterm", 5)) {
             /* Windows Terminal pretends it is xterm. Treat it as Windows 10 cmd if
                its presence is detected through the session GUID environment variable. */
             if (IsWindows10OrGreater() && getenv("WT_SESSION"))

@@ -716,9 +716,10 @@ cli_render_updatescreen(void)
 void
 cli_render_process_base64(uint8_t *buf, int len)
 {
-    char output_buf[257], *p = output_buf,
-                          *limit = output_buf + (sizeof(output_buf) - 1);
-    register uint32_t tri;
+    char output_buf[257];
+    char *p = output_buf;
+    char *limit = output_buf + (sizeof(output_buf) - 1);
+    uint32_t tri;
     while (len > 0) {
         tri = buf[0] << 16;
         if (len >= 2) {
