@@ -262,7 +262,18 @@ cli_init(void)
             /* Account for cmd's more generous default sizes. */
             if (IsWindows10OrGreater()) {
 cmd_nt10:
-                id              = 1;
+                /* Don't enable 24-bit color on the oldest revisions of Windows 10, which don't support it.
+                   Reference: https://devblogs.microsoft.com/commandline/24-bit-color-in-the-windows-console/ */
+                OSVERSIONINFOEX vinfo = {
+                    .dwMajorVersion = 10,
+                    .dwMinorVersion = 0,
+                    .dwBuildNumber = 14931
+                };
+                DWORDLONG vmask = 0;
+                VER_SET_CONDITION(vmask, VER_MAJORVERSION, VER_GREATER_EQUAL);
+                VER_SET_CONDITION(vmask, VER_MINORVERSION, VER_GREATER_EQUAL);
+                VER_SET_CONDITION(vmask, VER_BUILDNUMBER, VER_GREATER_EQUAL);
+                id              = VerifyVersionInfoA(&vinfo, VER_MAJORVERSION | VER_MINORVERSION | VER_BUILDNUMBER, vmask) ? 1 : 0;
                 cli_term.size_x = 120;
                 cli_term.size_y = 30;
             } else {
