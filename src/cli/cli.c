@@ -31,6 +31,7 @@
 #define HAVE_STDARG_H
 #include <86box/86box.h>
 #include <86box/cli.h>
+#include <86box/plat.h>
 
 /* Lookup table for terminal types. */
 static const struct {
