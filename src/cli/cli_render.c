@@ -432,6 +432,7 @@ cli_render_monitorenter(void)
             "\033[2J\033[3J" /* clear screen */
             "\033[%d q" /* set cursor style to default (from query response, or default 0 which some terminals accept) */
             "\033[?25h" /* show cursor */
+            "\033>" /* switch to Normal Keypad */
             "\033[?1049l", /* switch to Main Screen Buffer (do it last to prevent consequences of it not being supported) */
             cli_term.decrqss_cursor);
 
@@ -448,6 +449,7 @@ cli_render_monitorexit(void)
     fprintf(CLI_RENDER_OUTPUT,
             "\033[?1049h" /* switch to Alternate Screen Buffer (do it first to prevent consequences of it not being supported) */
             "\033[?1036h" /* enable ESC on Meta */
+            "\033=" /* switch to Application Keypad */
             "%s" /* query current cursor style (saved on DECRQSS response) if input is enabled */
             "\033[3 q" /* set cursor style to blinking underline */
             "\033[%%%c", /* set terminal encoding to UTF-8 or ISO-8859-1 */
