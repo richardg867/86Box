@@ -86,6 +86,7 @@ extern int cli_blit;
 /* cli.c */
 extern void cli_term_setcolor(uint8_t level, char *source);
 extern void cli_term_setsize(int size_x, int size_y, char *source);
+extern void cli_term_updatesize(int runtime);
 
 extern void cli_init(void);
 extern void cli_close(void);

@@ -351,7 +351,8 @@ cli_input_raw(void)
     in_raw = 1;
 
 #    ifdef _WIN32
-    /* Disable quickedit mode. Note that we use ReadConsoleInput instead of ANSI mode. */
+    /* Enable window events and disable quickedit mode.
+       Note that we use ReadConsoleInput instead of ANSI mode. */
     HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
     if (h) {
         /* Save existing mode for restoration purposes. */
@@ -361,7 +362,7 @@ cli_input_raw(void)
             cli_input_log("CLI Input: GetConsoleMode failed (%08X)\n", GetLastError());
 
         /* Set new mode. */
-        if (!SetConsoleMode(h, ENABLE_EXTENDED_FLAGS)) /* ENABLE_EXTENDED_FLAGS disables quickedit */
+        if (!SetConsoleMode(h, ENABLE_WINDOW_INPUT | ENABLE_EXTENDED_FLAGS)) /* ENABLE_EXTENDED_FLAGS disables quickedit */
             cli_input_log("CLI Input: SetConsoleMode failed (%08X)\n", GetLastError());
     } else {
         cli_input_log("CLI Input: GetStdHandle failed (%08X)\n", GetLastError());
@@ -787,7 +788,9 @@ cli_input_process(void *priv)
             cli_input_log("CLI Input: stdin read error (%08X)\n", GetLastError());
             return;
         }
-        if ((c > 0) && (ir.EventType == KEY_EVENT)) { /* key events only */
+        if (c < 1) {
+            continue;
+        } else if (ir.EventType == KEY_EVENT) { /* keyboard events */
             if (ir.Event.KeyEvent.wVirtualScanCode == 0) {
                 /* A null scancode indicates a pseudo-terminal, which may or
                    may not be inputting ANSI, so we parse as that instead. */
@@ -835,6 +838,10 @@ cli_input_process(void *priv)
                 /* Don't process as ANSI. */
                 continue;
             }
+        } else if (ir.EventType == WINDOW_BUFFER_SIZE_EVENT) { /* window events */
+            /* Update terminal size. */
+            cli_term_updatesize(1);
+            continue;
         } else {
             continue;
         }
