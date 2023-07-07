@@ -667,10 +667,6 @@ cli_input_unhook(int c)
         char last_char = dcs_buf[dcs_buf_pos - 1];
         switch (last_char) {
             case 'm':
-                /* Stop if this was a spurious response. */
-                if (!cli_term.decrqss_color)
-                    break;
-
                 /* Interpret response according to the color level currently being queried. */
                 switch (cli_term.decrqss_color) {
                     case TERM_COLOR_24BIT:
@@ -680,10 +676,12 @@ cli_input_unhook(int c)
                         } else if (cli_term.color_level < TERM_COLOR_8BIT) {
                             /* Try 8-bit color if we don't explicitly know it's supported. */
                             cli_term.decrqss_color = TERM_COLOR_8BIT;
-                            cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR, "\033[38;5;255m\033P$qm\033\\\033[0m");
+                            cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR,
+                                "\033[38;5;255m" /* set 8-bit color to the last gray */
+                                "\033P$qm\033\\\033[0m" /* query SGR */
+                            );
                             break;
                         }
-                        cli_term.decrqss_color = TERM_COLOR_NONE;
                         break;
 
                     case TERM_COLOR_8BIT:
@@ -693,10 +691,12 @@ cli_input_unhook(int c)
                         } else if (cli_term.color_level < TERM_COLOR_4BIT) {
                             /* Try 4-bit color if we don't explicitly know it's supported. */
                             cli_term.decrqss_color = TERM_COLOR_4BIT;
-                            cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR, "\033[97m\033P$qm\033\\\033[0m");
+                            cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR,
+                                "\033[97m" /* set foreground to bright white */
+                                "\033P$qm\033\\\033[0m" /* query SGR */
+                            );
                             break;
                         }
-                        cli_term.decrqss_color = TERM_COLOR_NONE;
                         break;
 
                     case TERM_COLOR_4BIT:
@@ -704,9 +704,13 @@ cli_input_unhook(int c)
                             /* 4-bit color supported. */
                             cli_term_setcolor(TERM_COLOR_4BIT, "DECRQSS");
                         }
-                        cli_term.decrqss_color = TERM_COLOR_NONE;
                         break;
+
+                    default:
+                        /* Spurious response. */
+                        return;
                 }
+                cli_term.decrqss_color = TERM_COLOR_NONE;
                 break;
 
             case 'q':

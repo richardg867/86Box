@@ -424,15 +424,16 @@ cli_render_monitorenter(void)
         render_data.block = 1;
     }
 
-    /* Set up terminal:
-       - Reset formatting
-       - Move cursor to top left corner
-       - Clear screen
-       - Set cursor style to default (from query response, or default 0 which some terminals accept)
-       - Show cursor
-       - Switch to Main Screen Buffer (do it last to prevent consequences of it not being supported) */
+    /* Set up terminal. */
     cursor_x = cursor_y = -1;
-    fprintf(CLI_RENDER_OUTPUT, "\033[0m\033[1;1H\033[2J\033[3J\033[%d q\033[?25h\033[?1049l", cli_term.decrqss_cursor);
+    fprintf(CLI_RENDER_OUTPUT,
+            "\033[0m" /* reset formatting */
+            "\033[1;1H" /* move cursor to top left corner */
+            "\033[2J\033[3J" /* clear screen */
+            "\033[%d q" /* set cursor style to default (from query response, or default 0 which some terminals accept) */
+            "\033[?25h" /* show cursor */
+            "\033[?1049l", /* switch to Main Screen Buffer (do it last to prevent consequences of it not being supported) */
+            cli_term.decrqss_cursor);
 
     if (render_data.block != 2) {
         thread_set_event(render_data.wake_render_thread);
@@ -443,13 +444,14 @@ cli_render_monitorenter(void)
 void
 cli_render_monitorexit(void)
 {
-    /* Set up terminal:
-       - Switch to Alternate Screen Buffer (do it first to prevent consequences of it not being supported)
-       - Enable ESC on Meta
-       - Query current cursor style (saved on DECRQSS response) if input is enabled
-       - Set cursor style to blinking underline
-       - Set terminal encoding to UTF-8 or ISO-8859-1 */
-    fprintf(CLI_RENDER_OUTPUT, "\033[?1049h\033[?1036h%s\033[3 q\033[%%%c", cli_term.can_input ? "\033P$q q\033\\" : "", cli_term.can_utf8 ? 'G' : '@');
+    /* Set up terminal. */
+    fprintf(CLI_RENDER_OUTPUT,
+            "\033[?1049h" /* switch to Alternate Screen Buffer (do it first to prevent consequences of it not being supported) */
+            "\033[?1036h" /* enable ESC on Meta */
+            "%s" /* query current cursor style (saved on DECRQSS response) if input is enabled */
+            "\033[3 q" /* set cursor style to blinking underline */
+            "\033[%%%c", /* set terminal encoding to UTF-8 or ISO-8859-1 */
+            cli_term.can_input ? "\033P$q q\033\\" : "", cli_term.can_utf8 ? 'G' : '@');
 #ifdef _WIN32
     SetConsoleOutputCP(cli_term.can_utf8 ? 65001 : 1252);
 #endif
@@ -1490,40 +1492,37 @@ no_libsixel:
 
     /* Load RGB color values for the 256-color palette.
        Algorithm based on Linux's vt.c */
-    int      i;
-    uint32_t palette_color;
-    for (i = 0; i < 256; i++) {
-        if (i < 16) { /* 16-color ANSI */
-            palette_color = (i & 8) ? 0x555555 : 0x000000;
-            if (i & 1)
-                palette_color |= 0xaa0000;
-            if (i & 2)
-                palette_color |= 0x00aa00;
-            if (i & 4)
-                palette_color |= 0x0000aa;
-        } else if (i < 232) { /* color cube */
-            palette_color = (uint8_t) ((i - 16) / 36 * 85 / 2) << 16;
-            palette_color |= (uint8_t) ((i - 16) / 6 % 6 * 85 / 2) << 8;
-            palette_color |= (uint8_t) ((i - 16) % 6 * 85 / 2);
-        } else { /* grayscale ramp */
-            palette_color = (uint8_t) (i * 10 - 2312);
-            palette_color |= palette_color << 8;
-            palette_color |= palette_color << 8;
-        }
-        colors_8bit[i] = palette_color;
+    int i;
+    for (i = 0; i < 16; i++) { /* 16-color ANSI */
+        colors_8bit[i] = (i & 8) ? 0x555555 : 0x000000;
+        if (i & 1)
+            colors_8bit[i] |= 0xaa0000;
+        if (i & 2)
+            colors_8bit[i] |= 0x00aa00; /* no CGA brown here */
+        if (i & 4)
+            colors_8bit[i] |= 0x0000aa;
+    }
+    for (; i < 232; i++) { /* color cube */
+        colors_8bit[i] = ((uint8_t) ((i - 16) / 36 * 85 / 2) << 16) |
+                         ((uint8_t) ((i - 16) / 6 % 6 * 85 / 2) << 8) |
+                         ((uint8_t) ((i - 16) % 6 * 85 / 2));
+    }
+    for (; i < 256; i++) { /* grayscale ramp */
+        colors_8bit[i] = (uint8_t) (i * 10 - 2312);
+        colors_8bit[i] = (colors_8bit[i] << 8) | (colors_8bit[i] << 16);
     }
 
     /* Load standard CGA palette. */
     for (i = 0; i < 16; i++) {
-        palette_color = (i & 8) ? 0x555555 : 0x000000;
+        uint32_t color = (i & 8) ? 0x555555 : 0x000000;
         if (i & 1)
-            palette_color |= 0x0000aa;
+            color |= 0x0000aa;
         if (i & 2)
-            palette_color |= (i == 6) ? 0x005500 : 0x00aa00; /* account for brown */
+            color |= (i == 6) ? 0x005500 : 0x00aa00; /* account for brown */
         if (i & 4)
-            palette_color |= 0xaa0000;
-        palette_24bit[i] = ~palette_color; /* force processing */
-        cli_render_setpal(i, palette_color);
+            color |= 0xaa0000;
+        palette_24bit[i] = ~color; /* force processing */
+        cli_render_setpal(i, color);
     }
 
     /* Start rendering thread. */

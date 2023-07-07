@@ -303,7 +303,10 @@ cmd_nt10:
         } else if (cli_term.can_input) {
             /* Start detecting the terminal's color capabilities through DECRQSS queries. */
             cli_term.decrqss_color = TERM_COLOR_24BIT;
-            cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR, "\033[38;2;255;255;255m\033P$qm\033\\\033[0m");
+            cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR,
+                "\033[38;2;255;255;255m" /* set 24-bit color to #ffffff */
+                "\033P$qm\033\\\033[0m" /* query SGR */
+            );
         }
     }
 
@@ -316,12 +319,16 @@ cmd_nt10:
 #endif
 
     if (cli_term.can_input) {
-        /* Probe terminal for:
-           - UTF-8 support using Cursor Position Report and a non-breaking space character
-           - Color and sixel support using Primary Device Attributes
-           - Sixel color register count using Graphics Attributes */
+        /* Probe terminal. */
         cli_term.cpr |= 2;
-        cli_render_write(RENDER_SIDEBAND_INITIAL_QUERIES, "\033[1;1H\xC2\xA0\033[6n\033[c\033[?1;1;0S\033[1;1H");
+        cli_render_write(RENDER_SIDEBAND_INITIAL_QUERIES,
+            "\033[1;1H" /* reset cursor */
+            "\xC2\xA0" /* send UTF-8 non-breaking space */
+            "\033[6n" /* query Cursor Position Report to determine UTF-8 support */
+            "\033[c" /* query Primary Device Attributes to determine color and sixel support */
+            "\033[?1;1;0S" /* query Graphics Attributes to determine sixel color register count */
+            "\033[1;1H" /* reset cursor again */
+        );
     }
 }
 
