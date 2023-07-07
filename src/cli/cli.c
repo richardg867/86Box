@@ -236,7 +236,11 @@ cli_term_updatesize(int runtime)
        bash environment variable data, since that may be inaccurate. */
     if (cli_term.can_input) {
         cli_term.cpr |= 1;
-        cli_render_write(RENDER_SIDEBAND_CPR_SIZE, "\033[999;999H\033[6n\033[1;1H");
+        cli_render_write(RENDER_SIDEBAND_CPR_SIZE,
+            "\033[999;999H" /* set cursor to an arbitrarily high coordinate */
+            "\033[6n" /* query Cursor Position Report */
+            "\033[1;1H" /* reset cursor */
+        );
     }
 }
 
