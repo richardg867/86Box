@@ -230,7 +230,7 @@ emu10k1_dsp_add(emu10k1_t *dev, int64_t a, int64_t b)
        2) a + -b = a < abs(b)
        3) -a + b = b < abs(a)
        4) -a + -b = never set */
-    if (((a >= 0) && (b >= 0)) || ((a >= 0) && (b < 0) && (a < abs(b))) || ((a < 0) && (b >= 0) && (b < abs(a))))
+    if (((a >= 0) && (b >= 0)) || ((a >= 0) && (b < 0) && (a < llabs(b))) || ((a < 0) && (b >= 0) && (b < llabs(a))))
         dev->dsp.regs[0x57] |= 0x02; /* B */
     return a + b;
 }
@@ -292,10 +292,9 @@ static int32_t
 emu10k1_dsp_opACC3(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
     /* The accumulator's lower 32 bits are used, despite documentation.
-       X and Y are added with saturation (important for borrow flag behavior)
-       first, then A is added to X+Y also with saturation at the accumulator. */
-    int32_t xy = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, x, y));
-    dev->dsp.acc = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, a, xy));
+       X and Y are added first without borrow flag calculation, then A is added
+       to X+Y with saturation at the accumulator and borrow flag calculation. */
+    dev->dsp.acc = emu10k1_dsp_saturate(dev, emu10k1_dsp_add(dev, a, (int64_t) x + y));
     return dev->dsp.acc;
 }
 
