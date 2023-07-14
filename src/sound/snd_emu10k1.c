@@ -96,8 +96,8 @@ typedef struct _emu10k1_ {
     uint16_t id, io_base;
 
     uint8_t  pci_regs[256], pci_game_regs[256], io_regs[32];
-    uint32_t indirect_regs[4096], pagemask, temp_ipr, timer_wc, timer_target;
-    int      timer_interval, mpu_irq, fxbuf_half_looped: 1, adcbuf_half_looped: 1, micbuf_half_looped: 1;
+    uint32_t indirect_regs[4096], pagemask, temp_ipr;
+    int      timer_interval, timer_count, mpu_irq, fxbuf_half_looped: 1, adcbuf_half_looped: 1, micbuf_half_looped: 1;
 
     struct {
         int64_t  acc;            /* 67-bit in hardware */
@@ -495,34 +495,29 @@ emu10k1_dsp_opINTERP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opSKIP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
-    /* Borrow flag always set. Note that the previous instruction's flags were read earlier. */
-    dev->dsp.regs[0x57] |= 0x02; /* B */
-
     /* Generate CC bit string. */
-    uint32_t cmp = a & 0x1f;                        /* S Z M B N */
-    cmp          = (cmp << 5) | (~cmp & 0x1f);      /* S Z M B N S' Z' M' B' N' (hereinafter flags) */
-    cmp          = (cmp << 20) | (cmp << 10) | cmp; /* across 3 instances */
+    uint32_t cmp = a & 0x1f;                   /* S Z M B N */
+    cmp          = cmp | ((~cmp & 0x1f) << 5); /* S Z M B N S' Z' M' B' N' (hereinafter flags) */
 
     /* Perform bit testing. */
-    cmp        = ~cmp & x; /* comparisons are inverse (example: 0x8 = zero is set, 0x100 = zero is not set) */
-    uint32_t i = x & 0x3ff00000, icmp = cmp & 0x3ff00000,
-             j = x & 0x000ffc00, jcmp = cmp & 0x000ffc00,
-             k = x & 0x000003ff, kcmp = cmp & 0x000003ff;
-    switch (x >> 30) { /* boolean equation */
-        case 0x0:      /* OR(AND(flags), AND(flags), AND(flags)) => only one used by open source applications... */
-            cmp = (i && (icmp == i)) || (j && (jcmp == j)) || (k && (kcmp == k));
+    uint32_t i = x & 0x3ff;
+    uint32_t j = (x >> 10) & 0x3ff;
+    uint32_t k = (x >> 20) & 0x3ff;
+    switch ((uint32_t) x >> 30) { /* boolean equation */
+        case 0x0:      /* OR(AND(flags), AND(flags), AND(flags)) => used most of the time... */
+            cmp = (i && ((i & cmp) == i)) || (j && ((j & cmp) == j)) || (k && ((k & cmp) == k));
             break;
 
-        case 0x1: /* AND(OR(flags), OR(flags), OR(flags)) => ...except this one as a magic always skip (0x7fffffff) */
-            cmp = (!i || icmp) && (!j || jcmp) && (!k || kcmp);
+        case 0x1: /* AND(OR(flags), OR(flags), OR(flags)) => ...notable exception of this one as a magic always skip (0x7fffffff) */
+            cmp = (i & cmp) && (j & cmp) && (k & cmp);
             break;
 
         case 0x2: /* OR(AND(flags), AND(flags), OR(flags)) */
-            cmp = (i && (icmp == i)) || (j && (jcmp == j)) || (!k || kcmp);
+            cmp = (i && ((i & cmp) == i)) || (j && ((j & cmp) == j)) || (k & cmp);
             break;
 
         case 0x3: /* AND(OR(flags), OR(flags), AND(flags)) */
-            cmp = (!i || icmp) && (!j || jcmp) && (k && (kcmp == k));
+            cmp = (i & cmp) && (j & cmp) && (k && ((k & cmp) == k));
             break;
     }
 
@@ -530,11 +525,15 @@ emu10k1_dsp_opSKIP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
     if (cmp)
         dev->dsp.skip = y & 0x1ff; /* can go past the end, skipping all remaining instructions, but the value is masked */
 
-    /* A and accumulator behavior is probably undefined, as all DSP programs
-       observed so far only pass read-only registers (GPR, DBAC) as R.
-       Accumulator behavior is handled by the fetch process. */
-    dev->dsp.acc = a;
-    return 0;
+    /* Continuing accumulator behavior from the fetch process.
+       The post-skip behavior is handled there as well. */
+    dev->dsp.acc += x >> 29;
+    if (dev->dsp.acc > 2147483647)
+        dev->dsp.acc = 2147483647;
+    else if (dev->dsp.acc < -2147483648)
+        dev->dsp.acc = -2147483648;
+
+    return a;
 }
 
 static int32_t (*emu10k1_dsp_ops[])(emu10k1_t *dev, int64_t a, int32_t x, int32_t y) = {
@@ -779,9 +778,22 @@ extern uint8_t keyboard_get_shift(void);
         int      op    = (fetch >> 52) & 0xf;
 
         /* Read operands.
-           The accumulator can only be specified as A, otherwise it
-           reads as 0, except on MACMV where it always reads as 0. */
-        int64_t aval = ((a == 0x56) && (op != 0x7)) ? dev->dsp.acc : (int32_t) emu10k1_dsp_read(dev, a, last_wo_reg, last_wo_val);
+           The A operand has some special cases which read as 0 if not fulfilled. */
+        int64_t aval = (int32_t) emu10k1_dsp_read(dev, a, last_wo_reg, last_wo_val);
+        if ((a == 0x56) && (op != 0x07)) {
+            /* Accumulator can only be specified as A, except on MACMV where it can't be read. */
+            aval = dev->dsp.acc;
+        } else if (op == 0x0f) {
+            if (UNLIKELY(a != 0x57)) {
+                /* Despite documentation, SKIP can only read the flags register as A.
+                   If a different A is provided, its value is moved to the accumulator. */
+                dev->dsp.acc = aval;
+                aval = 0;
+            } else {
+                /* Accumulator is 0 when reading flags as A. */
+                dev->dsp.acc = 0;
+            }
+        }
         int32_t xval = emu10k1_dsp_read(dev, x, last_wo_reg, last_wo_val);
         int32_t yval = emu10k1_dsp_read(dev, y, last_wo_reg, last_wo_val);
         last_wo_reg = -1;
@@ -798,16 +810,19 @@ extern uint8_t keyboard_get_shift(void);
             continue;
         }
 
-        /* Clear flags now, as operation code may set them. */
-        dev->dsp.regs[0x57] = 0;
+        /* Clear flags now, as operation code may set them, unless
+           we're in a SKIP operation, which always preserves flags. */
+        if (LIKELY(op != 0xf))
+            dev->dsp.regs[0x57] = 0;
 
         /* Execute operation. */
         int32_t rval = emu10k1_dsp_ops[op](dev, aval, xval, yval);
 
-        /* Calculate remaining flags. */
-        dev->dsp.regs[0x57] |= ((rval < -0x40000000) || (rval >= 0x40000000)) | /* N = 0x01 */
-            ((rval < 0) << 2) |                                                 /* M = 0x04 */
-            ((rval == 0) << 3);                                                 /* Z = 0x08 */
+        /* Calculate remaining flags, unless we just processed a SKIP. */
+        if (LIKELY(op != 0xf))
+            dev->dsp.regs[0x57] |= ((rval < -0x40000000) || (rval >= 0x40000000)) | /* N = 0x01 */
+                ((rval < 0) << 2) |                                                 /* M = 0x04 */
+                ((rval == 0) << 3);                                                 /* Z = 0x08 */
 
 #ifdef EMU10K1_DSP_TRACE
         if (EMU10K1_DSP_TRACE)
@@ -835,7 +850,7 @@ extern uint8_t keyboard_get_shift(void);
                 break;
 
             case 0x5a: /* interrupt register */
-                if (rval & 0x80000000)
+                if (LIKELY(rval & 0x80000000))
                     dev->dsp.interrupt = 1;
                 break;
 
@@ -850,7 +865,7 @@ extern uint8_t keyboard_get_shift(void);
 
             case 0x300 ... 0x3ff: /* TRAM address */
                 /* Justified to second most significant bit from the DSP's point of view.
-                   The opcode in the upper bits is discarded and must be kept intact. */
+                   The opcode in the upper bits is inaccessible and must be kept intact. */
                 dev->indirect_regs[r] = (dev->indirect_regs[r] & 0xfff00000) | ((rval >> 11) & 0x000fffff);
                 break;
 
@@ -1007,8 +1022,8 @@ emu10k1_mem_readl(emu8k_t *emu8k, emu8k_voice_t *voice, uint32_t addr)
 {
     emu10k1_t *dev = (emu10k1_t *) emu8k;
 
-    uint32_t page = emu10k1_mmutranslate(dev, voice, addr >> 12);
-    if (UNLIKELY((page == EMU10K1_MMU_UNMAPPED) || (dev->io_regs[0x14] & 0x08))) /* HCFG_LOCKSOUNDCACHE */
+    uint32_t page = UNLIKELY(dev->io_regs[0x14] & 0x08) /* HCFG_LOCKSOUNDCACHE */ ? EMU10K1_MMU_UNMAPPED : emu10k1_mmutranslate(dev, voice, addr >> 12);
+    if (UNLIKELY(page == EMU10K1_MMU_UNMAPPED))
         return 0;
 
     return mem_readl_phys(page | (addr & 0x00000fff));
@@ -1356,8 +1371,7 @@ emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
             dev->timer_interval = *((uint16_t *) &dev->io_regs[0x1a]);
             if (dev->timer_interval == 0)                            /* wrap-around */
                 dev->timer_interval = 1024;
-            dev->timer_wc = dev->emu8k.wc;
-            dev->timer_target = dev->emu8k.wc + dev->timer_interval; /* a stabilization period of up to 1024 samples is specified */
+            dev->timer_count = 0;
             return;
 
         case 0x1e: /* AC97ADDRESS */
@@ -1794,6 +1808,7 @@ emu10k1_poll(void *priv)
     timer_advance_u64(&dev->poll_timer, dev->timer_latch);
 
     /* Run EMU8000 update routine. */
+    uint32_t prev_wc = dev->emu8k.wc;
     emu8k_update(&dev->emu8k);
 
     /* Process interrupts, starting with those coming from the DSP executor. */
@@ -1804,9 +1819,10 @@ emu10k1_poll(void *priv)
     ipr |= dev->emu8k.lip << 6; /* IPR_CHANNELLOOP = 0x00000040 */
 
     /* Check sample timer. */
-    if (dev->emu8k.wc - dev->timer_target) {
+    dev->timer_count += dev->emu8k.wc - prev_wc;
+    if (dev->timer_count >= dev->timer_interval) {
         ipr |= (inte & 0x00000004) << 7; /* INTE_INTERVALTIMERENB into IPR_INTERVALTIMER = 0x00000200 */
-        dev->timer_target += dev->timer_interval;
+        dev->timer_count = 0;
     }
 
     /* Process DSP interrupt. */
@@ -1918,7 +1934,7 @@ emu10k1_reset(void *priv)
     dev->io_regs[0x03]  = 0x07;
     dev->io_regs[0x14]  = 0x1e; /* HCFG_MUTEBUTTONENABLE | HCFG_LOCKTANKCACHE | HCFG_LOCKSOUNDCACHE | HCFG_AUTOMUTE */
     dev->timer_interval = 1024;
-    dev->timer_target   = 0;
+    dev->timer_count    = 0;
 
     /* Default state of voice-specific registers is unclear. */
 
