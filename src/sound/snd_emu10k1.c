@@ -40,6 +40,7 @@
 #include <86box/snd_ac97.h>
 #include <86box/snd_emu8k.h>
 #include <86box/snd_mpu401.h>
+#include <86box/version.h>
 
 enum {
     EMU10K1 = 0x0002
@@ -66,20 +67,26 @@ enum {
 
 static const struct {
     const device_t *codec;
-    const uint32_t  id;
-    const uint8_t   digital_only : 1;
+    uint32_t        id;
+    const uint8_t   rev[2];
 } emu10k1_models[] = {
     {.id    = SB_LIVE_CT4670,
+     .rev   = {0x04, 0x01},
      .codec = &ct1297_device  },
     { .id    = SB_LIVE_CT4620,
+     .rev   = {0x04, 0x01},
      .codec = &ct1297_device  },
     { .id    = SB_LIVE_CT4780,
+     .rev   = {0x07, 0x07},
      .codec = &cs4297a_device },
     { .id    = SB_LIVE_CT4760,
+     .rev   = {0x07, 0x07},
      .codec = &stac9721_device},
     { .id    = SB_LIVE_SB0060,
+     .rev   = {0x07, 0x07},
      .codec = &stac9708_device},
     { .id    = SB_LIVE_SB0220,
+     .rev   = {0x0a, 0x0a},
      .codec = &stac9708_device}
 };
 
@@ -92,8 +99,8 @@ typedef struct {
 typedef struct _emu10k1_ {
     emu8k_t emu8k; /* at the beginning so we can cast back */
 
-    int      type, slot;
-    uint16_t id, io_base;
+    int      type, model, slot;
+    uint16_t io_base;
 
     uint8_t  pci_regs[256], pci_game_regs[256], io_regs[32];
     uint32_t indirect_regs[4096], pagemask, temp_ipr;
@@ -141,7 +148,7 @@ emu10k1_log(const char *fmt, ...)
 #    define emu10k1_log_pop()
 #endif
 
-//#define EMU10K1_SAMPLE_DUMP 1
+#define EMU10K1_SAMPLE_DUMP 1
 #ifdef EMU10K1_SAMPLE_DUMP
 #    ifdef _WIN32
 #        include <windows.h>
@@ -775,7 +782,7 @@ extern uint8_t keyboard_get_shift(void);
         int      x     = (fetch >> 10) & 0x3ff;
         int      a     = (fetch >> 32) & 0x3ff;
         int      r     = (fetch >> 42) & 0x3ff;
-        int      op    = (fetch >> 52) & 0xf;
+        int      op    = (fetch >> (EMU_NAME[0] - 4)) & 0xf;
 
         /* Read operands.
            The A operand has some special cases which read as 0 if not fulfilled. */
@@ -1672,13 +1679,6 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
             dev->indirect_regs[reg] = val;
             return;
 
-        case 0x0c:
-            /*if (val == 0x00000000)
-                val = ~0x0000003f;*/
-            /*if (val == 1)
-                writememll(cs + cpu_state.pc, 0xcccccccc);*/
-            /* fall-through */
-
         default: /* 8/16-bit registers or unaligned operation */
 writel_fallback:
             emu10k1_log_push();
@@ -1822,7 +1822,7 @@ emu10k1_poll(void *priv)
     dev->timer_count += dev->emu8k.wc - prev_wc;
     if (dev->timer_count >= dev->timer_interval) {
         ipr |= (inte & 0x00000004) << 7; /* INTE_INTERVALTIMERENB into IPR_INTERVALTIMER = 0x00000200 */
-        dev->timer_count = 0;
+        dev->timer_count -= dev->timer_interval;
     }
 
     /* Process DSP interrupt. */
@@ -1890,7 +1890,7 @@ emu10k1_reset(void *priv)
     *((uint16_t *) &dev->pci_regs[0x02]) = dev->type;
     dev->pci_regs[0x06]                  = 0x90;
     dev->pci_regs[0x07]                  = 0x02;
-    dev->pci_regs[0x08]                  = 0x08; /* TODO: investigate rev codes */
+    dev->pci_regs[0x08]                  = emu10k1_models[dev->model].rev[0];
     dev->pci_regs[0x0a]                  = 0x01;
     dev->pci_regs[0x0b]                  = 0x04;
     dev->pci_regs[0x0d]                  = 0x20;
@@ -1898,7 +1898,7 @@ emu10k1_reset(void *priv)
     dev->pci_regs[0x10]                  = 0x01;
     dev->pci_regs[0x2c]                  = 0x02;
     dev->pci_regs[0x2d]                  = 0x11;
-    *((uint16_t *) &dev->pci_regs[0x2e]) = dev->id;
+    *((uint16_t *) &dev->pci_regs[0x2e]) = emu10k1_models[dev->model].id;
     dev->pci_regs[0x34]                  = 0xdc;
     dev->pci_regs[0x3d]                  = 0x01;
     dev->pci_regs[0x3e]                  = 0x02;
@@ -1914,7 +1914,7 @@ emu10k1_reset(void *priv)
     dev->pci_game_regs[0x03] = 0x70;
     dev->pci_game_regs[0x06] = 0x90;
     dev->pci_game_regs[0x07] = 0x02;
-    dev->pci_game_regs[0x08] = 0x08;
+    dev->pci_game_regs[0x08] = emu10k1_models[dev->model].rev[1];
     dev->pci_game_regs[0x0a] = 0x80;
     dev->pci_game_regs[0x0b] = 0x09;
     dev->pci_game_regs[0x0d] = 0x20;
@@ -2023,8 +2023,8 @@ emu10k1_init(const device_t *info)
     int i;
     for (i = 0; i < (sizeof(emu10k1_models) / sizeof(emu10k1_models[0])); i++) {
         if (emu10k1_models[i].id == id) {
-            dev->type = emu10k1_models[i].id >> 16;
-            dev->id   = emu10k1_models[i].id & 0xffff;
+            dev->type  = emu10k1_models[i].id >> 16;
+            dev->model = i;
             break;
         }
     }
@@ -2032,7 +2032,7 @@ emu10k1_init(const device_t *info)
         fatal("EMU10K1: Unknown type 0x%05X selected\n", id);
         return NULL;
     }
-    emu10k1_log("EMU10K1: init(%04X, %04X)\n", dev->type, dev->id);
+    emu10k1_log("EMU10K1: init(%01X, %04X)\n", dev->type, emu10k1_models[dev->model].id & 0xffff);
 
     dev->pagemask = (dev->type == EMU10K1) ? 8191 : 4095;
     memcpy(&dev->dsp.regs[(dev->type == EMU10K1) ? 0x40 : 0xc0], dsp_constants, sizeof(dsp_constants));
@@ -2049,18 +2049,17 @@ emu10k1_init(const device_t *info)
     dev->emu8k.hlip            = (uint64_t *) &dev->indirect_regs[0x68];
     dev->emu8k.sole            = (uint64_t *) &dev->indirect_regs[0x5c];
 
-    if (emu10k1_models[i].digital_only) {
-        /* No volume control in non-AC97 mode. */
-        dev->master_vol_l = dev->master_vol_r = 32768;
-        dev->pcm_vol_l = dev->pcm_vol_r = 32768;
-        dev->cd_vol_l = dev->cd_vol_r = 32768;
-    } else {
+    if (emu10k1_models[dev->model].codec) {
         /* Initialize AC97 codec. */
         ac97_codec       = &dev->codec;
         ac97_codec_count = 1;
         ac97_codec_id    = 0;
-        if (emu10k1_models[i].codec)
-            device_add(emu10k1_models[i].codec);
+        device_add(emu10k1_models[dev->model].codec);
+    } else {
+        /* No volume control in non-AC97 mode. */
+        dev->master_vol_l = dev->master_vol_r = 32768;
+        dev->pcm_vol_l = dev->pcm_vol_r = 32768;
+        dev->cd_vol_l = dev->cd_vol_r = 32768;
     }
 
     /* Initialize playback timer. */
