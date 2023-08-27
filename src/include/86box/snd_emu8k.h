@@ -85,10 +85,14 @@ typedef struct emu8k_mem_pointers_t {
  */
 typedef struct emu8k_envelope_t {
     int     state;
-    int32_t delay_samples, hold_samples, attack_samples;
-    int32_t value_amp_hz, value_db_oct;
+    int32_t delay_samples;
+    int32_t hold_samples;
+    int32_t attack_samples;
+    int32_t value_amp_hz;
+    int32_t value_db_oct;
     int32_t sustain_value_db_oct;
-    int32_t attack_amount_amp_hz, ramp_amount_db_oct;
+    int32_t attack_amount_amp_hz;
+    int32_t ramp_amount_db_oct;
 } emu8k_envelope_t;
 
 typedef struct emu8k_chorus_eng_t {
@@ -250,8 +254,10 @@ typedef struct emu8k_voice_t {
             uint16_t fxrt;
         };
     };
-    uint32_t map[2], sendamounts;
-    int      tlb_pos, request_cache_loop;
+    uint32_t map[2];
+    uint32_t sendamounts;
+    int      tlb_pos;
+    int      request_cache_loop;
 
     uint16_t envvol;
 #define ENVVOL_NODELAY(envol) (envvol & 0x8000)
@@ -259,7 +265,7 @@ typedef struct emu8k_voice_t {
 #define ENVVOL_TO_EMU_SAMPLES(envvol) (envvol & 0x8000) ? 0 : ((0x8000 - (envvol & 0x7FFF)) << 5)
 
     uint16_t dcysusv;
-#define DCYSUSV_IS_RELEASE(dcysusv) (dcysusv & 0x8000)
+#define DCYSUSV_IS_RELEASE(dcysusv)          (dcysusv & 0x8000)
 /* Everything agrees this bit is inverted on EMU10K1 (except for a single Linux define comment). */
 #define DCYSUSV_GENERATOR_ENGINE_ON(dcysusv) !!emu8k->emu10k1_fxsends ^ !(dcysusv & 0x0080)
 #define DCYSUSV_SUSVALUE_GET(dcysusv)        ((dcysusv >> 8) & 0x7F)
@@ -337,7 +343,9 @@ typedef struct emu8k_voice_t {
 
     int env_engine_on;
 
-    emu8k_mem_internal_t addr, loop_start, loop_end;
+    emu8k_mem_internal_t addr;
+    emu8k_mem_internal_t loop_start;
+    emu8k_mem_internal_t loop_end;
 
     int32_t initial_att;
     int32_t initial_filter;
@@ -345,9 +353,12 @@ typedef struct emu8k_voice_t {
     emu8k_envelope_t vol_envelope;
     emu8k_envelope_t mod_envelope;
 
-    int64_t              lfo1_speed, lfo2_speed;
-    emu8k_mem_internal_t lfo1_count, lfo2_count;
-    int32_t              lfo1_delay_samples, lfo2_delay_samples;
+    int64_t              lfo1_speed;
+    int64_t              lfo2_speed;
+    emu8k_mem_internal_t lfo1_count;
+    emu8k_mem_internal_t lfo2_count;
+    int32_t              lfo1_delay_samples;
+    int32_t              lfo2_delay_samples;
     union {
         struct {       /* EMU8000 */
             int revb_send; /* reusing fx_send[0,3] positions as only [1,2] are used */
@@ -358,9 +369,13 @@ typedef struct emu8k_voice_t {
         struct { /* EMU10K1 */
             int      fx_send[8];
             int      fx_send_bus[8];
-            int      half_looped, addr_shift, dword_multiplier, stereo_offset;
+            int      half_looped;
+            int      addr_shift;
+            int      dword_multiplier;
+            int      stereo_offset;
             uint8_t  cd[64]; /* cache */
-            uint32_t fifo_pos, fifo_end;
+            uint32_t fifo_pos;
+            uint32_t fifo_end;
         };
     };
 
@@ -379,18 +394,33 @@ typedef struct emu8k_voice_t {
 } emu8k_voice_t;
 
 typedef struct emu8k_t {
-    int           nvoices, freq, emu10k1_fxbuses, emu10k1_fxsends;
+    int           nvoices;
+    int           freq;
+    int           emu10k1_fxbuses;
+    int           emu10k1_fxsends;
     emu8k_voice_t voice[64];
 
     union {
         struct { /* EMU8000 */
-            uint16_t hwcf1, hwcf2, hwcf3;
-            uint32_t hwcf4, hwcf5, hwcf6, hwcf7;
+            uint16_t hwcf1;
+            uint16_t hwcf2;
+            uint16_t hwcf3;
+            uint32_t hwcf4;
+            uint32_t hwcf5;
+            uint32_t hwcf6;
+            uint32_t hwcf7;
 
-            uint16_t init1[32], init2[32], init3[32], init4[32];
+            uint16_t init1[32];
+            uint16_t init2[32];
+            uint16_t init3[32];
+            uint16_t init4[32];
 
-            uint32_t smalr, smarr, smalw, smarw;
-            uint16_t smld_buffer, smrd_buffer;
+            uint32_t smalr;
+            uint32_t smarr;
+            uint32_t smalw;
+            uint32_t smarw;
+            uint16_t smld_buffer;
+            uint16_t smrd_buffer;
 
             /* RAM pointers are a way to avoid checking ram boundaries on read */
             int16_t *ram_pointers[0x100];
@@ -413,15 +443,23 @@ typedef struct emu8k_t {
     uint16_t id;
 
     /* The empty block is used to act as an unallocated memory returning zero. */
-    int16_t *ram, *rom, *empty;
+    int16_t *ram;
+    int16_t *rom;
+    int16_t *empty;
 
-    int cur_reg, cur_voice;
+    int cur_reg;
+    int cur_voice;
 
-    int16_t out_l, out_r;
+    int16_t out_l;
+    int16_t out_r;
 
     /* EMU10K1 */
-    uint64_t *clie, *clip, *hlie, *hlip, *sole; /* loop interrupt/stop */
-    int       lip;                              /* any pending interrupt? */
+    uint64_t *clie;
+    uint64_t *clip;
+    uint64_t *hlie;
+    uint64_t *hlip;
+    uint64_t *sole; /* loop interrupt/stop */
+    int       lip;  /* any pending interrupt? */
 
     int     pos;
     int32_t buffer[SOUNDBUFLEN * 2];

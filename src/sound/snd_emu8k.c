@@ -333,7 +333,7 @@ EMU8K_READ(emu8k_t *emu8k, uint32_t addr)
 }
 
 static inline int32_t
-emu8k_interp(emu8k_t *emu8k,
+emu8k_interp(UNUSED(emu8k_t *emu8k),
 #ifndef RESAMPLER_LINEAR
              int32_t dat0,
 #endif
@@ -1059,7 +1059,7 @@ emu8k_outw(uint16_t addr, uint16_t val, void *priv)
                             case 0x9:
                                 emu8k->reverb_engine.reflections[0].feedback = (val & 0xF) / 15.0;
                                 break;
-                            case 0xB: 
+                            case 0xB:
 #if 0
                                 emu8k->reverb_engine.reflections[0].feedback_r =  (val&0xF)/15.0;
 #endif
@@ -1103,7 +1103,7 @@ emu8k_outw(uint16_t addr, uint16_t val, void *priv)
                             case 1:
                                 emu8k->reverb_engine.refl_in_amp = val & 0xFF;
                                 break;
-                            case 3: 
+                            case 3:
 #if 0
                                 emu8k->reverb_engine.refl_in_amp_r = val&0xFF;
 #endif
@@ -1848,7 +1848,10 @@ emu8k_update(emu8k_t *emu8k)
             uint64_t new_addr = emu_voice->addr.addr + (((uint64_t) emu_voice->cpf_curr_pitch) << 18);
             if (emu_voice->cvcf_curr_volume) {
                 /* Waveform oscillator */
-                int16_t dat0, dat1, dat2, dat3;
+                int16_t dat0;
+                int16_t dat1;
+                int16_t dat2;
+                int16_t dat3;
                 if (emu8k->emu10k1_fxsends) { /* EMU10K1: 8/16-bit, mono/stereo, FIFO */
 #if 0
                     /* Fetch samples into FIFO if less than 4 samples are left. */
@@ -1893,8 +1896,8 @@ emu8k_update(emu8k_t *emu8k)
                         } while (fetch--);
                     }
 #endif
-                    uint32_t addr     = (emu_voice->addr.int_address << emu_voice->addr_shift) + emu_voice->stereo_offset,
-                             end_addr = (emu_voice->loop_end.int_address << emu_voice->addr_shift) + emu_voice->stereo_offset;
+                    uint32_t addr     = (emu_voice->addr.int_address << emu_voice->addr_shift) + emu_voice->stereo_offset;
+                    uint32_t end_addr = (emu_voice->loop_end.int_address << emu_voice->addr_shift) + emu_voice->stereo_offset;
                     for (int i = 0; i < 16; i++) {
                         emu_voice->cd[i] = emu8k->readl(emu8k, emu_voice, addr++);
                         if (addr >= end_addr)
@@ -2017,7 +2020,6 @@ emu8k_update(emu8k_t *emu8k)
                     emu_voice->filt_buffer[1] = ClipBuffer(emu_voice->filt_buffer[1]);
 
                     dat = (int32_t) (emu_voice->filt_buffer[1] >> 8);
-
 #endif
                 }
 
@@ -2531,16 +2533,16 @@ void
 emu8k_init(emu8k_t *emu8k, uint16_t emu_addr, int onboard_ram)
 {
     uint32_t const BLOCK_SIZE_WORDS = 0x10000;
-    FILE          *f;
+    FILE          *fp;
 
-    f = rom_fopen("roms/sound/awe32.raw", "rb");
-    if (!f)
+    fp = rom_fopen("roms/sound/awe32.raw", "rb");
+    if (!fp)
         fatal("AWE32.RAW not found\n");
 
     emu8k->rom = malloc(1024 * 1024);
-    if (fread(emu8k->rom, 1, 1048576, f) != 1048576)
+    if (fread(emu8k->rom, 1, 1048576, fp) != 1048576)
         fatal("emu8k_init(): Error reading data\n");
-    fclose(f);
+    fclose(fp);
     /*AWE-DUMP creates ROM images offset by 2 bytes, so if we detect this
       then correct it*/
     if (emu8k->rom[3] == 0x314d && emu8k->rom[4] == 0x474d) {
