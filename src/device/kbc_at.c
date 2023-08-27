@@ -25,10 +25,12 @@
 #include <wchar.h>
 #include <86box/86box.h>
 #include "cpu.h"
+#include "x86seg.h"
 #include <86box/timer.h>
 #include <86box/io.h>
 #include <86box/pic.h>
 #include <86box/pit.h>
+#include <86box/plat_fallthrough.h>
 #include <86box/plat_unused.h>
 #include <86box/ppi.h>
 #include <86box/mem.h>
@@ -81,7 +83,9 @@
 #define KBC_VEN_ACER       0x20
 #define KBC_VEN_NCR        0x24
 #define KBC_VEN_ALI        0x28
-#define KBC_VEN_MASK       0x3c
+#define KBC_VEN_SIEMENS    0x2c
+#define KBC_VEN_COMPAQ     0x30
+#define KBC_VEN_MASK       0x7c
 
 #define FLAG_CLOCK         0x01
 #define FLAG_CACHE         0x02
@@ -125,6 +129,10 @@ typedef struct atkbc_t {
     uint8_t channel;
     uint8_t stat_hi;
     uint8_t pending;
+    uint8_t irq_state;
+    uint8_t pad;
+    uint8_t pad0;
+    uint8_t pad1;
 
     uint8_t mem[0x100];
 
@@ -142,8 +150,8 @@ typedef struct atkbc_t {
     /* Local copies of the pointers to both ports for easier swapping (AMI '5' MegaKey). */
     kbc_at_port_t     *ports[2];
 
-    uint8_t (*write60_ven)(void *p, uint8_t val);
-    uint8_t (*write64_ven)(void *p, uint8_t val);
+    uint8_t (*write60_ven)(void *priv, uint8_t val);
+    uint8_t (*write64_ven)(void *priv, uint8_t val);
 } atkbc_t;
 
 /* Keyboard controller ports. */
@@ -344,15 +352,15 @@ kbc_send_to_ob(atkbc_t *dev, uint8_t val, uint8_t channel, uint8_t stat_hi)
             dev->status |= STAT_MFULL;
 
             if (dev->mem[0x20] & 0x02)
-                picint_common(1 << 12, 0, 1);
-            picint_common(1 << 1, 0, 0);
+                picint_common(1 << 12, 0, 1, NULL);
+            picint_common(1 << 1, 0, 0, NULL);
         } else {
             if (dev->mem[0x20] & 0x01)
-                picint_common(1 << 1, 0, 1);
-            picint_common(1 << 12, 0, 0);
+                picint_common(1 << 1, 0, 1, NULL);
+            picint_common(1 << 12, 0, 0, NULL);
         }
     } else if (dev->mem[0x20] & 0x01)
-        picintlevel(1 << 1); /* AT KBC: IRQ 1 is level-triggered because it is tied to OBF. */
+        picintlevel(1 << 1, &dev->irq_state); /* AT KBC: IRQ 1 is level-triggered because it is tied to OBF. */
 
     dev->ob = temp;
 }
@@ -461,7 +469,7 @@ kbc_at_poll_at(atkbc_t *dev)
         case STATE_KBC_AMI_OUT:
             if (dev->status & STAT_OFULL)
                 break;
-            /* FALLTHROUGH */
+            fallthrough;
         case STATE_MAIN_IBF:
         default:
 at_main_ibf:
@@ -495,7 +503,6 @@ at_main_ibf:
             dev->state = STATE_MAIN_IBF;
             dev->pending = 0;
             goto at_main_ibf;
-            break;
         case STATE_KBC_OUT:
             /* Keyboard controller command want to output multiple bytes. */
             if (dev->status & STAT_IFULL) {
@@ -584,7 +591,7 @@ kbc_at_poll_ps2(atkbc_t *dev)
         case STATE_KBC_AMI_OUT:
             if (dev->status & STAT_OFULL)
                 break;
-            /* FALLTHROUGH */
+            fallthrough;
         case STATE_MAIN_IBF:
         default:
 ps2_main_ibf:
@@ -639,7 +646,6 @@ ps2_main_ibf:
             dev->state = STATE_MAIN_IBF;
             dev->pending = 0;
             goto ps2_main_ibf;
-            break;
         case STATE_KBC_OUT:
             /* Keyboard controller command want to output multiple bytes. */
             if (dev->status & STAT_IFULL) {
@@ -713,10 +719,10 @@ write_p2(atkbc_t *dev, uint8_t val)
     /* PS/2: Handle IRQ's. */
     if (dev->misc_flags & FLAG_PS2) {
         /* IRQ 12 */
-        picint_common(1 << 12, 0, val & 0x20);
+        picint_common(1 << 12, 0, val & 0x20, NULL);
 
         /* IRQ 1 */
-        picint_common(1 << 1, 0, val & 0x10);
+        picint_common(1 << 1, 0, val & 0x10, NULL);
     }
 #endif
 
@@ -747,6 +753,12 @@ write_p2(atkbc_t *dev, uint8_t val)
                 flushmmucache();
                 if (kbc_ven == KBC_VEN_ALI)
                     smbase = 0x00030000;
+                /* Yes, this is a hack, but until someone gets ahold of the real PCD-2L
+                   and can find out what they actually did to make it boot from FFFFF0
+                   correctly despite A20 being gated when the CPU is reset, this will
+                   have to do. */
+                else if (kbc_ven == KBC_VEN_SIEMENS)
+                    is486 ? loadcs(0xf000) : loadcs_2386(0xf000);
             }
         }
     }
@@ -866,6 +878,9 @@ write64_generic(void *priv, uint8_t val)
             }
             break;
 
+        /* TODO: Make this command do nothing on the Regional HT6542,
+                 or else, Efflixi's Award OPTi 495 BIOS gets a stuck key
+                 in Norton Commander 3.0. */
         case 0xaf: /* read keyboard version */
             kbc_at_log("ATkbc: read keyboard version\n");
             kbc_delay_to_ob(dev, kbc_award_revision, 0, 0x00);
@@ -905,7 +920,7 @@ write64_generic(void *priv, uint8_t val)
            Bit 6: Mostly, display: 0 = CGA, 1 = MDA, inverted on Xi8088 and Acer KBC's;
                   Intel AMI MegaKey KB-5: Used for green features, SMM handler expects it to be set;
                   IBM PS/1 Model 2011: 0 = current FDD is 3.5", 1 = current FDD is 5.25";
-                  Comapq: 0 = Compaq dual-scan display, 1 = non-Compaq display.
+                  Compaq: 0 = Compaq dual-scan display, 1 = non-Compaq display.
            Bit 5: Mostly, manufacturing jumper: 0 = installed (infinite loop at POST), 1 = not installed;
                   NCR: power-on default speed: 0 = high, 1 = low;
                   Compaq: System board DIP switch 5: 0 = ON, 1 = OFF.
@@ -974,6 +989,8 @@ write64_generic(void *priv, uint8_t val)
             } else if (((dev->flags & KBC_TYPE_MASK) >= KBC_TYPE_PS2_1) && ((dev->flags & KBC_TYPE_MASK) < KBC_TYPE_GREEN))
                 /* (B0 or F0) | (0x08 or 0x0c) */
                 kbc_delay_to_ob(dev, ((dev->p1 | fixed_bits) & 0xf0) | (((dev->flags & KBC_VEN_MASK) == KBC_VEN_ACER) ? 0x08 : 0x0c), 0, 0x00);
+            else if (kbc_ven == KBC_VEN_COMPAQ)
+                kbc_delay_to_ob(dev, dev->p1 | (hasfpu ? 0x00 : 0x04), 0, 0x00);
             else
                 /* (B0 or F0) | (0x04 or 0x44) */
                 kbc_delay_to_ob(dev, dev->p1 | fixed_bits, 0, 0x00);
@@ -1017,6 +1034,9 @@ write64_generic(void *priv, uint8_t val)
             kbc_at_log("ATkbc: pulse %01X\n", val & 0x0f);
             pulse_output(dev, val & 0x0f);
             return 0;
+
+        default:
+            break;
     }
 
     kbc_at_log("ATkbc: bad command %02X\n", val);
@@ -1031,7 +1051,7 @@ write60_ami(void *priv, uint8_t val)
     switch (dev->command) {
         /* 0x40 - 0x5F are aliases for 0x60-0x7F */
         case 0x40 ... 0x5f:
-            kbc_at_log("ATkbc: AMI - alias write to %08X\n", dev->command);
+            kbc_at_log("ATkbc: AMI - alias write to %02X\n", dev->command & 0x1f);
             dev->mem[(dev->command & 0x1f) + 0x20] = val;
             if (dev->command == 0x60)
                 write_cmd(dev, val);
@@ -1170,7 +1190,7 @@ write64_ami(void *priv, uint8_t val)
             break;
 
         case 0xaf: /* set extended controller RAM */
-            if (kbc_ven != KBC_VEN_ALI) {
+            if ((kbc_ven != KBC_VEN_SIEMENS) && (kbc_ven != KBC_VEN_ALI)) {
                 kbc_at_log("ATkbc: set extended controller RAM\n");
                 dev->wantdata      = 1;
                 dev->state         = STATE_KBC_PARAM;
@@ -1283,14 +1303,48 @@ write64_ami(void *priv, uint8_t val)
 }
 
 static uint8_t
+write64_siemens(void *priv, uint8_t val)
+{
+    atkbc_t *dev     = (atkbc_t *) priv;
+
+    switch (val) {
+        case 0x92: /*Siemens Award - 92 sent by PCD-2L BIOS*/
+            kbc_at_log("Siemens Award - 92 sent by PCD-2L BIOS\n");
+            return 0;
+
+        case 0x94: /*Siemens Award - 94 sent by PCD-2L BIOS*/
+            kbc_at_log("Siemens Award - 94 sent by PCD-2L BIOS\n");
+            return 0;
+
+        case 0x9a: /*Siemens Award - 9A sent by PCD-2L BIOS*/
+            kbc_at_log("Siemens Award - 9A sent by PCD-2L BIOS\n");
+            return 0;
+
+        case 0x9c: /*Siemens Award - 9C sent by PCD-2L BIOS*/
+            kbc_at_log("Siemens Award - 9C sent by PCD-2L BIOS\n");
+            return 0;
+
+        case 0xa9: /*Siemens Award - A9 sent by PCD-2L BIOS*/
+            kbc_at_log("Siemens Award - A9 sent by PCD-2L BIOS\n");
+            return 0;
+
+        default:
+            break;
+    }
+
+    return write64_ami(dev, val);
+}
+
+static uint8_t
 write60_quadtel(void *priv, UNUSED(uint8_t val))
 {
-    atkbc_t *dev = (atkbc_t *) priv;
+    const atkbc_t *dev = (atkbc_t *) priv;
 
     switch (dev->command) {
         case 0xcf: /*??? - sent by MegaPC BIOS*/
             kbc_at_log("ATkbc: ??? - sent by MegaPC BIOS\n");
             return 0;
+
         default:
             break;
     }
@@ -1349,7 +1403,7 @@ write64_quadtel(void *priv, uint8_t val)
 static uint8_t
 write60_toshiba(void *priv, uint8_t val)
 {
-    atkbc_t *dev = (atkbc_t *) priv;
+    const atkbc_t *dev = (atkbc_t *) priv;
 
     switch (dev->command) {
         case 0xb6: /* T3100e - set color/mono switch */
@@ -1498,7 +1552,8 @@ kbc_at_process_cmd(void *priv)
                         /* TODO: Proper P1 implementation, with OR and AND flags in the machine table. */
                         dev->p1 = dev->p1 & 0xff;
                         write_p2(dev, 0x4b);
-                        picintc(0x1002);
+                        picintc(0x1000);
+                        picintc(0x0002);
                     }
 
                     dev->status = (dev->status & 0x0f) | 0x60;
@@ -1517,7 +1572,8 @@ kbc_at_process_cmd(void *priv)
                         /* TODO: Proper P1 implementation, with OR and AND flags in the machine table. */
                         dev->p1 = dev->p1 & 0xff;
                         write_p2(dev, 0xcf);
-                        picintc(0x0002);
+                        picintclevel(0x0002, &dev->irq_state);
+                        dev->irq_state = 0;
                     }
 
                     dev->status = (dev->status & 0x0f) | 0x60;
@@ -1729,13 +1785,15 @@ static void
 kbc_at_write(uint16_t port, uint8_t val, void *priv)
 {
     atkbc_t *dev = (atkbc_t *) priv;
+    uint8_t kbc_ven = dev->flags & KBC_VEN_MASK;
+    uint8_t fast_a20 = (kbc_ven != KBC_VEN_SIEMENS);
 
     kbc_at_log("ATkbc: [%04X:%08X] write(%04X) = %02X\n", CS, cpu_state.pc, port, val);
 
     switch (port) {
         case 0x60:
             dev->status &= ~STAT_CD;
-            if (dev->wantdata && (dev->command == 0xd1)) {
+            if (fast_a20 && dev->wantdata && (dev->command == 0xd1)) {
                 kbc_at_log("ATkbc: write P2\n");
 
 #if 0
@@ -1765,7 +1823,7 @@ kbc_at_write(uint16_t port, uint8_t val, void *priv)
 
         case 0x64:
             dev->status |= STAT_CD;
-            if (val == 0xd1) {
+            if (fast_a20 && (val == 0xd1)) {
                 kbc_at_log("ATkbc: write P2\n");
                 dev->wantdata  = 1;
                 dev->state     = STATE_KBC_PARAM;
@@ -1798,7 +1856,7 @@ kbc_at_read(uint16_t port, void *priv)
             /* TODO: IRQ is only tied to OBF on the AT KBC, on the PS/2 KBC, it is controlled by a P2 bit.
                      This also means that in AT mode, the IRQ is level-triggered. */
             if (!(dev->misc_flags & FLAG_PS2))
-                picintc(1 << 1);
+                picintclevel(1 << 1, &dev->irq_state);
             break;
 
         case 0x64:
@@ -1847,8 +1905,13 @@ kbc_at_reset(void *priv)
     if ((dev->flags & KBC_TYPE_MASK) >= KBC_TYPE_PS2_1) {
         dev->misc_flags |= FLAG_PS2;
         kbc_at_do_poll = kbc_at_poll_ps2;
-    } else
+        picintc(0x1000);
+        picintc(0x0002);
+    } else {
         kbc_at_do_poll = kbc_at_poll_at;
+        picintclevel(0x0002, &dev->irq_state);
+        dev->irq_state = 0;
+    }
 
     dev->misc_flags |= FLAG_CACHE;
 
@@ -1869,8 +1932,6 @@ kbc_at_close(void *priv)
 {
     atkbc_t *dev = (atkbc_t *) priv;
     int max_ports = ((dev->flags & KBC_TYPE_MASK) >= KBC_TYPE_PS2_1) ? 2 : 1;
-
-    kbc_at_reset(dev);
 
     /* Stop timers. */
     timer_disable(&dev->send_delay_timer);
@@ -1915,10 +1976,18 @@ kbc_at_init(const device_t *info)
     kbc_award_revision = 0x42;
 
     switch (dev->flags & KBC_VEN_MASK) {
+        case KBC_VEN_SIEMENS:
+            kbc_ami_revision = '8';
+            kbc_award_revision = 0x42;
+            dev->write60_ven = write60_ami;
+            dev->write64_ven = write64_siemens;
+            break;
+
         case KBC_VEN_ACER:
         case KBC_VEN_GENERIC:
         case KBC_VEN_NCR:
         case KBC_VEN_IBM_PS1:
+        case KBC_VEN_COMPAQ:
             dev->write64_ven = write64_generic;
             break;
 
@@ -2008,6 +2077,20 @@ const device_t keyboard_at_device = {
     .config        = NULL
 };
 
+const device_t keyboard_at_siemens_device = {
+    .name          = "PC/AT Keyboard",
+    .internal_name = "keyboard_at",
+    .flags         = DEVICE_KBC,
+    .local         = KBC_TYPE_ISA | KBC_VEN_SIEMENS,
+    .init          = kbc_at_init,
+    .close         = kbc_at_close,
+    .reset         = kbc_at_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
 const device_t keyboard_at_ami_device = {
     .name          = "PC/AT Keyboard (AMI)",
     .internal_name = "keyboard_at_ami",
@@ -2069,6 +2152,20 @@ const device_t keyboard_at_ncr_device = {
     .internal_name = "keyboard_at_ncr",
     .flags         = DEVICE_KBC,
     .local         = KBC_TYPE_ISA | KBC_VEN_NCR,
+    .init          = kbc_at_init,
+    .close         = kbc_at_close,
+    .reset         = kbc_at_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+const device_t keyboard_at_compaq_device = {
+    .name          = "PC/AT Keyboard (Compaq)",
+    .internal_name = "keyboard_at_compaq",
+    .flags         = DEVICE_KBC,
+    .local         = KBC_TYPE_ISA | KBC_VEN_COMPAQ,
     .init          = kbc_at_init,
     .close         = kbc_at_close,
     .reset         = kbc_at_reset,

@@ -25,6 +25,7 @@
 #define HAVE_STDARG_H
 #include <86box/86box.h>
 #include <86box/device.h>
+#include <86box/fifo.h>
 #include <86box/timer.h>
 #include <86box/serial.h>
 #include <86box/serial_passthrough.h>
@@ -78,7 +79,7 @@ host_to_serial_cb(void *priv)
      * can never fetch the bytes in time, so check if the fifo is full if in
      * fifo mode or if lsr has bit 0 set if not in fifo mode */
     if ((dev->serial->type >= SERIAL_16550) && dev->serial->fifo_enabled) {
-        if (dev->serial->rcvr_fifo_full) {
+        if (fifo_get_full(dev->serial->rcvr_fifo)) {
             goto no_write_to_machine;
         }
     } else {
@@ -119,6 +120,8 @@ static void
 serial_passthrough_speed_changed(void *priv)
 {
     serial_passthrough_t *dev = (serial_passthrough_t *) priv;
+    if (!dev)
+        return;
 
     timer_stop(&dev->host_to_serial_timer);
     /* FIXME: do something to dev->baudrate */
@@ -132,9 +135,11 @@ static void
 serial_passthrough_dev_close(void *priv)
 {
     serial_passthrough_t *dev = (serial_passthrough_t *) priv;
+    if (!dev)
+        return;
 
     /* Detach passthrough device from COM port */
-    if (dev && dev->serial && dev->serial->sd)
+    if (dev->serial && dev->serial->sd)
         memset(dev->serial->sd, 0, sizeof(serial_device_t));
 
     plat_serpt_close(dev);
@@ -184,6 +189,10 @@ serial_passthrough_dev_init(const device_t *info)
     /* Attach passthrough device to a COM port */
     dev->serial = serial_attach_ex(dev->port, serial_passthrough_rcr_cb,
                                    serial_passthrough_write, serial_passthrough_transmit_period, serial_passthrough_lcr_callback, dev);
+    if (!dev->serial) {
+        free(dev);
+        return NULL;
+    }
 
     strncpy(dev->host_serial_path, device_get_config_string("host_serial_path"), 1023);
 #ifdef _WIN32

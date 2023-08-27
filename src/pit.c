@@ -41,6 +41,7 @@
 #include <86box/sound.h>
 #include <86box/snd_speaker.h>
 #include <86box/video.h>
+#include <86box/plat_unused.h>
 
 pit_intf_t pit_devs[2];
 
@@ -171,6 +172,9 @@ ctr_tick(ctr_t *ctr)
                 case 3:
                     ctr_decrease_count(ctr);
                     break;
+
+                default:
+                    break;
             }
             break;
         case 1:
@@ -188,6 +192,9 @@ ctr_tick(ctr_t *ctr)
                 case 3:
                 case 6:
                     ctr_decrease_count(ctr);
+                    break;
+
+                default:
                     break;
             }
             break;
@@ -210,6 +217,9 @@ ctr_tick(ctr_t *ctr)
                             ctr_set_out(ctr, 0);
                         }
                     }
+                    break;
+
+                default:
                     break;
             }
             break;
@@ -254,6 +264,9 @@ ctr_tick(ctr_t *ctr)
                             ctr->newcount = 0;
                     }
                     break;
+
+                default:
+                    break;
             }
             break;
         case 4:
@@ -278,6 +291,9 @@ ctr_tick(ctr_t *ctr)
                     case 3:
                         ctr->state = 0;
                         ctr_set_out(ctr, 1);
+                        break;
+
+                    default:
                         break;
                 }
             }
@@ -369,6 +385,9 @@ ctr_latch_count(ctr_t *ctr)
             ctr->rl      = count;
             ctr->latched = 2;
             break;
+
+        default:
+            break;
     }
 
     pit_log("latched counter = %04X\n", ctr->rl & 0xffff);
@@ -377,8 +396,8 @@ ctr_latch_count(ctr_t *ctr)
 uint16_t
 pit_ctr_get_count(void *data, int counter_id)
 {
-    pit_t *pit = (pit_t *) data;
-    ctr_t *ctr = &pit->counters[counter_id];
+    const pit_t *pit = (pit_t *) data;
+    const ctr_t *ctr = &pit->counters[counter_id];
 
     return (uint16_t) ctr->l;
 }
@@ -439,6 +458,9 @@ pit_ctr_set_gate(void *data, int counter_id, int gate)
                     ctr_set_out(ctr, 1);
             }
             break;
+
+        default:
+            break;
     }
 }
 
@@ -487,9 +509,9 @@ pit_ctr_set_using_timer(void *data, int counter_id, int using_timer)
 }
 
 static void
-pit_timer_over(void *p)
+pit_timer_over(void *priv)
 {
-    pit_t *dev = (pit_t *) p;
+    pit_t *dev = (pit_t *) priv;
 
     dev->clock ^= 1;
 
@@ -602,7 +624,13 @@ pit_write(uint16_t addr, uint8_t val, void *priv)
                     else
                         ctr->wm |= 0x80;
                     break;
+
+                default:
+                    break;
             }
+            break;
+
+        default:
             break;
     }
 }
@@ -675,7 +703,13 @@ pit_read(uint16_t addr, void *priv)
                         else
                             ctr->rm |= 0x80;
                         break;
+
+                    default:
+                        break;
                 }
+            break;
+
+        default:
             break;
     }
 
@@ -714,7 +748,7 @@ pit_refresh_timer_at(int new_out, int old_out)
 }
 
 void
-pit_speaker_timer(int new_out, int old_out)
+pit_speaker_timer(int new_out, UNUSED(int old_out))
 {
     int l;
 
@@ -734,7 +768,7 @@ pit_speaker_timer(int new_out, int old_out)
 }
 
 void
-pit_nmi_timer_ps2(int new_out, int old_out)
+pit_nmi_timer_ps2(int new_out, UNUSED(int old_out))
 {
     nmi = new_out;
 
@@ -893,8 +927,8 @@ pit_common_init(int type, void (*out0)(int new_out, int old_out), void (*out1)(i
     pit_intf_t *pit_intf = &pit_devs[0];
 
     switch (type) {
-        case PIT_8253:
         default:
+        case PIT_8253:
             pit       = device_add(&i8253_device);
             *pit_intf = pit_classic_intf;
             break;
@@ -937,8 +971,8 @@ pit_ps2_init(int type)
     pit_intf_t *ps2_pit = &pit_devs[1];
 
     switch (type) {
-        case PIT_8254:
         default:
+        case PIT_8254:
             pit      = device_add(&i8254_ps2_device);
             *ps2_pit = pit_classic_intf;
             break;
@@ -980,7 +1014,11 @@ pit_set_clock(int clock)
 
         PITCONSTD    = (cpuclock / 1193182.0);
         PITCONST     = (uint64_t) (PITCONSTD * (double) (1ULL << 32));
+#ifdef IMPRECISE_CGACONST
         CGACONST     = (uint64_t) ((cpuclock / (19687503.0 / 11.0)) * (double) (1ULL << 32));
+#else
+        CGACONST     = (uint64_t) ((cpuclock / (157500000.0 / 88.0)) * (double) (1ULL << 32));
+#endif
         ISACONST     = (uint64_t) ((cpuclock / (double) cpu_isa_speed) * (double) (1ULL << 32));
         xt_cpu_multi = 1ULL;
     } else {
@@ -1030,7 +1068,11 @@ pit_set_clock(int clock)
         } else if (cpuclock != 14318184.0) {
             PITCONSTD = (cpuclock / 1193182.0);
             PITCONST  = (uint64_t) (PITCONSTD * (double) (1ULL << 32));
+#ifdef IMPRECISE_CGACONST
             CGACONST  = (uint64_t) ((cpuclock / (19687503.0 / 11.0)) * (double) (1ULL << 32));
+#else
+            CGACONST  = (uint64_t) ((cpuclock / (157500000.0 / 88.0)) * (double) (1ULL << 32));
+#endif
         }
 
         ISACONST = (1ULL << 32ULL);
@@ -1040,7 +1082,11 @@ pit_set_clock(int clock)
     /* Delay for empty I/O ports. */
     io_delay = (int) round(((double) cpu_s->rspeed) / 3000000.0);
 
+#ifdef WRONG_MDACONST
     MDACONST  = (uint64_t) (cpuclock / 2032125.0 * (double) (1ULL << 32));
+#else
+    MDACONST  = (uint64_t) (cpuclock / (16257000.0 / 9.0) * (double) (1ULL << 32));
+#endif
     HERCCONST = MDACONST;
     VGACONST1 = (uint64_t) (cpuclock / 25175000.0 * (double) (1ULL << 32));
     VGACONST2 = (uint64_t) (cpuclock / 28322000.0 * (double) (1ULL << 32));
@@ -1050,9 +1096,9 @@ pit_set_clock(int clock)
 
     isa_timing = (cpuclock / (double) cpu_isa_speed);
     if (cpu_64bitbus)
-        bus_timing = (cpuclock / ((double) cpu_busspeed / 2));
+        bus_timing = (cpuclock / (cpu_busspeed / 2));
     else
-        bus_timing = (cpuclock / (double) cpu_busspeed);
+        bus_timing = (cpuclock / cpu_busspeed);
     pci_timing = (cpuclock / (double) cpu_pci_speed);
     agp_timing = (cpuclock / (double) cpu_agp_speed);
 

@@ -49,6 +49,8 @@
 #    include "x86.h"
 #    include "x86_flags.h"
 #    include "x86_ops.h"
+#    include "x86seg_common.h"
+#    include "x86seg.h"
 #    include "x87.h"
 /*ex*/
 #    include <86box/nmi.h>
@@ -1256,7 +1258,7 @@ codegen_init(void)
 #    else
     __asm
     {
-                fstcw cpu_state.old_npxc
+        fstcw cpu_state.old_npxc
     }
 #    endif
 }
@@ -1677,6 +1679,7 @@ int opcode_0f_modrm[256] = {
 void
 codegen_debug(void)
 {
+    //
 }
 
 static x86seg *
@@ -1884,7 +1887,7 @@ codegen_generate_call(uint8_t opcode, OpFn op, uint32_t fetchdat, uint32_t new_p
         switch (opcode) {
             case 0x0f:
                 op_table        = x86_dynarec_opcodes_0f;
-                recomp_op_table = recomp_opcodes_0f;
+                recomp_op_table = fpu_softfloat ? recomp_opcodes_0f_no_mmx : recomp_opcodes_0f;
                 over            = 1;
                 break;
 

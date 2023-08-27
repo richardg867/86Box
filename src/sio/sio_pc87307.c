@@ -35,13 +35,17 @@
 #include <86box/fdc.h>
 #include <86box/sio.h>
 
-typedef struct {
-    uint8_t id, pm_idx,
-        regs[48], ld_regs[256][208],
-        pcregs[16], gpio[2][4],
-        pm[8];
-    uint16_t gpio_base, gpio_base2,
-        pm_base;
+typedef struct pc87307_t {
+    uint8_t   id;
+    uint8_t   pm_idx;
+    uint8_t   regs[48];
+    uint8_t   ld_regs[256][208];
+    uint8_t   pcregs[16];
+    uint8_t   gpio[2][4];
+    uint8_t   pm[8];
+    uint16_t  gpio_base;
+    uint16_t  gpio_base2;
+    uint16_t  pm_base;
     int       cur_reg;
     fdc_t    *fdc;
     serial_t *uart[2];
@@ -63,16 +67,19 @@ pc87307_gpio_write(uint16_t port, uint8_t val, void *priv)
 uint8_t
 pc87307_gpio_read(uint16_t port, void *priv)
 {
-    pc87307_t *dev  = (pc87307_t *) priv;
-    uint8_t    pins = 0xff;
-    uint8_t    bank = ((port & 0xfffc) == dev->gpio_base2);
-    uint8_t    mask;
-    uint8_t    ret  = dev->gpio[bank][port & 0x0003];
+    const pc87307_t *dev  = (pc87307_t *) priv;
+    uint8_t          pins = 0xff;
+    uint8_t          bank = ((port & 0xfffc) == dev->gpio_base2);
+    uint8_t          mask;
+    uint8_t          ret  = dev->gpio[bank][port & 0x0003];
 
     switch (port & 0x0003) {
         case 0x0000:
             mask = dev->gpio[bank][0x0001];
             ret  = (ret & mask) | (pins & ~mask);
+            break;
+
+        default:
             break;
     }
 
@@ -122,6 +129,9 @@ pc87307_pm_write(uint16_t port, uint8_t val, void *priv)
                 serial_handler(dev, 1);
                 serial_handler(dev, 0);
                 break;
+
+            default:
+                break;
         }
     }
 }
@@ -129,7 +139,7 @@ pc87307_pm_write(uint16_t port, uint8_t val, void *priv)
 uint8_t
 pc87307_pm_read(uint16_t port, void *priv)
 {
-    pc87307_t *dev = (pc87307_t *) priv;
+    const pc87307_t *dev = (pc87307_t *) priv;
 
     if (port & 1)
         return dev->pm[dev->pm_idx];
@@ -307,6 +317,9 @@ pc87307_write(uint16_t port, uint8_t val, void *priv)
                 case 0x08:
                     pm_handler(dev);
                     break;
+
+                default:
+                    break;
             }
             break;
         case 0x60:
@@ -332,6 +345,9 @@ pc87307_write(uint16_t port, uint8_t val, void *priv)
                     break;
                 case 0x08:
                     pm_handler(dev);
+                    break;
+
+                default:
                     break;
             }
             break;
@@ -363,6 +379,9 @@ pc87307_write(uint16_t port, uint8_t val, void *priv)
                 case 0x08:
                     dev->ld_regs[dev->regs[0x07]][dev->cur_reg - 0x30] = val & 0xfe;
                     pm_handler(dev);
+                    break;
+
+                default:
                     break;
             }
             break;
@@ -396,6 +415,9 @@ pc87307_write(uint16_t port, uint8_t val, void *priv)
                 case 0x08:
                     pm_handler(dev);
                     break;
+
+                default:
+                    break;
             }
             break;
         case 0xf0:
@@ -416,11 +438,17 @@ pc87307_write(uint16_t port, uint8_t val, void *priv)
                 case 0x06:
                     dev->ld_regs[dev->regs[0x07]][dev->cur_reg - 0x30] = val & 0x87;
                     break;
+
+                default:
+                    break;
             }
             break;
         case 0xf1:
             if (dev->regs[0x07] == 0x03)
                 dev->ld_regs[dev->regs[0x07]][dev->cur_reg - 0x30] = val & 0x0f;
+            break;
+
+        default:
             break;
     }
 }
@@ -428,9 +456,9 @@ pc87307_write(uint16_t port, uint8_t val, void *priv)
 uint8_t
 pc87307_read(uint16_t port, void *priv)
 {
-    pc87307_t *dev = (pc87307_t *) priv;
-    uint8_t    ret = 0xff;
-    uint8_t    index;
+    const pc87307_t *dev = (pc87307_t *) priv;
+    uint8_t          ret = 0xff;
+    uint8_t          index;
 
     index = (port & 1) ? 0 : 1;
 
@@ -519,8 +547,10 @@ pc87307_reset(pc87307_t *dev)
     dev->ld_regs[0x08][0x44] = 0x04;
     dev->ld_regs[0x08][0x45] = 0x04;
 
-    // dev->gpio[0] = 0xff;
-    // dev->gpio[1] = 0xfb;
+#if 0
+    dev->gpio[0] = 0xff;
+    dev->gpio[1] = 0xfb;
+#endif
     dev->gpio[0][0] = 0xff;
     dev->gpio[0][1] = 0x00;
     dev->gpio[0][2] = 0x00;

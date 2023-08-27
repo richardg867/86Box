@@ -60,50 +60,59 @@ enum {
 #define VIDEO_FLAG_TYPE_CGA     0
 #define VIDEO_FLAG_TYPE_MDA     1
 #define VIDEO_FLAG_TYPE_SPECIAL 2
-#define VIDEO_FLAG_TYPE_NONE    3
-#define VIDEO_FLAG_TYPE_MASK    3
+#define VIDEO_FLAG_TYPE_8514    3
+#define VIDEO_FLAG_TYPE_XGA     4
+#define VIDEO_FLAG_TYPE_NONE    5
+#define VIDEO_FLAG_TYPE_MASK    7
 
-typedef struct {
+typedef struct video_timings_t {
     int type;
-    int write_b, write_w, write_l;
-    int read_b, read_w, read_l;
+    int write_b;
+    int write_w;
+    int write_l;
+    int read_b;
+    int read_w;
+    int read_l;
 } video_timings_t;
 
-typedef struct {
-    int       w, h;
+typedef struct bitmap_t {
+    int       w;
+    int       h;
     uint32_t *dat;
     uint32_t *line[2112];
 } bitmap_t;
 
-typedef struct {
-    uint8_t r, g, b;
+typedef struct rgb_t {
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
 } rgb_t;
 
-typedef struct {
+typedef struct dbcs_font_t {
     uint8_t chr[32];
 } dbcs_font_t;
 
 struct blit_data_struct;
 
 typedef struct monitor_t {
-    char      name[512];
-    int       mon_xsize;
-    int       mon_ysize;
-    int       mon_scrnsz_x;
-    int       mon_scrnsz_y;
-    int       mon_efscrnsz_y;
-    int       mon_unscaled_size_x;
-    int       mon_unscaled_size_y;
-    int       mon_res_x;
-    int       mon_res_y;
-    int       mon_bpp;
-    bitmap_t *target_buffer;
-    int       mon_video_timing_read_b,
-        mon_video_timing_read_w,
-        mon_video_timing_read_l;
-    int mon_video_timing_write_b,
-        mon_video_timing_write_w,
-        mon_video_timing_write_l;
+    char                     name[512];
+    int                      mon_xsize;
+    int                      mon_ysize;
+    int                      mon_scrnsz_x;
+    int                      mon_scrnsz_y;
+    int                      mon_efscrnsz_y;
+    int                      mon_unscaled_size_x;
+    int                      mon_unscaled_size_y;
+    double                   mon_res_x;
+    double                   mon_res_y;
+    int                      mon_bpp;
+    bitmap_t                *target_buffer;
+    int                      mon_video_timing_read_b;
+    int                      mon_video_timing_read_w;
+    int                      mon_video_timing_read_l;
+    int                      mon_video_timing_write_b;
+    int                      mon_video_timing_write_w;
+    int                      mon_video_timing_write_l;
     int                      mon_overscan_x;
     int                      mon_overscan_y;
     int                      mon_force_resize;
@@ -137,11 +146,15 @@ extern int                video_fullscreen_scale_maximized;
 
 typedef rgb_t PALETTE[256];
 
-// extern int changeframecount;
+#if 0
+extern int changeframecount;
+#endif
 
 extern volatile int screenshots;
-extern void                  (*screenshot_hook)(char *path, uint32_t *buf, int start_x, int start_y, int w, int h, int row_len);
-// extern bitmap_t *buffer32;
+extern void       (*screenshot_hook)(char *path, uint32_t *buf, int start_x, int start_y, int w, int h, int row_len);
+#if 0
+extern bitmap_t *buffer32;
+#endif
 #define buffer32             (monitors[monitor_index_global].target_buffer)
 #define pal_lookup           (monitors[monitor_index_global].mon_pal_lookup)
 #define overscan_x           (monitors[monitor_index_global].mon_overscan_x)
@@ -164,12 +177,14 @@ extern void                  (*screenshot_hook)(char *path, uint32_t *buf, int s
 #define efscrnsz_y           (monitors[monitor_index_global].mon_efscrnsz_y)
 #define unscaled_size_x      (monitors[monitor_index_global].mon_unscaled_size_x)
 #define unscaled_size_y      (monitors[monitor_index_global].mon_unscaled_size_y)
-extern PALETTE cgapal;
-extern PALETTE cgapal_mono[6];
-// extern uint32_t	pal_lookup[256];
-extern int video_fullscreen;
-extern int video_fullscreen_scale;
-extern int video_fullscreen_first;
+extern PALETTE      cgapal;
+extern PALETTE      cgapal_mono[6];
+#if 0
+extern uint32_t     pal_lookup[256];
+#endif
+extern int          video_fullscreen;
+extern int          video_fullscreen_scale;
+extern int          video_fullscreen_first;
 extern uint8_t      fontdat[2048][8];
 extern uint8_t      fontdatm[2048][16];
 extern uint8_t      fontdatw[512][32];
@@ -177,23 +192,25 @@ extern uint8_t      fontdat8x12[256][16];
 extern uint8_t      fontdat12x18[256][36];
 extern dbcs_font_t *fontdatksc5601;
 extern dbcs_font_t *fontdatksc5601_user;
-extern uint32_t    *video_6to8,
-    *video_8togs,
-    *video_8to32,
-    *video_15to32,
-    *video_16to32;
-extern int enable_overscan;
-extern int force_43;
-extern int vid_resize;
-extern int herc_blend;
-extern int vid_cga_contrast;
-extern int video_grayscale;
-extern int video_graytype;
+extern uint32_t    *video_6to8;
+extern uint32_t    *video_8togs;
+extern uint32_t    *video_8to32;
+extern uint32_t    *video_15to32;
+extern uint32_t    *video_16to32;
+extern int          enable_overscan;
+extern int          force_43;
+extern int          vid_resize;
+extern int          herc_blend;
+extern int          vid_cga_contrast;
+extern int          video_grayscale;
+extern int          video_graytype;
 
 extern double cpuclock;
 extern int    emu_fps;
 extern int    frames;
 extern int    readflash;
+extern int    ibm8514_active;
+extern int    xga_active;
 
 /* Function handler pointers. */
 extern void (*video_recalctimings)(void);
@@ -213,15 +230,17 @@ extern int video_card_available(int card);
 #ifdef EMU_DEVICE_H
 extern const device_t *video_card_getdevice(int card);
 #endif
-extern int   video_card_has_config(int card);
-extern char *video_get_internal_name(int card);
-extern int   video_get_video_from_internal_name(char *s);
-extern int   video_card_get_flags(int card);
-extern int   video_is_mda(void);
-extern int   video_is_cga(void);
-extern int   video_is_ega_vga(void);
-extern void  video_inform_monitor(int type, const video_timings_t *ptr, int monitor_index);
-extern int   video_get_type_monitor(int monitor_index);
+extern int         video_card_has_config(int card);
+extern const char *video_get_internal_name(int card);
+extern int         video_get_video_from_internal_name(char *s);
+extern int         video_card_get_flags(int card);
+extern int         video_is_mda(void);
+extern int         video_is_cga(void);
+extern int         video_is_ega_vga(void);
+extern int         video_is_8514(void);
+extern int         video_is_xga(void);
+extern void        video_inform_monitor(int type, const video_timings_t *ptr, int monitor_index);
+extern int         video_get_type_monitor(int monitor_index);
 
 extern void video_setblit(void (*blit)(int, int, int, int, int));
 extern void video_blend(int x, int y);
@@ -246,6 +265,8 @@ extern void    video_close(void);
 extern void    video_reset_close(void);
 extern void    video_pre_reset(int card);
 extern void    video_reset(int card);
+extern void    video_post_reset(void);
+extern void    video_voodoo_init(void);
 extern uint8_t video_force_resize_get_monitor(int monitor_index);
 extern void    video_force_resize_set_monitor(uint8_t res, int monitor_index);
 extern void    video_update_timing(void);
@@ -278,8 +299,14 @@ extern uint32_t video_color_transform(uint32_t color);
 /* IBM XGA */
 extern void xga_device_add(void);
 
-/* IBM 8514/A and generic clones*/
+/* IBM 8514/A and clones*/
 extern void ibm8514_device_add(void);
+extern const device_t mach8_isa_device;
+extern const device_t mach32_isa_device;
+extern const device_t mach32_vlb_device;
+extern const device_t mach32_mca_device;
+extern const device_t mach32_pci_device;
+extern const device_t mach32_onboard_pci_device;
 
 /* ATi Mach64 */
 extern const device_t mach64gx_isa_device;
@@ -326,7 +353,9 @@ extern const device_t gd5429_isa_device;
 extern const device_t gd5429_vlb_device;
 extern const device_t gd5430_diamond_speedstar_pro_se_a8_vlb_device;
 extern const device_t gd5430_vlb_device;
+extern const device_t gd5430_onboard_vlb_device;
 extern const device_t gd5430_pci_device;
+extern const device_t gd5430_onboard_pci_device;
 extern const device_t gd5434_isa_device;
 extern const device_t gd5434_diamond_speedstar_64_a3_isa_device;
 extern const device_t gd5434_onboard_pci_device;

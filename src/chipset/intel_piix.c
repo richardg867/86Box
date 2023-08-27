@@ -66,7 +66,6 @@ typedef struct _piix_ {
     uint8_t        max_func;
     uint8_t        pci_slot;
     uint8_t        no_mirq0;
-    uint8_t        pad;
     uint8_t        regs[4][256];
     uint8_t        readout_regs[256];
     uint8_t        board_config[2];
@@ -84,7 +83,6 @@ typedef struct _piix_ {
     piix_io_trap_t io_traps[26];
     port_92_t     *port_92;
     pc_timer_t     fast_off_timer;
-    usb_params_t   usb_params;
 } piix_t;
 
 #ifdef ENABLE_PIIX_LOG
@@ -289,7 +287,7 @@ piix_trap_io(UNUSED(int size), UNUSED(uint16_t addr), UNUSED(uint8_t write), UNU
 static void
 piix_trap_io_ide(int size, uint16_t addr, uint8_t write, uint8_t val, void *priv)
 {
-    piix_io_trap_t *trap = (piix_io_trap_t *) priv;
+    const piix_io_trap_t *trap = (piix_io_trap_t *) priv;
 
     /* IDE traps are per drive, not per channel. */
     if (ide_drives[trap->dev_id]->selected)
@@ -327,10 +325,10 @@ piix_trap_update_devctl(piix_t *dev, uint8_t trap_id, uint8_t dev_id,
 static void
 piix_trap_update(void *priv)
 {
-    piix_t  *dev     = (piix_t *) priv;
-    uint8_t  trap_id = 0;
-    uint8_t *fregs   = dev->regs[3];
-    uint16_t temp;
+    piix_t        *dev     = (piix_t *) priv;
+    uint8_t        trap_id = 0;
+    const uint8_t *fregs   = dev->regs[3];
+    uint16_t       temp;
 
     piix_trap_update_devctl(dev, trap_id++, 0, 0x00000002, 1, 0x1f0, 8);
     piix_trap_update_devctl(dev, trap_id++, 0, 0x00000002, 1, 0x3f6, 1);
@@ -1166,9 +1164,9 @@ piix_write(int func, int addr, uint8_t val, void *priv)
 static uint8_t
 piix_read(int func, int addr, void *priv)
 {
-    piix_t  *dev = (piix_t *) priv;
-    uint8_t  ret = 0xff;
-    uint8_t *fregs;
+    piix_t        *dev = (piix_t *) priv;
+    uint8_t        ret = 0xff;
+    const uint8_t *fregs;
 
     if ((dev->type == 3) && (func == 2) && (dev->max_func == 1) && (addr >= 0x40))
         ret = 0x00;
@@ -1202,8 +1200,8 @@ board_write(uint16_t port, uint8_t val, void *priv)
 static uint8_t
 board_read(uint16_t port, void *priv)
 {
-    piix_t *dev = (piix_t *) priv;
-    uint8_t ret = 0x64;
+    const piix_t *dev = (piix_t *) priv;
+    uint8_t       ret = 0x64;
 
     if (port == 0x0078)
         ret = dev->board_config[0];
@@ -1444,20 +1442,9 @@ piix_fast_off_count(void *priv)
 }
 
 static void
-piix_usb_update_interrupt(usb_t* usb, void *priv)
-{
-    piix_t *dev = (piix_t *) priv;
-
-    if (usb->irq_level)
-        pci_set_irq(dev->pci_slot, PCI_INTD);
-    else
-        pci_clear_irq(dev->pci_slot, PCI_INTD);
-}
-
-static void
 piix_reset(void *priv)
 {
-    piix_t *dev = (piix_t *) priv;
+    const piix_t *dev = (piix_t *) priv;
 
     if (dev->type > 3) {
         piix_write(3, 0x04, 0x00, priv);
@@ -1554,10 +1541,10 @@ piix_speed_changed(void *priv)
     if (!dev)
         return;
 
-    int te = timer_is_enabled(&dev->fast_off_timer);
+    int to = timer_is_on(&dev->fast_off_timer);
 
     timer_stop(&dev->fast_off_timer);
-    if (te)
+    if (to)
         timer_on_auto(&dev->fast_off_timer, ((double) cpu_fast_off_val + 1) * dev->fast_off_period);
 }
 
@@ -1574,7 +1561,7 @@ piix_init(const device_t *info)
     dev->no_mirq0   = (info->local >> 12) & 0x0f;
     dev->func0_id   = info->local >> 16;
 
-    dev->pci_slot = pci_add_card(PCI_ADD_SOUTHBRIDGE, piix_read, piix_write, dev);
+    pci_add_card(PCI_ADD_SOUTHBRIDGE, piix_read, piix_write, dev, &dev->pci_slot);
     piix_log("PIIX%i: Added to slot: %02X\n", dev->type, dev->pci_slot);
     piix_log("PIIX%i: Added to slot: %02X\n", dev->type, dev->pci_slot);
 
@@ -1598,12 +1585,8 @@ piix_init(const device_t *info)
         sff_set_irq_mode(dev->bm[1], 1, 2);
     }
 
-    if (dev->type >= 3) {
-        dev->usb_params.parent_priv      = dev;
-        dev->usb_params.smi_handle       = NULL;
-        dev->usb_params.update_interrupt = piix_usb_update_interrupt;
-        dev->usb                         = device_add_parameters(&usb_device, &dev->usb_params);
-    }
+    if (dev->type >= 3)
+        dev->usb   = device_add(&usb_device);
 
     if (dev->type > 3) {
         dev->nvr   = device_add(&piix4_nvr_device);

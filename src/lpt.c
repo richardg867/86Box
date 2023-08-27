@@ -45,22 +45,22 @@ static const struct {
   // clang-format on
 };
 
-char *
+const char *
 lpt_device_get_name(int id)
 {
-    if (strlen((char *) lpt_devices[id].internal_name) == 0)
+    if (strlen(lpt_devices[id].internal_name) == 0)
         return NULL;
     if (!lpt_devices[id].device)
         return "None";
-    return (char *) lpt_devices[id].device->name;
+    return lpt_devices[id].device->name;
 }
 
-char *
+const char *
 lpt_device_get_internal_name(int id)
 {
-    if (strlen((char *) lpt_devices[id].internal_name) == 0)
+    if (strlen(lpt_devices[id].internal_name) == 0)
         return NULL;
-    return (char *) lpt_devices[id].internal_name;
+    return lpt_devices[id].internal_name;
 }
 
 int
@@ -68,7 +68,7 @@ lpt_device_get_from_internal_name(char *s)
 {
     int c = 0;
 
-    while (strlen((char *) lpt_devices[c].internal_name) != 0) {
+    while (strlen(lpt_devices[c].internal_name) != 0) {
         if (strcmp(lpt_devices[c].internal_name, s) == 0)
             return c;
         c++;
@@ -124,6 +124,9 @@ lpt_write(uint16_t port, uint8_t val, void *priv)
             dev->ctrl       = val;
             dev->enable_irq = val & 0x10;
             break;
+
+        default:
+            break;
     }
 }
 
@@ -154,7 +157,24 @@ lpt_read(uint16_t port, void *priv)
             else
                 ret = 0xe0 | dev->ctrl | dev->enable_irq;
             break;
+
+        default:
+            break;
     }
+
+    return ret;
+}
+
+uint8_t
+lpt_read_status(int port)
+{
+    lpt_port_t *dev = &(lpt_ports[port]);
+    uint8_t ret = 0xff;
+
+    if (dev->dt && dev->dt->read_status && dev->priv)
+        ret = dev->dt->read_status(dev->priv) | 0x07;
+    else
+        ret = 0xdf;
 
     return ret;
 }
@@ -162,7 +182,7 @@ lpt_read(uint16_t port, void *priv)
 void
 lpt_irq(void *priv, int raise)
 {
-    lpt_port_t *dev = (lpt_port_t *) priv;
+    const lpt_port_t *dev = (lpt_port_t *) priv;
 
     if (dev->enable_irq && (dev->irq != 0xff)) {
         if (raise)

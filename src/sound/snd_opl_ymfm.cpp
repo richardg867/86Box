@@ -29,6 +29,7 @@ extern "C" {
 #include <86box/snd_opl.h>
 #include <86box/mem.h>
 #include <86box/rom.h>
+#include <86box/plat_unused.h>
 
 // Disable c99-designator to avoid the warnings in *_ymfm_device
 #ifdef __clang__
@@ -50,7 +51,7 @@ enum {
 
 class YMFMChipBase {
 public:
-    YMFMChipBase(uint32_t clock, fm_type type, uint32_t samplerate)
+    YMFMChipBase(UNUSED(uint32_t clock), fm_type type, UNUSED(uint32_t samplerate))
         : m_buf_pos(0)
         , m_flags(0)
         , m_type(type)
@@ -149,12 +150,15 @@ public:
     {
         for (uint32_t i = 0; i < num_samples; i++) {
             m_chip.generate(&m_output);
-            if (ChipType::OUTPUTS == 1) {
-                *data++ = m_output.data[(m_type == FM_YMF278B) ? 4 : 0];
-                *data++ = m_output.data[(m_type == FM_YMF278B) ? 4 : 0];
+            if(m_type == FM_YMF278B) {
+                *data++ += m_output.data[4 % ChipType::OUTPUTS];
+                *data++ += m_output.data[5 % ChipType::OUTPUTS];
+            } else if (ChipType::OUTPUTS == 1) {
+                *data++ = m_output.data[0];
+                *data++ = m_output.data[0];
             } else {
-                *data++ = m_output.data[(m_type == FM_YMF278B) ? 4 : 0];
-                *data++ = m_output.data[(m_type == FM_YMF278B) ? 5 : (1 % ChipType::OUTPUTS)];
+                *data++ = m_output.data[0];
+                *data++ = m_output.data[1 % ChipType::OUTPUTS];
             }
         }
     }
@@ -166,12 +170,15 @@ public:
                 m_oldsamples[0] = m_samples[0];
                 m_oldsamples[1] = m_samples[1];
                 m_chip.generate(&m_output);
-                if (ChipType::OUTPUTS == 1) {
-                    m_samples[0] = m_output.data[(m_type == FM_YMF278B) ? 4 : 0];
-                    m_samples[1] = m_output.data[(m_type == FM_YMF278B) ? 4 : 0];
+                if(m_type == FM_YMF278B) {
+                    m_samples[0] += m_output.data[4 % ChipType::OUTPUTS];
+                    m_samples[1] += m_output.data[5 % ChipType::OUTPUTS];
+                } else if (ChipType::OUTPUTS == 1) {
+                    m_samples[0] = m_output.data[0];
+                    m_samples[1] = m_output.data[0];
                 } else {
-                    m_samples[0] = m_output.data[(m_type == FM_YMF278B) ? 4 : 0];
-                    m_samples[1] = m_output.data[(m_type == FM_YMF278B) ? 5 : (1 % ChipType::OUTPUTS)];
+                    m_samples[0] = m_output.data[0];
+                    m_samples[1] = m_output.data[1 % ChipType::OUTPUTS];
                 }
                 m_samplecnt -= m_rateratio;
             }
@@ -295,8 +302,8 @@ ymfm_drv_init(const device_t *info)
     YMFMChipBase *fm;
 
     switch (info->local) {
-        case FM_YM3812:
         default:
+        case FM_YM3812:
             fm = (YMFMChipBase *) new YMFMChip<ymfm::ym3812>(3579545, FM_YM3812, OPL_FREQ);
             break;
 

@@ -35,10 +35,12 @@
 #include <86box/fdc.h>
 #include <86box/sio.h>
 
-typedef struct {
-    uint8_t id, pm_idx,
-        regs[48], ld_regs[256][208],
-        pm[8];
+typedef struct pc87309_t {
+    uint8_t   id;
+    uint8_t   pm_idx;
+    uint8_t   regs[48];
+    uint8_t   ld_regs[256][208];
+    uint8_t   pm[8];
     uint16_t  pm_base;
     int       cur_reg;
     fdc_t    *fdc;
@@ -64,6 +66,9 @@ pc87309_pm_write(uint16_t port, uint8_t val, void *priv)
                 serial_handler(dev, 1);
                 serial_handler(dev, 0);
                 break;
+
+            default:
+                break;
         }
     } else
         dev->pm_idx = val & 0x07;
@@ -72,7 +77,7 @@ pc87309_pm_write(uint16_t port, uint8_t val, void *priv)
 uint8_t
 pc87309_pm_read(uint16_t port, void *priv)
 {
-    pc87309_t *dev = (pc87309_t *) priv;
+    const pc87309_t *dev = (pc87309_t *) priv;
 
     if (port & 1)
         return dev->pm[dev->pm_idx];
@@ -221,6 +226,9 @@ pc87309_write(uint16_t port, uint8_t val, void *priv)
                 case 0x04:
                     pm_handler(dev);
                     break;
+
+                default:
+                    break;
             }
             break;
         case 0x60:
@@ -243,6 +251,9 @@ pc87309_write(uint16_t port, uint8_t val, void *priv)
                     break;
                 case 0x04:
                     pm_handler(dev);
+                    break;
+
+                default:
                     break;
             }
             break;
@@ -275,6 +286,9 @@ pc87309_write(uint16_t port, uint8_t val, void *priv)
                 case 0x06:
                     dev->ld_regs[dev->regs[0x07]][dev->cur_reg - 0x30] = val & 0xf8;
                     break;
+
+                default:
+                    break;
             }
             break;
         case 0x70:
@@ -296,6 +310,9 @@ pc87309_write(uint16_t port, uint8_t val, void *priv)
                 case 0x04:
                     pm_handler(dev);
                     break;
+
+                default:
+                    break;
             }
             break;
         case 0xf0:
@@ -316,11 +333,17 @@ pc87309_write(uint16_t port, uint8_t val, void *priv)
                 case 0x06:
                     dev->ld_regs[dev->regs[0x07]][dev->cur_reg - 0x30] = val & 0xc1;
                     break;
+
+                default:
+                    break;
             }
             break;
         case 0xf1:
             if (dev->regs[0x07] == 0x00)
                 dev->ld_regs[dev->regs[0x07]][dev->cur_reg - 0x30] = val & 0x0f;
+            break;
+
+        default:
             break;
     }
 }
@@ -328,9 +351,9 @@ pc87309_write(uint16_t port, uint8_t val, void *priv)
 uint8_t
 pc87309_read(uint16_t port, void *priv)
 {
-    pc87309_t *dev = (pc87309_t *) priv;
-    uint8_t    ret = 0xff;
-    uint8_t    index;
+    const pc87309_t *dev = (pc87309_t *) priv;
+    uint8_t          ret = 0xff;
+    uint8_t          index;
 
     index = (port & 1) ? 0 : 1;
 
