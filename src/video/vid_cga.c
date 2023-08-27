@@ -12,9 +12,11 @@
  *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
+ *          W. M. Martinez, <anikom15@outlook.com>
  *
  *          Copyright 2008-2019 Sarah Walker.
  *          Copyright 2016-2019 Miran Grca.
+ *          Copyright 2023 W. M. Martinez
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -33,6 +35,7 @@
 #include <86box/video.h>
 #include <86box/vid_cga.h>
 #include <86box/vid_cga_comp.h>
+#include <86box/plat_unused.h>
 
 #define CGA_RGB       0
 #define CGA_COMPOSITE 1
@@ -50,9 +53,9 @@ static video_timings_t timing_cga = { .type = VIDEO_ISA, .write_b = 8, .write_w 
 void cga_recalctimings(cga_t *cga);
 
 void
-cga_out(uint16_t addr, uint8_t val, void *p)
+cga_out(uint16_t addr, uint8_t val, void *priv)
 {
-    cga_t  *cga = (cga_t *) p;
+    cga_t  *cga = (cga_t *) priv;
     uint8_t old;
 
     if ((addr >= 0x3d0) && (addr <= 0x3d7))
@@ -89,13 +92,16 @@ cga_out(uint16_t addr, uint8_t val, void *p)
             if (old ^ val)
                 cga_recalctimings(cga);
             return;
+
+        default:
+            break;
     }
 }
 
 uint8_t
-cga_in(uint16_t addr, void *p)
+cga_in(uint16_t addr, void *priv)
 {
-    cga_t *cga = (cga_t *) p;
+    const cga_t *cga = (cga_t *) priv;
 
     uint8_t ret = 0xff;
 
@@ -112,29 +118,32 @@ cga_in(uint16_t addr, void *p)
         case 0x3DA:
             ret = cga->cgastat;
             break;
+
+        default:
+            break;
     }
 
     return ret;
 }
 
 void
-cga_pravetz_out(uint16_t addr, uint8_t val, void *p)
+cga_pravetz_out(UNUSED(uint16_t addr), uint8_t val, void *priv)
 {
-    cga_t *cga = (cga_t *) p;
+    cga_t *cga = (cga_t *) priv;
 
     cga->fontbase = (((unsigned int) val) << 8);
 }
 
 uint8_t
-cga_pravetz_in(uint16_t addr, void *p)
+cga_pravetz_in(UNUSED(uint16_t addr), void *priv)
 {
-    cga_t *cga = (cga_t *) p;
+    const cga_t *cga = (cga_t *) priv;
 
     return (cga->fontbase >> 8);
 }
 
 void
-cga_waitstates(void *p)
+cga_waitstates(UNUSED(void *priv))
 {
     int ws_array[16] = { 3, 4, 5, 6, 7, 8, 4, 5, 6, 7, 8, 4, 5, 6, 7, 8 };
     int ws;
@@ -144,9 +153,9 @@ cga_waitstates(void *p)
 }
 
 void
-cga_write(uint32_t addr, uint8_t val, void *p)
+cga_write(uint32_t addr, uint8_t val, void *priv)
 {
-    cga_t *cga = (cga_t *) p;
+    cga_t *cga = (cga_t *) priv;
 
     cga->vram[addr & 0x3fff] = val;
     if (cga->snow_enabled) {
@@ -158,9 +167,9 @@ cga_write(uint32_t addr, uint8_t val, void *p)
 }
 
 uint8_t
-cga_read(uint32_t addr, void *p)
+cga_read(uint32_t addr, void *priv)
 {
-    cga_t *cga = (cga_t *) p;
+    cga_t *cga = (cga_t *) priv;
 
     cga_waitstates(cga);
     if (cga->snow_enabled) {
@@ -193,9 +202,9 @@ cga_recalctimings(cga_t *cga)
 }
 
 void
-cga_poll(void *p)
+cga_poll(void *priv)
 {
-    cga_t   *cga = (cga_t *) p;
+    cga_t   *cga = (cga_t *) priv;
     uint16_t ca  = (cga->crtc[15] | (cga->crtc[14] << 8)) & 0x3fff;
     int      drawcursor;
     int      x;
@@ -224,21 +233,21 @@ cga_poll(void *p)
                 video_wait_for_buffer();
             }
             cga->lastline = cga->displine;
-            for (c = 0; c < 8; c++) {
-                if ((cga->cgamode & 0x12) == 0x12) {
-                    buffer32->line[cga->displine << 1][c] = buffer32->line[(cga->displine << 1) + 1][c] = 0;
-                    if (cga->cgamode & 1) {
-                        buffer32->line[cga->displine << 1][c + (cga->crtc[1] << 3) + 8] = buffer32->line[(cga->displine << 1) + 1][c + (cga->crtc[1] << 3) + 8] = 0;
-                    } else {
-                        buffer32->line[cga->displine << 1][c + (cga->crtc[1] << 4) + 8] = buffer32->line[(cga->displine << 1) + 1][c + (cga->crtc[1] << 4) + 8] = 0;
-                    }
-                } else {
-                    buffer32->line[cga->displine << 1][c] = buffer32->line[(cga->displine << 1) + 1][c] = (cga->cgacol & 15) + 16;
-                    if (cga->cgamode & 1) {
-                        buffer32->line[cga->displine << 1][c + (cga->crtc[1] << 3) + 8] = buffer32->line[(cga->displine << 1) + 1][c + (cga->crtc[1] << 3) + 8] = (cga->cgacol & 15) + 16;
-                    } else {
-                        buffer32->line[cga->displine << 1][c + (cga->crtc[1] << 4) + 8] = buffer32->line[(cga->displine << 1) + 1][c + (cga->crtc[1] << 4) + 8] = (cga->cgacol & 15) + 16;
-                    }
+            if ((cga->cgamode & 0x12) == 0x12) {
+                for (c = 0; c < 8; ++c) {
+                    buffer32->line[cga->displine][c] = 0;
+                    if (cga->cgamode & 1)
+                        buffer32->line[cga->displine][c + (cga->crtc[1] << 3) + 8] = 0;
+                    else
+                        buffer32->line[cga->displine][c + (cga->crtc[1] << 4) + 8] = 0;
+                }
+            } else {
+                for (c = 0; c < 8; ++c) {
+                    buffer32->line[cga->displine][c] = (cga->cgacol & 15) + 16;
+                    if (cga->cgamode & 1)
+                        buffer32->line[cga->displine][c + (cga->crtc[1] << 3) + 8] = (cga->cgacol & 15) + 16;
+                    else
+                        buffer32->line[cga->displine][c + (cga->crtc[1] << 4) + 8] = (cga->cgacol & 15) + 16;
                 }
             }
             if (cga->cgamode & 1) {
@@ -258,11 +267,11 @@ cga_poll(void *p)
                         cols[0] = (attr >> 4) + 16;
                     if (drawcursor) {
                         for (c = 0; c < 8; c++) {
-                            buffer32->line[cga->displine << 1][(x << 3) + c + 8] = buffer32->line[(cga->displine << 1) + 1][(x << 3) + c + 8] = cols[(fontdat[chr + cga->fontbase][cga->sc & 7] & (1 << (c ^ 7))) ? 1 : 0] ^ 15;
+                            buffer32->line[cga->displine][(x << 3) + c + 8] = cols[(fontdat[chr + cga->fontbase][cga->sc & 7] & (1 << (c ^ 7))) ? 1 : 0] ^ 15;
                         }
                     } else {
                         for (c = 0; c < 8; c++) {
-                            buffer32->line[cga->displine << 1][(x << 3) + c + 8] = buffer32->line[(cga->displine << 1) + 1][(x << 3) + c + 8] = cols[(fontdat[chr + cga->fontbase][cga->sc & 7] & (1 << (c ^ 7))) ? 1 : 0];
+                            buffer32->line[cga->displine][(x << 3) + c + 8] = cols[(fontdat[chr + cga->fontbase][cga->sc & 7] & (1 << (c ^ 7))) ? 1 : 0];
                         }
                     }
                     cga->ma++;
@@ -285,11 +294,15 @@ cga_poll(void *p)
                     cga->ma++;
                     if (drawcursor) {
                         for (c = 0; c < 8; c++) {
-                            buffer32->line[cga->displine << 1][(x << 4) + (c << 1) + 8] = buffer32->line[cga->displine << 1][(x << 4) + (c << 1) + 1 + 8] = buffer32->line[(cga->displine << 1) + 1][(x << 4) + (c << 1) + 8] = buffer32->line[(cga->displine << 1) + 1][(x << 4) + (c << 1) + 1 + 8] = cols[(fontdat[chr + cga->fontbase][cga->sc & 7] & (1 << (c ^ 7))) ? 1 : 0] ^ 15;
+                            buffer32->line[cga->displine][(x << 4) + (c << 1) + 8]
+                                = buffer32->line[cga->displine][(x << 4) + (c << 1) + 9]
+                                = cols[(fontdat[chr + cga->fontbase][cga->sc & 7] & (1 << (c ^ 7))) ? 1 : 0] ^ 15;
                         }
                     } else {
                         for (c = 0; c < 8; c++) {
-                            buffer32->line[cga->displine << 1][(x << 4) + (c << 1) + 8] = buffer32->line[cga->displine << 1][(x << 4) + (c << 1) + 1 + 8] = buffer32->line[(cga->displine << 1) + 1][(x << 4) + (c << 1) + 8] = buffer32->line[(cga->displine << 1) + 1][(x << 4) + (c << 1) + 1 + 8] = cols[(fontdat[chr + cga->fontbase][cga->sc & 7] & (1 << (c ^ 7))) ? 1 : 0];
+                            buffer32->line[cga->displine][(x << 4) + (c << 1) + 8]
+                                = buffer32->line[cga->displine][(x << 4) + (c << 1) + 9] 
+                                = cols[(fontdat[chr + cga->fontbase][cga->sc & 7] & (1 << (c ^ 7))) ? 1 : 0];
                         }
                     }
                 }
@@ -316,7 +329,9 @@ cga_poll(void *p)
                         dat = 0;
                     cga->ma++;
                     for (c = 0; c < 8; c++) {
-                        buffer32->line[cga->displine << 1][(x << 4) + (c << 1) + 8] = buffer32->line[cga->displine << 1][(x << 4) + (c << 1) + 1 + 8] = buffer32->line[(cga->displine << 1) + 1][(x << 4) + (c << 1) + 8] = buffer32->line[(cga->displine << 1) + 1][(x << 4) + (c << 1) + 1 + 8] = cols[dat >> 14];
+                        buffer32->line[cga->displine][(x << 4) + (c << 1) + 8]
+                            = buffer32->line[cga->displine][(x << 4) + (c << 1) + 9]
+                            = cols[dat >> 14];
                         dat <<= 2;
                     }
                 }
@@ -330,7 +345,7 @@ cga_poll(void *p)
                         dat = 0;
                     cga->ma++;
                     for (c = 0; c < 16; c++) {
-                        buffer32->line[cga->displine << 1][(x << 4) + c + 8] = buffer32->line[(cga->displine << 1) + 1][(x << 4) + c + 8] = cols[dat >> 15];
+                        buffer32->line[cga->displine][(x << 4) + c + 8] = cols[dat >> 15];
                         dat <<= 1;
                     }
                 }
@@ -338,11 +353,9 @@ cga_poll(void *p)
         } else {
             cols[0] = ((cga->cgamode & 0x12) == 0x12) ? 0 : (cga->cgacol & 15) + 16;
             if (cga->cgamode & 1) {
-                hline(buffer32, 0, (cga->displine << 1), ((cga->crtc[1] << 3) + 16) << 2, cols[0]);
-                hline(buffer32, 0, (cga->displine << 1) + 1, ((cga->crtc[1] << 3) + 16) << 2, cols[0]);
+                hline(buffer32, 0, cga->displine, (cga->crtc[1] << 3) + 16, cols[0]);
             } else {
-                hline(buffer32, 0, (cga->displine << 1), ((cga->crtc[1] << 4) + 16) << 2, cols[0]);
-                hline(buffer32, 0, (cga->displine << 1) + 1, ((cga->crtc[1] << 4) + 16) << 2, cols[0]);
+                hline(buffer32, 0, cga->displine, (cga->crtc[1] << 4) + 16, cols[0]);
             }
         }
 
@@ -354,11 +367,9 @@ cga_poll(void *p)
         if (cga->composite) {
             border = ((cga->cgamode & 0x12) == 0x12) ? 0 : (cga->cgacol & 15);
 
-            Composite_Process(cga->cgamode, border, x >> 2, buffer32->line[cga->displine << 1]);
-            Composite_Process(cga->cgamode, border, x >> 2, buffer32->line[(cga->displine << 1) + 1]);
+            Composite_Process(cga->cgamode, border, x >> 2, buffer32->line[cga->displine]);
         } else {
-            video_process_8(x, cga->displine << 1);
-            video_process_8(x, (cga->displine << 1) + 1);
+            video_process_8(x, cga->displine);
         }
 
         cga->sc = oldsc;
@@ -433,31 +444,31 @@ cga_poll(void *p)
                     cga->lastline++;
 
                     xs_temp = x;
-                    ys_temp = (cga->lastline - cga->firstline) << 1;
+                    ys_temp = cga->lastline - cga->firstline;
 
                     if ((xs_temp > 0) && (ys_temp > 0)) {
                         if (xs_temp < 64)
                             xs_temp = 656;
                         if (ys_temp < 32)
-                            ys_temp = 400;
+                            ys_temp = 200;
                         if (!enable_overscan)
                             xs_temp -= 16;
 
                         if ((cga->cgamode & 8) && ((xs_temp != xsize) || (ys_temp != ysize) || video_force_resize_get())) {
                             xsize = xs_temp;
                             ysize = ys_temp;
-                            set_screen_size(xsize, ysize + (enable_overscan ? 16 : 0));
+                            set_screen_size(xsize, ysize + (enable_overscan ? 8 : 0));
 
                             if (video_force_resize_get())
                                 video_force_resize_set(0);
                         }
 
                         if (enable_overscan) {
-                            video_blit_memtoscreen(0, (cga->firstline - 4) << 1,
-                                                   xsize, ((cga->lastline - cga->firstline) + 8) << 1);
+                            video_blit_memtoscreen(0, cga->firstline - 4,
+                                                   xsize, (cga->lastline - cga->firstline) + 8);
                         } else {
-                            video_blit_memtoscreen(8, cga->firstline << 1,
-                                                   xsize, (cga->lastline - cga->firstline) << 1);
+                            video_blit_memtoscreen(8, cga->firstline,
+                                                   xsize, cga->lastline - cga->firstline);
                         }
                     }
 
@@ -508,7 +519,7 @@ cga_init(cga_t *cga)
 }
 
 void *
-cga_standalone_init(const device_t *info)
+cga_standalone_init(UNUSED(const device_t *info))
 {
     int    display_type;
     cga_t *cga = malloc(sizeof(cga_t));
@@ -554,18 +565,18 @@ cga_pravetz_init(const device_t *info)
 }
 
 void
-cga_close(void *p)
+cga_close(void *priv)
 {
-    cga_t *cga = (cga_t *) p;
+    cga_t *cga = (cga_t *) priv;
 
     free(cga->vram);
     free(cga);
 }
 
 void
-cga_speed_changed(void *p)
+cga_speed_changed(void *priv)
 {
-    cga_t *cga = (cga_t *) p;
+    cga_t *cga = (cga_t *) priv;
 
     cga_recalctimings(cga);
 }

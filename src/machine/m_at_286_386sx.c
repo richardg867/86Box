@@ -10,11 +10,9 @@
  *
  *
  *
- * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
- *          Miran Grca, <mgrca8@gmail.com>
+ * Authors: Miran Grca, <mgrca8@gmail.com>
  *          EngiNerd <webmaster.crrc@yahoo.it>
  *
- *          Copyright 2010-2019 Sarah Walker.
  *          Copyright 2016-2019 Miran Grca.
  *          Copyright 2020 EngiNerd.
  */
@@ -807,10 +805,6 @@ machine_at_pc8_init(const machine_t *model)
     return ret;
 }
 
-/*
- * Current bugs:
- * - ctrl-alt-del produces an 8042 error
- */
 int
 machine_at_3302_init(const machine_t *model)
 {
@@ -820,8 +814,8 @@ machine_at_3302_init(const machine_t *model)
                            0x000f0000, 65536, 0);
 
     if (ret) {
-        bios_load_aux_linear("roms/machines/3302/f800-setup_ncr3.5-013190.bin",
-                             0x000f8000, 32768, 0);
+        ret &= bios_load_aux_linear("roms/machines/3302/f800-setup_ncr3.5-013190.bin",
+                                    0x000f8000, 32768, 0);
     }
 
     if (bios_only || !ret)

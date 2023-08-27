@@ -424,11 +424,12 @@ typedef struct mystique_t {
         xcolkeyl, xcolkeyh,
         xcrcbitsel;
 
+    uint8_t pci_slot, irq_state, pad, pad0;
+
     uint8_t pci_regs[256], crtcext_regs[6],
         xreg_regs[256], dmamap[16];
 
-    int card, vram_size, crtcext_idx, xreg_idx,
-        xzoomctrl,
+    int vram_size, crtcext_idx, xreg_idx, xzoomctrl,
         pixel_count, trap_count;
 
     atomic_int busy, blitter_submit_refcount,
@@ -633,28 +634,28 @@ static void wake_fifo_thread(mystique_t *mystique);
 static void wait_fifo_idle(mystique_t *mystique);
 static void mystique_queue(mystique_t *mystique, uint32_t addr, uint32_t val, uint32_t type);
 
-static uint8_t  mystique_readb_linear(uint32_t addr, void *p);
-static uint16_t mystique_readw_linear(uint32_t addr, void *p);
-static uint32_t mystique_readl_linear(uint32_t addr, void *p);
-static void     mystique_writeb_linear(uint32_t addr, uint8_t val, void *p);
-static void     mystique_writew_linear(uint32_t addr, uint16_t val, void *p);
-static void     mystique_writel_linear(uint32_t addr, uint32_t val, void *p);
+static uint8_t  mystique_readb_linear(uint32_t addr, void *priv);
+static uint16_t mystique_readw_linear(uint32_t addr, void *priv);
+static uint32_t mystique_readl_linear(uint32_t addr, void *priv);
+static void     mystique_writeb_linear(uint32_t addr, uint8_t val, void *priv);
+static void     mystique_writew_linear(uint32_t addr, uint16_t val, void *priv);
+static void     mystique_writel_linear(uint32_t addr, uint32_t val, void *priv);
 
 static void mystique_recalc_mapping(mystique_t *mystique);
 static int  mystique_line_compare(svga_t *svga);
 
-static uint8_t  mystique_iload_read_b(uint32_t addr, void *p);
-static uint32_t mystique_iload_read_l(uint32_t addr, void *p);
-static void     mystique_iload_write_b(uint32_t addr, uint8_t val, void *p);
-static void     mystique_iload_write_l(uint32_t addr, uint32_t val, void *p);
+static uint8_t  mystique_iload_read_b(uint32_t addr, void *priv);
+static uint32_t mystique_iload_read_l(uint32_t addr, void *priv);
+static void     mystique_iload_write_b(uint32_t addr, uint8_t val, void *priv);
+static void     mystique_iload_write_l(uint32_t addr, uint32_t val, void *priv);
 
 static uint32_t blit_idump_read(mystique_t *mystique);
 static void     blit_iload_write(mystique_t *mystique, uint32_t data, int size);
 
 void
-mystique_out(uint16_t addr, uint8_t val, void *p)
+mystique_out(uint16_t addr, uint8_t val, void *priv)
 {
-    mystique_t *mystique = (mystique_t *) p;
+    mystique_t *mystique = (mystique_t *) priv;
     svga_t     *svga     = &mystique->svga;
     uint8_t     old;
 
@@ -664,6 +665,7 @@ mystique_out(uint16_t addr, uint8_t val, void *p)
     switch (addr) {
         case 0x3c8:
             mystique->xreg_idx = val;
+            fallthrough;
         case 0x3c6:
         case 0x3c7:
         case 0x3c9:
@@ -740,15 +742,18 @@ mystique_out(uint16_t addr, uint8_t val, void *p)
                 }
             }
             break;
+
+        default:
+            break;
     }
 
     svga_out(addr, val, svga);
 }
 
 uint8_t
-mystique_in(uint16_t addr, void *p)
+mystique_in(uint16_t addr, void *priv)
 {
-    mystique_t *mystique = (mystique_t *) p;
+    mystique_t *mystique = (mystique_t *) priv;
     svga_t     *svga     = &mystique->svga;
     uint8_t     temp     = 0xff;
 
@@ -803,7 +808,7 @@ mystique_in(uint16_t addr, void *p)
 static int
 mystique_line_compare(svga_t *svga)
 {
-    mystique_t *mystique = (mystique_t *) svga->p;
+    mystique_t *mystique = (mystique_t *) svga->priv;
 
     mystique->status |= STATUS_VLINEPEN;
     mystique_update_irqs(mystique);
@@ -814,7 +819,7 @@ mystique_line_compare(svga_t *svga)
 static void
 mystique_vsync_callback(svga_t *svga)
 {
-    mystique_t *mystique = (mystique_t *) svga->p;
+    mystique_t *mystique = (mystique_t *) svga->priv;
 
     if (svga->crtc[0x11] & 0x10) {
         mystique->status |= STATUS_VSYNCPEN;
@@ -823,9 +828,9 @@ mystique_vsync_callback(svga_t *svga)
 }
 
 static float
-mystique_getclock(int clock, void *p)
+mystique_getclock(int clock, void *priv)
 {
-    mystique_t *mystique = (mystique_t *) p;
+    const mystique_t *mystique = (mystique_t *) priv;
 
     if (clock == 0)
         return 25175000.0;
@@ -845,7 +850,7 @@ mystique_getclock(int clock, void *p)
 void
 mystique_recalctimings(svga_t *svga)
 {
-    mystique_t *mystique = (mystique_t *) svga->p;
+    mystique_t *mystique = (mystique_t *) svga->priv;
     int         clk_sel  = (svga->miscout >> 2) & 3;
 
     svga->clock = (cpuclock * (float) (1ULL << 32)) / svga->getclock(clk_sel & 3, svga->clock_gen);
@@ -923,6 +928,9 @@ mystique_recalctimings(svga_t *svga)
                     svga->render = svga_render_32bpp_highres;
                     svga->bpp    = 32;
                     break;
+
+                default:
+                    break;
             }
         } else {
             switch (svga->bpp) {
@@ -940,6 +948,9 @@ mystique_recalctimings(svga_t *svga)
                     break;
                 case 32:
                     svga->render = svga_render_32bpp_highres;
+                    break;
+
+                default:
                     break;
             }
         }
@@ -1002,6 +1013,9 @@ mystique_recalc_mapping(mystique_t *mystique)
                 mem_mapping_set_addr(&svga->mapping, 0xb8000, 0x08000);
                 svga->banked_mask = 0x7fff;
                 break;
+
+            default:
+                break;
         }
         if (svga->gdcreg[6] & 0xc) {
             /*64k banks*/
@@ -1019,8 +1033,8 @@ mystique_recalc_mapping(mystique_t *mystique)
 static void
 mystique_update_irqs(mystique_t *mystique)
 {
-    svga_t *svga = &mystique->svga;
-    int     irq  = 0;
+    const svga_t *svga = &mystique->svga;
+    int           irq  = 0;
 
     if ((mystique->status & mystique->ien) & STATUS_SOFTRAPEN)
         irq = 1;
@@ -1028,9 +1042,9 @@ mystique_update_irqs(mystique_t *mystique)
         irq = 1;
 
     if (irq)
-        pci_set_irq(mystique->card, PCI_INTA);
+        pci_set_irq(mystique->pci_slot, PCI_INTA, &mystique->irq_state);
     else
-        pci_clear_irq(mystique->card, PCI_INTA);
+        pci_clear_irq(mystique->pci_slot, PCI_INTA, &mystique->irq_state);
 }
 
 #define READ8(addr, var)                \
@@ -1361,9 +1375,9 @@ mystique_write_xreg(mystique_t *mystique, int reg, uint8_t val)
 }
 
 static uint8_t
-mystique_ctrl_read_b(uint32_t addr, void *p)
+mystique_ctrl_read_b(uint32_t addr, void *priv)
 {
-    mystique_t *mystique = (mystique_t *) p;
+    mystique_t *mystique = (mystique_t *) priv;
     svga_t     *svga     = &mystique->svga;
     uint8_t     ret      = 0xff;
     int         fifocount;
@@ -1586,9 +1600,9 @@ mystique_ctrl_read_b(uint32_t addr, void *p)
 }
 
 static void
-mystique_accel_ctrl_write_b(uint32_t addr, uint8_t val, void *p)
+mystique_accel_ctrl_write_b(uint32_t addr, uint8_t val, void *priv)
 {
-    mystique_t *mystique   = (mystique_t *) p;
+    mystique_t *mystique   = (mystique_t *) priv;
     int         start_blit = 0;
 
     if ((addr & 0x300) == 0x100) {
@@ -1705,7 +1719,9 @@ mystique_accel_ctrl_write_b(uint32_t addr, uint8_t val, void *p)
         case REG_YDSTLEN:
         case REG_YDSTLEN + 1:
             WRITE8(addr, mystique->dwgreg.length, val);
-            /* pclog("Write YDSTLEN+%i %i\n", addr&1, mystique->dwgreg.length); */
+#if 0
+            pclog("Write YDSTLEN+%i %i\n", addr&1, mystique->dwgreg.length);
+#endif
             break;
         case REG_YDSTLEN + 2:
             mystique->dwgreg.ydst = (mystique->dwgreg.ydst & ~0xff) | val;
@@ -1924,9 +1940,9 @@ mystique_accel_ctrl_write_b(uint32_t addr, uint8_t val, void *p)
 }
 
 static void
-mystique_ctrl_write_b(uint32_t addr, uint8_t val, void *p)
+mystique_ctrl_write_b(uint32_t addr, uint8_t val, void *priv)
 {
-    mystique_t *mystique  = (mystique_t *) p;
+    mystique_t *mystique  = (mystique_t *) priv;
     svga_t     *svga      = &mystique->svga;
     uint16_t    addr_0x0f = 0;
     uint16_t    addr_0x03 = 0;
@@ -1962,7 +1978,7 @@ mystique_ctrl_write_b(uint32_t addr, uint8_t val, void *p)
     }
 
     if ((addr & 0x3fff) < 0x1c00) {
-        mystique_iload_write_b(addr, val, p);
+        mystique_iload_write_b(addr, val, priv);
         return;
     }
     if ((addr & 0x3e00) == 0x1c00 || (addr & 0x3e00) == 0x2c00) {
@@ -2144,25 +2160,25 @@ mystique_ctrl_write_b(uint32_t addr, uint8_t val, void *p)
 }
 
 static uint32_t
-mystique_ctrl_read_l(uint32_t addr, void *p)
+mystique_ctrl_read_l(uint32_t addr, void *priv)
 {
     uint32_t ret;
 
     if ((addr & 0x3fff) < 0x1c00)
-        return mystique_iload_read_l(addr, p);
+        return mystique_iload_read_l(addr, priv);
 
-    ret = mystique_ctrl_read_b(addr, p);
-    ret |= mystique_ctrl_read_b(addr + 1, p) << 8;
-    ret |= mystique_ctrl_read_b(addr + 2, p) << 16;
-    ret |= mystique_ctrl_read_b(addr + 3, p) << 24;
+    ret = mystique_ctrl_read_b(addr, priv);
+    ret |= mystique_ctrl_read_b(addr + 1, priv) << 8;
+    ret |= mystique_ctrl_read_b(addr + 2, priv) << 16;
+    ret |= mystique_ctrl_read_b(addr + 3, priv) << 24;
 
     return ret;
 }
 
 static void
-mystique_accel_ctrl_write_l(uint32_t addr, uint32_t val, void *p)
+mystique_accel_ctrl_write_l(uint32_t addr, uint32_t val, void *priv)
 {
-    mystique_t *mystique   = (mystique_t *) p;
+    mystique_t *mystique   = (mystique_t *) priv;
     int         start_blit = 0;
 
     if ((addr & 0x300) == 0x100) {
@@ -2256,7 +2272,9 @@ mystique_accel_ctrl_write_l(uint32_t addr, uint32_t val, void *p)
                         mystique->dwgreg.pattern[y][x] = val & (1 << (x + (y * 16)));
                     }
                 }
-                // pclog("SRC0 = 0x%08X\n", val);
+#if 0
+                pclog("SRC0 = 0x%08X\n", val);
+#endif
                 if (mystique->busy && (mystique->dwgreg.dwgctrl_running & DWGCTRL_OPCODE_MASK) == DWGCTRL_OPCODE_ILOAD)
                     blit_iload_write(mystique, mystique->dwgreg.src[0], 32);
             }
@@ -2269,7 +2287,9 @@ mystique_accel_ctrl_write_l(uint32_t addr, uint32_t val, void *p)
                         mystique->dwgreg.pattern[y][x] = val & (1 << (x + ((y - 2) * 16)));
                     }
                 }
-                // pclog("SRC1 = 0x%08X\n", val);
+#if 0
+                pclog("SRC1 = 0x%08X\n", val);
+#endif
                 if (mystique->busy && (mystique->dwgreg.dwgctrl_running & DWGCTRL_OPCODE_MASK) == DWGCTRL_OPCODE_ILOAD)
                     blit_iload_write(mystique, mystique->dwgreg.src[1], 32);
             }
@@ -2282,7 +2302,9 @@ mystique_accel_ctrl_write_l(uint32_t addr, uint32_t val, void *p)
                         mystique->dwgreg.pattern[y][x] = val & (1 << (x + ((y - 4) * 16)));
                     }
                 }
-                // pclog("SRC2 = 0x%08X\n", val);
+#if 0
+                pclog("SRC2 = 0x%08X\n", val);
+#endif
                 if (mystique->busy && (mystique->dwgreg.dwgctrl_running & DWGCTRL_OPCODE_MASK) == DWGCTRL_OPCODE_ILOAD)
                     blit_iload_write(mystique, mystique->dwgreg.src[2], 32);
                 break;
@@ -2295,7 +2317,9 @@ mystique_accel_ctrl_write_l(uint32_t addr, uint32_t val, void *p)
                         mystique->dwgreg.pattern[y][x] = val & (1 << (x + ((y - 6) * 16)));
                     }
                 }
-                // pclog("SRC3 = 0x%08X\n", val);
+#if 0
+                pclog("SRC3 = 0x%08X\n", val);
+#endif
                 if (mystique->busy && (mystique->dwgreg.dwgctrl_running & DWGCTRL_OPCODE_MASK) == DWGCTRL_OPCODE_ILOAD)
                     blit_iload_write(mystique, mystique->dwgreg.src[3], 32);
                 break;
@@ -2379,10 +2403,10 @@ mystique_accel_ctrl_write_l(uint32_t addr, uint32_t val, void *p)
             break;
 
         default:
-            mystique_accel_ctrl_write_b(addr, val & 0xff, p);
-            mystique_accel_ctrl_write_b(addr + 1, (val >> 8) & 0xff, p);
-            mystique_accel_ctrl_write_b(addr + 2, (val >> 16) & 0xff, p);
-            mystique_accel_ctrl_write_b(addr + 3, (val >> 24) & 0xff, p);
+            mystique_accel_ctrl_write_b(addr, val & 0xff, priv);
+            mystique_accel_ctrl_write_b(addr + 1, (val >> 8) & 0xff, priv);
+            mystique_accel_ctrl_write_b(addr + 2, (val >> 16) & 0xff, priv);
+            mystique_accel_ctrl_write_b(addr + 3, (val >> 24) & 0xff, priv);
             break;
     }
 
@@ -2391,13 +2415,13 @@ mystique_accel_ctrl_write_l(uint32_t addr, uint32_t val, void *p)
 }
 
 static void
-mystique_ctrl_write_l(uint32_t addr, uint32_t val, void *p)
+mystique_ctrl_write_l(uint32_t addr, uint32_t val, void *priv)
 {
-    mystique_t *mystique = (mystique_t *) p;
+    mystique_t *mystique = (mystique_t *) priv;
     uint32_t    reg_addr;
 
     if ((addr & 0x3fff) < 0x1c00) {
-        mystique_iload_write_l(addr, val, p);
+        mystique_iload_write_l(addr, val, priv);
         return;
     }
 
@@ -2452,18 +2476,18 @@ mystique_ctrl_write_l(uint32_t addr, uint32_t val, void *p)
             break;
 
         default:
-            mystique_ctrl_write_b(addr, val & 0xff, p);
-            mystique_ctrl_write_b(addr + 1, (val >> 8) & 0xff, p);
-            mystique_ctrl_write_b(addr + 2, (val >> 16) & 0xff, p);
-            mystique_ctrl_write_b(addr + 3, (val >> 24) & 0xff, p);
+            mystique_ctrl_write_b(addr, val & 0xff, priv);
+            mystique_ctrl_write_b(addr + 1, (val >> 8) & 0xff, priv);
+            mystique_ctrl_write_b(addr + 2, (val >> 16) & 0xff, priv);
+            mystique_ctrl_write_b(addr + 3, (val >> 24) & 0xff, priv);
             break;
     }
 }
 
 static uint8_t
-mystique_iload_read_b(uint32_t addr, void *p)
+mystique_iload_read_b(UNUSED(uint32_t addr), void *priv)
 {
-    mystique_t *mystique = (mystique_t *) p;
+    mystique_t *mystique = (mystique_t *) priv;
 
     wait_fifo_idle(mystique);
 
@@ -2474,9 +2498,9 @@ mystique_iload_read_b(uint32_t addr, void *p)
 }
 
 static uint32_t
-mystique_iload_read_l(uint32_t addr, void *p)
+mystique_iload_read_l(UNUSED(uint32_t addr), void *priv)
 {
-    mystique_t *mystique = (mystique_t *) p;
+    mystique_t *mystique = (mystique_t *) priv;
 
     wait_fifo_idle(mystique);
 
@@ -2488,22 +2512,23 @@ mystique_iload_read_l(uint32_t addr, void *p)
 }
 
 static void
-mystique_iload_write_b(uint32_t addr, uint8_t val, void *p)
+mystique_iload_write_b(UNUSED(uint32_t addr), UNUSED(uint8_t val), UNUSED(void *priv))
 {
+    //
 }
 
 static void
-mystique_iload_write_l(uint32_t addr, uint32_t val, void *p)
+mystique_iload_write_l(UNUSED(uint32_t addr), uint32_t val, void *priv)
 {
-    mystique_t *mystique = (mystique_t *) p;
+    mystique_t *mystique = (mystique_t *) priv;
 
     mystique_queue(mystique, 0, val, FIFO_WRITE_ILOAD_LONG);
 }
 
 static void
-mystique_accel_iload_write_l(uint32_t addr, uint32_t val, void *p)
+mystique_accel_iload_write_l(UNUSED(uint32_t addr), uint32_t val, void *priv)
 {
-    mystique_t *mystique = (mystique_t *) p;
+    mystique_t *mystique = (mystique_t *) priv;
 
     switch (mystique->dwgreg.dmamod) {
         case DMA_MODE_REG:
@@ -2531,15 +2556,18 @@ mystique_accel_iload_write_l(uint32_t addr, uint32_t val, void *p)
                 blit_iload_write(mystique, val, 32);
             break;
 
-            /* default:
-                    pclog("ILOAD write DMAMOD %i\n", mystique->dwgreg.dmamod); */
+        default:
+#if 0
+            pclog("ILOAD write DMAMOD %i\n", mystique->dwgreg.dmamod); */
+#endif
+            break;
     }
 }
 
 static uint8_t
-mystique_readb_linear(uint32_t addr, void *p)
+mystique_readb_linear(uint32_t addr, void *priv)
 {
-    svga_t *svga = (svga_t *) p;
+    const svga_t *svga = (svga_t *) priv;
 
     cycles -= video_timing_read_b;
 
@@ -2551,9 +2579,9 @@ mystique_readb_linear(uint32_t addr, void *p)
 }
 
 static uint16_t
-mystique_readw_linear(uint32_t addr, void *p)
+mystique_readw_linear(uint32_t addr, void *priv)
 {
-    svga_t *svga = (svga_t *) p;
+    svga_t *svga = (svga_t *) priv;
 
     cycles -= video_timing_read_w;
 
@@ -2565,9 +2593,9 @@ mystique_readw_linear(uint32_t addr, void *p)
 }
 
 static uint32_t
-mystique_readl_linear(uint32_t addr, void *p)
+mystique_readl_linear(uint32_t addr, void *priv)
 {
-    svga_t *svga = (svga_t *) p;
+    svga_t *svga = (svga_t *) priv;
 
     cycles -= video_timing_read_l;
 
@@ -2579,9 +2607,9 @@ mystique_readl_linear(uint32_t addr, void *p)
 }
 
 static void
-mystique_writeb_linear(uint32_t addr, uint8_t val, void *p)
+mystique_writeb_linear(uint32_t addr, uint8_t val, void *priv)
 {
-    svga_t *svga = (svga_t *) p;
+    svga_t *svga = (svga_t *) priv;
 
     cycles -= video_timing_write_b;
 
@@ -2594,9 +2622,9 @@ mystique_writeb_linear(uint32_t addr, uint8_t val, void *p)
 }
 
 static void
-mystique_writew_linear(uint32_t addr, uint16_t val, void *p)
+mystique_writew_linear(uint32_t addr, uint16_t val, void *priv)
 {
-    svga_t *svga = (svga_t *) p;
+    svga_t *svga = (svga_t *) priv;
 
     cycles -= video_timing_write_w;
 
@@ -2609,9 +2637,9 @@ mystique_writew_linear(uint32_t addr, uint16_t val, void *p)
 }
 
 static void
-mystique_writel_linear(uint32_t addr, uint32_t val, void *p)
+mystique_writel_linear(uint32_t addr, uint32_t val, void *priv)
 {
-    svga_t *svga = (svga_t *) p;
+    svga_t *svga = (svga_t *) priv;
 
     cycles -= video_timing_write_l;
 
@@ -2744,6 +2772,9 @@ run_dma(mystique_t *mystique)
                         fatal("DMA_STATE_SEC: mode %i\n", mystique->dma.secaddress & DMA_MODE_MASK);
                 }
                 break;
+
+            default:
+                break;
         }
     }
 
@@ -2751,9 +2782,9 @@ run_dma(mystique_t *mystique)
 }
 
 static void
-fifo_thread(void *p)
+fifo_thread(void *priv)
 {
-    mystique_t *mystique = (mystique_t *) p;
+    mystique_t *mystique = (mystique_t *) priv;
 
     while (mystique->thread_run) {
         thread_set_event(mystique->fifo_not_full_event);
@@ -2775,6 +2806,9 @@ fifo_thread(void *p)
                         break;
                     case FIFO_WRITE_ILOAD_LONG:
                         mystique_accel_iload_write_l(fifo->addr_type & FIFO_ADDR, fifo->val, mystique);
+                        break;
+
+                    default:
                         break;
                 }
 
@@ -2815,9 +2849,9 @@ wake_fifo_thread_now(mystique_t *mystique)
 }
 
 static void
-mystique_wake_timer(void *p)
+mystique_wake_timer(void *priv)
 {
-    mystique_t *mystique = (mystique_t *) p;
+    mystique_t *mystique = (mystique_t *) priv;
 
     thread_set_event(mystique->wake_fifo_thread); /*Wake up FIFO thread if moving from idle*/
 }
@@ -2837,9 +2871,9 @@ wait_fifo_idle(mystique_t *mystique)
   SOFTRAP IRQs and code reading the status register. Croc will get into an IRQ
   loop and triple fault if the ENDPRDMASTS flag is seen before the IRQ is taken*/
 static void
-mystique_softrap_pending_timer(void *p)
+mystique_softrap_pending_timer(void *priv)
 {
-    mystique_t *mystique = (mystique_t *) p;
+    mystique_t *mystique = (mystique_t *) priv;
 
     timer_advance_u64(&mystique->softrap_pending_timer, TIMER_USEC * 100);
 
@@ -2912,6 +2946,9 @@ bitop(uint32_t src, uint32_t dst, uint32_t dwgctrl)
             return dst | src;
         case BOP(0xf):
             return ~0;
+
+        default:
+            break;
     }
 
     return 0;
@@ -3267,6 +3304,9 @@ blit_iload_iload(mystique_t *mystique, uint32_t data, int size)
                             break;
                         case MACCESS_PWIDTH_32:
                             min_size = 32;
+                            break;
+
+                        default:
                             break;
                     }
 
@@ -3825,10 +3865,10 @@ blit_iload_iload_high(mystique_t *mystique, uint32_t data, int size)
 }
 
 static void
-blit_iload_iload_highv(mystique_t *mystique, uint32_t data, int size)
+blit_iload_iload_highv(mystique_t *mystique, uint32_t data, UNUSED(int size))
 {
-    uint8_t *src0;
-    uint8_t *src1;
+    const uint8_t *src0;
+    uint8_t       *src1;
 
     switch (mystique->dwgreg.dwgctrl_running & DWGCTRL_BLTMOD_MASK) {
         case DWGCTRL_BLTMOD_BUYUV:
@@ -3904,7 +3944,7 @@ z_check(uint16_t z, uint16_t old_z, uint32_t z_mode) // mystique->dwgreg.dwgctrl
 }
 
 static void
-blit_line(mystique_t *mystique, int closed)
+blit_line(mystique_t *mystique, UNUSED(int closed))
 {
     svga_t  *svga = &mystique->svga;
     uint32_t src;
@@ -4047,7 +4087,9 @@ blit_line(mystique_t *mystique, int closed)
             break;
 
         default:
-            /* pclog("Unknown atype %03x %08x LINE\n", mystique->dwgreg.dwgctrl_running & DWGCTRL_ATYPE_MASK, mystique->dwgreg.dwgctrl_running); */
+#if 0
+            pclog("Unknown atype %03x %08x LINE\n", mystique->dwgreg.dwgctrl_running & DWGCTRL_ATYPE_MASK, mystique->dwgreg.dwgctrl_running);
+#endif
             break;
     }
 
@@ -4393,8 +4435,8 @@ texture_read(mystique_t *mystique, int *tex_r, int *tex_g, int *tex_b, int *atra
         const int t_shift = (20 + 16) - (mystique->dwgreg.texheight & TEXHEIGHT_TH_MASK);
         int64_t   q       = mystique->dwgreg.tmr[8] ? (0x100000000LL / (int64_t) (int32_t) mystique->dwgreg.tmr[8] /*>> 16*/) : 0;
 
-        s = (((int64_t) (int32_t) mystique->dwgreg.tmr[6] * q) /*<< 8*/) >> s_shift; /*((16+20)-12);*/
-        t = (((int64_t) (int32_t) mystique->dwgreg.tmr[7] * q) /*<< 8*/) >> t_shift; /*((16+20)-9);*/
+        s = ((int64_t) (int32_t) mystique->dwgreg.tmr[6] * q /*<< 8*/) >> s_shift; /*((16+20)-12);*/
+        t = ((int64_t) (int32_t) mystique->dwgreg.tmr[7] * q /*<< 8*/) >> t_shift; /*((16+20)-9);*/
     }
 
     if (mystique->dwgreg.texctl & TEXCTL_CLAMPU) {
@@ -4922,7 +4964,9 @@ blit_bitblt(mystique_t *mystique)
             break;
 
         default:
-            /* pclog("Unknown BITBLT atype %03x %08x\n", mystique->dwgreg.dwgctrl_running & DWGCTRL_ATYPE_MASK, mystique->dwgreg.dwgctrl_running); */
+#if 0
+            pclog("Unknown BITBLT atype %03x %08x\n", mystique->dwgreg.dwgctrl_running & DWGCTRL_ATYPE_MASK, mystique->dwgreg.dwgctrl_running);
+#endif
             break;
     }
 
@@ -4936,7 +4980,9 @@ blit_iload(mystique_t *mystique)
         case DWGCTRL_ATYPE_RPL:
         case DWGCTRL_ATYPE_RSTR:
         case DWGCTRL_ATYPE_BLK:
-            /* pclog("ILOAD BLTMOD DWGCTRL = %08x\n", mystique->dwgreg.dwgctrl_running & DWGCTRL_BLTMOD_MASK); */
+#if 0
+            pclog("ILOAD BLTMOD DWGCTRL = %08x\n", mystique->dwgreg.dwgctrl_running & DWGCTRL_BLTMOD_MASK);
+#endif
             switch (mystique->dwgreg.dwgctrl_running & DWGCTRL_BLTMOD_MASK) {
                 case DWGCTRL_BLTMOD_BFCOL:
                 case DWGCTRL_BLTMOD_BMONOLEF:
@@ -4948,7 +4994,9 @@ blit_iload(mystique_t *mystique)
                     mystique->dwgreg.iload_rem_data  = 0;
                     mystique->dwgreg.iload_rem_count = 0;
                     mystique->busy                   = 1;
-                    /* pclog("ILOAD busy\n"); */
+#if 0
+                    pclog("ILOAD busy\n");
+#endif
                     mystique->dwgreg.words = 0;
                     break;
 
@@ -5148,9 +5196,9 @@ mystique_start_blit(mystique_t *mystique)
 static void
 mystique_hwcursor_draw(svga_t *svga, int displine)
 {
-    mystique_t *mystique = (mystique_t *) svga->p;
-    uint64_t    dat[2];
-    int         offset = svga->hwcursor_latch.x - svga->hwcursor_latch.xoff;
+    const mystique_t *mystique = (mystique_t *) svga->priv;
+    uint64_t          dat[2];
+    int               offset = svga->hwcursor_latch.x - svga->hwcursor_latch.xoff;
 
     if (svga->interlace && svga->hwcursor_oddeven)
         svga->hwcursor_latch.addr += 16;
@@ -5171,6 +5219,9 @@ mystique_hwcursor_draw(svga_t *svga, int displine)
                 dat[1] <<= 1;
             }
             break;
+
+        default:
+            break;
     }
 
     if (svga->interlace && !svga->hwcursor_oddeven)
@@ -5178,9 +5229,9 @@ mystique_hwcursor_draw(svga_t *svga, int displine)
 }
 
 static uint8_t
-mystique_pci_read(int func, int addr, void *p)
+mystique_pci_read(UNUSED(int func), int addr, void *priv)
 {
-    mystique_t *mystique = (mystique_t *) p;
+    mystique_t *mystique = (mystique_t *) priv;
     uint8_t     ret      = 0x00;
 
     if ((addr >= 0x30) && (addr <= 0x33) && !(mystique->pci_regs[0x43] & 0x40))
@@ -5322,15 +5373,18 @@ mystique_pci_read(int func, int addr, void *p)
                 addr = (mystique->pci_regs[0x44] & 0xfc) | ((mystique->pci_regs[0x45] & 0x3f) << 8) | (addr & 3);
                 ret  = mystique_ctrl_read_b(addr, mystique);
                 break;
+
+            default:
+                break;
         }
 
     return ret;
 }
 
 static void
-mystique_pci_write(int func, int addr, uint8_t val, void *p)
+mystique_pci_write(UNUSED(int func), int addr, uint8_t val, void *priv)
 {
-    mystique_t *mystique = (mystique_t *) p;
+    mystique_t *mystique = (mystique_t *) priv;
 
     switch (addr) {
         case PCI_REG_COMMAND:
@@ -5436,8 +5490,13 @@ mystique_pci_write(int func, int addr, uint8_t val, void *p)
         case 0x4a:
         case 0x4b:
             addr = (mystique->pci_regs[0x44] & 0xfc) | ((mystique->pci_regs[0x45] & 0x3f) << 8) | (addr & 3);
-            /* pclog("mystique_ctrl_write_b(%04X, %02X)\n", addr, val); */
+#if 0
+            pclog("mystique_ctrl_write_b(%04X, %02X)\n", addr, val);
+#endif
             mystique_ctrl_write_b(addr, val, mystique);
+            break;
+
+        default:
             break;
     }
 }
@@ -5446,7 +5505,7 @@ static void *
 mystique_init(const device_t *info)
 {
     mystique_t *mystique = malloc(sizeof(mystique_t));
-    char       *romfn;
+    const char *romfn = NULL;
 
     memset(mystique, 0, sizeof(mystique_t));
 
@@ -5510,7 +5569,10 @@ mystique_init(const device_t *info)
                     NULL, 0, mystique);
     mem_mapping_disable(&mystique->iload_mapping);
 
-    mystique->card           = pci_add_card(PCI_ADD_VIDEO, mystique_pci_read, mystique_pci_write, mystique);
+    if (romfn == NULL)
+        pci_add_card(PCI_ADD_VIDEO, mystique_pci_read, mystique_pci_write, mystique, &mystique->pci_slot);
+    else
+        pci_add_card(PCI_ADD_NORMAL, mystique_pci_read, mystique_pci_write, mystique, &mystique->pci_slot);
     mystique->pci_regs[0x06] = 0x80;
     mystique->pci_regs[0x07] = 0 << 1;
     mystique->pci_regs[0x2c] = mystique->bios_rom.rom[0x7ff8];
@@ -5569,9 +5631,9 @@ mystique_init(const device_t *info)
 }
 
 static void
-mystique_close(void *p)
+mystique_close(void *priv)
 {
-    mystique_t *mystique = (mystique_t *) p;
+    mystique_t *mystique = (mystique_t *) priv;
 
     mystique->thread_run = 0;
     thread_set_event(mystique->wake_fifo_thread);
@@ -5608,17 +5670,17 @@ mystique_220_available(void)
 }
 
 static void
-mystique_speed_changed(void *p)
+mystique_speed_changed(void *priv)
 {
-    mystique_t *mystique = (mystique_t *) p;
+    mystique_t *mystique = (mystique_t *) priv;
 
     svga_recalctimings(&mystique->svga);
 }
 
 static void
-mystique_force_redraw(void *p)
+mystique_force_redraw(void *priv)
 {
-    mystique_t *mystique = (mystique_t *) p;
+    mystique_t *mystique = (mystique_t *) priv;
 
     mystique->svga.fullchange = changeframecount;
 }

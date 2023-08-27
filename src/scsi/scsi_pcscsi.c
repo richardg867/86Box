@@ -149,7 +149,7 @@
 #define SBAC_STATUS      (1 << 24)
 #define SBAC_PABTEN      (1 << 25)
 
-typedef struct {
+typedef struct esp_t {
     mem_mapping_t mmio_mapping;
     mem_mapping_t ram_mapping;
     char         *nvr_path;
@@ -188,15 +188,16 @@ typedef struct {
 
     int      mca;
     uint16_t Base;
-    uint8_t  HostID, DmaChannel;
+    uint8_t  HostID;
+    uint8_t  DmaChannel;
 
-    struct
-    {
+    struct {
         uint8_t mode;
         uint8_t status;
         int     pos;
     } dma_86c01;
 
+    uint8_t irq_state;
     uint8_t pos_regs[8];
 } esp_t;
 
@@ -247,10 +248,10 @@ esp_irq(esp_t *dev, int level)
         }
     } else {
         if (level) {
-            pci_set_irq(dev->pci_slot, PCI_INTA);
+            pci_set_irq(dev->pci_slot, PCI_INTA, &dev->irq_state);
             esp_log("Raising IRQ...\n");
         } else {
-            pci_clear_irq(dev->pci_slot, PCI_INTA);
+            pci_clear_irq(dev->pci_slot, PCI_INTA, &dev->irq_state);
             esp_log("Lowering IRQ...\n");
         }
     }
@@ -952,9 +953,9 @@ esp_write_response(esp_t *dev)
 }
 
 static void
-esp_callback(void *p)
+esp_callback(void *priv)
 {
-    esp_t *dev = (esp_t *) p;
+    esp_t *dev = (esp_t *) priv;
 
     if (dev->dma_enabled || dev->do_cmd || ((dev->rregs[ESP_CMD] & CMD_CMD) == CMD_PAD)) {
         if ((dev->rregs[ESP_CMD] & CMD_CMD) == CMD_TI) {
@@ -1029,7 +1030,7 @@ esp_reg_write(esp_t *dev, uint32_t saddr, uint32_t val)
     switch (saddr) {
         case ESP_TCHI:
             dev->tchi_written = 1;
-            /* fall through */
+            fallthrough;
         case ESP_TCLO:
         case ESP_TCMID:
             esp_log("Transfer count regs %02x = %i\n", saddr, val);
@@ -1133,6 +1134,9 @@ esp_reg_write(esp_t *dev, uint32_t saddr, uint32_t val)
                     dev->rregs[ESP_RINTR] = 0;
                     esp_log("ESP Disable Selection\n");
                     esp_raise_irq(dev);
+                    break;
+
+                default:
                     break;
             }
             break;
@@ -1259,6 +1263,9 @@ esp_pci_dma_write(esp_t *dev, uint16_t saddr, uint32_t val)
                 dev->dma_regs[DMA_STAT] &= ~(val & mask);
             }
             break;
+
+        default:
+            break;
     }
 }
 
@@ -1361,44 +1368,49 @@ esp_io_pci_write(esp_t *dev, uint32_t addr, uint32_t val, unsigned int size)
 }
 
 static void
-esp_pci_io_writeb(uint16_t addr, uint8_t val, void *p)
+esp_pci_io_writeb(uint16_t addr, uint8_t val, void *priv)
 {
-    esp_t *dev = (esp_t *) p;
+    esp_t *dev = (esp_t *) priv;
+
     esp_io_pci_write(dev, addr, val, 1);
 }
 
 static void
-esp_pci_io_writew(uint16_t addr, uint16_t val, void *p)
+esp_pci_io_writew(uint16_t addr, uint16_t val, void *priv)
 {
-    esp_t *dev = (esp_t *) p;
+    esp_t *dev = (esp_t *) priv;
+
     esp_io_pci_write(dev, addr, val, 2);
 }
 
 static void
-esp_pci_io_writel(uint16_t addr, uint32_t val, void *p)
+esp_pci_io_writel(uint16_t addr, uint32_t val, void *priv)
 {
-    esp_t *dev = (esp_t *) p;
+    esp_t *dev = (esp_t *) priv;
     esp_io_pci_write(dev, addr, val, 4);
 }
 
 static uint8_t
-esp_pci_io_readb(uint16_t addr, void *p)
+esp_pci_io_readb(uint16_t addr, void *priv)
 {
-    esp_t *dev = (esp_t *) p;
+    esp_t *dev = (esp_t *) priv;
+
     return esp_io_pci_read(dev, addr, 1);
 }
 
 static uint16_t
-esp_pci_io_readw(uint16_t addr, void *p)
+esp_pci_io_readw(uint16_t addr, void *priv)
 {
-    esp_t *dev = (esp_t *) p;
+    esp_t *dev = (esp_t *) priv;
+
     return esp_io_pci_read(dev, addr, 2);
 }
 
 static uint32_t
-esp_pci_io_readl(uint16_t addr, void *p)
+esp_pci_io_readl(uint16_t addr, void *priv)
 {
-    esp_t *dev = (esp_t *) p;
+    esp_t *dev = (esp_t *) priv;
+
     return esp_io_pci_read(dev, addr, 4);
 }
 
@@ -1451,11 +1463,11 @@ esp_bios_disable(esp_t *dev)
 static void
 dc390_save_eeprom(esp_t *dev)
 {
-    FILE *f = nvr_fopen(dev->nvr_path, "wb");
-    if (!f)
+    FILE *fp = nvr_fopen(dev->nvr_path, "wb");
+    if (!fp)
         return;
-    fwrite(dev->eeprom.data, 1, 128, f);
-    fclose(f);
+    fwrite(dev->eeprom.data, 1, 128, fp);
+    fclose(fp);
 }
 
 static void
@@ -1549,6 +1561,9 @@ dc390_write_eeprom(esp_t *dev, int ena, int clk, int dat)
                             esp_log("EEPROM Write enable command\n");
                             eeprom->wp = 0;
                             break;
+
+                        default:
+                            break;
                     }
                 } else {
                     esp_log("EEPROM Read, write or erase word\n");
@@ -1584,16 +1599,16 @@ dc390_load_eeprom(esp_t *dev)
     uint8_t      *nvr    = (uint8_t *) eeprom->data;
     int           i;
     uint16_t      checksum = 0;
-    FILE         *f;
+    FILE         *fp;
 
     eeprom->out = 1;
 
-    f = nvr_fopen(dev->nvr_path, "rb");
-    if (f) {
+    fp = nvr_fopen(dev->nvr_path, "rb");
+    if (fp) {
         esp_log("EEPROM Load\n");
-        if (fread(nvr, 1, 128, f) != 128)
+        if (fread(nvr, 1, 128, fp) != 128)
             fatal("dc390_eeprom_load(): Error reading data\n");
-        fclose(f);
+        fclose(fp);
     } else {
         for (i = 0; i < 16; i++) {
             nvr[i * 2]     = 0x57;
@@ -1622,9 +1637,9 @@ uint8_t esp_pci_regs[256];
 bar_t   esp_pci_bar[2];
 
 static uint8_t
-esp_pci_read(int func, int addr, void *p)
+esp_pci_read(UNUSED(int func), int addr, void *priv)
 {
-    esp_t *dev = (esp_t *) p;
+    esp_t *dev = (esp_t *) priv;
 
     // esp_log("ESP PCI: Reading register %02X\n", addr & 0xff);
 
@@ -1641,7 +1656,6 @@ esp_pci_read(int func, int addr, void *p)
                     return 2;
                 }
             }
-            break;
         case 0x01:
             return 0x10;
         case 0x02:
@@ -1695,15 +1709,18 @@ esp_pci_read(int func, int addr, void *p)
 
         case 0x40 ... 0x4f:
             return esp_pci_regs[addr];
+
+        default:
+            break;
     }
 
     return 0;
 }
 
 static void
-esp_pci_write(int func, int addr, uint8_t val, void *p)
+esp_pci_write(UNUSED(int func), int addr, uint8_t val, void *priv)
 {
-    esp_t  *dev = (esp_t *) p;
+    esp_t  *dev = (esp_t *) priv;
     uint8_t valxor;
     int     eesk;
     int     eedi;
@@ -1799,11 +1816,14 @@ esp_pci_write(int func, int addr, uint8_t val, void *p)
         case 0x40 ... 0x4f:
             esp_pci_regs[addr] = val;
             return;
+
+        default:
+            break;
     }
 }
 
 static void *
-dc390_init(const device_t *info)
+dc390_init(UNUSED(const device_t *info))
 {
     esp_t *dev;
 
@@ -1820,7 +1840,7 @@ dc390_init(const device_t *info)
     dev->PCIBase  = 0;
     dev->MMIOBase = 0;
 
-    dev->pci_slot = pci_add_card(PCI_ADD_NORMAL, esp_pci_read, esp_pci_write, dev);
+    pci_add_card(PCI_ADD_NORMAL, esp_pci_read, esp_pci_write, dev, &dev->pci_slot);
 
     esp_pci_bar[0].addr_regs[0] = 1;
     esp_pci_regs[0x04]          = 3;
@@ -1871,6 +1891,9 @@ ncr53c90_in(uint16_t port, void *priv)
 
             case 0x0c:
                 ret = dev->dma_86c01.status;
+                break;
+
+            default:
                 break;
         }
     }
@@ -1926,7 +1949,7 @@ ncr53c90_outw(uint16_t port, uint16_t val, void *priv)
 static uint8_t
 ncr53c90_mca_read(int port, void *priv)
 {
-    esp_t *dev = (esp_t *) priv;
+    const esp_t *dev = (esp_t *) priv;
 
     return (dev->pos_regs[port & 7]);
 }
@@ -1989,13 +2012,13 @@ ncr53c90_mca_write(int port, uint8_t val, void *priv)
 static uint8_t
 ncr53c90_mca_feedb(void *priv)
 {
-    esp_t *dev = (esp_t *) priv;
+    const esp_t *dev = (esp_t *) priv;
 
     return (dev->pos_regs[2] & 0x01);
 }
 
 static void *
-ncr53c90_mca_init(const device_t *info)
+ncr53c90_mca_init(UNUSED(const device_t *info))
 {
     esp_t *dev;
 

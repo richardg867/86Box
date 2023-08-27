@@ -35,201 +35,246 @@ opFEMMS(uint32_t fetchdat)
 static int
 opPAVGUSB(uint32_t fetchdat)
 {
-    MMX_REG src;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
 
     MMX_GETSRC();
 
-    cpu_state.MM[cpu_reg].b[0] = (cpu_state.MM[cpu_reg].b[0] + src.b[0] + 1) >> 1;
-    cpu_state.MM[cpu_reg].b[1] = (cpu_state.MM[cpu_reg].b[1] + src.b[1] + 1) >> 1;
-    cpu_state.MM[cpu_reg].b[2] = (cpu_state.MM[cpu_reg].b[2] + src.b[2] + 1) >> 1;
-    cpu_state.MM[cpu_reg].b[3] = (cpu_state.MM[cpu_reg].b[3] + src.b[3] + 1) >> 1;
-    cpu_state.MM[cpu_reg].b[4] = (cpu_state.MM[cpu_reg].b[4] + src.b[4] + 1) >> 1;
-    cpu_state.MM[cpu_reg].b[5] = (cpu_state.MM[cpu_reg].b[5] + src.b[5] + 1) >> 1;
-    cpu_state.MM[cpu_reg].b[6] = (cpu_state.MM[cpu_reg].b[6] + src.b[6] + 1) >> 1;
-    cpu_state.MM[cpu_reg].b[7] = (cpu_state.MM[cpu_reg].b[7] + src.b[7] + 1) >> 1;
+    dst->b[0] = (dst->b[0] + src.b[0] + 1) >> 1;
+    dst->b[1] = (dst->b[1] + src.b[1] + 1) >> 1;
+    dst->b[2] = (dst->b[2] + src.b[2] + 1) >> 1;
+    dst->b[3] = (dst->b[3] + src.b[3] + 1) >> 1;
+    dst->b[4] = (dst->b[4] + src.b[4] + 1) >> 1;
+    dst->b[5] = (dst->b[5] + src.b[5] + 1) >> 1;
+    dst->b[6] = (dst->b[6] + src.b[6] + 1) >> 1;
+    dst->b[7] = (dst->b[7] + src.b[7] + 1) >> 1;
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPF2ID(uint32_t fetchdat)
 {
-    MMX_REG src;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
 
     MMX_GETSRC();
 
-    cpu_state.MM[cpu_reg].sl[0] = (int32_t) src.f[0];
-    cpu_state.MM[cpu_reg].sl[1] = (int32_t) src.f[1];
+    dst->sl[0] = (int32_t) src.f[0];
+    dst->sl[1] = (int32_t) src.f[1];
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPF2IW(uint32_t fetchdat)
 {
-    MMX_REG src;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
 
     MMX_GETSRC();
 
-    cpu_state.MM[cpu_reg].sw[0] = (int32_t) src.f[0];
-    cpu_state.MM[cpu_reg].sw[1] = (int32_t) src.f[1];
+    dst->sw[0] = (int32_t) src.f[0];
+    dst->sw[1] = (int32_t) src.f[1];
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPFACC(uint32_t fetchdat)
 {
-    MMX_REG src;
-    float   tempf;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
+    float    tempf;
 
     MMX_GETSRC();
 
-    tempf                      = cpu_state.MM[cpu_reg].f[0] + cpu_state.MM[cpu_reg].f[1];
-    cpu_state.MM[cpu_reg].f[1] = src.f[0] + src.f[1];
-    cpu_state.MM[cpu_reg].f[0] = tempf;
+    tempf     = dst->f[0] + dst->f[1];
+    dst->f[1] = src.f[0] + src.f[1];
+    dst->f[0] = tempf;
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPFNACC(uint32_t fetchdat)
 {
-    MMX_REG src;
-    float   tempf;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
+    float    tempf;
 
     MMX_GETSRC();
 
-    tempf                      = cpu_state.MM[cpu_reg].f[0] - cpu_state.MM[cpu_reg].f[1];
-    cpu_state.MM[cpu_reg].f[1] = src.f[0] - src.f[1];
-    cpu_state.MM[cpu_reg].f[0] = tempf;
+    tempf     = dst->f[0] - dst->f[1];
+    dst->f[1] = src.f[0] - src.f[1];
+    dst->f[0] = tempf;
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPFPNACC(uint32_t fetchdat)
 {
-    MMX_REG src;
-    float   tempf;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
+    float    tempf;
 
     MMX_GETSRC();
 
-    tempf                      = cpu_state.MM[cpu_reg].f[0] - cpu_state.MM[cpu_reg].f[1];
-    cpu_state.MM[cpu_reg].f[1] = src.f[0] + src.f[1];
-    cpu_state.MM[cpu_reg].f[0] = tempf;
+    tempf     = dst->f[0] - dst->f[1];
+    dst->f[1] = src.f[0] + src.f[1];
+    dst->f[0] = tempf;
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPSWAPD(uint32_t fetchdat)
 {
-    MMX_REG src;
-    float   tempf, tempf2;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
+    float    tempf;
+    float    tempf2;
 
     MMX_GETSRC();
 
     /* We have to do this in case source and destination overlap. */
-    tempf                      = src.f[0];
-    tempf2                     = src.f[1];
-    cpu_state.MM[cpu_reg].f[1] = tempf;
-    cpu_state.MM[cpu_reg].f[0] = tempf2;
+    tempf     = src.f[0];
+    tempf2    = src.f[1];
+    dst->f[1] = tempf;
+    dst->f[0] = tempf2;
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPFADD(uint32_t fetchdat)
 {
-    MMX_REG src;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
 
     MMX_GETSRC();
 
-    cpu_state.MM[cpu_reg].f[0] += src.f[0];
-    cpu_state.MM[cpu_reg].f[1] += src.f[1];
+    dst->f[0] += src.f[0];
+    dst->f[1] += src.f[1];
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPFCMPEQ(uint32_t fetchdat)
 {
-    MMX_REG src;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
 
     MMX_GETSRC();
 
-    cpu_state.MM[cpu_reg].l[0] = (cpu_state.MM[cpu_reg].f[0] == src.f[0]) ? 0xffffffff : 0;
-    cpu_state.MM[cpu_reg].l[1] = (cpu_state.MM[cpu_reg].f[1] == src.f[1]) ? 0xffffffff : 0;
+    dst->l[0] = (dst->f[0] == src.f[0]) ? 0xffffffff : 0;
+    dst->l[1] = (dst->f[1] == src.f[1]) ? 0xffffffff : 0;
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPFCMPGE(uint32_t fetchdat)
 {
-    MMX_REG src;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
 
     MMX_GETSRC();
 
-    cpu_state.MM[cpu_reg].l[0] = (cpu_state.MM[cpu_reg].f[0] >= src.f[0]) ? 0xffffffff : 0;
-    cpu_state.MM[cpu_reg].l[1] = (cpu_state.MM[cpu_reg].f[1] >= src.f[1]) ? 0xffffffff : 0;
+    dst->l[0] = (dst->f[0] >= src.f[0]) ? 0xffffffff : 0;
+    dst->l[1] = (dst->f[1] >= src.f[1]) ? 0xffffffff : 0;
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPFCMPGT(uint32_t fetchdat)
 {
-    MMX_REG src;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
 
     MMX_GETSRC();
 
-    cpu_state.MM[cpu_reg].l[0] = (cpu_state.MM[cpu_reg].f[0] > src.f[0]) ? 0xffffffff : 0;
-    cpu_state.MM[cpu_reg].l[1] = (cpu_state.MM[cpu_reg].f[1] > src.f[1]) ? 0xffffffff : 0;
+    dst->l[0] = (dst->f[0] > src.f[0]) ? 0xffffffff : 0;
+    dst->l[1] = (dst->f[1] > src.f[1]) ? 0xffffffff : 0;
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPFMAX(uint32_t fetchdat)
 {
-    MMX_REG src;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
 
     MMX_GETSRC();
 
-    if (src.f[0] > cpu_state.MM[cpu_reg].f[0])
-        cpu_state.MM[cpu_reg].f[0] = src.f[0];
-    if (src.f[1] > cpu_state.MM[cpu_reg].f[1])
-        cpu_state.MM[cpu_reg].f[1] = src.f[1];
+    if (src.f[0] > dst->f[0])
+        dst->f[0] = src.f[0];
+    if (src.f[1] > dst->f[1])
+        dst->f[1] = src.f[1];
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPFMIN(uint32_t fetchdat)
 {
-    MMX_REG src;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
 
     MMX_GETSRC();
 
-    if (src.f[0] < cpu_state.MM[cpu_reg].f[0])
-        cpu_state.MM[cpu_reg].f[0] = src.f[0];
-    if (src.f[1] < cpu_state.MM[cpu_reg].f[1])
-        cpu_state.MM[cpu_reg].f[1] = src.f[1];
+    if (src.f[0] < dst->f[0])
+        dst->f[0] = src.f[0];
+    if (src.f[1] < dst->f[1])
+        dst->f[1] = src.f[1];
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPFMUL(uint32_t fetchdat)
 {
-    MMX_REG src;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
 
     MMX_GETSRC();
 
-    cpu_state.MM[cpu_reg].f[0] *= src.f[0];
-    cpu_state.MM[cpu_reg].f[1] *= src.f[1];
+    dst->f[0] *= src.f[0];
+    dst->f[1] *= src.f[1];
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPFRCP(uint32_t fetchdat)
 {
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
+
     union {
         uint32_t i;
         float    f;
     } src;
 
     if (cpu_mod == 3) {
-        src.f = cpu_state.MM[cpu_rm].f[0];
+        src.f = (MMX_GETREG(cpu_rm)).f[0];
         CLOCK_CYCLES(1);
     } else {
         SEG_CHECK_READ(cpu_state.ea_seg);
@@ -239,8 +284,10 @@ opPFRCP(uint32_t fetchdat)
         CLOCK_CYCLES(2);
     }
 
-    cpu_state.MM[cpu_reg].f[0] = 1.0 / src.f;
-    cpu_state.MM[cpu_reg].f[1] = cpu_state.MM[cpu_reg].f[0];
+    dst->f[0] = 1.0 / src.f;
+    dst->f[1] = dst->f[0];
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
@@ -248,37 +295,45 @@ opPFRCP(uint32_t fetchdat)
 static int
 opPFRCPIT1(uint32_t fetchdat)
 {
-    MMX_REG src;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
 
     MMX_GETSRC();
 
-    cpu_state.MM[cpu_reg].f[0] = src.f[0];
-    cpu_state.MM[cpu_reg].f[1] = src.f[1];
+    dst->f[0] = src.f[0];
+    dst->f[1] = src.f[1];
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPFRCPIT2(uint32_t fetchdat)
 {
-    MMX_REG src;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
 
     MMX_GETSRC();
 
-    cpu_state.MM[cpu_reg].f[0] = src.f[0];
-    cpu_state.MM[cpu_reg].f[1] = src.f[1];
+    dst->f[0] = src.f[0];
+    dst->f[1] = src.f[1];
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPFRSQRT(uint32_t fetchdat)
 {
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
+
     union {
         uint32_t i;
         float    f;
     } src;
 
     if (cpu_mod == 3) {
-        src.f = cpu_state.MM[cpu_rm].f[0];
+        src.f = (MMX_GETREG(cpu_rm)).f[0];
         CLOCK_CYCLES(1);
     } else {
         SEG_CHECK_READ(cpu_state.ea_seg);
@@ -288,8 +343,10 @@ opPFRSQRT(uint32_t fetchdat)
         CLOCK_CYCLES(2);
     }
 
-    cpu_state.MM[cpu_reg].f[0] = 1.0 / sqrt(src.f);
-    cpu_state.MM[cpu_reg].f[1] = cpu_state.MM[cpu_reg].f[0];
+    dst->f[0] = 1.0 / sqrt(src.f);
+    dst->f[1] = dst->f[0];
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
@@ -307,74 +364,92 @@ opPFRSQIT1(uint32_t fetchdat)
 static int
 opPFSUB(uint32_t fetchdat)
 {
-    MMX_REG src;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
 
     MMX_GETSRC();
 
-    cpu_state.MM[cpu_reg].f[0] -= src.f[0];
-    cpu_state.MM[cpu_reg].f[1] -= src.f[1];
+    dst->f[0] -= src.f[0];
+    dst->f[1] -= src.f[1];
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPFSUBR(uint32_t fetchdat)
 {
-    MMX_REG src;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
 
     MMX_GETSRC();
 
-    cpu_state.MM[cpu_reg].f[0] = src.f[0] - cpu_state.MM[cpu_reg].f[0];
-    cpu_state.MM[cpu_reg].f[1] = src.f[1] - cpu_state.MM[cpu_reg].f[1];
+    dst->f[0] = src.f[0] - dst->f[0];
+    dst->f[1] = src.f[1] - dst->f[1];
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPI2FD(uint32_t fetchdat)
 {
-    MMX_REG src;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
 
     MMX_GETSRC();
 
-    cpu_state.MM[cpu_reg].f[0] = (float) src.sl[0];
-    cpu_state.MM[cpu_reg].f[1] = (float) src.sl[1];
+    dst->f[0] = (float) src.sl[0];
+    dst->f[1] = (float) src.sl[1];
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPI2FW(uint32_t fetchdat)
 {
-    MMX_REG src;
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
 
     MMX_GETSRC();
 
-    cpu_state.MM[cpu_reg].f[0] = (float) src.sw[0];
-    cpu_state.MM[cpu_reg].f[1] = (float) src.sw[1];
+    dst->f[0] = (float) src.sw[0];
+    dst->f[1] = (float) src.sw[1];
+
+    MMX_SETEXP(cpu_reg);
 
     return 0;
 }
 static int
 opPMULHRW(uint32_t fetchdat)
 {
+    MMX_REG  src;
+    MMX_REG *dst = MMX_GETREGP(cpu_reg);
+
     if (cpu_mod == 3) {
-        cpu_state.MM[cpu_reg].w[0] = (((int32_t) cpu_state.MM[cpu_reg].sw[0] * (int32_t) cpu_state.MM[cpu_rm].sw[0]) + 0x8000) >> 16;
-        cpu_state.MM[cpu_reg].w[1] = (((int32_t) cpu_state.MM[cpu_reg].sw[1] * (int32_t) cpu_state.MM[cpu_rm].sw[1]) + 0x8000) >> 16;
-        cpu_state.MM[cpu_reg].w[2] = (((int32_t) cpu_state.MM[cpu_reg].sw[2] * (int32_t) cpu_state.MM[cpu_rm].sw[2]) + 0x8000) >> 16;
-        cpu_state.MM[cpu_reg].w[3] = (((int32_t) cpu_state.MM[cpu_reg].sw[3] * (int32_t) cpu_state.MM[cpu_rm].sw[3]) + 0x8000) >> 16;
+        src = MMX_GETREG(cpu_rm);
+
+        dst->w[0] = (((int32_t) dst->sw[0] * (int32_t) src.sw[0]) + 0x8000) >> 16;
+        dst->w[1] = (((int32_t) dst->sw[1] * (int32_t) src.sw[1]) + 0x8000) >> 16;
+        dst->w[2] = (((int32_t) dst->sw[2] * (int32_t) src.sw[2]) + 0x8000) >> 16;
+        dst->w[3] = (((int32_t) dst->sw[3] * (int32_t) src.sw[3]) + 0x8000) >> 16;
         CLOCK_CYCLES(1);
     } else {
-        MMX_REG src;
-
         SEG_CHECK_READ(cpu_state.ea_seg);
         src.l[0] = readmeml(easeg, cpu_state.eaaddr);
         src.l[1] = readmeml(easeg, cpu_state.eaaddr + 4);
         if (cpu_state.abrt)
             return 0;
-        cpu_state.MM[cpu_reg].w[0] = ((int32_t) (cpu_state.MM[cpu_reg].sw[0] * (int32_t) src.sw[0]) + 0x8000) >> 16;
-        cpu_state.MM[cpu_reg].w[1] = ((int32_t) (cpu_state.MM[cpu_reg].sw[1] * (int32_t) src.sw[1]) + 0x8000) >> 16;
-        cpu_state.MM[cpu_reg].w[2] = ((int32_t) (cpu_state.MM[cpu_reg].sw[2] * (int32_t) src.sw[2]) + 0x8000) >> 16;
-        cpu_state.MM[cpu_reg].w[3] = ((int32_t) (cpu_state.MM[cpu_reg].sw[3] * (int32_t) src.sw[3]) + 0x8000) >> 16;
+        dst->w[0] = ((int32_t) (dst->sw[0] * (int32_t) src.sw[0]) + 0x8000) >> 16;
+        dst->w[1] = ((int32_t) (dst->sw[1] * (int32_t) src.sw[1]) + 0x8000) >> 16;
+        dst->w[2] = ((int32_t) (dst->sw[2] * (int32_t) src.sw[2]) + 0x8000) >> 16;
+        dst->w[3] = ((int32_t) (dst->sw[3] * (int32_t) src.sw[3]) + 0x8000) >> 16;
         CLOCK_CYCLES(2);
     }
+
+    MMX_SETEXP(cpu_reg);
+
     return 0;
 }
 
