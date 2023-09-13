@@ -93,7 +93,7 @@ enum {
     NET_QUEUE_TX_HOST = 2
 };
 
-typedef struct {
+typedef struct netcard_conf_t {
     uint16_t device_num;
     int      net_type;
     char     host_dev_name[128];
@@ -111,7 +111,7 @@ typedef struct netpkt {
     int      len;
 } netpkt_t;
 
-typedef struct {
+typedef struct netqueue_t {
     netpkt_t packets[NET_QUEUE_LEN];
     int      head;
     int      tail;
@@ -194,7 +194,7 @@ extern int             network_dev_available(int);
 extern int             network_dev_to_id(char *);
 extern int             network_card_available(int);
 extern int             network_card_has_config(int);
-extern char           *network_card_get_internal_name(int);
+extern const char     *network_card_get_internal_name(int);
 extern int             network_card_get_from_internal_name(char *);
 extern const device_t *network_card_getdevice(int);
 

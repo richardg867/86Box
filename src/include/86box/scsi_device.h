@@ -338,7 +338,7 @@
 #define MODE_SELECT_PHASE_PAGE_HEADER 3
 #define MODE_SELECT_PHASE_PAGE        4
 
-typedef struct {
+typedef struct mode_sense_pages_t {
     uint8_t pages[0x40][0x40];
 } mode_sense_pages_t;
 
@@ -347,7 +347,7 @@ typedef struct {
 typedef struct scsi_common_s {
     mode_sense_pages_t ms_pages_saved;
 
-    void *p;
+    void *priv;
 
     uint8_t *temp_buffer;
     uint8_t atapi_cdb[16]; /* This is atapi_cdb in ATAPI-supporting devices,
@@ -384,7 +384,7 @@ typedef struct scsi_common_s {
     double callback;
 } scsi_common_t;
 
-typedef struct {
+typedef struct scsi_device_t {
     int32_t buffer_length;
 
     uint8_t  status;
@@ -393,11 +393,11 @@ typedef struct {
 
     scsi_common_t *sc;
 
-    void (*command)(scsi_common_t *sc, uint8_t *cdb);
-    void (*request_sense)(scsi_common_t *sc, uint8_t *buffer, uint8_t alloc_length);
-    void (*reset)(scsi_common_t *sc);
+    void    (*command)(scsi_common_t *sc, uint8_t *cdb);
+    void    (*request_sense)(scsi_common_t *sc, uint8_t *buffer, uint8_t alloc_length);
+    void    (*reset)(scsi_common_t *sc);
     uint8_t (*phase_data_out)(scsi_common_t *sc);
-    void (*command_stop)(scsi_common_t *sc);
+    void    (*command_stop)(scsi_common_t *sc);
 } scsi_device_t;
 
 /* These are based on the INQUIRY values. */

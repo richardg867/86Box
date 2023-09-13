@@ -30,7 +30,7 @@ enum {
     AD1848_TYPE_CS4236  = 4
 };
 
-typedef struct {
+typedef struct ad1848_t {
     uint8_t type;
     uint8_t index;
     uint8_t xindex;
@@ -67,8 +67,8 @@ typedef struct {
     int16_t buffer[SOUNDBUFLEN * 2];
     int     pos;
 
-    void *cram_priv,
-        (*cram_write)(uint16_t addr, uint8_t val, void *priv);
+    void   *cram_priv;
+    void   (*cram_write)(uint16_t addr, uint8_t val, void *priv);
     uint8_t (*cram_read)(uint16_t addr, void *priv);
 } ad1848_t;
 
