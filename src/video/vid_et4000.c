@@ -52,6 +52,8 @@
 #include <86box/video.h>
 #include <86box/vid_svga.h>
 #include <86box/vid_svga_render.h>
+#include <86box/plat_fallthrough.h>
+#include <86box/plat_unused.h>
 
 #define ET4000_TYPE_ISA      1 /* ISA ET4000AX */
 #define ET4000_TYPE_MCA      2 /* MCA ET4000AX */
@@ -105,8 +107,8 @@ static const uint8_t crtc_mask[0x40] = {
 static video_timings_t timing_et4000_isa = { .type = VIDEO_ISA, .write_b = 3, .write_w = 3, .write_l = 6, .read_b = 5, .read_w = 5, .read_l = 10 };
 static video_timings_t timing_et4000_mca = { .type = VIDEO_MCA, .write_b = 4, .write_w = 5, .write_l = 10, .read_b = 5, .read_w = 5, .read_l = 10 };
 
-static void    et4000_kasan_out(uint16_t addr, uint8_t val, void *p);
-static uint8_t et4000_kasan_in(uint16_t addr, void *p);
+static void    et4000_kasan_out(uint16_t addr, uint8_t val, void *priv);
+static uint8_t et4000_kasan_in(uint16_t addr, void *priv);
 
 static uint8_t
 et4000_in(uint16_t addr, void *priv)
@@ -146,6 +148,9 @@ et4000_in(uint16_t addr, void *priv)
 
         case 0x3d5:
             return svga->crtc[svga->crtcreg];
+
+        default:
+            break;
     }
 
     return svga_in(addr, svga);
@@ -288,6 +293,9 @@ et4000_out(uint16_t addr, uint8_t val, void *priv)
                 }
             }
             break;
+
+        default:
+            break;
     }
 
     svga_out(addr, val, svga);
@@ -359,8 +367,8 @@ et4000k_out(uint16_t addr, uint8_t val, void *priv)
 static uint8_t
 et4000_kasan_in(uint16_t addr, void *priv)
 {
-    et4000_t *et4000 = (et4000_t *) priv;
-    uint8_t   val    = 0xFF;
+    const et4000_t *et4000 = (et4000_t *) priv;
+    uint8_t         val    = 0xFF;
 
     if (addr == 0x258) {
         val = et4000->kasan_cfg_index;
@@ -425,6 +433,7 @@ et4000_kasan_out(uint16_t addr, uint8_t val, void *priv)
                 case 5:
                     et4000->kasan_cfg_regs[5]              = val;
                     et4000->svga.ksc5601_english_font_type = 0x100 | val;
+                    fallthrough;
                 case 6:
                 case 7:
                     et4000->svga.ksc5601_udc_area_msb[et4000->kasan_cfg_index - 0xF6] = val;
@@ -474,10 +483,10 @@ et4000_kasan_out(uint16_t addr, uint8_t val, void *priv)
 }
 
 uint32_t
-get_et4000_addr(uint32_t addr, void *p)
+get_et4000_addr(uint32_t addr, void *priv)
 {
-    svga_t  *svga = (svga_t *) p;
-    uint32_t nbank;
+    const svga_t *svga = (svga_t *) priv;
+    uint32_t      nbank;
 
     switch (svga->crtc[0x37] & 0x0B) {
         case 0x00:
@@ -536,7 +545,7 @@ get_et4000_addr(uint32_t addr, void *p)
 static void
 et4000_recalctimings(svga_t *svga)
 {
-    et4000_t *dev = (et4000_t *) svga->p;
+    const et4000_t *dev = (et4000_t *) svga->priv;
 
     svga->ma_latch |= (svga->crtc[0x33] & 3) << 16;
     if (svga->crtc[0x35] & 1)
@@ -580,6 +589,9 @@ et4000_recalctimings(svga_t *svga)
         case 24:
             svga->hdisp /= 3;
             break;
+
+        default:
+            break;
     }
 
     if (dev->type == ET4000_TYPE_KOREAN || dev->type == ET4000_TYPE_TRIGEM || dev->type == ET4000_TYPE_KASAN) {
@@ -598,7 +610,7 @@ et4000_recalctimings(svga_t *svga)
 static void
 et4000_kasan_recalctimings(svga_t *svga)
 {
-    et4000_t *et4000 = (et4000_t *) svga->p;
+    const et4000_t *et4000 = (et4000_t *) svga->priv;
 
     et4000_recalctimings(svga);
 
@@ -614,7 +626,7 @@ et4000_kasan_recalctimings(svga_t *svga)
 static uint8_t
 et4000_mca_read(int port, void *priv)
 {
-    et4000_t *et4000 = (et4000_t *) priv;
+    const et4000_t *et4000 = (et4000_t *) priv;
 
     return (et4000->pos_regs[port & 7]);
 }
@@ -633,7 +645,7 @@ et4000_mca_write(int port, uint8_t val, void *priv)
 }
 
 static uint8_t
-et4000_mca_feedb(void *priv)
+et4000_mca_feedb(UNUSED(void *priv))
 {
     return 1;
 }
@@ -734,13 +746,16 @@ et4000_init(const device_t *info)
             loadfont(KASAN_FONT_ROM_PATH, 6);
             fn = KASAN_BIOS_ROM_PATH;
             break;
+
+        default:
+            break;
     }
 
     dev->svga.ramdac = device_add(&sc1502x_ramdac_device);
 
     dev->vram_mask = dev->vram_size - 1;
 
-    rom_init(&dev->bios_rom, (char *) fn,
+    rom_init(&dev->bios_rom, fn,
              0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
 
     dev->svga.translate_address = get_et4000_addr;

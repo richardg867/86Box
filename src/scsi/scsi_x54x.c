@@ -83,23 +83,27 @@ x54x_irq(x54x_t *dev, int set)
     if (dev->card_bus & DEVICE_PCI) {
         x54x_log("PCI IRQ: %02X, PCI_INTA\n", dev->pci_slot);
         if (set)
-            pci_set_irq(dev->pci_slot, PCI_INTA);
+            pci_set_irq(dev->pci_slot, PCI_INTA, &dev->irq_state);
         else
-            pci_clear_irq(dev->pci_slot, PCI_INTA);
+            pci_clear_irq(dev->pci_slot, PCI_INTA, &dev->irq_state);
     } else {
         x54x_log("%sing IRQ %i\n", set ? "Rais" : "Lower", irq);
 
-        if (set) {
-            if (dev->interrupt_type)
-                int_type = dev->interrupt_type(dev);
+        if (dev->interrupt_type)
+            int_type = dev->interrupt_type(dev);
 
+        if (set) {
             if (int_type)
-                picintlevel(1 << irq);
+                picintlevel(1 << irq, &dev->irq_state);
             else
                 picint(1 << irq);
-        } else
-            picintc(1 << irq);
-    }
+        } else {
+            if (int_type)
+                picintclevel(1 << irq, &dev->irq_state);
+            else
+                picintc(1 << irq);
+        }
+    }    
 }
 
 static void
@@ -237,6 +241,9 @@ completion_code(uint8_t *sense)
         case ASC_CAPACITY_DATA_CHANGED:
         case ASC_MEDIUM_NOT_PRESENT:
             ret = 0xaa;
+            break;
+
+        default:
             break;
     }
 
@@ -459,7 +466,6 @@ x54x_bios_command(x54x_t *x54x, uint8_t max_id, BIOSCMD *cmd, int8_t islba)
                 }
 
                 return 0;
-                break;
 
             case 0x02: /* Read Desired Sectors to Memory */
             case 0x03: /* Write Desired Sectors from Memory */
@@ -483,6 +489,7 @@ x54x_bios_command(x54x_t *x54x, uint8_t max_id, BIOSCMD *cmd, int8_t islba)
 
             default:
                 x54x_log("BIOS: Unimplemented command: %02X\n", cmd->command);
+                fallthrough;
             case 0x05: /* Format Track, invalid since SCSI has no tracks */
             case 0x0a: /* ???? */
             case 0x0b: /* ???? */
@@ -583,8 +590,8 @@ x54x_mbi_setup(x54x_t *dev, uint32_t CCBPointer, CCBU *CmdBlock,
 static void
 x54x_ccb(x54x_t *dev)
 {
-    Req_t  *req      = &dev->Req;
-    uint8_t bytes[4] = { 0, 0, 0, 0 };
+    const Req_t *req      = &dev->Req;
+    uint8_t      bytes[4] = { 0, 0, 0, 0 };
 
     /* Rewrite the CCB up to the CDB. */
     x54x_log("CCB completion code and statuses rewritten (pointer %08X)\n", req->CCBPointer);
@@ -605,7 +612,9 @@ static void
 x54x_mbi(x54x_t *dev)
 {
     Req_t *req = &dev->Req;
-    //  uint32_t CCBPointer = req->CCBPointer;
+#if 0
+    uint32_t CCBPointer = req->CCBPointer;
+#endif
     addr24_t  CCBPointer;
     CCBU     *CmdBlock              = &(req->CmdBlock);
     uint8_t   HostStatus            = req->HostStatus;
@@ -1017,7 +1026,7 @@ x54x_mbo_free(x54x_t *dev)
 static void
 x54x_notify(x54x_t *dev)
 {
-    Req_t         *req = &dev->Req;
+    const Req_t   *req = &dev->Req;
     scsi_device_t *sd;
 
     sd = &scsi_devices[dev->bus][req->TargetID];
@@ -1035,7 +1044,7 @@ x54x_notify(x54x_t *dev)
 }
 
 static void
-x54x_req_setup(x54x_t *dev, uint32_t CCBPointer, Mailbox32_t *Mailbox32)
+x54x_req_setup(x54x_t *dev, uint32_t CCBPointer, UNUSED(Mailbox32_t *Mailbox32))
 {
     Req_t         *req = &dev->Req;
     uint8_t        id;
@@ -1161,9 +1170,11 @@ x54x_mbo_process(x54x_t *dev)
     } else if (!dev->MailboxIsBIOS && (mb32.u.out.ActionCode == MBO_ABORT)) {
         x54x_log("Abort Mailbox Command\n");
         x54x_req_abort(dev, mb32.CCBPointer);
-    } /* else {
+#if 0
+    } else {
         x54x_log("Invalid action code: %02X\n", mb32.u.out.ActionCode);
-    } */
+#endif
+    }
 
     if ((mb32.u.out.ActionCode == MBO_START) || (!dev->MailboxIsBIOS && (mb32.u.out.ActionCode == MBO_ABORT))) {
         /* We got the mailbox, decrease the number of pending requests. */
@@ -1281,8 +1292,10 @@ x54x_cmd_callback(void *priv)
     }
 
     period = (1000000.0 / dev->ha_bps) * ((double) dev->temp_period);
-    timer_on(&dev->timer, dev->media_period + period + 10.0, 0);
-    // x54x_log("Temporary period: %lf us (%" PRIi64 " periods)\n", dev->timer.period, dev->temp_period);
+    timer_on_auto(&dev->timer, dev->media_period + period + 10.0);
+#if 0
+    x54x_log("Temporary period: %lf us (%" PRIi64 " periods)\n", dev->timer.period, dev->temp_period);
+#endif
 }
 
 static uint8_t
@@ -1292,8 +1305,8 @@ x54x_in(uint16_t port, void *priv)
     uint8_t ret;
 
     switch (port & 3) {
-        case 0:
         default:
+        case 0:
             ret = dev->Status;
             break;
 
@@ -1329,8 +1342,8 @@ x54x_in(uint16_t port, void *priv)
                 ret = dev->Geometry;
             else {
                 switch (dev->Geometry) {
-                    case 0:
                     default:
+                    case 0:
                         ret = 'A';
                         break;
                     case 1:
@@ -1403,6 +1416,7 @@ static void
 x54x_reset(x54x_t *dev)
 {
     clear_irq(dev);
+    dev->irq_state = 0;
     if (dev->flags & X54X_INT_GEOM_WRITABLE)
         dev->Geometry = 0x90;
     else
@@ -1452,7 +1466,7 @@ x54x_out(uint16_t port, uint8_t val, void *priv)
 {
     ReplyInquireSetupInformation *ReplyISI;
     x54x_t                       *dev = (x54x_t *) priv;
-    MailboxInit_t                *mbi;
+    const MailboxInit_t          *mbi;
     int                           i = 0;
     BIOSCMD                      *cmd;
     uint16_t                      cyl      = 0;
@@ -1758,6 +1772,9 @@ x54x_out(uint16_t port, uint8_t val, void *priv)
         case 3:
             if (dev->flags & X54X_INT_GEOM_WRITABLE)
                 dev->Geometry = val;
+            break;
+
+        default:
             break;
     }
 }
