@@ -70,6 +70,7 @@ extern int qt_nvr_save(void);
 #include <QTimer>
 #include <QThread>
 #include <QKeyEvent>
+#include <QShortcut>
 #include <QMessageBox>
 #include <QFocusEvent>
 #include <QApplication>
@@ -252,8 +253,6 @@ MainWindow::MainWindow(QWidget *parent)
 
     emit updateMenuResizeOptions();
 
-    connect(this, &MainWindow::pollMouse, ui->stackedWidget, &RendererStack::mousePoll, Qt::DirectConnection);
-
     connect(this, &MainWindow::setMouseCapture, this, [this](bool state) {
         mouse_capture = state ? 1 : 0;
         qt_mouse_capture(mouse_capture);
@@ -294,7 +293,9 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(this, &MainWindow::resizeContentsMonitor, this, [this](int w, int h, int monitor_index) {
         if (!QApplication::platformName().contains("eglfs") && vid_resize != 1) {
+#ifdef QT_RESIZE_DEBUG
             qDebug() << "Resize";
+#endif
             w = (w / (!dpi_scale ? util::screenOfWidget(renderers[monitor_index].get())->devicePixelRatio() : 1.));
 
             int modifiedHeight = (h / (!dpi_scale ? util::screenOfWidget(renderers[monitor_index].get())->devicePixelRatio() : 1.));
@@ -628,6 +629,8 @@ MainWindow::MainWindow(QWidget *parent)
 #endif
 
     setContextMenuPolicy(Qt::PreventContextMenu);
+    /* Remove default Shift+F10 handler, which unfocuses keyboard input even with no context menu. */
+    connect(new QShortcut(QKeySequence(Qt::SHIFT + Qt::Key_F10), this), &QShortcut::activated, this, [](){});
 
     connect(this, &MainWindow::initRendererMonitor, this, &MainWindow::initRendererMonitorSlot);
     connect(this, &MainWindow::initRendererMonitorForNonQtThread, this, &MainWindow::initRendererMonitorSlot, Qt::BlockingQueuedConnection);
@@ -761,7 +764,6 @@ MainWindow::initRendererMonitorSlot(int monitor_index)
             secondaryRenderer->switchRenderer((RendererStack::Renderer) vid_api);
             secondaryRenderer->setMouseTracking(true);
         }
-        connect(this, &MainWindow::pollMouse, secondaryRenderer.get(), &RendererStack::mousePoll, Qt::DirectConnection);
     }
 }
 
@@ -887,6 +889,9 @@ MainWindow::on_actionSettings_triggered()
     Settings settings(this);
     settings.setModal(true);
     settings.setWindowModality(Qt::WindowModal);
+    settings.setWindowFlag(Qt::CustomizeWindowHint, true);
+    settings.setWindowFlag(Qt::WindowTitleHint, true);
+    settings.setWindowFlag(Qt::WindowSystemMenuHint, false);
     settings.exec();
 
     switch (settings.result()) {
@@ -1249,11 +1254,7 @@ MainWindow::keyPressEvent(QKeyEvent *event)
 #endif
     }
 
-    if (!fs_off_signal && (video_fullscreen > 0) && keyboard_isfsexit())
-        fs_off_signal = true;
-
-    if (!fs_on_signal && (video_fullscreen == 0) && keyboard_isfsenter())
-        fs_on_signal = true;
+    checkFullscreenHotkey();
 
     if (keyboard_ismsexit())
         plat_mouse_capture(0);
@@ -1289,24 +1290,35 @@ MainWindow::keyReleaseEvent(QKeyEvent *event)
         }
     }
 
-    if (fs_off_signal && (video_fullscreen > 0) && keyboard_isfsexit()) {
-        ui->actionFullscreen->trigger();
-        fs_off_signal = false;
-    }
-
-    if (fs_on_signal && (video_fullscreen == 0) && keyboard_isfsenter()) {
-        ui->actionFullscreen->trigger();
-        fs_on_signal = false;
-    }
-
-    if (!send_keyboard_input)
-        return;
-
+    if (send_keyboard_input && !event->isAutoRepeat()) {
 #ifdef Q_OS_MACOS
-    processMacKeyboardInput(false, event);
+        processMacKeyboardInput(false, event);
 #else
-    processKeyboardInput(false, event->nativeScanCode());
+        processKeyboardInput(false, event->nativeScanCode());
 #endif
+    }
+
+    checkFullscreenHotkey();
+}
+
+void
+MainWindow::checkFullscreenHotkey()
+{
+    if (!fs_off_signal && video_fullscreen && keyboard_isfsexit()) {
+        /* Signal "exit fullscreen mode". */
+        fs_off_signal = 1;
+    } else if (fs_off_signal && video_fullscreen && keyboard_isfsexit_up()) {
+        ui->actionFullscreen->trigger();
+        fs_off_signal = 0;
+    }
+
+    if (!fs_on_signal && !video_fullscreen && keyboard_isfsenter()) {
+        /* Signal "enter fullscreen mode". */
+        fs_on_signal = 1;
+    } else if (fs_on_signal && !video_fullscreen && keyboard_isfsenter_up()) {
+        ui->actionFullscreen->trigger();
+        fs_on_signal = 0;
+    }
 }
 
 QSize
@@ -1648,7 +1660,7 @@ MainWindow::on_actionAbout_86Box_triggered()
 #endif
     versioninfo.append(QString(" [%1, %2]").arg(QSysInfo::buildCpuArchitecture(), tr(DYNAREC_STR)));
     msgBox.setText(QString("<b>%3%1%2</b>").arg(EMU_VERSION_FULL, versioninfo, tr("86Box v")));
-    msgBox.setInformativeText(tr("An emulator of old computers\n\nAuthors: Sarah Walker, Miran Grca, Fred N. van Kempen (waltje), SA1988, Tiseno100, reenigne, leilei, JohnElliott, greatpsycho, and others.\n\nReleased under the GNU General Public License version 2 or later. See LICENSE for more information."));
+    msgBox.setInformativeText(tr("An emulator of old computers\n\nAuthors: Miran Grča (OBattler), RichardG867, Jasmine Iwanek, TC1995, coldbrewed, Teemu Korhonen (Manaatti), Joakim L. Gilje, Adrien Moulin (elyosh), Daniel Balsom (gloriouscow), Cacodemon345, Fred N. van Kempen (waltje), Tiseno100, reenigne, and others.\n\nWith previous core contributions from Sarah Walker, leilei, JohnElliott, greatpsycho, and others.\n\nReleased under the GNU General Public License version 2 or later. See LICENSE for more information."));
     msgBox.setWindowTitle("About 86Box");
     msgBox.addButton("OK", QMessageBox::ButtonRole::AcceptRole);
     auto webSiteButton = msgBox.addButton(EMU_SITE, QMessageBox::ButtonRole::HelpRole);
@@ -1699,18 +1711,20 @@ void
 MainWindow::on_actionRemember_size_and_position_triggered()
 {
     window_remember ^= 1;
-    window_w = ui->stackedWidget->width();
-    window_h = ui->stackedWidget->height();
-    if (!QApplication::platformName().contains("wayland")) {
-        window_x = geometry().x();
-        window_y = geometry().y();
-    }
-    for (int i = 1; i < MONITORS_NUM; i++) {
-        if (window_remember && renderers[i]) {
-            monitor_settings[i].mon_window_w = renderers[i]->geometry().width();
-            monitor_settings[i].mon_window_h = renderers[i]->geometry().height();
-            monitor_settings[i].mon_window_x = renderers[i]->geometry().x();
-            monitor_settings[i].mon_window_y = renderers[i]->geometry().y();
+    if (!video_fullscreen) {
+        window_w = ui->stackedWidget->width();
+        window_h = ui->stackedWidget->height();
+        if (!QApplication::platformName().contains("wayland")) {
+            window_x = geometry().x();
+            window_y = geometry().y();
+        }
+        for (int i = 1; i < MONITORS_NUM; i++) {
+            if (window_remember && renderers[i]) {
+                monitor_settings[i].mon_window_w = renderers[i]->geometry().width();
+                monitor_settings[i].mon_window_h = renderers[i]->geometry().height();
+                monitor_settings[i].mon_window_x = renderers[i]->geometry().x();
+                monitor_settings[i].mon_window_y = renderers[i]->geometry().y();
+            }
         }
     }
     ui->actionRemember_size_and_position->setChecked(window_remember);

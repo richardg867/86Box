@@ -288,7 +288,6 @@ then
 	echo [-] Using MSYSTEM [$MSYSTEM]
 
 	# Install dependencies only if we're in a new build and/or architecture.
-	freetype_dll="$cache_dir/freetype.$MSYSTEM.dll"
 	if check_buildtag "$MSYSTEM"
 	then
 		# Update databases and keyring only if we're in a new build.
@@ -332,9 +331,6 @@ then
 
 		# Clean pacman cache when running under Jenkins to save disk space.
 		[ "$CI" = "true" ] && rm -rf /var/cache/pacman/pkg
-
-		# Generate a new freetype DLL for this architecture.
-		rm -f "$freetype_dll"
 
 		# Save build tag to skip this later. Doing it here (once everything is
 		# in place) is important to avoid potential issues with retried builds.
@@ -544,12 +540,25 @@ then
 			# Attempt to install dependencies.
 			sudo "$macports/bin/port" install $(cat .ci/dependencies_macports.txt) 2>&1 | tee macports.log
 
-			# Stop if no port version activation errors were found.
+			# Check for port activation errors.
 			stuck_dep=$(grep " cannot be built while another version of " macports.log | cut -d" " -f10)
-			[ -z $stuck_dep ] && break
+			if [ -n "$stuck_dep" ]
+			then
+				# Deactivate the stuck dependency and try again.
+				sudo "$macports/bin/port" -f deactivate "$stuck_dep"
+				continue
+			fi
 
-			# Deactivate the stuck dependency and try again.
-			sudo "$macports/bin/port" -f deactivate $stuck_dep
+			stuck_dep=$(grep " Please deactivate this port first, or " macports.log | cut -d" " -f5 | tr -d :)
+			if [ -n "$stuck_dep" ]
+			then
+				# Activate the stuck dependency and try again.
+				sudo "$macports/bin/port" -f activate "$stuck_dep"
+				continue
+			fi
+
+			# Stop if no errors were found.
+			break
 		done
 
 		# Remove MacPorts error detection log.
@@ -674,9 +683,6 @@ EOF
 	else
 		echo [-] Not installing dependencies again
 	fi
-
-	# Link against the system libslirp instead of compiling ours.
-	cmake_flags_extra="$cmake_flags_extra -D SLIRP_EXTERNAL=ON"
 fi
 
 # Point CMake to the toolchain file.
@@ -795,10 +801,6 @@ then
 	pf="/c/Program Files"
 	sevenzip="$pf/7-Zip/7z.exe"
 	[ "$arch" = "32" -a -d "/c/Program Files (x86)" ] && pf="/c/Program Files (x86)"
-
-	# Archive freetype from cache or generate it from local MSYS installation.
-	[ ! -e "$freetype_dll" ] && .ci/static2dll.sh -p freetype2 /$MSYSTEM/lib/libfreetype.a "$freetype_dll"
-	cp -p "$freetype_dll" archive_tmp/freetype.dll
 
 	# Archive Ghostscript DLL from local official distribution installation.
 	for gs in "$pf"/gs/gs*.*.*
