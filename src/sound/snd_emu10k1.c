@@ -10,7 +10,7 @@
  *
  *          Based on the emu10k1 ALSA driver written by Jaroslav Kysela
  *          in turn based on Creative's original open source driver.
- *          Some portions based on the kX driver and Creative's patents.
+ *          Some portions based on the kX driver and Creative literature.
  *
  *
  *
@@ -41,6 +41,7 @@
 #include <86box/snd_emu8k.h>
 #include <86box/snd_mpu401.h>
 #include <86box/version.h>
+#include <86box/plat_fallthrough.h>
 #include <86box/plat_unused.h>
 
 enum {
@@ -115,8 +116,8 @@ typedef struct _emu10k1_ {
     int      type;
     int      model;
     uint8_t  pci_slot;
-    uint16_t io_base;
     uint8_t  irq_state;
+    uint16_t io_base;
 
     uint8_t  pci_regs[256];
     uint8_t  pci_game_regs[256];
@@ -132,7 +133,7 @@ typedef struct _emu10k1_ {
     int      micbuf_half_looped : 1;
 
     struct {
-        int64_t  acc; /* 67-bit in hardware */
+        int64_t  acc; /* claims to be 67-bit in hardware */
         uint32_t regs[256];
         uint32_t etram_mask;
         uint16_t itram[8192]; /* internal TRAM */
@@ -166,15 +167,15 @@ emu10k1_log(const char *fmt, ...)
 {
     va_list ap;
 
-    if (emu10k1_do_log > 0) {
+    if (emu10k1_do_log) {
         va_start(ap, fmt);
         pclog_ex(fmt, ap);
         va_end(ap);
     }
 }
 
-#    define emu10k1_log_push() emu10k1_do_log--
-#    define emu10k1_log_pop()  emu10k1_do_log++
+#    define emu10k1_log_push() if (emu10k1_do_log >= 1) { emu10k1_do_log++; };
+#    define emu10k1_log_pop()  if (emu10k1_do_log >= 2) { emu10k1_do_log--; };
 #else
 #    define emu10k1_log(fmt, ...)
 #    define emu10k1_log_push()
@@ -461,7 +462,7 @@ emu10k1_dsp_opLOG(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
         case 0x2:
             if (r < 0)
                 break;
-            /* fall-through */
+            fallthrough;
 
         case 0x3:
             r = ~r;
@@ -515,7 +516,7 @@ emu10k1_dsp_opEXP(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
         case 0x2:
             if (a < 0)
                 break;
-            /* fall-through */
+            fallthrough;
 
         case 0x3:
             a = ~a;
@@ -647,7 +648,7 @@ emu10k1_dsp_read(emu10k1_t *dev, int addr, int last_wo_reg, uint32_t last_wo_val
             /* These return the last written value *only* when read back during the next instruction. */
             if (addr == last_wo_reg)
                 return last_wo_val;
-            /* fall-through */
+            fallthrough;
 
         default: /* DSP registers */
             return dev->dsp.regs[addr];
@@ -821,7 +822,8 @@ extern uint8_t keyboard_get_shift(void);
         int      x     = (fetch >> 10) & 0x3ff;
         int      a     = (fetch >> 32) & 0x3ff;
         int      r     = (fetch >> 42) & 0x3ff;
-        int      op    = (fetch >> (EMU_NAME[0] - 4)) & 0xf;
+#define OP_BASE E##M##U##_##N##A##M##E
+        int      op    = (fetch >> (OP_BASE[0] - 4)) & 0xf;
 
         /* Read operands.
            The A operand has some special cases which read as 0 if not fulfilled. */
@@ -886,7 +888,7 @@ extern uint8_t keyboard_get_shift(void);
         switch (r) {
             case 0x20 ... 0x3f: /* external and FX bus outputs */
                 dev->dsp.regs[r] = rval;
-                /* fall-through */
+                fallthrough;
 
             case 0x00 ... 0x1f: /* external and FX bus inputs */
             case 0x80 ... 0xff: /* unmapped */
@@ -970,6 +972,7 @@ emu10k1_update_irqs(emu10k1_t *dev)
         emu10k1_log("EMU10K1: Raising IRQ\n");
     } else {
         pci_clear_irq(dev->pci_slot, PCI_INTA, &dev->irq_state);
+        emu10k1_log("EMU10K1: Lowering IRQ\n");
     }
 }
 
@@ -1137,10 +1140,12 @@ io_reg:
     }
 
 #ifdef ENABLE_EMU10K1_LOG
-    if (reg > -1)
-        emu10k1_log("EMU10K1: read_i(%d, %03X) = %02X\n", dev->emu8k.cur_voice, reg, ret);
-    else
-        emu10k1_log("EMU10K1: read(%02X) = %02X\n", addr, ret);
+    if (emu10k1_do_log == 1) {
+        if (reg > -1)
+            emu10k1_log("EMU10K1: read_i(%d, %03X) = %02X\n", dev->emu8k.cur_voice, reg, ret);
+        else
+            emu10k1_log("EMU10K1: read(%02X) = %02X\n", addr, ret);
+    }
 #endif
     return ret;
 }
@@ -1210,10 +1215,12 @@ readw_fallback8:
     }
 
 #ifdef ENABLE_EMU10K1_LOG
-    if (reg > -1)
-        emu10k1_log("EMU10K1: read_i(%d, %03X) = %04X\n", dev->emu8k.cur_voice, reg, ret);
-    else
-        emu10k1_log("EMU10K1: read(%02X) = %04X\n", addr, ret);
+    if (emu10k1_do_log == 1) {
+        if (reg > -1)
+            emu10k1_log("EMU10K1: read_i(%d, %03X) = %04X\n", dev->emu8k.cur_voice, reg, ret);
+        else
+            emu10k1_log("EMU10K1: read(%02X) = %04X\n", addr, ret);
+    }
 #endif
     return ret;
 }
@@ -1283,10 +1290,12 @@ readl_fallback:
     }
 
 #ifdef ENABLE_EMU10K1_LOG
-    if (reg > -1)
-        emu10k1_log("EMU10K1: read_i(%d, %03X) = %08X\n", dev->emu8k.cur_voice, reg, ret);
-    else
-        emu10k1_log("EMU10K1: read(%02X) = %08X\n", addr, ret);
+    if (emu10k1_do_log == 1) {
+        if (reg > -1)
+            emu10k1_log("EMU10K1: read_i(%d, %03X) = %08X\n", dev->emu8k.cur_voice, reg, ret);
+        else
+            emu10k1_log("EMU10K1: read(%02X) = %08X\n", addr, ret);
+    }
 #endif
     return ret;
 }
@@ -1297,7 +1306,7 @@ emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
     emu10k1_t *dev = (emu10k1_t *) priv;
     addr &= 0x1f;
 #ifdef ENABLE_EMU10K1_LOG
-    if (addr >= 0x08)
+    if ((emu10k1_do_log == 1) && (addr >= 0x08))
         emu10k1_log("EMU10K1: write(%02X, %02X)\n", addr, val);
 #endif
     int reg;
@@ -1412,7 +1421,7 @@ emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
 
         case 0x1b: /* TIMER[9:8] */
             val &= 0x03;
-            /* fall-through */
+            fallthrough;
 
         case 0x1a: /* TIMER[7:0] */
             dev->io_regs[addr]  = val;
@@ -1452,7 +1461,7 @@ emu10k1_writew(uint16_t addr, uint16_t val, void *priv)
     emu10k1_t *dev = (emu10k1_t *) priv;
     addr &= 0x1f;
 #ifdef ENABLE_EMU10K1_LOG
-    if ((addr != 0x00) && (addr != 0x02) && (addr != 0x04) && (addr != 0x06))
+    if ((emu10k1_do_log == 1) && (addr != 0x00) && (addr != 0x02) && (addr != 0x04) && (addr != 0x06))
         emu10k1_log("EMU10K1: write(%02X, %04X)\n", addr, val);
 #endif
     int reg;
@@ -1523,7 +1532,7 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
     emu10k1_t *dev = (emu10k1_t *) priv;
     addr &= 0x1f;
 #ifdef ENABLE_EMU10K1_LOG
-    if ((addr != 0x00) && (addr != 0x04))
+    if ((emu10k1_do_log == 1) && (addr != 0x00) && (addr != 0x04))
         emu10k1_log("EMU10K1: write(%02X, %08X)\n", addr, val);
 #endif
     int reg;
@@ -1674,7 +1683,7 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                 case 0x2a0 ... 0x2ff: /* A_TANKMEMDATAREG */
                     if (dev->type == EMU10K1)
                         return;
-                    /* fall-through */
+                    fallthrough;
 
                 case 0x200 ... 0x29f: /* TANKMEMDATAREG */
                     val &= 0x000fffff;
@@ -1683,7 +1692,7 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                 case 0x3a0 ... 0x3ff: /* A_TANKMEMADDRREG */
                     if (dev->type == EMU10K1)
                         return;
-                    /* fall-through */
+                    fallthrough;
 
                 case 0x300 ... 0x39f: /* TANKMEMADDRREG */
                     val &= 0x00ffffff;
@@ -2228,7 +2237,7 @@ static const device_config_t sb_live_config[] = {
 };
 
 const device_t sb_live_device = {
-    .name          = "Sound Blaster Live",
+    .name          = "Sound Blaster Live!",
     .internal_name = "sb_live",
     .flags         = DEVICE_PCI,
     .local         = EMU10K1 << 16,
