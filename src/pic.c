@@ -680,7 +680,8 @@ picint_common(uint16_t num, int level, int set, uint8_t *irq_state)
                 if ((!!*irq_state) != !!set)
                     set ? dev->lines[b]++ : dev->lines[b]--;
 
-                if (!pic_level_triggered(dev, b) || (dev->lines[b] == (!!set)))
+                if (!pic_level_triggered(dev, b) ||
+                    (((!!*irq_state) != !!set) && (dev->lines[b] == (!!set))))
                     lines |= w;
             }
         }
@@ -738,9 +739,9 @@ picint_common(uint16_t num, int level, int set, uint8_t *irq_state)
                 pic.irr &= ~(num & 0x00ff);
             }
         }
-    }
 
-    update_pending();
+        update_pending();
+    }
 }
 
 static uint8_t
