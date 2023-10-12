@@ -31,6 +31,7 @@
 #include <86box/io.h>
 #include <86box/mem.h>
 #include <86box/timer.h>
+#include <86box/thread.h>
 #include <86box/i2c.h>
 #include <86box/random.h>
 #include <86box/nmi.h>
@@ -139,7 +140,11 @@ typedef struct _emu10k1_ {
         uint16_t itram[8192]; /* internal TRAM */
         int      skip;
         int      interrupt;
-        int      stop : 1;
+        int      pause : 1, stop : 1;
+
+        thread_t *thread;
+        event_t  *wake_dsp_thread;
+        event_t  *wake_main_thread;
     } dsp;
 
     pc_timer_t poll_timer;
@@ -249,7 +254,7 @@ static uint32_t emu10k1_readl(uint16_t addr, void *priv);
 static void     emu10k1_writew(uint16_t addr, uint16_t val, void *priv);
 static void     emu10k1_writel(uint16_t addr, uint32_t val, void *priv);
 
-static __inline int32_t
+static inline int32_t
 emu10k1_dsp_saturate(emu10k1_t *dev, int64_t i)
 {
     /* Check for overflow. */
@@ -266,7 +271,7 @@ emu10k1_dsp_saturate(emu10k1_t *dev, int64_t i)
     return i;
 }
 
-static __inline int64_t
+static inline int64_t
 emu10k1_dsp_add(emu10k1_t *dev, int64_t a, int64_t b)
 {
     /* The borrow flag follows this truth table:
@@ -423,7 +428,7 @@ emu10k1_dsp_logcompress(int32_t val, int max_exp)
     return (val < 0) ? ~ret : ret; /* same here */
 }
 
-static __inline void
+static inline void
 emu10k1_dsp_logexp_acc(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
 {
     /* Both LOG and EXP are meant to be used with X = 2~31 and Y = 0~3. While their intended main
@@ -599,7 +604,7 @@ static int32_t (*emu10k1_dsp_ops[])(emu10k1_t *dev, int64_t a, int32_t x, int32_
     emu10k1_dsp_opSKIP
 };
 
-static __inline uint16_t
+static inline uint16_t
 emu10k1_dsp_tramcompress(int32_t val)
 {
     /* Based on the ALSA DSP code's ETRAM-based playback handler. */
@@ -609,7 +614,7 @@ emu10k1_dsp_tramcompress(int32_t val)
     return ret >> 16;
 }
 
-static __inline uint32_t
+static inline uint32_t
 emu10k1_dsp_tramdecompress(int16_t val)
 {
     /* Extrapolated from compression. The added 0xffff for negative values reduces error. */
@@ -618,7 +623,7 @@ emu10k1_dsp_tramdecompress(int16_t val)
     return emu10k1_dsp_logdecompress((val << 16) | (0xffff * (val < 0)), 7) >> 12;
 }
 
-static __inline uint32_t
+static inline uint32_t
 emu10k1_dsp_read(emu10k1_t *dev, int addr, int last_wo_reg, uint32_t last_wo_val)
 {
     switch (addr) {
@@ -669,6 +674,10 @@ emu10k1_dsp_read(emu10k1_t *dev, int addr, int last_wo_reg, uint32_t last_wo_val
 void
 emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
 {
+    /* Wait for DSP thread. */
+    thread_wait_event(dev->dsp.wake_main_thread, -1);
+    thread_reset_event(dev->dsp.wake_main_thread);
+
     /* Send DSP outputs from the previous run to the audio buffer.
        This should actually be 20 bits sent to the AC97 codec. */
     buf[0] = SAMPLE_32_TO_16(dev->dsp.regs[0x20]);
@@ -763,24 +772,11 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         fwrite(out_samples, sizeof(out_samples[0]), dev->emu8k.emu10k1_fxbuses, sample_dump_f[1]);
 #endif
 
-    /* Don't execute if the DSP is stopped. */
-    if ((dev->indirect_regs[0x52] & 0x00008000) || UNLIKELY(dev->dsp.stop)) {
+    /* Don't execute if the DSP is paused. */
+    if ((dev->indirect_regs[0x52] & 0x00008000) || UNLIKELY(dev->dsp.pause)) {
         memset(&dev->dsp.regs[0x20], 0, 32 * sizeof(dev->dsp.regs[0])); /* null samples are output when DSP is off */
-        return;
+        goto end;
     }
-
-#define RUNNING_CODE() (fetch)
-#define ANY_REG(v)     ((r == (v)) || (a == (v)) || (x == (v)) || (y == (v)))
-#define ANY_REG_VAL(v) ((rval == (v)) || (aval == (v)) || (xval == (v)) || (yval == (v)))
-#if 0
-#define EMU10K1_DSP_TRACE dev->dsp.regs[0] && /*RUNNING_CODE() &&*/ (ANY_REG(0x00) || ANY_REG(0x04) || ANY_REG(0x20) || ANY_REG(0x100) || ANY_REG(0x102) || ANY_REG(0x10c) || ANY_REG(0x114))
-#endif
-extern uint8_t keyboard_get_shift(void);
-#define EMU10K1_DSP_TRACE (keyboard_get_shift() & 0x01)
-#ifdef EMU10K1_DSP_TRACE
-    if (EMU10K1_DSP_TRACE)
-        pclog("EMU10K1: DSP out %08" PRIX32 " %08" PRIX32 " in %08" PRIX32 " %08" PRIX32 " %08" PRIX32 " %08" PRIX32 "\n", buf[0], buf[1], dev->dsp.regs[0], dev->dsp.regs[1], dev->emu8k.fx_buffer[0][pos], dev->emu8k.fx_buffer[1][pos]);
-#endif
 
     /* Update TRAM. */
     int tram = 0;
@@ -808,121 +804,154 @@ extern uint8_t keyboard_get_shift(void);
     /* Decrement DBAC. */
     dev->dsp.regs[0x5b] = (dev->dsp.regs[0x5b] - 1) & 0xfffff;
 
-    /* THREAD SAFETY BARRIER */
+end:
+    /* Wake DSP thread. */
+    thread_set_event(dev->dsp.wake_dsp_thread);
+}
 
-    /* Execute DSP instruction stream. */
-    const uint64_t *code        = (uint64_t *) &dev->indirect_regs[0x400];
-    int             pc          = 0;
-    int             last_wo_reg = -1;
-    uint32_t        last_wo_val = 0;
-    while (pc < 0x200) {
-        /* Decode instruction. */
-        uint64_t fetch = code[pc];
-        int      y     = fetch & 0x3ff;
-        int      x     = (fetch >> 10) & 0x3ff;
-        int      a     = (fetch >> 32) & 0x3ff;
-        int      r     = (fetch >> 42) & 0x3ff;
-#define OP_BASE E##M##U##_##N##A##M##E
-        int      op    = (fetch >> (OP_BASE[0] - 4)) & 0xf;
+void
+emu10k1_dsp_thread(void *priv)
+{
+    emu10k1_t *dev = (emu10k1_t *) priv;
 
-        /* Read operands.
-           The A operand has some special cases which read as 0 if not fulfilled. */
-        int64_t aval = (int32_t) emu10k1_dsp_read(dev, a, last_wo_reg, last_wo_val);
-        if ((a == 0x56) && (op != 0x07)) {
-            /* Accumulator can only be specified as A, except on MACMV where it can't be read. */
-            aval = dev->dsp.acc;
-        } else if (op == 0x0f) {
-            if (UNLIKELY(a != 0x57)) {
-                /* Despite documentation, SKIP can only read the flags register as A.
-                   If a different A is provided, its value is moved to the accumulator. */
-                dev->dsp.acc = aval;
-                aval         = 0;
-            } else {
-                /* Accumulator is 0 when reading flags as A. */
-                dev->dsp.acc = 0;
-            }
-        }
-        int32_t xval = emu10k1_dsp_read(dev, x, last_wo_reg, last_wo_val);
-        int32_t yval = emu10k1_dsp_read(dev, y, last_wo_reg, last_wo_val);
-        last_wo_reg  = -1;
+#define RUNNING_CODE() (fetch)
+#define ANY_REG(v)     ((r == (v)) || (a == (v)) || (x == (v)) || (y == (v)))
+#define ANY_REG_VAL(v) ((rval == (v)) || (aval == (v)) || (xval == (v)) || (yval == (v)))
+#if 0
+#define EMU10K1_DSP_TRACE dev->dsp.regs[0] && /*RUNNING_CODE() &&*/ (ANY_REG(0x00) || ANY_REG(0x04) || ANY_REG(0x20) || ANY_REG(0x100) || ANY_REG(0x102) || ANY_REG(0x10c) || ANY_REG(0x114))
+#endif
+extern uint8_t keyboard_get_shift(void);
+#define EMU10K1_DSP_TRACE (keyboard_get_shift() & 0x01)
 
-        /* Fetch but don't execute the last instruction before a skip target... */
-        if (UNLIKELY(dev->dsp.skip)) {
-            dev->dsp.skip = 0;
+    thread_set_event(dev->dsp.wake_main_thread);
 
-            /* ...as the accumulator is set to the last Y value fetched before the target. */
-            dev->dsp.acc = yval;
-
-            /* Move on to the next instruction. */
-            pc++;
-            continue;
-        }
-
-        /* Clear flags now, as operation code may set them, unless
-           we're in a SKIP operation, which always preserves flags. */
-        if (LIKELY(op != 0xf))
-            dev->dsp.regs[0x57] = 0;
-
-        /* Execute operation. */
-        int32_t rval = emu10k1_dsp_ops[op](dev, aval, xval, yval);
-
-        /* Calculate remaining flags, unless we just processed a SKIP. */
-        if (LIKELY(op != 0xf))
-            dev->dsp.regs[0x57] |= ((rval < -0x40000000) || (rval >= 0x40000000)) | /* N = 0x01 */
-                ((rval < 0) << 2) |                                                 /* M = 0x04 */
-                ((rval == 0) << 3);                                                 /* Z = 0x08 */
+    while (!dev->dsp.stop) {
+        /* Wait for main thread. */
+        thread_wait_event(dev->dsp.wake_dsp_thread, -1);
+        thread_reset_event(dev->dsp.wake_dsp_thread);
 
 #ifdef EMU10K1_DSP_TRACE
         if (EMU10K1_DSP_TRACE)
-            pclog("EMU10K1: %03X OP(%X, %03X:%08" PRIX32 ", %03X:%08" PRIX64 ", %03X:%08" PRIX32 ", %03X:%08" PRIX32 ") fl=%02" PRIX32 "\n",
-                  pc, op, r, rval, a, aval, x, xval, y, yval, dev->dsp.regs[0x57] & 0x1f);
+            pclog("EMU10K1: DSP in %08" PRIX32 " %08" PRIX32 "\n", dev->dsp.regs[0], dev->dsp.regs[1]);
 #endif
 
-        /* Set debug register. */
-        uint32_t debug = (dev->indirect_regs[0x52] & ~0x01ff0000) | (dev->dsp.regs[0x57] << 9);
-        if (dev->dsp.regs[0x57] & 0x10)
-            debug |= 0x02000000 | (r << 16);
-        dev->indirect_regs[0x52] = debug;
+        /* Execute DSP instruction stream. */
+        const uint64_t *code        = (uint64_t *) &dev->indirect_regs[0x400];
+        int             pc          = 0;
+        int             last_wo_reg = -1;
+        uint32_t        last_wo_val = 0;
+        while (pc < 0x200) {
+            /* Decode instruction. */
+            uint64_t fetch = code[pc];
+            int      y     = fetch & 0x3ff;
+            int      x     = (fetch >> 10) & 0x3ff;
+            int      a     = (fetch >> 32) & 0x3ff;
+            int      r     = (fetch >> 42) & 0x3ff;
+#define OP_BASE E##M##U##_##N##A##M##E
+            int      op    = (fetch >> (OP_BASE[0] - 4)) & 0xf;
 
-        /* Write result operand. */
-        switch (r) {
-            case 0x20 ... 0x3f: /* external and FX bus outputs */
-                dev->dsp.regs[r] = rval;
-                fallthrough;
+            /* Read operands.
+               The A operand has some special cases which read as 0 if not fulfilled. */
+            int64_t aval = (int32_t) emu10k1_dsp_read(dev, a, last_wo_reg, last_wo_val);
+            if ((a == 0x56) && (op != 0x07)) {
+                /* Accumulator can only be specified as A, except on MACMV where it can't be read. */
+                aval = dev->dsp.acc;
+            } else if (op == 0x0f) {
+                if (UNLIKELY(a != 0x57)) {
+                    /* Despite documentation, SKIP can only read the flags register as A.
+                       If a different A is provided, its value is moved to the accumulator. */
+                    dev->dsp.acc = aval;
+                    aval         = 0;
+                } else {
+                    /* Accumulator is 0 when reading flags as A. */
+                    dev->dsp.acc = 0;
+                }
+            }
+            int32_t xval = emu10k1_dsp_read(dev, x, last_wo_reg, last_wo_val);
+            int32_t yval = emu10k1_dsp_read(dev, y, last_wo_reg, last_wo_val);
+            last_wo_reg  = -1;
 
-            case 0x00 ... 0x1f: /* external and FX bus inputs */
-            case 0x80 ... 0xff: /* unmapped */
-                /* Save last written value for special read handling. */
-                last_wo_reg = r;
-                last_wo_val = rval;
-                break;
+            /* Fetch but don't execute the last instruction before a skip target... */
+            if (UNLIKELY(dev->dsp.skip)) {
+                dev->dsp.skip = 0;
 
-            case 0x5a: /* interrupt register */
-                if (LIKELY(rval & 0x80000000))
-                    dev->dsp.interrupt = 1;
-                break;
+                /* ...as the accumulator is set to the last Y value fetched before the target. */
+                dev->dsp.acc = yval;
 
-            case 0x100 ... 0x1ff: /* GPR */
-                dev->indirect_regs[r] = rval;
-                break;
+                /* Move on to the next instruction. */
+                pc++;
+                continue;
+            }
 
-            case 0x200 ... 0x2ff: /* TRAM data */
-                /* Justified to most significant bit from the DSP's point of view. */
-                dev->indirect_regs[r] = rval >> 12;
-                break;
+            /* Clear flags now, as operation code may set them, unless
+               we're in a SKIP operation, which always preserves flags. */
+            if (LIKELY(op != 0xf))
+                dev->dsp.regs[0x57] = 0;
 
-            case 0x300 ... 0x3ff: /* TRAM address */
-                /* Justified to second most significant bit from the DSP's point of view.
-                   The opcode in the upper bits is inaccessible and must be kept intact. */
-                dev->indirect_regs[r] = (dev->indirect_regs[r] & 0xfff00000) | ((rval >> 11) & 0x000fffff);
-                break;
+            /* Execute operation. */
+            int32_t rval = emu10k1_dsp_ops[op](dev, aval, xval, yval);
 
-                /* default: not writable */
+            /* Calculate remaining flags, unless we just processed a SKIP. */
+            if (LIKELY(op != 0xf))
+                dev->dsp.regs[0x57] |= ((rval < -0x40000000) || (rval >= 0x40000000)) | /* N = 0x01 */
+                    ((rval < 0) << 2) |                                                 /* M = 0x04 */
+                    ((rval == 0) << 3);                                                 /* Z = 0x08 */
+
+#ifdef EMU10K1_DSP_TRACE
+            if (EMU10K1_DSP_TRACE)
+                pclog("EMU10K1: %03X OP(%X, %03X:%08" PRIX32 ", %03X:%08" PRIX64 ", %03X:%08" PRIX32 ", %03X:%08" PRIX32 ") fl=%02" PRIX32 "\n",
+                      pc, op, r, rval, a, aval, x, xval, y, yval, dev->dsp.regs[0x57] & 0x1f);
+#endif
+
+            /* Set debug register. */
+            uint32_t debug = (dev->indirect_regs[0x52] & ~0x01ff0000) | (dev->dsp.regs[0x57] << 9);
+            if (dev->dsp.regs[0x57] & 0x10)
+                debug |= 0x02000000 | (r << 16);
+            dev->indirect_regs[0x52] = debug;
+
+            /* Write result operand. */
+            switch (r) {
+                case 0x20 ... 0x3f: /* external and FX bus outputs */
+                    dev->dsp.regs[r] = rval;
+                    fallthrough;
+
+                case 0x00 ... 0x1f: /* external and FX bus inputs */
+                case 0x80 ... 0xff: /* unmapped */
+                    /* Save last written value for special read handling. */
+                    last_wo_reg = r;
+                    last_wo_val = rval;
+                    break;
+
+                case 0x5a: /* interrupt register */
+                    if (LIKELY(rval & 0x80000000))
+                        dev->dsp.interrupt = 1;
+                    break;
+
+                case 0x100 ... 0x1ff: /* GPR */
+                    dev->indirect_regs[r] = rval;
+                    break;
+
+                case 0x200 ... 0x2ff: /* TRAM data */
+                    /* Justified to most significant bit from the DSP's point of view. */
+                    dev->indirect_regs[r] = rval >> 12;
+                    break;
+
+                case 0x300 ... 0x3ff: /* TRAM address */
+                    /* Justified to second most significant bit from the DSP's point of view.
+                       The opcode in the upper bits is inaccessible and must be kept intact. */
+                    dev->indirect_regs[r] = (dev->indirect_regs[r] & 0xfff00000) | ((rval >> 11) & 0x000fffff);
+                    break;
+
+                    /* default: not writable */
+            }
+
+            /* Increment program counter. If we're skipping instructions, leave the last one
+               out of the direct skip as we need it to be fetched for accumulator behavior. */
+            pc += MAX(dev->dsp.skip, 1);
         }
 
-        /* Increment program counter. If we're skipping instructions, leave the last one
-           out of the direct skip as we need it to be fetched for accumulator behavior. */
-        pc += MAX(dev->dsp.skip, 1);
+        /* Wake main thread. */
+        thread_set_event(dev->dsp.wake_main_thread);
     }
 }
 
@@ -1036,7 +1065,7 @@ emu10k1_remap_traps(emu10k1_t *dev)
 
 #define EMU10K1_MMU_UNMAPPED ((uint32_t) -1)
 
-static __inline uint32_t
+static inline uint32_t
 emu10k1_mmutranslate(emu10k1_t *dev, emu8k_voice_t *voice, uint32_t page)
 {
     /* Check TLB entries. */
@@ -2089,6 +2118,9 @@ emu10k1_init(const device_t *info)
     dev->pagemask = (dev->type == EMU10K1) ? 8191 : 4095;
     memcpy(&dev->dsp.regs[(dev->type == EMU10K1) ? 0x40 : 0xc0], dsp_constants, sizeof(dsp_constants));
     memcpy(&dev->dsp.regs[(dev->type == EMU10K1) ? 0x60 : 0xe0], dsp_constants, sizeof(dsp_constants)); /* undocumented shadow (unknown on non-EMU10K1) */
+    dev->dsp.wake_dsp_thread = thread_create_event();
+    dev->dsp.wake_main_thread = thread_create_event();
+    dev->dsp.thread = thread_create(emu10k1_dsp_thread, dev);
 
     /* Initialize EMU8000 synth. */
     emu8k_init_standalone(&dev->emu8k, 64, FREQ_48000);
@@ -2206,6 +2238,12 @@ emu10k1_close(void *priv)
         sample_dump_f[i] = NULL;
     }
 #endif
+
+    dev->dsp.stop = 1;
+    thread_set_event(dev->dsp.wake_dsp_thread);
+    thread_wait(dev->dsp.thread);
+    thread_destroy_event(dev->dsp.wake_dsp_thread);
+    thread_destroy_event(dev->dsp.wake_main_thread);
 
     free(dev);
 }
