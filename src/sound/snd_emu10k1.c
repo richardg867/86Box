@@ -412,7 +412,7 @@ emu10k1_dsp_logcompress(int32_t val, int max_exp)
         return val >> 1;
 
     /* Tweaked from a kX plugin API function written by someone smarter than me. */
-    int      exp_bits = log2(max_exp) + 1;
+    int      exp_bits = log2i(max_exp) + 1;
     uint32_t ret      = (val < 0) ? ~val : val; /* actually's one complement */
     int      msb      = 31 - log2i(ret);
     ret <<= msb;
@@ -438,7 +438,7 @@ emu10k1_dsp_logexp_acc(emu10k1_t *dev, int64_t a, int32_t x, int32_t y)
        prove it, and we won't know if any real-world DSP programs abuse this until one shows up.
        This code is an imperfect approximation (values start deviating from hardware when X < 0
        or Y < 0), but I'm not burning any more time on what appears to be an unlikely scenario. */
-    int    point = 31 - (int) (log2(x & 0x7fffffff) + 1);            /* how much to shift Y by (including sign bit) */
+    int    point = 31 - (log2i(x & 0x7fffffff) + 1);                 /* how much to shift Y by (including sign bit) */
     double scale = (unsigned int) ((x + 1) << point) / 2147483648.0; /* factor for scaling Y, shifted towards MSB so Y can be scaled in place */
     dev->dsp.acc = a + ((int64_t) (y * scale) >> point);             /* scale Y in place, then shift towards LSB */
     if (x < 0) {
@@ -486,7 +486,7 @@ emu10k1_dsp_logdecompress(int32_t val, int max_exp)
 
     /* Also based on kX and validated on hardware. */
     uint32_t ret      = (val < 0) ? ~val : val; /* still two's complement */
-    int      exp_bits = log2(max_exp) + 1;
+    int      exp_bits = log2i(max_exp) + 1;
     int      msb      = 32 - (log2i(ret) + 1);
     if (msb <= exp_bits) {
         int exp = ret >> (31 - exp_bits);
