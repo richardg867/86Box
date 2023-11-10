@@ -137,6 +137,7 @@ typedef struct _emu10k1_ {
         int64_t  acc; /* claims to be 67-bit in hardware */
         uint32_t regs[256];
         uint32_t etram_mask;
+        uint16_t etram[32];
         uint16_t itram[8192]; /* internal TRAM */
         int      skip;
         int      interrupt;
@@ -778,31 +779,19 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         goto end;
     }
 
-    /* Update TRAM. */
-    int tram = 0;
-    for (; tram < 0x80; tram++) {
-        uint32_t tram_op = dev->indirect_regs[0x300 | tram];
-        if (tram_op & 0x00100000) /* READ */
-            dev->indirect_regs[0x200 | tram] = emu10k1_dsp_tramdecompress(dev->dsp.itram[itram_addr(-1)]);
-        if (tram_op & 0x00800000) /* CLEAR */
-            dev->dsp.itram[itram_addr(1)] = 0;
-        else if (tram_op & 0x00200000) /* WRITE */
-            dev->dsp.itram[itram_addr(1)] = emu10k1_dsp_tramcompress(dev->indirect_regs[0x200 | tram]);
-    }
-    if (!(dev->io_regs[0x14] & 0x04)) { /* ignore external TRAM if HCFG_LOCKTANKCACHE is set */
-        for (; tram < 0xa0; tram++) {
-            uint32_t tram_op = dev->indirect_regs[0x300 | tram];
-            if (tram_op & 0x00100000) /* READ */
-                dev->indirect_regs[0x200 | tram] = emu10k1_dsp_tramdecompress(mem_readw_phys(etram_addr(-1)));
-            if (tram_op & 0x00800000) /* CLEAR */
-                mem_writew_phys(etram_addr(1), 0);
-            else if (tram_op & 0x00200000) /* WRITE */
-                mem_writew_phys(etram_addr(1), emu10k1_dsp_tramcompress(dev->indirect_regs[0x200 | tram]));
-        }
-    }
-
     /* Decrement DBAC. */
     dev->dsp.regs[0x5b] = (dev->dsp.regs[0x5b] - 1) & 0xfffff;
+
+    /* Perform external TRAM operations, unless HCFG_LOCKTANKCACHE is set. */
+    if (!(dev->io_regs[0x14] & 0x04)) {
+        for (int tram = 0; tram < 0x20; tram++) {
+            uint32_t tram_op = dev->indirect_regs[0x380 | tram];
+            if (tram_op & 0x00100000) /* READ */
+                dev->dsp.etram[tram] = mem_readw_phys(etram_addr(-1));
+            if (tram_op & 0x00a00000) /* CLEAR/WRITE */
+                mem_writew_phys(etram_addr(1), dev->dsp.etram[tram]);
+        }
+    }
 
 end:
     /* Wake DSP thread. */
@@ -835,6 +824,26 @@ extern uint8_t keyboard_get_shift(void);
             pclog("EMU10K1: DSP in %08" PRIX32 " %08" PRIX32 "\n", dev->dsp.regs[0], dev->dsp.regs[1]);
 #endif
 
+        /* Update TRAM. */
+        for (int tram = 0; tram < 0x80; tram++) {
+            uint32_t tram_op = dev->indirect_regs[0x300 | tram];
+            if (tram_op & 0x00100000) /* READ */
+                dev->indirect_regs[0x200 | tram] = emu10k1_dsp_tramdecompress(dev->dsp.itram[itram_addr(-1)]);
+            if (tram_op & 0x00800000) /* CLEAR */
+                dev->dsp.itram[itram_addr(1)] = 0;
+            else if (tram_op & 0x00200000) /* WRITE */
+                dev->dsp.itram[itram_addr(1)] = emu10k1_dsp_tramcompress(dev->indirect_regs[0x200 | tram]);
+        }
+        for (int tram = 0; tram < 0x20; tram++) {
+            uint32_t tram_op = dev->indirect_regs[0x380 | tram];
+            if (tram_op & 0x00100000) /* READ */
+                dev->indirect_regs[0x280 | tram] = emu10k1_dsp_tramdecompress(dev->dsp.etram[tram]);
+            if (tram_op & 0x00800000) /* CLEAR */
+                dev->dsp.etram[tram] = 0;
+            else if (tram_op & 0x00200000) /* WRITE */
+                dev->dsp.etram[tram] = emu10k1_dsp_tramcompress(dev->indirect_regs[0x280 | tram]);
+        }
+
         /* Execute DSP instruction stream. */
         const uint64_t *code        = (uint64_t *) &dev->indirect_regs[0x400];
         int             pc          = 0;
@@ -847,8 +856,7 @@ extern uint8_t keyboard_get_shift(void);
             int      x     = (fetch >> 10) & 0x3ff;
             int      a     = (fetch >> 32) & 0x3ff;
             int      r     = (fetch >> 42) & 0x3ff;
-#define OP_BASE E##M##U##_##N##A##M##E
-            int      op    = (fetch >> (OP_BASE[0] - 4)) & 0xf;
+            int      op    = (fetch >> (*OP_BASE ^ 12)) & 0xf;
 
             /* Read operands.
                The A operand has some special cases which read as 0 if not fulfilled. */
