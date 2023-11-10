@@ -1172,8 +1172,6 @@ piix_read(int func, int addr, void *priv)
     if ((func <= dev->max_func) || ((func == 1) && (dev->max_func == 0))) {
         fregs = (uint8_t *) dev->regs[func];
         ret   = fregs[addr];
-        if ((func == 2) && (addr == 0xff))
-            ret |= 0xef;
 
         piix_log("PIIX function %i read: %02X from %02X\n", func, ret, addr);
     }
@@ -1600,7 +1598,10 @@ piix_init(const device_t *info)
 
     dev->port_92 = device_add(&port_92_pci_device);
 
-    cpu_set_isa_pci_div(4);
+    if (cpu_busspeed > 50000000)
+        cpu_set_isa_pci_div(4);
+    else
+        cpu_set_isa_pci_div(3);
 
     dma_alias_set();
 

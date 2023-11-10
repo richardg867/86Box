@@ -46,6 +46,8 @@ int        acpi_enabled        = 0;
 
 static double cpu_to_acpi;
 
+static int    acpi_power_on    = 0;
+
 #ifdef ENABLE_ACPI_LOG
 int acpi_do_log = ENABLE_ACPI_LOG;
 
@@ -1619,7 +1621,10 @@ acpi_reset(void *priv)
     acpi_t *dev = (acpi_t *) priv;
 
     memset(&dev->regs, 0x00, sizeof(acpi_regs_t));
-    dev->regs.gpireg[0] = 0xff;
+    /* PC Chips M773:
+       - Bit 3: 80-conductor cable on unknown IDE channel (active low)
+       - Bit 1: 80-conductor cable on unknown IDE channel (active low) */
+    dev->regs.gpireg[0] = !strcmp(machine_get_internal_name(), "m773") ? 0xf5 : 0xff;
     dev->regs.gpireg[1] = 0xff;
     /* A-Trend ATC7020BXII:
        - Bit 3: 80-conductor cable on secondary IDE channel (active low)
@@ -1653,8 +1658,11 @@ acpi_reset(void *priv)
             dev->regs.gpi_val |= 0x00000004;
     }
 
-    /* Power on always generates a resume event. */
-    dev->regs.pmsts |= 0x8000;
+    if (acpi_power_on) {
+        /* Power on always generates a resume event. */
+        dev->regs.pmsts |= 0x8100;
+        acpi_power_on = 0;
+    }
 
     acpi_rtc_status = 0;
 
@@ -1762,7 +1770,9 @@ acpi_init(const device_t *info)
 
     acpi_reset(dev);
 
-    acpi_enabled = 1;
+    acpi_enabled  = 1;
+    acpi_power_on = 1;
+
     return dev;
 }
 

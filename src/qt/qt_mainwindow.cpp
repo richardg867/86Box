@@ -212,7 +212,7 @@ MainWindow::MainWindow(QWidget *parent)
         ui->actionMCA_devices->setVisible(machine_has_bus(machine, MACHINE_BUS_MCA));
         QApplication::setOverrideCursor(Qt::ArrowCursor);
 #ifdef USE_WACOM
-        ui->menuTablet_tool->menuAction()->setVisible(mouse_mode >= 1);
+        ui->menuTablet_tool->menuAction()->setVisible(mouse_input_mode >= 1);
 #else
         ui->menuTablet_tool->menuAction()->setVisible(false);
 #endif
@@ -921,16 +921,10 @@ MainWindow::on_actionSettings_triggered()
 
     switch (settings.result()) {
         case QDialog::Accepted:
-            /*
             pc_reset_hard_close();
             settings.save();
             config_changed = 2;
             pc_reset_hard_init();
-            */
-            settings.save();
-            config_changed = 2;
-            pc_reset_hard();
-
             break;
         case QDialog::Rejected:
             break;
