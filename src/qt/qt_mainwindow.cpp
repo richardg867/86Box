@@ -117,6 +117,11 @@ extern int qt_nvr_save(void);
 #    undef KeyRelease
 #endif
 
+#if defined Q_OS_UNIX && !defined Q_OS_HAIKU && !defined Q_OS_MACOS
+#include <qpa/qplatformwindow.h>
+#include "x11_util.h"
+#endif
+
 #ifdef Q_OS_MACOS
 #    include "cocoa_keyboard.hpp"
 // The namespace is required to avoid clashing typedefs; we only use this
@@ -615,6 +620,15 @@ MainWindow::MainWindow(QWidget *parent)
     if (!vnc_enabled)
         video_setblit(qt_blit);
 
+    if (start_in_fullscreen) {
+        connect(ui->stackedWidget, &RendererStack::blit, this, [this] () {
+            if (start_in_fullscreen) {
+                QTimer::singleShot(100, ui->actionFullscreen, &QAction::trigger);
+                start_in_fullscreen = 0;
+            }
+        });
+    }
+
 #ifdef MTR_ENABLED
     {
         ui->actionBegin_trace->setVisible(true);
@@ -702,6 +716,20 @@ MainWindow::MainWindow(QWidget *parent)
     else
 #    endif
     {}
+#endif
+
+#if defined Q_OS_UNIX && !defined Q_OS_MACOS && !defined Q_OS_HAIKU
+    if (QApplication::platformName().contains("xcb")) {
+        QTimer::singleShot(0, this, [this] {
+            auto whandle = windowHandle();
+            if (! whandle) {
+                qWarning() << "No window handle";
+            } else {
+                QPlatformWindow *window = whandle->handle();
+                set_wm_class(window->winId(), vm_name);
+            }
+        });
+    }
 #endif
 }
 
@@ -840,10 +868,6 @@ MainWindow::showEvent(QShowEvent *event)
         ui->stackedWidget->setFixedSize(window_w, window_h);
         QApplication::processEvents();
         this->adjustSize();
-    }
-    if (start_in_fullscreen) {
-        start_in_fullscreen = 0;
-        QTimer::singleShot(0, ui->actionFullscreen, &QAction::trigger);
     }
 }
 

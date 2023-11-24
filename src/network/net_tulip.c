@@ -23,6 +23,7 @@
 #include <86box/86box.h>
 #include <86box/timer.h>
 #include <86box/pci.h>
+#include <86box/random.h>
 #include <86box/io.h>
 #include <86box/mem.h>
 #include <86box/dma.h>
@@ -514,129 +515,6 @@ tulip_receive(void *priv, uint8_t *buf, int size)
     return 1;
 }
 
-static const char *
-tulip_reg_name(const uint32_t addr)
-{
-    switch (addr) {
-        case CSR(0):
-            return "CSR0";
-
-        case CSR(1):
-            return "CSR1";
-
-        case CSR(2):
-            return "CSR2";
-
-        case CSR(3):
-            return "CSR3";
-
-        case CSR(4):
-            return "CSR4";
-
-        case CSR(5):
-            return "CSR5";
-
-        case CSR(6):
-            return "CSR6";
-
-        case CSR(7):
-            return "CSR7";
-
-        case CSR(8):
-            return "CSR8";
-
-        case CSR(9):
-            return "CSR9";
-
-        case CSR(10):
-            return "CSR10";
-
-        case CSR(11):
-            return "CSR11";
-
-        case CSR(12):
-            return "CSR12";
-
-        case CSR(13):
-            return "CSR13";
-
-        case CSR(14):
-            return "CSR14";
-
-        case CSR(15):
-            return "CSR15";
-
-        default:
-            break;
-    }
-    return "";
-}
-
-static const char *
-tulip_rx_state_name(int state)
-{
-    switch (state) {
-        case CSR5_RS_STOPPED:
-            return "STOPPED";
-
-        case CSR5_RS_RUNNING_FETCH:
-            return "RUNNING/FETCH";
-
-        case CSR5_RS_RUNNING_CHECK_EOR:
-            return "RUNNING/CHECK EOR";
-
-        case CSR5_RS_RUNNING_WAIT_RECEIVE:
-            return "WAIT RECEIVE";
-
-        case CSR5_RS_SUSPENDED:
-            return "SUSPENDED";
-
-        case CSR5_RS_RUNNING_CLOSE:
-            return "RUNNING/CLOSE";
-
-        case CSR5_RS_RUNNING_FLUSH:
-            return "RUNNING/FLUSH";
-
-        case CSR5_RS_RUNNING_QUEUE:
-            return "RUNNING/QUEUE";
-
-        default:
-            break;
-    }
-    return "";
-}
-
-static const char *
-tulip_tx_state_name(int state)
-{
-    switch (state) {
-        case CSR5_TS_STOPPED:
-            return "STOPPED";
-
-        case CSR5_TS_RUNNING_FETCH:
-            return "RUNNING/FETCH";
-
-        case CSR5_TS_RUNNING_WAIT_EOT:
-            return "RUNNING/WAIT EOT";
-
-        case CSR5_TS_RUNNING_READ_BUF:
-            return "RUNNING/READ BUF";
-
-        case CSR5_TS_RUNNING_SETUP:
-            return "RUNNING/SETUP";
-
-        case CSR5_TS_SUSPENDED:
-            return "SUSPENDED";
-
-        case CSR5_TS_RUNNING_CLOSE:
-            return "RUNNING/CLOSE";
-
-        default:
-            break;
-    }
-    return "";
-}
-
 static void
 tulip_update_rs(TULIPState *s, int state)
 {
@@ -683,44 +561,6 @@ static const uint16_t tulip_mdi_default[] = {
 };
 
 /* Readonly mask for MDI (PHY) registers */
-static const uint16_t tulip_mdi_mask[] = {
-    /* MDI Registers 0 - 6, 7 */
-    0x0000,
-    0xffff,
-    0xffff,
-    0xffff,
-    0xc01f,
-    0xffff,
-    0xffff,
-    0x0000,
-    /* MDI Registers 8 - 15 */
-    0x0000,
-    0x0000,
-    0x0000,
-    0x0000,
-    0x0000,
-    0x0000,
-    0x0000,
-    0x0000,
-    /* MDI Registers 16 - 31 */
-    0x0fff,
-    0x0000,
-    0xffff,
-    0xffff,
-    0xffff,
-    0xffff,
-    0xffff,
-    0xffff,
-    0xffff,
-    0xffff,
-    0x0000,
-    0x0000,
-    0x0000,
-    0x0000,
-    0x0000,
-    0x0000,
-};
-
 extern uint16_t l80225_mii_readw(uint16_t* regs, uint16_t addr);
 extern void l80225_mii_writew(uint16_t* regs, uint16_t addr, uint16_t val);
 
@@ -1220,9 +1060,15 @@ static const uint8_t eeprom_default[128] = {
     0x08,
     0x04,
     0x01,
+#ifdef USE_DEC_OID
     0x00,
     0x80,
     0x48,
+#else
+    0x00,
+    0x00,
+    0xcb,
+#endif
     0xb3,
     0x0e,
     0xa7,
@@ -1330,6 +1176,7 @@ static const uint8_t eeprom_default[128] = {
     0x00,
 };
 
+/* MAC address at 14h, card-specific at 17h. */
 static const uint8_t eeprom_default_24110[128] = {
     0x46,
     0x26,
@@ -1351,12 +1198,12 @@ static const uint8_t eeprom_default_24110[128] = {
     0x08,
     0x04,
     0x01,
-    0x00, /* TODO: Change the MAC Address to the correct one. */
-    0x80,
-    0x48,
-    0xc3,
-    0x3e,
-    0xa7,
+    0x00, /* Obtained from a Linux dump from the real Kingston KNE110TX: 00:C0:F0:16:2A:CB */
+    0xc0,
+    0xf0,
+    0x16,
+    0x2a,
+    0xcb,
     0x00,
     0x1e,
     0x00,
@@ -1460,16 +1307,6 @@ static const uint8_t eeprom_default_24110[128] = {
     0x00,
     0x00,
 };
-
-static void
-tulip_fill_eeprom(TULIPState *s)
-{
-    uint16_t *eeprom = nmc93cxx_eeprom_data(s->eeprom);
-    memcpy(eeprom, eeprom_default, 128);
-
-    tulip_idblock_crc(eeprom);
-    eeprom[63] = (tulip_srom_crc((uint8_t *) eeprom, 126));
-}
 
 static uint8_t
 tulip_pci_read(UNUSED(int func), int addr, void *priv)
@@ -1576,12 +1413,40 @@ nic_init(const device_t *info)
     nmc93cxx_eeprom_params_t params;
     TULIPState              *s              = calloc(1, sizeof(TULIPState));
     char                     filename[1024] = { 0 };
+    uint32_t                 mac;
 
     if (!s)
         return NULL;
     
     s->device_info = info;
-    memcpy(eeprom_default_local, s->device_info->local ? eeprom_default_24110 : eeprom_default, sizeof(eeprom_default));
+    memcpy(eeprom_default_local, info->local ? eeprom_default_24110 : eeprom_default,
+           sizeof(eeprom_default));
+    if (info->local == 2) {
+        /* Microsoft VPC DEC Tulip. */
+        eeprom_default_local[0x14] = 0x00;
+        eeprom_default_local[0x15] = 0x03;
+        eeprom_default_local[0x16] = 0x0f;
+    }
+
+    /* See if we have a local MAC address configured. */
+    mac = device_get_config_mac("mac", -1);
+
+    /* Set up our BIA. */
+    if (mac & 0xff000000) {
+        /* Generate new local MAC. */
+        eeprom_default_local[0x17] = random_generate();
+        eeprom_default_local[0x18] = random_generate();
+        eeprom_default_local[0x19] = random_generate();
+        mac              = (((int) eeprom_default_local[0x17]) << 16);
+        mac             |= (((int) eeprom_default_local[0x18]) << 8);
+        mac             |= ((int) eeprom_default_local[0x19]);
+        device_set_config_mac("mac", mac);
+    } else {
+        eeprom_default_local[0x17] = (mac >> 16) & 0xff;
+        eeprom_default_local[0x18] = (mac >> 8) & 0xff;
+        eeprom_default_local[0x19] = (mac & 0xff);
+    }
+
     tulip_idblock_crc((uint16_t *) eeprom_default_local);
     ((uint16_t *) eeprom_default_local)[63] = (tulip_srom_crc((uint8_t *) eeprom_default_local, 126));
 
@@ -1596,7 +1461,7 @@ nic_init(const device_t *info)
     }
     memcpy(s->mii_regs, tulip_mdi_default, sizeof(tulip_mdi_default));
     s->nic = network_attach(s, (uint8_t *) &nmc93cxx_eeprom_data(s->eeprom)[10], tulip_receive, NULL);
-    pci_add_card(PCI_ADD_NETWORK, tulip_pci_read, tulip_pci_write, s, &s->pci_slot);
+    pci_add_card(PCI_ADD_NORMAL, tulip_pci_read, tulip_pci_write, s, &s->pci_slot);
     mem_mapping_add(&s->memory, 0, 0, NULL, NULL, tulip_read, NULL, NULL, tulip_write, NULL, MEM_MAPPING_EXTERNAL, s);
     tulip_reset(s);
     return s;
@@ -1607,6 +1472,19 @@ nic_close(void *priv)
 {
     free(priv);
 }
+
+// clang-format off
+static const device_config_t dec_tulip_config[] = {
+    {
+        .name = "mac",
+        .description = "MAC Address",
+        .type = CONFIG_MAC,
+        .default_string = "",
+        .default_int = -1
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+};
+// clang-format on
 
 const device_t dec_tulip_device = {
     .name          = "Compu-Shack FASTLine-II UTP 10/100 (DECchip 21143 \"Tulip\")",
@@ -1619,7 +1497,7 @@ const device_t dec_tulip_device = {
     { .available = NULL },
     .speed_changed = NULL,
     .force_redraw  = NULL,
-    .config        = NULL
+    .config        = dec_tulip_config
 };
 
 const device_t dec_tulip_21140_device = {
@@ -1633,5 +1511,19 @@ const device_t dec_tulip_21140_device = {
     { .available = NULL },
     .speed_changed = NULL,
     .force_redraw  = NULL,
-    .config        = NULL
+    .config        = dec_tulip_config
+};
+
+const device_t dec_tulip_21140_vpc_device = {
+    .name          = "Microsoft Virtual PC Network (DECchip 21140 \"Tulip FasterNet\")",
+    .internal_name = "dec_21140_tulip_vpc",
+    .flags         = DEVICE_PCI,
+    .local         = 2,
+    .init          = nic_init,
+    .close         = nic_close,
+    .reset         = tulip_reset,
+    { .available = NULL },
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = dec_tulip_config
 };
