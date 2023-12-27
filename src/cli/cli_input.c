@@ -36,8 +36,10 @@
 #include <86box/cli.h>
 #include <86box/device.h>
 #include <86box/keyboard.h>
+#include <86box/mouse.h>
 #include <86box/plat.h>
 #include <86box/thread.h>
+#include <86box/video.h>
 
 #ifdef USE_CLI
 /* Escape sequence parser states. */
@@ -55,7 +57,10 @@ enum {
     VT_DCS_PARAM,
     VT_DCS_PASSTHROUGH,
     VT_SOS_PM_APC_STRING,
-    VT_OSC_STRING
+    VT_OSC_STRING,
+    VT_MOUSE_BTN,
+    VT_MOUSE_X,
+    VT_MOUSE_Y
 };
 #endif
 
@@ -223,6 +228,14 @@ static const uint8_t csi_modifiers[] = {
     [14] = VT_META | VT_CTRL | VT_SHIFT,
     [15] = VT_META | VT_CTRL | VT_ALT,
     [16] = VT_META | VT_CTRL | VT_ALT | VT_SHIFT
+};
+static const uint8_t mouse_button_values[] = {
+    [0] = 1, /* left */
+    [1] = 4, /* middle */
+    [2] = 2, /* right */
+    [3] = 0, /* none */
+    [8] = 8, /* 4th */
+    [9] = 16 /* 5th */
 };
 
 static int  in_raw = 0, param_buf_pos = 0, collect_buf_pos = 0, dcs_buf_pos = 0, osc_buf_pos = 0;
@@ -615,19 +628,13 @@ cli_input_execute(int c)
     switch (c) {
         case 0x01 ... 0x08: /* Ctrl+A to Ctrl+H */
         /* skip Ctrl+I (Tab), Ctrl+J (Enter) */
-        case 0x0b ... 0x0c: /* Ctrl+K to Ctrl+L */
-        /* skip Ctrl+M (Windows Enter) */
-        case 0x0e ... 0x1a: /* Ctrl+N to Ctrl+Z */
+        case 0x0b ... 0x1a: /* Ctrl+K to Ctrl+Z */
             cli_input_send(ascii_seqs['`' + c], VT_CTRL);
             break;
 
         case 0x09: /* Tab */
         case 0x0a: /* Enter */
             cli_input_send(ascii_seqs[c], 0);
-            break;
-
-        case 0x0d: /* Enter (Windows) */
-            cli_input_send(ascii_seqs['\n'], 0);
             break;
     }
 }
@@ -767,6 +774,8 @@ void
 cli_input_process(void *priv)
 {
     int c = 0, state = VT_GROUND, prev_state = VT_GROUND;
+    int mouse_x_prev = 0;
+    int mouse_y_prev = 0;
 #ifdef _WIN32
     HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
     INPUT_RECORD ir;
@@ -898,13 +907,11 @@ cli_input_process(void *priv)
             case VT_ESCAPE:
                 switch (c) {
                     case 0x00 ... 0x09:
-                    case 0x0b ... 0x0c:
-                    case 0x0e ... 0x1f:
+                    case 0x0b ... 0x1f:
                         cli_input_execute(c);
                         break;
 
                     case 0x0a: /* Esc Enter */
-                    case 0x0d: /* Esc Enter (Windows) */
 #ifdef _WIN32
 monitor:
 #endif
@@ -1017,7 +1024,16 @@ monitor:
                         state = VT_CSI_PARAM;
                         break;
 
-                    case 0x40 ... 0x7e:
+                    case 0x4d:
+                        /* Potential mouse tracking event. */
+                        if (param_buf_pos == 0) {
+                            state = VT_MOUSE_BTN;
+                            break;
+                        }
+                        /* fall-through */
+
+                    case 0x40 ... 0x4c:
+                    case 0x4e ... 0x7e:
                         cli_input_csi_dispatch(c);
                         state = VT_GROUND;
                         break;
@@ -1174,6 +1190,51 @@ monitor:
                         cli_input_osc_put(c);
                         break;
                 }
+                break;
+
+            case VT_MOUSE_BTN:
+                state = VT_MOUSE_X;
+                cli_input_param(c);
+                break;
+
+            case VT_MOUSE_X:
+                state = VT_MOUSE_Y;
+                cli_input_param(c);
+                break;
+
+            case VT_MOUSE_Y:
+                state = VT_GROUND;
+                cli_input_param(c);
+
+                /* Check for mouse parameter validity. */
+                if (param_buf_pos < 3)
+                    return;
+
+                /* Interpret mouse tracking data. */
+                int btn = param_buf[0] - ' ';
+                int mod = (btn >> 2) & 0x07; /* modifiers [4:2] */
+                btn = (btn & 0x03) | ((btn & 0xc0) >> 4); /* buttons [7:6,1:0] */
+                int x = param_buf[1] - ' ' - 1;
+                int y = param_buf[2] - ' ' - 1;
+                cli_input_log("CLI Input: Mouse buttons %d modifiers %02X at %d,%d\n", btn, mod, x, y);
+
+                /* Convert and send coordinates. */
+                int mouse_x_abs = x * ((double) get_actual_size_x() / (cli_term.size_x - 1));
+                cli_input_log("X %d * (%d / %d) = %d\n", x, get_actual_size_x(), cli_term.size_x - 1, mouse_x_abs);
+                int mouse_y_abs = y * ((double) get_actual_size_y() / (cli_term.size_y - 1));
+                cli_input_log("Y %d * (%d / %d) = %d\n", y, get_actual_size_y(), cli_term.size_y - 1, mouse_y_abs);
+                mouse_scale(mouse_x_abs - mouse_x_prev, mouse_y_abs - mouse_y_prev);
+                mouse_x_prev = mouse_x_abs;
+                mouse_y_prev = mouse_y_abs;
+                cli_input_log("afterwards %d %d\n", mouse_x_abs, mouse_y_abs);
+
+                /* Send buttons. */
+                if (btn == 4) /* wheel back */
+                    mouse_z = -1;
+                else if (btn == 5) /* wheel forward */
+                    mouse_z = 1;
+                else if (btn < sizeof(mouse_button_values))
+                    mouse_buttons = mouse_button_values[btn];
                 break;
         }
     }

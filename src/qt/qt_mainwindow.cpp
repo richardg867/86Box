@@ -252,6 +252,10 @@ MainWindow::MainWindow(QWidget *parent)
 
     emit updateMenuResizeOptions();
 
+#ifdef USE_CLI
+    char *mouse_type = getenv("EMU86BOX_MOUSE");
+    if (!mouse_type || stricmp(mouse_type, "cli"))
+#endif
     connect(this, &MainWindow::pollMouse, ui->stackedWidget, &RendererStack::mousePoll, Qt::DirectConnection);
 
     connect(this, &MainWindow::setMouseCapture, this, [this](bool state) {
@@ -761,6 +765,10 @@ MainWindow::initRendererMonitorSlot(int monitor_index)
             secondaryRenderer->switchRenderer((RendererStack::Renderer) vid_api);
             secondaryRenderer->setMouseTracking(true);
         }
+#ifdef USE_CLI
+        char *mouse_type = getenv("EMU86BOX_MOUSE");
+        if (!mouse_type || stricmp(mouse_type, "cli"))
+#endif
         connect(this, &MainWindow::pollMouse, secondaryRenderer.get(), &RendererStack::mousePoll, Qt::DirectConnection);
     }
 }
