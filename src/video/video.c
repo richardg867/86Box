@@ -79,12 +79,15 @@
 
 volatile int screenshots = 0;
 uint8_t      edatlookup[4][4];
+uint8_t      egaremap2bpp[256];
 #ifdef USE_CLI
 int          cli_blit = 0;
 #endif
 void       (*screenshot_hook)(char *path, uint32_t *buf, int start_x, int start_y, int w, int h, int row_len) = NULL;
 uint8_t      fontdat[2048][8];            /* IBM CGA font */
 uint8_t      fontdatm[2048][16];          /* IBM MDA font */
+uint8_t      fontdat2[2048][8];           /* IBM CGA 2nd instance font */
+uint8_t      fontdatm2[2048][16];         /* IBM MDA 2nd instance font */
 uint8_t      fontdatw[512][32];           /* Wyse700 font */
 uint8_t      fontdat8x12[256][16];        /* MDSI Genius font */
 uint8_t      fontdat12x18[256][36];       /* IM1024 font */
@@ -931,6 +934,18 @@ video_init(void)
         }
     }
 
+    for (uint16_t c = 0; c < 256; c++) {
+        egaremap2bpp[c] = 0;
+        if (c & 0x01)
+            egaremap2bpp[c] |= 0x01;
+        if (c & 0x04)
+            egaremap2bpp[c] |= 0x02;
+        if (c & 0x10)
+            egaremap2bpp[c] |= 0x04;
+        if (c & 0x40)
+            egaremap2bpp[c] |= 0x08;
+    }
+
     video_6to8 = malloc(4 * 256);
     for (uint16_t c = 0; c < 256; c++)
         video_6to8[c] = calc_6to8(c);
@@ -1105,6 +1120,19 @@ loadfont_common(FILE *f, int format)
             for (c = 0; c < 1024; c++) /* Allow up to 1024 chars */
                 for (d = 0; d < 8; d++)
                     fontdat[c][d] = fgetc(f) & 0xff;
+            break;
+
+
+        case 11: /* PC200 */
+            for (d = 0; d < 4; d++) {
+                /* There are 4 fonts in the ROM */
+                for (c = 0; c < 256; c++) /* 8x14 MDA in 8x16 cell */
+                    (void) !fread(&fontdatm2[256 * d + c][0], 1, 16, f);
+                for (c = 0; c < 256; c++) { /* 8x8 CGA in 8x16 cell */
+                    (void) !fread(&fontdat2[256 * d + c][0], 1, 8, f);
+                    fseek(f, 8, SEEK_CUR);
+                }
+            }
             break;
     }
 

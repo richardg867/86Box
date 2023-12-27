@@ -15,7 +15,6 @@
  *
  *          Copyright 2022 TheCollector1995.
  */
-
 #ifndef VIDEO_8514A_H
 #define VIDEO_8514A_H
 
@@ -42,7 +41,7 @@ typedef struct ibm8514_t {
     int type;
     int local;
     int bpp;
-    int on;
+    int on[2];
     int accel_bpp;
 
     uint32_t vram_size;
@@ -65,7 +64,7 @@ typedef struct ibm8514_t {
     struct {
         uint16_t subsys_cntl;
         uint16_t setup_md;
-        uint8_t  advfunc_cntl;
+        uint16_t advfunc_cntl;
         uint8_t  ext_advfunc_cntl;
         uint16_t cur_y;
         uint16_t cur_y_bitres;
@@ -138,7 +137,7 @@ typedef struct ibm8514_t {
     } accel;
 
     uint16_t test;
-    int      ibm_mode;
+    int      vendor_mode[2];
 
     int      v_total;
     int      dispend;
@@ -203,4 +202,5 @@ typedef struct ibm8514_t {
     int      ext_pitch;
     int      ext_crt_pitch;
 } ibm8514_t;
+
 #endif /*VIDEO_8514A_H*/

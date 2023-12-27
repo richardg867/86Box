@@ -32,6 +32,9 @@ using atomic_int  = std::atomic_int;
 
 #define makecol(r, g, b)   ((b) | ((g) << 8) | ((r) << 16))
 #define makecol32(r, g, b) ((b) | ((g) << 8) | ((r) << 16))
+#define getcolr(color) (((color) >> 16) & 0xFF)
+#define getcolg(color) (((color) >> 8) & 0xFF)
+#define getcolb(color) ((color) & 0xFF)
 
 enum {
     VID_NONE = 0,
@@ -42,7 +45,8 @@ enum {
     FULLSCR_SCALE_FULL = 0,
     FULLSCR_SCALE_43,
     FULLSCR_SCALE_KEEPRATIO,
-    FULLSCR_SCALE_INT
+    FULLSCR_SCALE_INT,
+    FULLSCR_SCALE_INT43
 };
 
 #ifdef __cplusplus
@@ -187,6 +191,8 @@ extern int          video_fullscreen_scale;
 extern int          video_fullscreen_first;
 extern uint8_t      fontdat[2048][8];
 extern uint8_t      fontdatm[2048][16];
+extern uint8_t      fontdat2[2048][8];
+extern uint8_t      fontdatm2[2048][16];
 extern uint8_t      fontdatw[512][32];
 extern uint8_t      fontdat8x12[256][16];
 extern uint8_t      fontdat12x18[256][36];
@@ -429,12 +435,10 @@ extern const device_t ht216_32_standalone_device;
 extern const device_t im1024_device;
 extern const device_t pgc_device;
 
-#    if defined(DEV_BRANCH) && defined(USE_MGA)
 /* Matrox MGA */
 extern const device_t millennium_device;
 extern const device_t mystique_device;
 extern const device_t mystique_220_device;
-#    endif
 
 /* Oak OTI-0x7 */
 extern const device_t oti037c_device;

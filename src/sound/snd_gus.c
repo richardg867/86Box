@@ -16,7 +16,9 @@
 #include <86box/pic.h>
 #include <86box/sound.h>
 #include <86box/timer.h>
-#include <86box/snd_ad1848.h>
+#if defined(DEV_BRANCH) && defined(USE_GUSMAX)
+#    include <86box/snd_ad1848.h>
+#endif
 #include <86box/plat_fallthrough.h>
 #include <86box/plat_unused.h>
 
@@ -104,9 +106,12 @@ typedef struct gus_t {
     pc_timer_t timer_1;
     pc_timer_t timer_2;
 
+    uint8_t  type;
+
     int      irq;
     int      dma;
     int      irq_midi;
+    int      dma2;
     uint16_t base;
     int      latch_enable;
 
@@ -139,9 +144,9 @@ typedef struct gus_t {
 
     uint8_t usrr;
 
+#if defined(DEV_BRANCH) && defined(USE_GUSMAX)
     uint8_t max_ctrl;
 
-#if defined(DEV_BRANCH) && defined(USE_GUSMAX)
     ad1848_t ad1848;
 #endif
 } gus_t;
@@ -211,16 +216,16 @@ gus_update_int_status(gus_t *gus)
 
     if (gus->irq != -1) {
         if (intr_pending)
-            picintlevel(1 << gus->irq, &gus->irq_state);
+            picint(1 << gus->irq);
         else
-            picintclevel(1 << gus->irq, &gus->irq_state);
+            picintc(1 << gus->irq);
     }
 
-    if (gus->irq_midi != -1) {
+    if ((gus->irq_midi != -1) && (gus->irq_midi != gus->irq)) {
         if (midi_intr_pending)
-            picintlevel(1 << gus->irq_midi, &gus->midi_irq_state);
+            picint(1 << gus->irq_midi);
         else
-            picintclevel(1 << gus->irq_midi, &gus->midi_irq_state);
+            picintc(1 << gus->irq_midi);
     }
 }
 
@@ -422,7 +427,8 @@ writegus(uint16_t addr, uint8_t val, void *priv)
                     if (gus->voices < 14)
                         gus->samp_latch = (uint64_t) (TIMER_USEC * (1000000.0 / 44100.0));
                     else
-                        gus->samp_latch = (uint64_t) (TIMER_USEC * (1000000.0 / gusfreqs[gus->voices - 14]));
+                        gus->samp_latch = (uint64_t) (TIMER_USEC *
+                                                      (1000000.0 / gusfreqs[gus->voices - 14]));
                     break;
 
                 case 0x41: /*DMA*/
@@ -432,15 +438,28 @@ writegus(uint16_t addr, uint8_t val, void *priv)
                             while (c < 65536) {
                                 int dma_result;
                                 if (val & 0x04) {
-                                    uint32_t gus_addr = (gus->dmaaddr & 0xc0000) | ((gus->dmaaddr & 0x1ffff) << 1);
-                                    d                 = gus->ram[gus_addr] | (gus->ram[gus_addr + 1] << 8);
+                                    uint32_t gus_addr = (gus->dmaaddr & 0xc0000) |
+                                                        ((gus->dmaaddr & 0x1ffff) << 1);
+
+                                    if (gus_addr < gus->gus_end_ram)
+                                        d                 = gus->ram[gus_addr];
+                                    else
+                                        d                 = 0x00;
+
+                                    if ((gus_addr + 1) < gus->gus_end_ram)
+                                        d                 |= (gus->ram[gus_addr + 1] << 8);
+
                                     if (val & 0x80)
                                         d ^= 0x8080;
                                     dma_result = dma_channel_write(gus->dma, d);
                                     if (dma_result == DMA_NODATA)
                                         break;
                                 } else {
-                                    d = gus->ram[gus->dmaaddr];
+                                    if (gus->dmaaddr < gus->gus_end_ram)
+                                        d = gus->ram[gus->dmaaddr];
+                                    else
+                                        d = 0x00;
+
                                     if (val & 0x80)
                                         d ^= 0x80;
                                     dma_result = dma_channel_write(gus->dma, d);
@@ -448,7 +467,7 @@ writegus(uint16_t addr, uint8_t val, void *priv)
                                         break;
                                 }
                                 gus->dmaaddr++;
-                                gus->dmaaddr &= 0xFFFFF;
+                                gus->dmaaddr &= 0xfffff;
                                 c++;
                                 if (dma_result & DMA_OVER)
                                     break;
@@ -462,18 +481,25 @@ writegus(uint16_t addr, uint8_t val, void *priv)
                                 if (d == DMA_NODATA)
                                     break;
                                 if (val & 0x04) {
-                                    uint32_t gus_addr = (gus->dmaaddr & 0xc0000) | ((gus->dmaaddr & 0x1ffff) << 1);
+                                    uint32_t gus_addr = (gus->dmaaddr & 0xc0000) |
+                                                        ((gus->dmaaddr & 0x1ffff) << 1);
                                     if (val & 0x80)
                                         d ^= 0x8080;
-                                    gus->ram[gus_addr]     = d & 0xff;
-                                    gus->ram[gus_addr + 1] = (d >> 8) & 0xff;
+
+                                    if (gus_addr < gus->gus_end_ram)
+                                        gus->ram[gus_addr]     = d & 0xff;
+
+                                    if ((gus_addr + 1) < gus->gus_end_ram)
+                                        gus->ram[gus_addr + 1] = (d >> 8) & 0xff;
                                 } else {
                                     if (val & 0x80)
                                         d ^= 0x80;
-                                    gus->ram[gus->dmaaddr] = d;
+
+                                    if (gus->dmaaddr < gus->gus_end_ram)
+                                        gus->ram[gus->dmaaddr] = d;
                                 }
                                 gus->dmaaddr++;
-                                gus->dmaaddr &= 0xFFFFF;
+                                gus->dmaaddr &= 0xfffff;
                                 c++;
                                 if (d & DMA_OVER)
                                     break;
@@ -489,28 +515,20 @@ writegus(uint16_t addr, uint8_t val, void *priv)
                     break;
 
                 case 0x43: /*Address low*/
-                    gus->addr = (gus->addr & 0xF00FF) | (val << 8);
+                    gus->addr = (gus->addr & 0xf00ff) | (val << 8);
                     break;
                 case 0x44: /*Address high*/
-                    gus->addr = (gus->addr & 0xFFFF) | ((val << 16) & 0xF0000);
+                    gus->addr = (gus->addr & 0x0ffff) | ((val << 16) & 0xf0000);
                     break;
                 case 0x45: /*Timer control*/
                     if (!(val & 4))
                         gus->irqstatus &= ~4;
                     if (!(val & 8))
                         gus->irqstatus &= ~8;
-                    if (!(val & 0x20)) {
+                    if (!(val & 0x20))
                         gus->ad_status &= ~0x18;
-#ifdef OLD_NMI_BEHAVIOR
-                        nmi = 0;
-#endif
-                    }
-                    if (!(val & 0x02)) {
+                    if (!(val & 0x02))
                         gus->ad_status &= ~0x01;
-#ifdef OLD_NMI_BEHAVIOR
-                        nmi = 0;
-#endif
-                    }
                     gus->tctrl   = val;
                     gus->sb_ctrl = val;
                     gus_update_int_status(gus);
@@ -535,7 +553,7 @@ writegus(uint16_t addr, uint8_t val, void *priv)
         case 0x307: /*DRAM access*/
             if (gus->addr < gus->gus_end_ram)
                 gus->ram[gus->addr] = val;
-            gus->addr &= 0xFFFFF;
+            gus->addr &= 0xfffff;
             break;
         case 0x208:
         case 0x388:
@@ -589,14 +607,24 @@ writegus(uint16_t addr, uint8_t val, void *priv)
                         } else
                             gus->irq_midi = gus_midi_irqs[(val >> 3) & 7];
 #if defined(DEV_BRANCH) && defined(USE_GUSMAX)
-                        ad1848_setirq(&gus->ad1848, gus->irq);
+                        if (gus->type == GUS_MAX)
+                            ad1848_setirq(&gus->ad1848, gus->irq);
 #endif
 
                         gus->sb_nmi = val & 0x80;
                     } else {
                         gus->dma = gus_dmas[val & 7];
+
+                        if (val & 0x40) {
+                            if (gus->dma == -1)
+                                gus->dma = gus->dma2 = gus_dmas[(val >> 3) & 7];
+                            else
+                                gus->dma2 = gus->dma;
+                        } else
+                            gus->dma2 = gus_dmas[(val >> 3) & 7];
 #if defined(DEV_BRANCH) && defined(USE_GUSMAX)
-                        ad1848_setdma(&gus->ad1848, gus->dma);
+                        if (gus->type == GUS_MAX)
+                            ad1848_setdma(&gus->ad1848, gus->dma2);
 #endif
                     }
                     break;
@@ -655,20 +683,24 @@ writegus(uint16_t addr, uint8_t val, void *priv)
             break;
         case 0x306:
         case 0x706:
-            if (gus->dma >= 4)
-                val |= 0x30;
-            gus->max_ctrl = (val >> 6) & 1;
 #if defined(DEV_BRANCH) && defined(USE_GUSMAX)
-            if (val & 0x40) {
-                if ((val & 0xF) != ((addr >> 4) & 0xF)) {
-                    csioport = 0x30c | ((addr >> 4) & 0xf);
-                    io_removehandler(csioport, 4,
-                                     ad1848_read, NULL, NULL,
-                                     ad1848_write, NULL, NULL, &gus->ad1848);
-                    csioport = 0x30c | ((val & 0xf) << 4);
-                    io_sethandler(csioport, 4,
-                                  ad1848_read, NULL, NULL,
-                                  ad1848_write, NULL, NULL, &gus->ad1848);
+            if (gus->type == GUS_MAX) {
+                if (gus->dma >= 4)
+                    val |= 0x10;
+                if (gus->dma2 >= 4)
+                    val |= 0x20;
+                gus->max_ctrl = (val >> 6) & 1;
+                if (val & 0x40) {
+                    if ((val & 0xF) != ((addr >> 4) & 0xF)) {
+                        csioport = 0x30c | ((addr >> 4) & 0xf);
+                        io_removehandler(csioport, 4,
+                                         ad1848_read, NULL, NULL,
+                                         ad1848_write, NULL, NULL, &gus->ad1848);
+                        csioport = 0x30c | ((val & 0xf) << 4);
+                        io_sethandler(csioport, 4,
+                                      ad1848_read, NULL, NULL,
+                                      ad1848_write, NULL, NULL, &gus->ad1848);
+                    }
                 }
             }
 #endif
@@ -723,9 +755,11 @@ readgus(uint16_t addr, void *priv)
             return val;
 
         case 0x20F:
-            if (gus->max_ctrl)
+#if defined(DEV_BRANCH) && defined(USE_GUSMAX)
+            if (gus->type == GUS_MAX)
                 val = 0x02;
             else
+#endif
                 val = 0x00;
             break;
 
@@ -844,15 +878,16 @@ readgus(uint16_t addr, void *priv)
             break;
         case 0x306:
         case 0x706:
-            if (gus->max_ctrl)
+#if defined(DEV_BRANCH) && defined(USE_GUSMAX)
+            if (gus->type == GUS_MAX)
                 val = 0x0a; /* GUS MAX */
             else
+#endif
                 val = 0xff; /*Pre 3.7 - no mixer*/
             break;
 
         case 0x307: /*DRAM access*/
-            val = gus->ram[gus->addr];
-            gus->addr &= 0xFFFFF;
+            gus->addr &= 0xfffff;
             if (gus->addr < gus->gus_end_ram)
                 val = gus->ram[gus->addr];
             else
@@ -1011,21 +1046,41 @@ gus_poll_wave(void *priv)
             if (gus->ctrl[d] & 4) {
                 addr = gus->cur[d] >> 9;
                 addr = (addr & 0xC0000) | ((addr << 1) & 0x3FFFE);
-                if (!(gus->freq[d] >> 10)) /*Interpolate*/
-                {
-                    vl = (int16_t) (int8_t) ((gus->ram[(addr + 1) & 0xFFFFF] ^ 0x80) - 0x80) * (511 - (gus->cur[d] & 511));
-                    vl += (int16_t) (int8_t) ((gus->ram[(addr + 3) & 0xFFFFF] ^ 0x80) - 0x80) * (gus->cur[d] & 511);
+                if (!(gus->freq[d] >> 10)) {
+                    /* Interpolate */
+                    if (((addr + 1) & 0xfffff) < gus->gus_end_ram)
+                        vl = (int16_t) (int8_t) ((gus->ram[(addr + 1) & 0xfffff] ^ 0x80) - 0x80) *
+                             (511 - (gus->cur[d] & 511));
+                    else
+                        vl = 0;
+
+                    if (((addr + 3) & 0xfffff) < gus->gus_end_ram)
+                        vl += (int16_t) (int8_t) ((gus->ram[(addr + 3) & 0xfffff] ^ 0x80) - 0x80) *
+                              (gus->cur[d] & 511);
+
                     v = vl >> 9;
-                } else
-                    v = (int16_t) (int8_t) ((gus->ram[(addr + 1) & 0xFFFFF] ^ 0x80) - 0x80);
+                } else if (((addr + 1) & 0xfffff) < gus->gus_end_ram)
+                    v = (int16_t) (int8_t) ((gus->ram[(addr + 1) & 0xfffff] ^ 0x80) - 0x80);
+                else
+                    v = 0x0000;
             } else {
-                if (!(gus->freq[d] >> 10)) /*Interpolate*/
-                {
-                    vl = ((int8_t) ((gus->ram[(gus->cur[d] >> 9) & 0xFFFFF] ^ 0x80) - 0x80)) * (511 - (gus->cur[d] & 511));
-                    vl += ((int8_t) ((gus->ram[((gus->cur[d] >> 9) + 1) & 0xFFFFF] ^ 0x80) - 0x80)) * (gus->cur[d] & 511);
+                if (!(gus->freq[d] >> 10)) {
+                    /* Interpolate */
+                    if (((gus->cur[d] >> 9) & 0xfffff) < gus->gus_end_ram)
+                        vl = ((int8_t) ((gus->ram[(gus->cur[d] >> 9) & 0xfffff] ^ 0x80) - 0x80)) *
+                                       (511 - (gus->cur[d] & 511));
+                    else
+                        vl = 0;
+
+                    if ((((gus->cur[d] >> 9) + 1) & 0xfffff) < gus->gus_end_ram)
+                        vl += ((int8_t) ((gus->ram[((gus->cur[d] >> 9) + 1) & 0xfffff] ^ 0x80) - 0x80)) *
+                              (gus->cur[d] & 511);
+
                     v = vl >> 9;
-                } else
-                    v = (int16_t) (int8_t) ((gus->ram[(gus->cur[d] >> 9) & 0xFFFFF] ^ 0x80) - 0x80);
+                } else if (((gus->cur[d] >> 9) & 0xfffff) < gus->gus_end_ram)
+                    v = (int16_t) (int8_t) ((gus->ram[(gus->cur[d] >> 9) & 0xfffff] ^ 0x80) - 0x80);
+                else
+                    v = 0x0000;
             }
 
             if ((gus->rcur[d] >> 14) > 4095)
@@ -1128,21 +1183,21 @@ gus_get_buffer(int32_t *buffer, int len, void *priv)
     gus_t *gus = (gus_t *) priv;
 
 #if defined(DEV_BRANCH) && defined(USE_GUSMAX)
-    if (gus->max_ctrl)
+    if ((gus->type == GUS_MAX) && (gus->max_ctrl))
         ad1848_update(&gus->ad1848);
 #endif
     gus_update(gus);
 
     for (int c = 0; c < len * 2; c++) {
 #if defined(DEV_BRANCH) && defined(USE_GUSMAX)
-        if (gus->max_ctrl)
+        if ((gus->type == GUS_MAX) && (gus->max_ctrl))
             buffer[c] += (int32_t) (gus->ad1848.buffer[c] / 2);
 #endif
         buffer[c] += (int32_t) gus->buffer[c & 1][c >> 1];
     }
 
 #if defined(DEV_BRANCH) && defined(USE_GUSMAX)
-    if (gus->max_ctrl)
+    if ((gus->type == GUS_MAX) && (gus->max_ctrl))
         gus->ad1848.pos = 0;
 #endif
     gus->pos = 0;
@@ -1277,7 +1332,9 @@ gus_reset(void *priv)
 
     gus->usrr = 0;
 
+#if defined(DEV_BRANCH) && defined(USE_GUSMAX)
     gus->max_ctrl = 0;
+#endif
 
     gus->irq_state = 0;
     gus->midi_irq_state = 0;
@@ -1317,6 +1374,8 @@ gus_init(UNUSED(const device_t *info))
 
     gus->uart_out = 1;
 
+    gus->type = device_get_config_int("type");
+
     gus->base = device_get_config_hex16("base");
 
     io_sethandler(gus->base, 0x0010, readgus, NULL, NULL, writegus, NULL, NULL, gus);
@@ -1325,11 +1384,13 @@ gus_init(UNUSED(const device_t *info))
     io_sethandler(0x0388, 0x0002, readgus, NULL, NULL, writegus, NULL, NULL, gus);
 
 #if defined(DEV_BRANCH) && defined(USE_GUSMAX)
-    ad1848_init(&gus->ad1848, AD1848_TYPE_CS4231);
-    ad1848_setirq(&gus->ad1848, 5);
-    ad1848_setdma(&gus->ad1848, 3);
-    io_sethandler(0x10C + gus->base, 4,
-                  ad1848_read, NULL, NULL, ad1848_write, NULL, NULL, &gus->ad1848);
+    if (gus->type == GUS_MAX) {
+        ad1848_init(&gus->ad1848, AD1848_TYPE_CS4231);
+        ad1848_setirq(&gus->ad1848, 5);
+        ad1848_setdma(&gus->ad1848, 3);
+        io_sethandler(0x10C + gus->base, 4,
+                      ad1848_read, NULL, NULL, ad1848_write, NULL, NULL, &gus->ad1848);
+    }
 #endif
 
     timer_add(&gus->samp_timer, gus_poll_wave, gus, 1);
@@ -1364,7 +1425,7 @@ gus_speed_changed(void *priv)
         gus->samp_latch = (uint64_t) (TIMER_USEC * (1000000.0 / gusfreqs[gus->voices - 14]));
 
 #if defined(DEV_BRANCH) && defined(USE_GUSMAX)
-    if (gus->max_ctrl)
+    if ((gus->type == GUS_MAX) && (gus->max_ctrl))
         ad1848_speed_changed(&gus->ad1848);
 #endif
 }

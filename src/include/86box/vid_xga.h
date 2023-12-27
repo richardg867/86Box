@@ -14,7 +14,6 @@
  *
  *          Copyright 2022 TheCollector1995.
  */
-
 #ifndef VIDEO_XGA_H
 #define VIDEO_XGA_H
 
@@ -201,6 +200,8 @@ typedef struct xga_t {
         int dst_map;
         int bkgd_src;
         int fore_src;
+        int oldx;
+        int oldy;
         int x;
         int y;
         int sx;
@@ -211,6 +212,7 @@ typedef struct xga_t {
         int py;
         int pattern;
         int command_len;
+        int filling;
 
         uint32_t short_stroke;
         uint32_t color_cmp;
@@ -229,4 +231,5 @@ typedef struct xga_t {
 
     int big_endian_linear;
 } xga_t;
+
 #endif /*VIDEO_XGA_H*/

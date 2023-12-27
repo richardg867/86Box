@@ -35,7 +35,7 @@ if(MUNT_EXTERNAL)
 endif()
 
 project(86Box
-    VERSION 4.0
+    VERSION 4.1
     DESCRIPTION "Emulator of x86-based systems"
     HOMEPAGE_URL "https://86box.net"
     LANGUAGES C CXX)
@@ -158,7 +158,6 @@ cmake_dependent_option(ISAMEM_RAMPAGE "AST Rampage"                             
 cmake_dependent_option(ISAMEM_IAB     "Intel Above Board"                           ON      "DEV_BRANCH"    OFF)
 cmake_dependent_option(ISAMEM_BRAT    "BocaRAM/AT"                                  ON      "DEV_BRANCH"    OFF)
 cmake_dependent_option(LASERXT        "VTech Laser XT"                              ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(MGA            "Matrox Mystique graphics adapters"           ON      "DEV_BRANCH"    OFF)
 cmake_dependent_option(OLIVETTI       "Olivetti M290"                               ON      "DEV_BRANCH"    OFF)
 cmake_dependent_option(OPEN_AT        "OpenAT"                                      ON      "DEV_BRANCH"    OFF)
 cmake_dependent_option(PAS16          "Pro Audio Spectrum 16"                       ON      "DEV_BRANCH"    OFF)
@@ -202,7 +201,7 @@ if(NOT EMU_BUILD_NUM)
     set(EMU_BUILD_NUM 0)
 endif()
 if(NOT EMU_COPYRIGHT_YEAR)
-    set(EMU_COPYRIGHT_YEAR 2022)
+    set(EMU_COPYRIGHT_YEAR 2023)
 endif()
 
 add_subdirectory(src)

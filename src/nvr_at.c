@@ -332,7 +332,7 @@ static void
 time_get(nvr_t *nvr, struct tm *tm)
 {
     const local_t *local = (local_t *) nvr->data;
-    int8_t   temp;
+    int8_t         temp;
 
     if (nvr->regs[RTC_REGB] & REGB_DM) {
         /* NVR is in Binary data mode. */
@@ -370,7 +370,7 @@ static void
 time_set(nvr_t *nvr, struct tm *tm)
 {
     const local_t *local = (local_t *) nvr->data;
-    int      year  = (tm->tm_year + 1900);
+    int            year  = (tm->tm_year + 1900);
 
     if (nvr->regs[RTC_REGB] & REGB_DM) {
         /* NVR is in Binary data mode. */
@@ -580,7 +580,8 @@ nvr_reg_common_write(uint16_t reg, uint8_t val, nvr_t *nvr, local_t *local)
         return;
     if (nvr->regs[reg] != val) {
         nvr->regs[reg] = val;
-        nvr_dosave     = 1;
+        if ((reg >= 0x0d) && ((local->cent == 0xff) || (reg != local->cent)))
+            nvr_dosave     = 1;
     }
 }
 
@@ -643,7 +644,7 @@ nvr_reg_write(uint16_t reg, uint8_t val, void *priv)
                 /* Update internal clock. */
                 time_get(nvr, &tm);
                 nvr_time_set(&tm);
-                nvr_dosave = 1;
+                // nvr_dosave = 1;
             }
         }
     }

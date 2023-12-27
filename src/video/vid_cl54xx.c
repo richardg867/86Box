@@ -651,6 +651,23 @@ gd54xx_is_5434(svga_t *svga)
 }
 
 static void
+gd54xx_set_svga_fast(gd54xx_t *gd54xx)
+{
+    svga_t   *svga   = &gd54xx->svga;
+
+    if ((svga->crtc[0x27] == CIRRUS_ID_CLGD5422) || (svga->crtc[0x27] == CIRRUS_ID_CLGD5424))
+        svga->fast = ((svga->gdcreg[8] == 0xff) && !(svga->gdcreg[3] & 0x18) &&
+                      !svga->gdcreg[1]) &&
+                      ((svga->chain4 && svga->packed_chain4) || svga->fb_only) &&
+                      !(svga->adv_flags & FLAG_ADDR_BY8);
+                      /* TODO: needs verification on other Cirrus chips */
+    else
+        svga->fast = ((svga->gdcreg[8] == 0xff) && !(svga->gdcreg[3] & 0x18) &&
+                     !svga->gdcreg[1]) && ((svga->chain4 && svga->packed_chain4) ||
+                     svga->fb_only);
+}
+
+static void
 gd54xx_out(uint16_t addr, uint8_t val, void *priv)
 {
     gd54xx_t *gd54xx = (gd54xx_t *) priv;
@@ -793,13 +810,14 @@ gd54xx_out(uint16_t addr, uint8_t val, void *priv)
                         break;
                     case 0x07:
                         svga->packed_chain4 = svga->seqregs[7] & 1;
-                        svga_recalctimings(svga);
                         if (gd54xx_is_5422(svga))
                             gd543x_recalc_mapping(gd54xx);
                         else
                             svga->seqregs[svga->seqaddr] &= 0x0f;
                         if (svga->crtc[0x27] >= CIRRUS_ID_CLGD5429)
                             svga->set_reset_disabled = svga->seqregs[7] & 1;
+                        gd54xx_set_svga_fast(gd54xx);
+                        svga_recalctimings(svga);
                         break;
                     case 0x17:
                         if (gd54xx_is_5422(svga))
@@ -919,10 +937,8 @@ gd54xx_out(uint16_t addr, uint8_t val, void *priv)
                         break;
                 }
 
-                if ((svga->crtc[0x27] == CIRRUS_ID_CLGD5422) || (svga->crtc[0x27] == CIRRUS_ID_CLGD5424))
-                    svga->fast = (svga->gdcreg[8] == 0xff && !(svga->gdcreg[3] & 0x18) && !svga->gdcreg[1]) && ((svga->chain4 && svga->packed_chain4) || svga->fb_only) && !(svga->adv_flags & FLAG_ADDR_BY8); /*TODO: needs verification on other Cirrus chips*/
-                else
-                    svga->fast = (svga->gdcreg[8] == 0xff && !(svga->gdcreg[3] & 0x18) && !svga->gdcreg[1]) && ((svga->chain4 && svga->packed_chain4) || svga->fb_only);
+                gd54xx_set_svga_fast(gd54xx);
+
                 if (((svga->gdcaddr == 5) && ((val ^ o) & 0x70)) || ((svga->gdcaddr == 6) && ((val ^ o) & 1)))
                     svga_recalctimings(svga);
             } else {
@@ -1739,6 +1755,10 @@ gd54xx_recalctimings(svga_t *svga)
 
     svga->interlace = (svga->crtc[0x1a] & 0x01);
 
+    if (!(svga->gdcreg[6] & 1) && !(svga->attrregs[0x10] & 1)) { /*Text mode*/
+        svga->interlace = 0;
+    }
+
     svga->map8 = svga->pallook;
     if (svga->seqregs[7] & CIRRUS_SR7_BPP_SVGA) {
         if (linedbl)
@@ -1921,6 +1941,13 @@ gd54xx_recalctimings(svga_t *svga)
     }
 
     svga->vram_display_mask = (svga->crtc[0x1b] & 2) ? gd54xx->vram_mask : 0x3ffff;
+
+    if (!(svga->gdcreg[6] & 1) && !(svga->attrregs[0x10] & 1)) { /*Text mode*/
+        if (svga->seqregs[1] & 8) {
+            svga->render = svga_render_text_40;
+        } else
+            svga->render = svga_render_text_80;
+    }
 }
 
 static void
@@ -3682,8 +3709,7 @@ cl_pci_read(UNUSED(int func), int addr, void *priv)
 
     if ((addr >= 0x30) && (addr <= 0x33) && (!gd54xx->has_bios))
         ret = 0x00;
-    else
-        switch (addr) {
+    else  switch (addr) {
             case 0x00:
                 ret = 0x13; /*Cirrus Logic*/
                 break;
@@ -3732,7 +3758,7 @@ cl_pci_read(UNUSED(int func), int addr, void *priv)
             case 0x13:
                 ret = gd54xx->lfb_base >> 24;
                 if (svga->crtc[0x27] == CIRRUS_ID_CLGD5480)
-                    ret = 0xfe;
+                    ret &= 0xfe;
                 break;
 
             case 0x14:
@@ -3770,7 +3796,7 @@ cl_pci_read(UNUSED(int func), int addr, void *priv)
 
             default:
                 break;
-        }
+    }
 
     return ret;
 }

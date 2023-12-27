@@ -39,14 +39,15 @@
 #define MACHINE_BUS_PS2       (MACHINE_BUS_PS2_LATCH | MACHINE_BUS_PS2_PORTS)
 #define MACHINE_BUS_HIL       0x00000400 /* system has HP HIL keyboard and mouse ports */
 #define MACHINE_BUS_EISA      0x00000800 /* sys has EISA bus */
-#define MACHINE_BUS_OLB       0x00001000 /* sys has OPTi local bus */
-#define MACHINE_BUS_VLB       0x00002000 /* sys has VL bus */
-#define MACHINE_BUS_MCA       0x00004000 /* sys has MCA bus */
-#define MACHINE_BUS_PCI       0x00008000 /* sys has PCI bus */
-#define MACHINE_BUS_CARDBUS   0x00010000 /* sys has CardBus bus */
-#define MACHINE_BUS_USB       0x00020000 /* sys has USB bus */
-#define MACHINE_BUS_AGP       0x00040000 /* sys has AGP bus */
-#define MACHINE_BUS_AC97      0x00080000 /* sys has AC97 bus (ACR/AMR/CNR slot) */
+#define MACHINE_BUS_AT32      0x00001000 /* sys has Mylex AT/32 local bus */
+#define MACHINE_BUS_OLB       0x00002000 /* sys has OPTi local bus */
+#define MACHINE_BUS_VLB       0x00004000 /* sys has VL bus */
+#define MACHINE_BUS_MCA       0x00008000 /* sys has MCA bus */
+#define MACHINE_BUS_PCI       0x00010000 /* sys has PCI bus */
+#define MACHINE_BUS_CARDBUS   0x00020000 /* sys has CardBus bus */
+#define MACHINE_BUS_USB       0x00040000 /* sys has USB bus */
+#define MACHINE_BUS_AGP       0x00080000 /* sys has AGP bus */
+#define MACHINE_BUS_AC97      0x00100000 /* sys has AC97 bus (ACR/AMR/CNR slot) */
 /* Aliases. */
 #define MACHINE_CASSETTE  (MACHINE_BUS_CASSETTE)  /* sys has cassette port */
 #define MACHINE_CARTRIDGE (MACHINE_BUS_CARTRIDGE) /* sys has two cartridge bays */
@@ -299,10 +300,10 @@ typedef struct _machine_ {
     uint32_t               type;
     uintptr_t              chipset;
     int                  (*init)(const struct _machine_ *);
-    uintptr_t              pad;
-    uintptr_t              pad0;
-    uintptr_t              pad1;
-    uintptr_t              pad2;
+    uint8_t              (*p1_handler)(uint8_t write, uint8_t val);
+    uint32_t             (*gpio_handler)(uint8_t write, uint32_t val);
+    uintptr_t              available_flag;
+    uint32_t             (*gpio_acpi_handler)(uint8_t write, uint32_t val);
     const machine_cpu_t    cpu;
     uintptr_t              bus_flags;
     uintptr_t              flags;
@@ -314,10 +315,7 @@ typedef struct _machine_ {
 #else
     void *kbc_device;
 #endif /* EMU_DEVICE_H */
-    /* Bits:
-        7-0  Set bits are forced set on P1 (no forced set = 0x00);
-        15-8 Clear bits are forced clear on P1 (no foced clear = 0xff). */
-    uint16_t kbc_p1;
+    uint8_t  kbc_p1;
     uint32_t gpio;
     uint32_t gpio_acpi;
 #ifdef EMU_DEVICE_H
@@ -343,6 +341,7 @@ extern const machine_filter_t machine_chipsets[];
 extern const machine_t        machines[];
 extern int                    bios_only;
 extern int                    machine;
+extern void *                 machine_snd;
 
 /* Core functions. */
 extern int         machine_count(void);
@@ -374,11 +373,27 @@ extern void        machine_close(void);
 extern int         machine_has_mouse(void);
 extern int         machine_is_sony(void);
 
+extern uint8_t  machine_get_p1_default(void);
 extern uint8_t  machine_get_p1(void);
-extern void     machine_load_p1(int m);
-extern uint32_t machine_get_gpi(void);
-extern void     machine_load_gpi(int m);
-extern void     machine_set_gpi(uint32_t gpi);
+extern void     machine_set_p1_default(uint8_t val);
+extern void     machine_set_p1(uint8_t val);
+extern void     machine_and_p1(uint8_t val);
+extern void     machine_init_p1(void);
+extern uint8_t  machine_handle_p1(uint8_t write, uint8_t val);
+extern uint32_t machine_get_gpio_default(void);
+extern uint32_t machine_get_gpio(void);
+extern void     machine_set_gpio_default(uint32_t val);
+extern void     machine_set_gpio(uint32_t val);
+extern void     machine_and_gpio(uint32_t val);
+extern void     machine_init_gpio(void);
+extern uint32_t machine_handle_gpio(uint8_t write, uint32_t val);
+extern uint32_t machine_get_gpio_acpi_default(void);
+extern uint32_t machine_get_gpio_acpi(void);
+extern void     machine_set_gpio_acpi_default(uint32_t val);
+extern void     machine_set_gpio_acpi(uint32_t val);
+extern void     machine_and_gpio_acpi(uint32_t val);
+extern void     machine_init_gpio_acpi(void);
+extern uint32_t machine_handle_gpio_acpi(uint8_t write, uint32_t val);
 
 /* Initialization functions for boards and systems. */
 extern void machine_common_init(const machine_t *);
@@ -431,6 +446,7 @@ extern int machine_at_quadt386sx_init(const machine_t *);
 extern int machine_at_award286_init(const machine_t *);
 extern int machine_at_gdc212m_init(const machine_t *);
 extern int machine_at_gw286ct_init(const machine_t *);
+extern int machine_at_super286c_init(const machine_t *);
 extern int machine_at_super286tr_init(const machine_t *);
 extern int machine_at_spc4200p_init(const machine_t *);
 extern int machine_at_spc4216p_init(const machine_t *);
@@ -584,6 +600,7 @@ extern int machine_at_p5sp4_init(const machine_t *);
 
 /* m_at_socket5.c */
 extern int machine_at_plato_init(const machine_t *);
+extern int machine_at_dellplato_init(const machine_t *);
 extern int machine_at_ambradp90_init(const machine_t *);
 extern int machine_at_430nx_init(const machine_t *);
 
@@ -608,6 +625,7 @@ extern int machine_at_exp8551_init(const machine_t *);
 extern int machine_at_gw2katx_init(const machine_t *);
 extern int machine_at_thor_init(const machine_t *);
 extern int machine_at_mrthor_init(const machine_t *);
+extern uint32_t machine_at_endeavor_gpio_handler(uint8_t write, uint32_t val);
 extern int machine_at_endeavor_init(const machine_t *);
 extern int machine_at_ms5119_init(const machine_t *);
 extern int machine_at_pb640_init(const machine_t *);
@@ -632,6 +650,7 @@ extern int machine_at_p55t2p4_init(const machine_t *);
 extern int machine_at_m7shi_init(const machine_t *);
 extern int machine_at_tc430hx_init(const machine_t *);
 extern int machine_at_infinia7200_init(const machine_t *);
+extern int machine_at_cu430hx_init(const machine_t *);
 extern int machine_at_equium5200_init(const machine_t *);
 extern int machine_at_pcv90_init(const machine_t *);
 extern int machine_at_p65up5_cp55t2d_init(const machine_t *);
@@ -655,6 +674,7 @@ extern int machine_at_tx97_init(const machine_t *);
 extern int machine_at_an430tx_init(const machine_t *);
 #endif
 extern int machine_at_ym430tx_init(const machine_t *);
+extern int machine_at_thunderbolt_init(const machine_t *);
 extern int machine_at_mb540n_init(const machine_t *);
 extern int machine_at_56a5_init(const machine_t *);
 extern int machine_at_p5mms98_init(const machine_t *);
@@ -687,6 +707,7 @@ extern int machine_at_aurora_init(const machine_t *);
 extern int machine_at_686nx_init(const machine_t *);
 extern int machine_at_acerv60n_init(const machine_t *);
 extern int machine_at_vs440fx_init(const machine_t *);
+extern int machine_at_gw2kvenus_init(const machine_t *);
 extern int machine_at_ap440fx_init(const machine_t *);
 extern int machine_at_mb600n_init(const machine_t *);
 extern int machine_at_8600ttc_init(const machine_t *);
@@ -735,6 +756,7 @@ extern int machine_at_s370slm_init(const machine_t *);
 
 extern int machine_at_cubx_init(const machine_t *);
 extern int machine_at_atc7020bxii_init(const machine_t *);
+extern int machine_at_m773_init(const machine_t *);
 extern int machine_at_ambx133_init(const machine_t *);
 extern int machine_at_awo671r_init(const machine_t *);
 extern int machine_at_63a1_init(const machine_t *);

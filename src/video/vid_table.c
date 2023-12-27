@@ -79,7 +79,7 @@ video_cards[] = {
   // clang-format off
     { &vid_none_device                               },
     { &vid_internal_device                           },
-    { &atiega_device                                 },
+    { &atiega800p_device                             },
     { &mach8_isa_device,        VIDEO_FLAG_TYPE_8514 },
     { &mach32_isa_device,       VIDEO_FLAG_TYPE_8514 },
     { &mach64gx_isa_device                           },
@@ -204,11 +204,9 @@ video_cards[] = {
     { &s3_virge_357_pci_device                       },
     { &s3_diamond_stealth_4000_pci_device            },
     { &s3_trio3d2x_pci_device                        },
-#if defined(DEV_BRANCH) && defined(USE_MGA)
-    { &millennium_device,    VIDEO_FLAG_TYPE_SPECIAL },
+    { &millennium_device                             },
     { &mystique_device                               },
     { &mystique_220_device                           },
-#endif
     { &tgui9440_pci_device                           },
     { &tgui9660_pci_device                           },
     { &tgui9680_pci_device                           },
@@ -344,10 +342,8 @@ video_reset(int card)
     monitor_index_global = 0;
     loadfont("roms/video/mda/mda.rom", 0);
 
-    if ((card != VID_NONE)
-        && !machine_has_flags(machine, MACHINE_VIDEO_ONLY)
-        && (gfxcard[1] != 0)
-        && device_is_valid(video_card_getdevice(gfxcard[1]), machine)) {
+    if ((card != VID_NONE) && !machine_has_flags(machine, MACHINE_VIDEO_ONLY) &&
+        (gfxcard[1] > VID_INTERNAL) && device_is_valid(video_card_getdevice(gfxcard[1]), machine)) {
         video_monitor_init(1);
         monitor_index_global = 1;
         device_add(video_cards[gfxcard[1]].device);
@@ -355,7 +351,7 @@ video_reset(int card)
     }
 
     /* Do not initialize internal cards here. */
-    if ((card != VID_NONE) && (card != VID_INTERNAL) && !machine_has_flags(machine, MACHINE_VIDEO_ONLY)) {
+    if ((card > VID_INTERNAL) && !machine_has_flags(machine, MACHINE_VIDEO_ONLY)) {
         vid_table_log("VIDEO: initializing '%s'\n", video_cards[card].device->name);
 
         video_prepare();
