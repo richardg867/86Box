@@ -18,11 +18,9 @@
  *
  *
  *
- * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
- *          Eluan Costa Miranda <eluancm@gmail.com>
+ * Authors: Eluan Costa Miranda <eluancm@gmail.com>
  *          Lubomir Rintel <lkundrak@v3.sk>
  *
- *          Copyright 2020 Sarah Walker.
  *          Copyright 2020 Eluan Costa Miranda.
  *          Copyright 2021 Lubomir Rintel.
  */
@@ -151,6 +149,9 @@ f82c606_update_ports(upc_t *dev, int set)
         case 0xc0:
             uart2_int = COM2_IRQ;
             break;
+
+        default:
+            break;
     }
 
     switch (dev->regs[8] & 0x30) {
@@ -162,6 +163,9 @@ f82c606_update_ports(upc_t *dev, int set)
             break;
         case 0x30:
             uart2_int = COM1_IRQ;
+            break;
+
+        default:
             break;
     }
 
@@ -175,6 +179,9 @@ f82c606_update_ports(upc_t *dev, int set)
         case 0x0c:
             lpt1_int = LPT2_IRQ;
             break;
+
+        default:
+            break;
     }
 
     switch (dev->regs[8] & 0x03) {
@@ -186,6 +193,9 @@ f82c606_update_ports(upc_t *dev, int set)
             break;
         case 0x03:
             lpt1_int = LPT1_IRQ;
+            break;
+
+        default:
             break;
     }
 
@@ -218,8 +228,8 @@ f82c606_update_ports(upc_t *dev, int set)
 static uint8_t
 f82c710_config_read(uint16_t port, void *priv)
 {
-    upc_t  *dev  = (upc_t *) priv;
-    uint8_t temp = 0xff;
+    const upc_t  *dev  = (upc_t *) priv;
+    uint8_t       temp = 0xff;
 
     if (dev->configuration_mode) {
         if (port == dev->cri_addr) {

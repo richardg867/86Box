@@ -34,10 +34,12 @@
 #include <86box/fdd.h>
 #include <86box/fdc.h>
 #include <86box/sio.h>
+#include <86box/plat_unused.h>
 
-typedef struct {
-    uint8_t tries,
-        regs[29], gpio[2];
+typedef struct pc87306_t {
+    uint8_t   tries;
+    uint8_t   regs[29];
+    uint8_t   gpio[2];
     int       cur_reg;
     fdc_t    *fdc;
     serial_t *uart[2];
@@ -55,7 +57,7 @@ pc87306_gpio_write(uint16_t port, uint8_t val, void *priv)
 uint8_t
 pc87306_gpio_read(uint16_t port, void *priv)
 {
-    pc87306_t *dev = (pc87306_t *) priv;
+    const pc87306_t *dev = (pc87306_t *) priv;
 
     return dev->gpio[port & 1];
 }
@@ -112,6 +114,9 @@ lpt1_handler(pc87306_t *dev)
             lpt_port = 0x000;
             lpt_irq  = 0xff;
             break;
+
+        default:
+            break;
     }
 
     if (dev->regs[0x1b] & 0x10)
@@ -165,6 +170,9 @@ serial_handler(pc87306_t *dev, int uart)
                 case 3:
                     serial_setup(dev->uart[uart], 0x220, irq);
                     break;
+
+                default:
+                    break;
             }
             break;
         case 3:
@@ -181,7 +189,13 @@ serial_handler(pc87306_t *dev, int uart)
                 case 3:
                     serial_setup(dev->uart[uart], 0x228, irq);
                     break;
+
+                default:
+                    break;
             }
+            break;
+
+        default:
             break;
     }
 }
@@ -283,6 +297,16 @@ pc87306_write(uint16_t port, uint8_t val, void *priv)
                     lpt1_handler(dev);
             }
             break;
+        case 4:
+            if (valxor & 0x80)
+                nvr_lock_set(0x00, 256, !!(val & 0x80), dev->nvr);
+            break;
+        case 5:
+            if (valxor & 0x08)
+                nvr_at_handler(!!(val & 0x08), 0x0070, dev->nvr);
+            if (valxor & 0x20)
+                nvr_bank_set(0, !!(val & 0x20), dev->nvr);
+            break;
         case 9:
             if (valxor & 0x44) {
                 fdc_update_enh_mode(dev->fdc, (val & 4) ? 1 : 0);
@@ -294,6 +318,8 @@ pc87306_write(uint16_t port, uint8_t val, void *priv)
                 pc87306_gpio_init(dev);
             break;
         case 0x12:
+            if (valxor & 0x01)
+                nvr_wp_set(!!(val & 0x01), 0, dev->nvr);
             if (valxor & 0x30)
                 pc87306_gpio_init(dev);
             break;
@@ -324,6 +350,9 @@ pc87306_write(uint16_t port, uint8_t val, void *priv)
                     serial_handler(dev, 1);
             }
             break;
+
+        default:
+            break;
     }
 }
 
@@ -351,8 +380,10 @@ pc87306_read(uint16_t port, void *priv)
 }
 
 void
-pc87306_reset(pc87306_t *dev)
+pc87306_reset(void *priv)
 {
+    pc87306_t *dev = (pc87306_t *) priv;
+
     memset(dev->regs, 0, 29);
 
     dev->regs[0x00] = 0x0B;
@@ -381,6 +412,10 @@ pc87306_reset(pc87306_t *dev)
     serial_handler(dev, 1);
     fdc_reset(dev->fdc);
     pc87306_gpio_init(dev);
+    nvr_lock_set(0x00, 256, 0, dev->nvr);
+    nvr_at_handler(1, 0x0070, dev->nvr);
+    nvr_bank_set(0, 0, dev->nvr);
+    nvr_wp_set(0, 0, dev->nvr);
 }
 
 static void
@@ -392,7 +427,7 @@ pc87306_close(void *priv)
 }
 
 static void *
-pc87306_init(const device_t *info)
+pc87306_init(UNUSED(const device_t *info))
 {
     pc87306_t *dev = (pc87306_t *) malloc(sizeof(pc87306_t));
     memset(dev, 0, sizeof(pc87306_t));
@@ -402,7 +437,7 @@ pc87306_init(const device_t *info)
     dev->uart[0] = device_add_inst(&ns16550_device, 1);
     dev->uart[1] = device_add_inst(&ns16550_device, 2);
 
-    // dev->nvr = device_add(&piix4_nvr_device);
+    dev->nvr = device_add(&at_mb_nvr_device);
 
     pc87306_reset(dev);
 
@@ -419,7 +454,7 @@ const device_t pc87306_device = {
     .local         = 0,
     .init          = pc87306_init,
     .close         = pc87306_close,
-    .reset         = NULL,
+    .reset         = pc87306_reset,
     { .available = NULL },
     .speed_changed = NULL,
     .force_redraw  = NULL,

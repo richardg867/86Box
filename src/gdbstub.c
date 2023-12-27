@@ -75,8 +75,10 @@ enum {
     GDB_REG_ES,
     GDB_REG_FS,
     GDB_REG_GS,
+#if 0
     GDB_REG_FS_BASE,
     GDB_REG_GS_BASE,
+#endif
     GDB_REG_CR0,
     GDB_REG_CR2,
     GDB_REG_CR3,
@@ -120,13 +122,20 @@ typedef struct _gdbstub_client_ {
     int                socket;
     struct sockaddr_in addr;
 
-    char packet[16384], response[16384];
-    int  has_packet : 1, first_packet_received : 1, ida_mode : 1, waiting_stop : 1,
-        packet_pos, response_pos;
+    char    packet[16384], response[16384];
+    uint8_t has_packet : 1;
+    uint8_t first_packet_received : 1;
+    uint8_t ida_mode : 1;
+    uint8_t waiting_stop : 1;
+    int     packet_pos;
+    int     response_pos;
 
-    event_t *processed_event, *response_event;
+    event_t *processed_event;
+    event_t *response_event;
 
-    uint16_t last_io_base, last_io_len, last_io_value;
+    uint16_t last_io_base;
+    uint16_t last_io_len;
+    uint16_t last_io_value;
 
     struct _gdbstub_client_ *next;
 } gdbstub_client_t;
@@ -339,7 +348,8 @@ static gdbstub_breakpoint_t *first_rwatch = NULL;
 static gdbstub_breakpoint_t *first_wwatch = NULL;
 static gdbstub_breakpoint_t *first_awatch = NULL;
 
-int      gdbstub_step = 0, gdbstub_next_asap = 0;
+int      gdbstub_step = 0;
+int      gdbstub_next_asap = 0;
 uint64_t gdbstub_watch_pages[(((uint32_t) -1) >> (MEM_GRANULARITY_BITS + 6)) + 1];
 
 static void
@@ -461,6 +471,9 @@ gdbstub_num_decode(char *p, int *dest, int mode)
                 else
                     return 0;
                 break;
+
+            default:
+                break;
         }
         p++;
     }
@@ -476,8 +489,8 @@ gdbstub_num_decode(char *p, int *dest, int mode)
 static int
 gdbstub_client_read_word(gdbstub_client_t *client, int *dest)
 {
-    char *p = &client->packet[client->packet_pos];
-    char *q = p;
+    const char *p = &client->packet[client->packet_pos];
+    const char *q = p;
     while (((*p >= '0') && (*p <= '9')) || ((*p >= 'A') && (*p <= 'F')) || ((*p >= 'a') && (*p <= 'f')))
         *dest = ((*dest) << 4) | gdbstub_hex_decode(*p++);
     return p - q;
@@ -667,9 +680,11 @@ gdbstub_client_read_reg(int index, uint8_t *buf)
             *((uint16_t *) buf) = segment_regs[index - GDB_REG_CS]->seg;
             break;
 
+#if 0
         case GDB_REG_FS_BASE ... GDB_REG_GS_BASE:
             *((uint32_t *) buf) = segment_regs[(index - 16) + (GDB_REG_FS - GDB_REG_CS)]->base;
             break;
+#endif
 
         case GDB_REG_CR0 ... GDB_REG_CR4:
             *((uint32_t *) buf) = *cr_regs[index - GDB_REG_CR0];
@@ -1004,13 +1019,8 @@ e14:
 
                 /* Add our supported features to the end. */
                 if (client->response_pos < (sizeof(client->response) - 1))
-#if (defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64)
                     client->response_pos += snprintf(&client->response[client->response_pos], sizeof(client->response) - client->response_pos,
-                                                     "PacketSize=%lX;swbreak+;hwbreak+;qXfer:features:read+", sizeof(client->packet) - 1);
-#else
-                    client->response_pos += snprintf(&client->response[client->response_pos], sizeof(client->response) - client->response_pos,
-                                                     "PacketSize=%X;swbreak+;hwbreak+;qXfer:features:read+", sizeof(client->packet) - 1);
-#endif
+                                                     "PacketSize=%X;swbreak+;hwbreak+;qXfer:features:read+", (int) (sizeof(client->packet) - 1));
                 break;
             } else if (!strcmp(client->response, "Xfer")) {
                 /* Read the transfer object. */
@@ -1491,7 +1501,6 @@ gdbstub_client_thread(void *priv)
     gdbstub_client_t *client = (gdbstub_client_t *) priv;
     uint8_t           buf[256];
     ssize_t           bytes_read;
-    int               i;
 
     gdbstub_log("GDB Stub: New connection from %s:%d\n", inet_ntoa(client->addr.sin_addr), client->addr.sin_port);
 
@@ -1500,7 +1509,7 @@ gdbstub_client_thread(void *priv)
 
     /* Read data from client. */
     while ((bytes_read = recv(client->socket, (char *) buf, sizeof(buf), 0)) > 0) {
-        for (i = 0; i < bytes_read; i++) {
+        for (ssize_t i = 0; i < bytes_read; i++) {
             switch (buf[i]) {
                 case '$': /* packet start */
                     /* Wait for any existing packets to be processed. */

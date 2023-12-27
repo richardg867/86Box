@@ -16,16 +16,16 @@
 #ifndef SCSI_DISK_H
 #define SCSI_DISK_H
 
-typedef struct {
+typedef struct scsi_disk_t {
     mode_sense_pages_t ms_pages_saved;
 
     hard_disk_t *drv;
 
     uint8_t *temp_buffer;
-    uint8_t pad[16]; /* This is atapi_cdb in ATAPI-supporting devices,
+    uint8_t  pad[16]; /* This is atapi_cdb in ATAPI-supporting devices,
                         and pad in SCSI-only devices. */
-    uint8_t current_cdb[16];
-    uint8_t sense[256];
+    uint8_t  current_cdb[16];
+    uint8_t  sense[256];
 
     uint8_t status;
     uint8_t phase;

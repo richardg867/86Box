@@ -11,10 +11,8 @@
  *
  *
  *
- * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
- *          Miran Grca, <mgrca8@gmail.com>
+ * Authors: Miran Grca, <mgrca8@gmail.com>
  *
- *          Copyright 2008-2020 Sarah Walker.
  *          Copyright 2016-2020 Miran Grca.
  */
 #include <stdio.h>
@@ -35,12 +33,15 @@
 #include <86box/fdc.h>
 #include <86box/sio.h>
 
-typedef struct {
-    uint8_t max_reg, chip_id,
-        tries, has_ide,
-        regs[16];
-    int cur_reg,
-        com3_addr, com4_addr;
+typedef struct fdc37c6xx_t {
+    uint8_t   max_reg;
+    uint8_t   chip_id;
+    uint8_t   tries;
+    uint8_t   has_ide;
+    uint8_t   regs[16];
+    int       cur_reg;
+    int       com3_addr;
+    int       com4_addr;
     fdc_t    *fdc;
     serial_t *uart[2];
 } fdc37c6xx_t;
@@ -64,6 +65,9 @@ set_com34_addr(fdc37c6xx_t *dev)
         case 0x60:
             dev->com3_addr = 0x220;
             dev->com4_addr = 0x228;
+            break;
+
+        default:
             break;
     }
 }
@@ -92,6 +96,9 @@ set_serial_addr(fdc37c6xx_t *dev, int port)
             case 3:
                 serial_setup(dev->uart[port], dev->com4_addr, COM4_IRQ);
                 break;
+
+            default:
+                break;
         }
     }
 
@@ -114,6 +121,9 @@ lpt1_handler(fdc37c6xx_t *dev)
         case 3:
             lpt1_init(LPT2_ADDR);
             lpt1_irq(7 /*5*/);
+            break;
+
+        default:
             break;
     }
 }
@@ -206,6 +216,9 @@ fdc37c6xx_write(uint16_t port, uint8_t val, void *priv)
                     if (valxor & 0x20)
                         fdc_set_swap(dev->fdc, (dev->regs[5] & 0x20) >> 5);
                     break;
+
+                default:
+                    break;
             }
         }
     } else if ((port == FDC_PRIMARY_ADDR) && (val == 0x55))
@@ -215,8 +228,8 @@ fdc37c6xx_write(uint16_t port, uint8_t val, void *priv)
 static uint8_t
 fdc37c6xx_read(uint16_t port, void *priv)
 {
-    fdc37c6xx_t *dev = (fdc37c6xx_t *) priv;
-    uint8_t      ret = 0xff;
+    const fdc37c6xx_t *dev = (fdc37c6xx_t *) priv;
+    uint8_t            ret = 0xff;
 
     if (dev->tries == 2) {
         if (port == 0x3f1)

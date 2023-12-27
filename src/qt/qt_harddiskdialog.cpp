@@ -84,6 +84,13 @@ HarddiskDialog::HarddiskDialog(bool existing, QWidget *parent)
     ui->lineEditSize->setValidator(new QIntValidator());
     ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
 
+    filters = QStringList({ tr("Raw image") % util::DlgFilter({ "img" }, true),
+                          tr("HDI image") % util::DlgFilter({ "hdi" }, true),
+                          tr("HDX image") % util::DlgFilter({ "hdx" }, true),
+                          tr("Fixed-size VHD") % util::DlgFilter({ "vhd" }, true),
+                          tr("Dynamic-size VHD") % util::DlgFilter({ "vhd" }, true),
+                          tr("Differencing VHD") % util::DlgFilter({ "vhd" }, true) });
+
     if (existing) {
         ui->fileField->setFilter(tr("Hard disk images") % util::DlgFilter({ "hd?", "im?", "vhd" }) % tr("All files") % util::DlgFilter({ "*" }, true));
 
@@ -99,24 +106,26 @@ HarddiskDialog::HarddiskDialog(bool existing, QWidget *parent)
 
         connect(ui->fileField, &FileField::fileSelected, this, &HarddiskDialog::onExistingFileSelected);
     } else {
-        QStringList filters({ tr("Raw image") % util::DlgFilter({ "img" }, true),
-                              tr("HDI image") % util::DlgFilter({ "hdi" }, true),
-                              tr("HDX image") % util::DlgFilter({ "hdx" }, true),
-                              tr("Fixed-size VHD") % util::DlgFilter({ "vhd" }, true),
-                              tr("Dynamic-size VHD") % util::DlgFilter({ "vhd" }, true),
-                              tr("Differencing VHD") % util::DlgFilter({ "vhd" }, true) });
-
         ui->fileField->setFilter(filters.join(";;"));
 
         setWindowTitle(tr("Add New Hard Disk"));
         ui->fileField->setCreateFile(true);
 
-        connect(ui->fileField, &FileField::fileSelected, this, [this, filters] {
+        // Enable the OK button as long as the filename length is non-zero
+        connect(ui->fileField, &FileField::fileTextEntered, this, [this] {
+            ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled((this->fileName().length() > 0));
+        });
+
+        connect(ui->fileField, &FileField::fileSelected, this, [this] {
             int filter = filters.indexOf(ui->fileField->selectedFilter());
             if (filter > -1)
                 ui->comboBoxFormat->setCurrentIndex(filter);
             ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(true);
         });
+        // Set the default format to Dynamic-size VHD. Do it last after everything is set up
+        // so the currentIndexChanged signal can do what is needed
+        ui->comboBoxFormat->setCurrentIndex(DEFAULT_DISK_FORMAT);
+        ui->fileField->setselectedFilter(filters.value(DEFAULT_DISK_FORMAT));
     }
 }
 
@@ -179,6 +188,7 @@ HarddiskDialog::on_comboBoxFormat_currentIndexChanged(int index)
         ui->comboBoxBlockSize->show();
         ui->labelBlockSize->show();
     }
+    ui->fileField->setselectedFilter(filters.value(index));
 }
 
 /* If the disk geometry requested in the 86Box GUI is not compatible with the internal VHD geometry,
@@ -311,16 +321,16 @@ HarddiskDialog::onCreateNewFile()
 
     ui->progressBar->setEnabled(true);
     setResult(QDialog::Rejected);
-    quint64 size = ui->lineEditSize->text().toULongLong() << 20U;
+    uint32_t sector_size = 512;
+    quint64  size        = (static_cast<uint64_t>(cylinders_) * static_cast<uint64_t>(heads_) * static_cast<uint64_t>(sectors_) * static_cast<uint64_t>(sector_size));
     if (size > 0x1FFFFFFE00LL) {
         QMessageBox::critical(this, tr("Disk image too large"), tr("Disk images cannot be larger than 127 GB."));
         return;
     }
 
-    int      img_format  = ui->comboBoxFormat->currentIndex();
-    uint32_t zero        = 0;
-    uint32_t base        = 0x1000;
-    uint32_t sector_size = 512;
+    int      img_format = ui->comboBoxFormat->currentIndex();
+    uint32_t zero       = 0;
+    uint32_t base       = 0x1000;
 
     auto    fileName = ui->fileField->fileName();
     QString expectedSuffix;
@@ -501,24 +511,24 @@ void
 HarddiskDialog::onExistingFileSelected(const QString &fileName, bool precheck)
 {
     // TODO : Over to non-existing file selected
-    /*
+#if 0
     if (!(existing & 1)) {
-        f = _wfopen(wopenfilestring, L"rb");
-        if (f != NULL) {
-            fclose(f);
+        fp = _wfopen(wopenfilestring, L"rb");
+        if (fp != NULL) {
+            fclose(fp);
             if (settings_msgbox_ex(MBX_QUESTION_YN, (wchar_t *) IDS_4111, (wchar_t *) IDS_4118, (wchar_t *) IDS_4120, (wchar_t *) IDS_4121, NULL) != 0)	/ * yes * /
                 return FALSE;
         }
     }
 
-    f = _wfopen(wopenfilestring, (existing & 1) ? L"rb" : L"wb");
-    if (f == NULL) {
+    fp = _wfopen(wopenfilestring, (existing & 1) ? L"rb" : L"wb");
+    if (fp == NULL) {
     hdd_add_file_open_error:
-        fclose(f);
+        fclose(fp);
         settings_msgbox_header(MBX_ERROR, (existing & 1) ? (wchar_t *) IDS_4114 : (wchar_t *) IDS_4115, (existing & 1) ? (wchar_t *) IDS_4107 : (wchar_t *) IDS_4108);
         return TRUE;
     }
-    */
+#endif
 
     uint64_t size        = 0;
     uint32_t sector_size = 0;

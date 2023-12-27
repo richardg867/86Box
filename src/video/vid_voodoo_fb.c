@@ -59,9 +59,9 @@ voodoo_fb_log(const char *fmt, ...)
 #endif
 
 uint16_t
-voodoo_fb_readw(uint32_t addr, void *p)
+voodoo_fb_readw(uint32_t addr, void *priv)
 {
-    voodoo_t *voodoo = (voodoo_t *) p;
+    voodoo_t *voodoo = (voodoo_t *) priv;
     int       x;
     int       y;
     uint32_t  read_addr;
@@ -76,7 +76,7 @@ voodoo_fb_readw(uint32_t addr, void *p)
     }
 
     if (SLI_ENABLED) {
-        voodoo_set_t *set = voodoo->set;
+        const voodoo_set_t *set = voodoo->set;
 
         if (y & 1)
             voodoo = set->voodoos[1];
@@ -100,9 +100,9 @@ voodoo_fb_readw(uint32_t addr, void *p)
     return temp;
 }
 uint32_t
-voodoo_fb_readl(uint32_t addr, void *p)
+voodoo_fb_readl(uint32_t addr, void *priv)
 {
-    voodoo_t *voodoo = (voodoo_t *) p;
+    voodoo_t *voodoo = (voodoo_t *) priv;
     int       x;
     int       y;
     uint32_t  read_addr;
@@ -117,7 +117,7 @@ voodoo_fb_readl(uint32_t addr, void *p)
     }
 
     if (SLI_ENABLED) {
-        voodoo_set_t *set = voodoo->set;
+        const voodoo_set_t *set = voodoo->set;
 
         if (y & 1)
             voodoo = set->voodoos[1];
@@ -168,28 +168,32 @@ do_dither(voodoo_params_t *params, rgba8_t col, int x, int y)
 }
 
 void
-voodoo_fb_writew(uint32_t addr, uint16_t val, void *p)
+voodoo_fb_writew(uint32_t addr, uint16_t val, void *priv)
 {
-    voodoo_t        *voodoo = (voodoo_t *) p;
-    voodoo_params_t *params = &voodoo->params;
-    int              x;
-    int              y;
-    uint32_t         write_addr;
-    uint32_t         write_addr_aux;
-    rgba8_t          colour_data;
-    uint16_t         depth_data;
-    uint8_t          alpha_data;
-    int              write_mask = 0;
+    voodoo_t              *voodoo = (voodoo_t *) priv;
+    const voodoo_params_t *params = &voodoo->params;
+    int                    x;
+    int                    y;
+    uint32_t               write_addr;
+    uint32_t               write_addr_aux;
+    rgba8_t                colour_data;
+    uint16_t               depth_data;
+    uint8_t                alpha_data;
+    int                    write_mask = 0;
 
     colour_data.r = colour_data.g = colour_data.b = colour_data.a = 0;
 
     depth_data = voodoo->params.zaColor & 0xffff;
     alpha_data = voodoo->params.zaColor >> 24;
 
-    //        while (!RB_EMPTY)
-    //                thread_reset_event(voodoo->not_full_event);
+#if 0
+    while (!RB_EMPTY)
+        thread_reset_event(voodoo->not_full_event);
+#endif
 
-    //        voodoo_fb_log("voodoo_fb_writew : %08X %04X\n", addr, val);
+#if 0
+    voodoo_fb_log("voodoo_fb_writew : %08X %04X\n", addr, val);
+#endif
 
     switch (voodoo->lfbMode & LFB_FORMAT_MASK) {
         case LFB_FORMAT_RGB565:
@@ -304,26 +308,30 @@ skip_pixel:
 }
 
 void
-voodoo_fb_writel(uint32_t addr, uint32_t val, void *p)
+voodoo_fb_writel(uint32_t addr, uint32_t val, void *priv)
 {
-    voodoo_t        *voodoo = (voodoo_t *) p;
-    voodoo_params_t *params = &voodoo->params;
-    int              x;
-    int              y;
-    uint32_t         write_addr;
-    uint32_t         write_addr_aux;
-    rgba8_t          colour_data[2];
-    uint16_t         depth_data[2];
-    uint8_t          alpha_data[2];
-    int              write_mask = 0;
-    int              count = 1;
+    voodoo_t              *voodoo = (voodoo_t *) priv;
+    const voodoo_params_t *params = &voodoo->params;
+    int                    x;
+    int                    y;
+    uint32_t               write_addr;
+    uint32_t               write_addr_aux;
+    rgba8_t                colour_data[2];
+    uint16_t               depth_data[2];
+    uint8_t                alpha_data[2];
+    int                    write_mask = 0;
+    int                    count = 1;
 
     depth_data[0] = depth_data[1] = voodoo->params.zaColor & 0xffff;
     alpha_data[0] = alpha_data[1] = voodoo->params.zaColor >> 24;
-    //        while (!RB_EMPTY)
-    //                thread_reset_event(voodoo->not_full_event);
+#if 0
+    while (!RB_EMPTY)
+        thread_reset_event(voodoo->not_full_event);
+#endif
 
-    //        voodoo_fb_log("voodoo_fb_writel : %08X %08X\n", addr, val);
+#if 0
+    voodoo_fb_log("voodoo_fb_writel : %08X %08X\n", addr, val);
+#endif
 
     switch (voodoo->lfbMode & LFB_FORMAT_MASK) {
         case LFB_FORMAT_RGB565:
@@ -393,12 +401,12 @@ voodoo_fb_writel(uint32_t addr, uint32_t val, void *p)
     else
         write_addr_aux = voodoo->params.aux_offset + x + (y * voodoo->row_width);
 
-    //        voodoo_fb_log("fb_writel %08x x=%i y=%i rw=%i %08x wo=%08x\n", addr, x, y, voodoo->row_width, write_addr, voodoo->fb_write_offset);
+#if 0
+    voodoo_fb_log("fb_writel %08x x=%i y=%i rw=%i %08x wo=%08x\n", addr, x, y, voodoo->row_width, write_addr, voodoo->fb_write_offset);
+#endif
 
     if (voodoo->lfbMode & 0x100) {
-        int c;
-
-        for (c = 0; c < count; c++) {
+        for (int c = 0; c < count; c++) {
             rgba8_t  write_data = colour_data[c];
             uint16_t new_depth  = depth_data[c];
 
