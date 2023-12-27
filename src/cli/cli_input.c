@@ -1230,11 +1230,11 @@ monitor:
 
                 /* Send buttons. */
                 if (btn == 4) /* wheel back */
-                    mouse_z = -1;
+                    mouse_set_z(-1);
                 else if (btn == 5) /* wheel forward */
-                    mouse_z = 1;
+                    mouse_set_z(1);
                 else if (btn < sizeof(mouse_button_values))
-                    mouse_buttons = mouse_button_values[btn];
+                    mouse_set_buttons_ex(mouse_button_values[btn]);
                 break;
         }
     }
