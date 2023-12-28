@@ -18,6 +18,7 @@
 #define _LARGEFILE64_SOURCE 1
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <linux/vfio.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -35,7 +36,7 @@
 #include <86box/ini.h>
 #include <86box/config.h>
 #include <86box/device.h>
-#include <86box/i2c.h> /* ceilpow2 */
+#include <86box/i2c.h> /* log2i */
 #include <86box/io.h>
 #include <86box/mem.h>
 #include <86box/path.h>
@@ -96,10 +97,10 @@ typedef struct {
 } vfio_irq_t;
 
 typedef struct _vfio_device_ {
-    int     fd, slot;
+    int     fd;
     uint8_t mem_enabled : 1, io_enabled : 1, rom_enabled : 1,
         can_reset : 1, can_flr_reset : 1, can_pm_reset : 1, can_hot_reset : 1,
-        bar_count,
+        slot, bar_count,
         pm_cap, msi_cap, msix_cap, pcie_cap, af_cap;
     char *name, *rom_fn;
 
@@ -113,6 +114,7 @@ typedef struct _vfio_device_ {
         struct {
             int     raised;
             uint8_t pin;
+            uint8_t state;
         } intx;
         struct {
             uint32_t address, address_upper, pending, mask;
@@ -908,8 +910,7 @@ vfio_quirk_nvidia3d0_state_writew(uint16_t addr, uint16_t val, void *priv)
 {
     vfio_device_t *dev = (vfio_device_t *) priv;
 
-    uint8_t prev_state = dev->quirks.nvidia3d0.state,
-            offset;
+    uint8_t prev_state = dev->quirks.nvidia3d0.state;
     dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
 
     /* Interpret NVIDIA commands. */
@@ -945,8 +946,7 @@ vfio_quirk_nvidia3d0_state_writel(uint16_t addr, uint32_t val, void *priv)
 {
     vfio_device_t *dev = (vfio_device_t *) priv;
 
-    uint8_t prev_state = dev->quirks.nvidia3d0.state,
-            offset;
+    uint8_t prev_state = dev->quirks.nvidia3d0.state;
     dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
 
     /* Interpret NVIDIA commands. */
@@ -1309,8 +1309,7 @@ vfio_bar_remap(vfio_device_t *dev, vfio_region_t *bar, uint32_t new_offset)
     vfio_log("VFIO %s: bar_remap(%s, %08X)\n", dev->name, bar->name, new_offset);
 
     /* Act according to the BAR type. */
-    uint8_t  bar_type = vfio_bar_gettype(dev, bar);
-    uint16_t vga_bitmap;
+    uint8_t bar_type = vfio_bar_gettype(dev, bar);
     if (bar_type == 0x00) { /* Memory BAR */
         if (bar->emulated_offset) {
             vfio_log("VFIO %s: Unmapping %s memory @ %08X-%08X\n", dev->name,
@@ -1420,6 +1419,15 @@ vfio_bar_remap(vfio_device_t *dev, vfio_region_t *bar, uint32_t new_offset)
        The precalculated offsets speed up read/write operations. */
     bar->emulated_offset = new_offset;
     bar->precalc_offset  = bar->offset - new_offset;
+}
+
+static uint32_t
+ceilpow2(uint32_t size)
+{
+    uint32_t pow_size = 1 << log2i(size);
+    if (pow_size < size)
+        return pow_size << 1;
+    return pow_size;
 }
 
 static uint8_t
@@ -1809,7 +1817,7 @@ vfio_config_writel(int func, int addr, uint32_t val, void *priv)
 static void
 vfio_irq_thread(void *priv)
 {
-    int                 nfds, i, offset;
+    int                 nfds, i;
     uint64_t            buf;
     struct epoll_event  events[16];
     struct vfio_irq_set irq_set = {
@@ -1942,7 +1950,6 @@ vfio_irq_timer(void *priv)
 
     /* Act according to the IRQ type. */
     uint16_t val;
-    int      offset;
     switch (current_irq->type) {
         case VFIO_PCI_INTX_IRQ_INDEX:
             if (!dev->irq.intx.raised) { /* rising edge */
@@ -1950,7 +1957,7 @@ vfio_irq_timer(void *priv)
                             '@' + dev->irq.intx.pin);
 
                 /* Raise IRQ. */
-                pci_set_irq(dev->slot, dev->irq.intx.pin);
+                pci_set_irq(dev->slot, dev->irq.intx.pin, &dev->irq.intx.state);
 
                 /* Mark the IRQ as active, so that a BAR read/write can lower it. */
                 dev->irq.intx.raised = intx_high = 1;
@@ -1959,7 +1966,7 @@ vfio_irq_timer(void *priv)
                             '@' + dev->irq.intx.pin);
 
                 /* Lower IRQ. */
-                pci_clear_irq(dev->slot, dev->irq.intx.pin);
+                pci_clear_irq(dev->slot, dev->irq.intx.pin, &dev->irq.intx.state);
 
                 /* Mark the IRQ as no longer high. */
                 dev->irq.intx.raised = intx_high = 0;
@@ -2017,7 +2024,7 @@ vfio_irq_intx_disable(vfio_device_t *dev)
     /* Clear pending interrupts. */
     dev->irq.intx.raised = intx_high = 0;
     if (dev->irq.intx.pin)
-        pci_clear_irq(dev->slot, dev->irq.intx.pin);
+        pci_clear_irq(dev->slot, dev->irq.intx.pin, &dev->irq.intx.state);
 
     /* Disable interrupts altogether. */
     dev->irq.type = VFIO_PCI_NUM_IRQS;
@@ -2279,7 +2286,7 @@ vfio_region_init(vfio_device_t *dev, struct vfio_region_info *reg, vfio_region_t
         /* Allocate ROM shadow area. */
         region->mmap_base = region->mmap_precalc = plat_mmap(region->size, 0);
         if (region->mmap_base == ((void *) -1)) {
-            pclog("VFIO %s: ROM mmap(%d) failed\n", dev->name, region->size);
+            pclog("VFIO %s: ROM mmap(%" PRIu64 ") failed\n", dev->name, region->size);
             region->mmap_base = NULL;
             goto end;
         }
@@ -2313,7 +2320,7 @@ vfio_region_init(vfio_device_t *dev, struct vfio_region_info *reg, vfio_region_t
             /* Check ROM length. */
             uint32_t rom_len = region->mmap_base[0x02] << 9; /* 512-byte blocks */
             if (rom_len > region->size) {
-                pclog("VFIO %s: Warning: ROM length (%d bytes) is larger than ROM region (%d bytes)\n",
+                pclog("VFIO %s: Warning: ROM length (%d bytes) is larger than ROM region (%" PRIu64 " bytes)\n",
                       dev->name, rom_len, region->size);
                 j = 1;
             }
@@ -2339,7 +2346,7 @@ vfio_region_init(vfio_device_t *dev, struct vfio_region_info *reg, vfio_region_t
                 }
             } else {
                 pclog("VFIO %s: Warning: ROM has no PCI header pointer\n",
-                      dev->name, pci_ptr);
+                      dev->name);
                 j = 1;
             }
 
@@ -2762,7 +2769,7 @@ vfio_dev_init(vfio_device_t *dev)
     vfio_irq_intx_setpin(dev);
 
     /* Add PCI card while mapping the configuration space. */
-    dev->slot = pci_add_card(PCI_ADD_NORMAL, vfio_config_readb, vfio_config_writeb, dev);
+    pci_add_card(PCI_ADD_NORMAL, vfio_config_readb, vfio_config_writeb, dev, &dev->slot);
 
     return 0;
 
@@ -2829,7 +2836,7 @@ vfio_map_dma(uint8_t *ptr, uint32_t offset, uint32_t size)
         .flags = VFIO_DMA_MAP_FLAG_READ | VFIO_DMA_MAP_FLAG_WRITE
     };
 
-    vfio_log("VFIO: map_dma(%lX, %08X, %d)\n", ptr, offset, size);
+    vfio_log("VFIO: map_dma(%08X, %d)\n", offset, size);
 
     /* Map DMA region. */
     if (!ioctl(container_fd, VFIO_IOMMU_MAP_DMA, &dma_map))
@@ -2842,11 +2849,11 @@ vfio_map_dma(uint8_t *ptr, uint32_t offset, uint32_t size)
             return;
     }
 
-    pclog("VFIO: map_dma(%lX, %08X, %d) failed (%d)\n", ptr, offset, size, errno);
+    pclog("VFIO: map_dma(%08X, %d) failed (%d)\n", offset, size, errno);
 }
 
 static void
-vfio_reset(void)
+vfio_reset(void *priv)
 {
     vfio_log("VFIO: reset()\n");
 
@@ -3224,7 +3231,6 @@ next: /* Clean up. */
     /* Reset all devices. */
     vfio_log("VFIO: Performing initial reset\n");
     closing = 0;
-    vfio_reset();
 
     /* Add device_t to keep track of reset and close. */
     device_add(&vfio_device);
@@ -3241,7 +3247,7 @@ vfio_close(void *priv)
 
     /* Reset all devices. */
     closing = 1;
-    vfio_reset();
+    vfio_reset(priv);
 
     /* Stop IRQ timer. */
     timer_on_auto(&irq_timer, 0.0);
