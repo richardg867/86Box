@@ -239,6 +239,7 @@ if (QT)
 elseif(WIN32)
     add_subdirectory(win)
 else()
+    add_compile_definitions(USE_SDL_UI)
     add_subdirectory(unix)
 endif()
 
