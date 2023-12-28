@@ -224,7 +224,7 @@ cli_render_log(const char *fmt, ...)
 void
 cli_render_blank(void)
 {
-    if (render_data.block)
+    if (render_data.block || ((monitor_index_global == 0) && monitors[1].target_buffer))
         return;
     thread_wait_event(render_data.render_complete, -1);
     thread_reset_event(render_data.render_complete);
@@ -237,7 +237,7 @@ cli_render_blank(void)
 void
 cli_render_gfx(char *str)
 {
-    if (render_data.block)
+    if (render_data.block || ((monitor_index_global == 0) && monitors[1].target_buffer))
         return;
 
     /* Perform an image render if this terminal supports graphics. */
@@ -313,7 +313,7 @@ cli_render_gfx_blit(bitmap_t *bitmap, int x, int y, int w, int h)
 void
 cli_render_gfx_box(char *str)
 {
-    if (render_data.block)
+    if (render_data.block || ((monitor_index_global == 0) && monitors[1].target_buffer))
         return;
     thread_wait_event(render_data.render_complete, -1);
     thread_reset_event(render_data.render_complete);
@@ -336,7 +336,7 @@ cli_render_cga(uint8_t y, uint8_t rowcount,
                uint8_t do_render, uint8_t do_blink,
                uint32_t ca, uint8_t con)
 {
-    if (render_data.block)
+    if (render_data.block || ((monitor_index_global == 0) && monitors[1].target_buffer))
         return;
     thread_wait_event(render_data.render_complete, -1);
     thread_reset_event(render_data.render_complete);
@@ -364,7 +364,7 @@ cli_render_mda(int xlimit, uint8_t rowcount,
                uint8_t do_render, uint8_t do_blink,
                uint16_t ca, uint8_t con)
 {
-    if (render_data.block)
+    if (render_data.block || ((monitor_index_global == 0) && monitors[1].target_buffer))
         return;
     thread_wait_event(render_data.render_complete, -1);
     thread_reset_event(render_data.render_complete);
