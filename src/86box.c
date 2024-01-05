@@ -542,7 +542,9 @@ usage:
             printf("-N or --noconfirm       - do not ask for confirmation on quit\n");
             printf("-P or --vmpath path     - set 'path' to be root for vm\n");
             printf("-R or --rompath path    - set 'path' to be ROM path\n");
+#ifndef USE_SDL_UI
             printf("-S or --settings        - show only the settings dialog\n");
+#endif
             printf("-V or --vmname name     - overrides the name of the running VM\n");
             printf("-X or --clear what      - clears the 'what' (cmos/flash/both)\n");
             printf("-Y or --donothing       - do not show any UI or run the emulation\n");
@@ -609,8 +611,10 @@ usage:
                 goto usage;
 
             strcpy(vm_name, argv[++c]);
+#ifndef USE_SDL_UI
         } else if (!strcasecmp(argv[c], "--settings") || !strcasecmp(argv[c], "-S")) {
             settings_only = 1;
+#endif
         } else if (!strcasecmp(argv[c], "--noconfirm") || !strcasecmp(argv[c], "-N")) {
             confirm_exit_cmdl = 0;
         } else if (!strcasecmp(argv[c], "--missing") || !strcasecmp(argv[c], "-M")) {
@@ -1153,9 +1157,6 @@ pc_reset_hard_init(void)
      * that will be a call to device_reset_all() later !
      */
 
-    if (joystick_type)
-        gameport_update_joystick_type();
-
     /* Reset and reconfigure the Sound Card layer. */
     sound_card_reset();
 
@@ -1199,9 +1200,12 @@ pc_reset_hard_init(void)
     /* Reset any ISA RTC cards. */
     isartc_reset();
 
-    /* Initialize the Voodoo cards here inorder to minmize
+    /* Initialize the Voodoo cards here inorder to minimize
        the chances of the SCSI controller ending up on the bridge. */
     video_voodoo_init();
+
+    if (joystick_type)
+        gameport_update_joystick_type(); /* installs game port if no device provides one, must be late */
 
     ui_sb_update_panes();
 
@@ -1581,10 +1585,10 @@ do_pause(int p)
 {
     int old_p = dopause;
 
-    if (p && !old_p)
+    if ((p == 1) && !old_p)
         do_pause_ack = p;
-    dopause = p;
-    if (p && !old_p) {
+    dopause = !!p;
+    if ((p == 1) && !old_p) {
         while (!atomic_load(&pause_ack))
             ;
     }

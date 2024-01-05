@@ -64,9 +64,6 @@ ifeq ($(DEV_BUILD), y)
  ifndef LASERXT
   LASERXT := y
  endif
- ifndef MGA
-  MGA := y
- endif
  ifndef OLIVETTI
   OLIVETTI := y
  endif
@@ -127,9 +124,6 @@ else
  endif
  ifndef LASERXT
   LASERXT := n
- endif
- ifndef MGA
-  MGA := n
  endif
  ifndef OLIVETTI
   OLIVETTI := n
@@ -496,10 +490,6 @@ ifeq ($(DEV_BRANCH), y)
   DEVBROBJ += m_xt_laserxt.o
  endif
 
- ifeq ($(MGA), y)
-  OPTS     += -DUSE_MGA
- endif
-
  ifeq ($(OPEN_AT), y)
   OPTS += -DUSE_OPEN_AT
  endif
@@ -627,7 +617,8 @@ DEVOBJ := bugger.o cartridge.o cassette.o hasp.o hwm.o hwm_lm75.o hwm_lm78.o hwm
           mouse_bus.o \
           mouse_serial.o mouse_ps2.o \
           mouse_wacom_tablet.o \
-          phoenix_486_jumper.o serial_passthrough.o
+          nec_mate_unk.o phoenix_486_jumper.o \
+          serial_passthrough.o
 
 SIOOBJ := sio_acc3221.o sio_ali5123.o \
           sio_f82c710.o sio_82091aa.o sio_fdc37c6xx.o \

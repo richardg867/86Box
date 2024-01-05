@@ -128,6 +128,8 @@ typedef struct svga_t {
     int hblank_sub;
     int hblank_end_val;
     int hblank_end_len;
+    int packed_4bpp;
+    int ati_4color;
 
     /*The three variables below allow us to implement memory maps like that seen on a 1MB Trio64 :
       0MB-1MB - VRAM
@@ -231,6 +233,7 @@ typedef struct svga_t {
     uint8_t dac_status;
     uint8_t dpms;
     uint8_t dpms_ui;
+    uint8_t color_2bpp;
     uint8_t ksc5601_sbyte_mask;
     uint8_t ksc5601_udc_area_msb[2];
 
@@ -268,6 +271,12 @@ typedef struct svga_t {
     /* Pointer to monitor */
     monitor_t *monitor;
 
+    /* Enable LUT mapping of >= 24 bpp modes. */
+    int lut_map;
+
+    /* Return a 32 bpp color from a 15/16 bpp color. */
+    uint32_t (*conv_16to32)(struct svga_t *svga, uint16_t color, uint8_t bpp);
+
     void *  dev8514;
     void *  xga;
 } svga_t;
@@ -280,7 +289,7 @@ extern uint8_t ibm8514_ramdac_in(uint16_t port, void *priv);
 extern void    ibm8514_ramdac_out(uint16_t port, uint8_t val, void *priv);
 extern int     ibm8514_cpu_src(svga_t *svga);
 extern int     ibm8514_cpu_dest(svga_t *svga);
-extern void    ibm8514_accel_out_pixtrans(svga_t *svga, uint16_t port, uint16_t val, int len);
+extern void    ibm8514_accel_out_pixtrans(svga_t *svga, uint16_t port, uint32_t val, int len);
 extern void    ibm8514_short_stroke_start(int count, int cpu_input, uint32_t mix_dat, uint32_t cpu_dat, svga_t *svga, uint8_t ssv, int len);
 extern void    ibm8514_accel_start(int count, int cpu_input, uint32_t mix_dat, uint32_t cpu_dat, svga_t *svga, int len);
 
@@ -333,6 +342,8 @@ enum {
     RAMDAC_6BIT = 0,
     RAMDAC_8BIT
 };
+
+uint32_t svga_lookup_lut_ram(svga_t* svga, uint32_t val);
 
 /* We need a way to add a device with a pointer to a parent device so it can attach itself to it, and
    possibly also a second ATi 68860 RAM DAC type that auto-sets SVGA render on RAM DAC render change. */
@@ -393,11 +404,13 @@ extern float   stg_getclock(int clock, void *priv);
 extern void    tkd8001_ramdac_out(uint16_t addr, uint8_t val, void *priv, svga_t *svga);
 extern uint8_t tkd8001_ramdac_in(uint16_t addr, void *priv, svga_t *svga);
 
-extern void    tvp3026_ramdac_out(uint16_t addr, int rs2, int rs3, uint8_t val, void *priv, svga_t *svga);
-extern uint8_t tvp3026_ramdac_in(uint16_t addr, int rs2, int rs3, void *priv, svga_t *svga);
-extern void    tvp3026_recalctimings(void *priv, svga_t *svga);
-extern void    tvp3026_hwcursor_draw(svga_t *svga, int displine);
-extern float   tvp3026_getclock(int clock, void *priv);
+extern void     tvp3026_ramdac_out(uint16_t addr, int rs2, int rs3, uint8_t val, void *priv, svga_t *svga);
+extern uint8_t  tvp3026_ramdac_in(uint16_t addr, int rs2, int rs3, void *priv, svga_t *svga);
+extern uint32_t tvp3026_conv_16to32(svga_t* svga, uint16_t color, uint8_t bpp);
+extern void     tvp3026_recalctimings(void *priv, svga_t *svga);
+extern void     tvp3026_hwcursor_draw(svga_t *svga, int displine);
+extern float    tvp3026_getclock(int clock, void *priv);
+extern void     tvp3026_gpio(uint8_t (*read)(uint8_t cntl, void *priv), void (*write)(uint8_t cntl, uint8_t data, void *priv), void *cb_priv, void *priv);
 
 #    ifdef EMU_DEVICE_H
 extern const device_t ati68860_ramdac_device;
