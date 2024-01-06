@@ -188,7 +188,7 @@ emu10k1_log(const char *fmt, ...)
 #    define emu10k1_log_pop()
 #endif
 
-#define EMU10K1_SAMPLE_DUMP 1
+//#define EMU10K1_SAMPLE_DUMP 1
 #ifdef EMU10K1_SAMPLE_DUMP
 #    ifdef _WIN32
 #        include <windows.h>
@@ -629,9 +629,7 @@ emu10k1_dsp_read(emu10k1_t *dev, int addr, int last_wo_reg, uint32_t last_wo_val
 {
     switch (addr) {
         case 0x58 ... 0x59: /* RNGs */
-            /* <RichardG> so i was looking into whether i could just get a 32-bit value
-               <Kado> you could generate each byte separately */
-            return ((random_generate() & 0xfc) << 8) | (random_generate() << 16) | (random_generate() << 24);
+            return random_generate() << 12;
 
         case 0x5b: /* DBAC */
             /* Justified to second most significant bit from the DSP's point of view. */
@@ -856,7 +854,7 @@ extern uint8_t keyboard_get_shift(void);
             int      x     = (fetch >> 10) & 0x3ff;
             int      a     = (fetch >> 32) & 0x3ff;
             int      r     = (fetch >> 42) & 0x3ff;
-            int      op    = (fetch >> (*OP_BASE ^ 12)) & 0xf;
+            int      op    = (fetch >> (*OP_BASE ^ 014)) & 0xf;
 
             /* Read operands.
                The A operand has some special cases which read as 0 if not fulfilled. */
