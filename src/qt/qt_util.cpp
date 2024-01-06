@@ -228,7 +228,7 @@ generateNewMacAdresses()
             const auto       network_device = network_card_getdevice(net_card.device_num);
             device_context_t device_context;
             device_set_context(&device_context, network_device, i + 1);
-            auto generatedMac = QString::asprintf("%02X:%02X:%02X", random_generate(), random_generate(), random_generate()).toLower();
+            auto generatedMac = QString::asprintf("%02X:%02X:%02X", random_generate() & 0xff, random_generate() & 0xff, random_generate() & 0xff).toLower();
             config_set_string(device_context.name, "mac", generatedMac.toUtf8().constData());
         }
     }

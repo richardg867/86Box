@@ -82,22 +82,25 @@ random_twist(uint32_t *val)
 static int      seeded = 0;
 static uint64_t seed_state;
 
-uint8_t
+uint32_t
 random_generate(void)
 {
-    uint16_t r = 0;
+    uint32_t r;
 
     if (seeded) {
         /* splitmix64 */
         uint64_t z = (seed_state += 0x9E3779B97F4A7C15ULL);
         z          = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
         z          = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
-        return (uint8_t) ((z ^ (z >> 31)) >> 56);
+        r          = (uint32_t) ((z ^ (z >> 31)) >> 32);
+        /* Keep the top byte in the low byte, so that callers using
+           only the low byte see the same sequence for a given seed. */
+        return (r >> 24) | (r << 8);
     }
 
-    r          = (RDTSC() ^ ROTATE_LEFT(preconst, rand() % 32)) % 256;
+    r = RDTSC() ^ ROTATE_LEFT(preconst, rand() % 32);
     random_twist(&preconst);
-    return (r & 0xff);
+    return r;
 }
 
 void

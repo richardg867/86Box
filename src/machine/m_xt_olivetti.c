@@ -656,8 +656,6 @@ m24_kbd_write(uint16_t port, uint8_t val, void *priv)
     }
 }
 
-extern uint8_t random_generate(void);
-
 static uint8_t
 m24_kbd_read(uint16_t port, void *priv)
 {

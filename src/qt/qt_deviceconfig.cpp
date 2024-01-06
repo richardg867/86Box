@@ -528,7 +528,7 @@ DeviceConfig::ProcessConfig(void *dc, const void *c, const bool is_dep)
                         uint8_t first = random_generate();
                         if (is_oui)
                             first = (first & 0xfc) | 0x02;
-                        return QString::asprintf("%02X:%02X:%02X", first, random_generate(), random_generate());
+                        return QString::asprintf("%02X:%02X:%02X", first, random_generate() & 0xff, random_generate() & 0xff);
                     };
                     // Display the current, default or generated MAC in uppercase
                     // When stored it will be converted to lowercase
