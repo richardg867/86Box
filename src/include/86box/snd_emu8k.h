@@ -373,7 +373,7 @@ typedef struct emu8k_voice_t {
             int      addr_shift;
             int      dword_multiplier;
             int      stereo_offset;
-            uint8_t  cd[64]; /* cache */
+            uint8_t  cd[128]; /* cache */
             uint32_t fifo_pos;
             uint32_t fifo_end;
         };

@@ -1287,9 +1287,8 @@ emu10k1_readl(uint16_t addr, void *priv)
                     ret = dev->emu8k.voice[dev->emu8k.cur_voice].map[reg & 0x01];
                     break;
 
-                case 0x20 ... 0x2f: /* CD */
-                case 0x30 ... 0x3f: /* supposedly aliases of CD */
-                    ret = ((uint32_t *) dev->emu8k.voice[dev->emu8k.cur_voice].cd)[reg & 0x0f];
+                case 0x20 ... 0x3f: /* CD */
+                    ret = ((uint32_t *) dev->emu8k.voice[dev->emu8k.cur_voice].cd)[reg & 0x1f];
                     break;
 
                 case 0x7d: /* A_SENDAMOUNTS */
@@ -1597,9 +1596,8 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                 case 0x10 ... 0x1f:
                     goto writel_fallback;
 
-                case 0x20 ... 0x2f: /* CD */
-                case 0x30 ... 0x3f: /* supposedly aliases of CD */
-                    ((uint32_t *) dev->emu8k.voice[dev->emu8k.cur_voice].cd)[reg & 0x0f] = val;
+                case 0x20 ... 0x3f: /* CD */
+                    ((uint32_t *) dev->emu8k.voice[dev->emu8k.cur_voice].cd)[reg & 0x1f] = val;
                     return;
 
                 case 0x40 ... 0x41: /* PTB ... TCB */
