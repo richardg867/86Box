@@ -51,6 +51,7 @@ extern const device_t vid_ppc512_device;
 extern const device_t vid_device_sl;
 extern const device_t t1200_video_device;
 extern const device_t compaq_plasma_device;
+extern const device_t ps1_2011_device;
 
 const machine_filter_t machine_types[] = {
     { "None",                      MACHINE_TYPE_NONE       },
@@ -1803,6 +1804,45 @@ const machine_t machines[] = {
         .net_device = NULL
     },
     {
+        .name = "[8088] GLaBIOS",
+        .internal_name = "glabios",
+        .type = MACHINE_TYPE_8088,
+        .chipset = MACHINE_CHIPSET_DISCRETE,
+        .init = machine_xt_glabios_init,
+        .p1_handler = NULL,
+        .gpio_handler = NULL,
+        .available_flag = MACHINE_AVAILABLE,
+        .gpio_acpi_handler = NULL,
+        .cpu = {
+            .package = CPU_PKG_8088,
+            .block = CPU_BLOCK_NONE,
+            .min_bus = 0,
+            .max_bus = 0,
+            .min_voltage = 0,
+            .max_voltage = 0,
+            .min_multi = 0,
+            .max_multi = 0
+        },
+        .bus_flags = MACHINE_PC,
+        .flags = MACHINE_FLAGS_NONE,
+        .ram = {
+            .min = 64,
+            .max = 640,
+            .step = 64
+        },
+        .nvrmask = 0,
+        .kbc_device = &keyboard_xt_device,
+        .kbc_p1 = 0xff,
+        .gpio = 0xffffffff,
+        .gpio_acpi = 0xffffffff,
+        .device = NULL,
+        .fdc_device = NULL,
+        .sio_device = NULL,
+        .vid_device = NULL,
+        .snd_device = NULL,
+        .net_device = NULL
+    },
+    {
         .name = "[GC100A] Philips P3120",
         .internal_name = "p3120",
         .type = MACHINE_TYPE_8088,
@@ -2546,7 +2586,7 @@ const machine_t machines[] = {
         .kbc_p1 = 0xff,
         .gpio = 0xffffffff,
         .gpio_acpi = 0xffffffff,
-        .device = NULL,
+        .device = &ps1_2011_device,
         .fdc_device = NULL,
         .sio_device = NULL,
         .vid_device = NULL,
@@ -11000,11 +11040,11 @@ const machine_t machines[] = {
     /* SiS 5571 */
     /* Has the SiS 5571 chipset with on-chip KBC. */
     {
-        .name = "[SiS 5571] Rise R534F",
-        .internal_name = "r534f",
+        .name = "[SiS 5571] Daewoo CB52X-SI",
+        .internal_name = "cb52x_si",
         .type = MACHINE_TYPE_SOCKET7,
         .chipset = MACHINE_CHIPSET_SIS_5571,
-        .init = machine_at_r534f_init,
+        .init = machine_at_cb52x_si_init,
         .p1_handler = NULL,
         .gpio_handler = NULL,
         .available_flag = MACHINE_AVAILABLE,
@@ -11012,9 +11052,9 @@ const machine_t machines[] = {
         .cpu = {
             .package = CPU_PKG_SOCKET5_7,
             .block = CPU_BLOCK_NONE,
-            .min_bus = 55000000,
-            .max_bus = 83333333,
-            .min_voltage = 2500,
+            .min_bus = 50000000,
+            .max_bus = 75000000,
+            .min_voltage = 2800,
             .max_voltage = 3520,
             .min_multi = 1.5,
             .max_multi = 3.0
@@ -11023,10 +11063,10 @@ const machine_t machines[] = {
         .flags = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI,
         .ram = {
             .min = 8192,
-            .max = 393216,
+            .max = 262144,
             .step = 8192
         },
-        .nvrmask = 127,
+        .nvrmask = 255,
         .kbc_device = NULL,
         .kbc_p1 = 0xff,
         .gpio = 0xffffffff,
@@ -11066,7 +11106,7 @@ const machine_t machines[] = {
             .max = 262144,
             .step = 8192
         },
-        .nvrmask = 127,
+        .nvrmask = 255,
         .kbc_device = NULL,
         .kbc_p1 = 0xff,
         .gpio = 0xffffffff,
@@ -11078,15 +11118,13 @@ const machine_t machines[] = {
         .snd_device = NULL,
         .net_device = NULL
     },
-
-    /* ALi ALADDiN IV+ */
-    /* Has the ALi M1543 southbridge with on-chip KBC. */
+    /* Has the SiS 5571 chipset with on-chip KBC. */
     {
-        .name = "[ALi ALADDiN IV+] PC Chips M560",
-        .internal_name = "m560",
+        .name = "[SiS 5571] Rise R534F",
+        .internal_name = "r534f",
         .type = MACHINE_TYPE_SOCKET7,
-        .chipset = MACHINE_CHIPSET_ALI_ALADDIN_IV_PLUS,
-        .init = machine_at_m560_init,
+        .chipset = MACHINE_CHIPSET_SIS_5571,
+        .init = machine_at_r534f_init,
         .p1_handler = NULL,
         .gpio_handler = NULL,
         .available_flag = MACHINE_AVAILABLE,
@@ -11094,7 +11132,7 @@ const machine_t machines[] = {
         .cpu = {
             .package = CPU_PKG_SOCKET5_7,
             .block = CPU_BLOCK_NONE,
-            .min_bus = 50000000,
+            .min_bus = 55000000,
             .max_bus = 83333333,
             .min_voltage = 2500,
             .max_voltage = 3520,
@@ -11105,7 +11143,7 @@ const machine_t machines[] = {
         .flags = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI,
         .ram = {
             .min = 8192,
-            .max = 786432,
+            .max = 393216,
             .step = 8192
         },
         .nvrmask = 255,
@@ -11120,6 +11158,8 @@ const machine_t machines[] = {
         .snd_device = NULL,
         .net_device = NULL
     },
+
+    /* ALi ALADDiN IV+ */
     /* Has the ALi M1543 southbridge with on-chip KBC. */
     {
         .name = "[ALi ALADDiN IV+] MSI MS-5164",
@@ -11146,6 +11186,46 @@ const machine_t machines[] = {
         .ram = {
             .min = 8192,
             .max = 1048576,
+            .step = 8192
+        },
+        .nvrmask = 255,
+        .kbc_device = NULL,
+        .kbc_p1 = 0xff,
+        .gpio = 0xffffffff,
+        .gpio_acpi = 0xffffffff,
+        .device = NULL,
+        .fdc_device = NULL,
+        .sio_device = NULL,
+        .vid_device = NULL,
+        .snd_device = NULL,
+        .net_device = NULL
+    },
+    /* Has the ALi M1543 southbridge with on-chip KBC. */
+    {
+        .name = "[ALi ALADDiN IV+] PC Chips M560",
+        .internal_name = "m560",
+        .type = MACHINE_TYPE_SOCKET7,
+        .chipset = MACHINE_CHIPSET_ALI_ALADDIN_IV_PLUS,
+        .init = machine_at_m560_init,
+        .p1_handler = NULL,
+        .gpio_handler = NULL,
+        .available_flag = MACHINE_AVAILABLE,
+        .gpio_acpi_handler = NULL,
+        .cpu = {
+            .package = CPU_PKG_SOCKET5_7,
+            .block = CPU_BLOCK_NONE,
+            .min_bus = 50000000,
+            .max_bus = 83333333,
+            .min_voltage = 2500,
+            .max_voltage = 3520,
+            .min_multi = 1.5,
+            .max_multi = 3.0
+        },
+        .bus_flags = MACHINE_PS2_PCI,
+        .flags = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI,
+        .ram = {
+            .min = 8192,
+            .max = 786432,
             .step = 8192
         },
         .nvrmask = 255,

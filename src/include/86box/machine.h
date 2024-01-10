@@ -686,6 +686,7 @@ extern int machine_at_ficpa2012_init(const machine_t *);
 
 extern int machine_at_r534f_init(const machine_t *);
 extern int machine_at_ms5146_init(const machine_t *);
+extern int machine_at_cb52x_si_init(const machine_t *);
 
 extern int machine_at_m560_init(const machine_t *);
 extern int machine_at_ms5164_init(const machine_t *);
@@ -851,6 +852,7 @@ extern int machine_xt_pc700_init(const machine_t *);
 extern int machine_xt_pc500_init(const machine_t *);
 extern int machine_xt_vendex_init(const machine_t *);
 extern int machine_xt_znic_init(const machine_t *);
+extern int machine_xt_glabios_init(const machine_t *);
 extern int machine_xt_super16t_init(const machine_t *);
 extern int machine_xt_super16te_init(const machine_t *);
 extern int machine_xt_top88_init(const machine_t *);

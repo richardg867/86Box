@@ -65,6 +65,7 @@
 #include <86box/machine.h>
 #include <86box/bugger.h>
 #include <86box/postcard.h>
+#include <86box/unittester.h>
 #include <86box/isamem.h>
 #include <86box/isartc.h>
 #include <86box/lpt.h>
@@ -173,6 +174,7 @@ bool     serial_passthrough_enabled[SERIAL_MAX] = { 0, 0, 0, 0 }; /* (C) activat
                                                                          pass-through for serial ports */
 int      bugger_enabled                         = 0;              /* (C) enable ISAbugger */
 int      postcard_enabled                       = 0;              /* (C) enable POST card */
+int      unittester_enabled                     = 0;              /* (C) enable unit tester device */
 int      isamem_type[ISAMEM_MAX]                = { 0, 0, 0, 0 }; /* (C) enable ISA mem cards */
 int      isartc_type                            = 0;              /* (C) enable ISA RTC card */
 int      gfxcard[2]                             = { 0, 0 };       /* (C) graphics/video card */
@@ -1221,11 +1223,17 @@ pc_reset_hard_init(void)
         device_add(&bugger_device);
     if (postcard_enabled)
         device_add(&postcard_device);
+    if (unittester_enabled)
+        device_add(&unittester_device);
 
     if (IS_ARCH(machine, MACHINE_BUS_PCI)) {
         pci_register_cards();
         device_reset_all(DEVICE_PCI);
     }
+
+    /* Mark IDE shadow drives (slaves with a present master) as such in case
+       the IDE controllers present are not some form of PCI. */
+    ide_drives_set_shadow();
 
     /* Reset the CPU module. */
     resetx86();
