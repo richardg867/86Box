@@ -12,19 +12,24 @@
  *
  * Authors:  Sarah Walker, <https://pcem-emulator.co.uk/>
  *           Miran Grca, <mgrca8@gmail.com>
+ *           RichardG, <richardg867@gmail.com>
  *
  *           Copyright 2008-2019 Sarah Walker.
  *           Copyright 2016-2019 Miran Grca.
+ *           Copyright 2024-2025 RichardG.
  */
 #include <math.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wchar.h>
 #undef AL_API
 #undef ALC_API
 #define AL_LIBTYPE_STATIC
 #define ALC_LIBTYPE_STATIC
+#define HAVE_STDARG_H
 
 #include "AL/al.h"
 #include "AL/alc.h"
@@ -34,31 +39,37 @@
 #include <86box/sound.h>
 #include <86box/plat_unused.h>
 
-#define FREQ   SOUND_FREQ
-#define BUFLEN SOUNDBUFLEN
+#define ENABLE_OPENAL_LOG 1
+#ifdef ENABLE_OPENAL_LOG
+int openal_do_log = ENABLE_OPENAL_LOG;
 
-ALuint        buffers[4];       /* front and back buffers */
-ALuint        buffers_music[4]; /* front and back buffers */
-ALuint        buffers_wt[4];    /* front and back buffers */
-ALuint        buffers_cd[4];    /* front and back buffers */
-ALuint        buffers_midi[4];  /* front and back buffers */
-static ALuint source[5];        /* audio source */
+static void
+openal_log(const char *fmt, ...)
+{
+    va_list ap;
 
-static int         midi_freq     = 44100;
-static int         midi_buf_size = 4410;
+    if (openal_do_log) {
+        va_start(ap, fmt);
+        pclog_ex(fmt, ap);
+        va_end(ap);
+    }
+}
+#else
+#    define openal_log(fmt, ...)
+#endif
+
+typedef struct {
+    ALuint source;
+    ALuint buffers[4];
+    ALenum format;
+    int    freq;
+} al_source_t;
+
 static int         initialized   = 0;
-static int         sources       = 2;
 static ALCcontext *Context;
 static ALCdevice  *Device;
 
-void
-al_set_midi(const int freq, const int buf_size)
-{
-    midi_freq     = freq;
-    midi_buf_size = buf_size;
-}
-
-ALvoid
+static ALvoid
 alutInit(UNUSED(ALint *argc), UNUSED(ALbyte **argv))
 {
     /* Open device */
@@ -73,7 +84,7 @@ alutInit(UNUSED(ALint *argc), UNUSED(ALbyte **argv))
     }
 }
 
-ALvoid
+static ALvoid
 alutExit(ALvoid)
 {
     if (Context != NULL) {
@@ -91,19 +102,20 @@ alutExit(ALvoid)
 }
 
 void
-closeal(void)
+sound_backend_close(void)
 {
     if (!initialized)
         return;
 
-    alSourceStopv(sources, source);
+    // TODO INDIVIDUAL SOURCE CLOSE
+    /*alSourceStopv(sources, source);
     alDeleteSources(sources, source);
 
     if (sources == 4)
         alDeleteBuffers(4, buffers_midi);
     alDeleteBuffers(4, buffers_cd);
     alDeleteBuffers(4, buffers_music);
-    alDeleteBuffers(4, buffers);
+    alDeleteBuffers(4, buffers);*/
 
     alutExit();
 
@@ -111,213 +123,114 @@ closeal(void)
 }
 
 void
-inital(void)
+sound_backend_reset(void)
 {
-    float   *buf             = NULL;
-    float   *music_buf       = NULL;
-    float   *wt_buf          = NULL;
-    float   *cd_buf          = NULL;
-    float   *midi_buf        = NULL;
-    int16_t *buf_int16       = NULL;
-    int16_t *music_buf_int16 = NULL;
-    int16_t *wt_buf_int16    = NULL;
-    int16_t *cd_buf_int16    = NULL;
-    int16_t *midi_buf_int16  = NULL;
-
-    int         init_midi = 0;
-
     if (initialized)
         return;
 
     alutInit(0, 0);
-    atexit(closeal);
-
-    const char *mdn = midi_out_device_get_internal_name(midi_output_device_current);
-    if ((strcmp(mdn, "none") != 0) && (strcmp(mdn, SYSTEM_MIDI_INTERNAL_NAME) != 0))
-        init_midi = 1; /* If the device is neither none, nor system MIDI, initialize the
-                          MIDI buffer and source, otherwise, do not. */
-    sources = 4 + !!init_midi;
-
-    if (sound_is_float) {
-        buf       = (float *) calloc((BUFLEN << 1), sizeof(float));
-        music_buf = (float *) calloc((MUSICBUFLEN << 1), sizeof(float));
-        wt_buf    = (float *) calloc((WTBUFLEN << 1), sizeof(float));
-        cd_buf    = (float *) calloc((CD_BUFLEN << 1), sizeof(float));
-        if (init_midi)
-            midi_buf = (float *) calloc(midi_buf_size, sizeof(float));
-    } else {
-        buf_int16       = (int16_t *) calloc((BUFLEN << 1), sizeof(int16_t));
-        music_buf_int16 = (int16_t *) calloc((MUSICBUFLEN << 1), sizeof(int16_t));
-        wt_buf_int16    = (int16_t *) calloc((WTBUFLEN << 1), sizeof(int16_t));
-        cd_buf_int16    = (int16_t *) calloc((CD_BUFLEN << 1), sizeof(int16_t));
-        if (init_midi)
-            midi_buf_int16 = (int16_t *) calloc(midi_buf_size, sizeof(int16_t));
-    }
-
-    alGenBuffers(4, buffers);
-    alGenBuffers(4, buffers_cd);
-    alGenBuffers(4, buffers_music);
-    alGenBuffers(4, buffers_wt);
-    if (init_midi)
-        alGenBuffers(4, buffers_midi);
-
-    if (init_midi)
-        alGenSources(5, source);
-    else
-        alGenSources(4, source);
-
-    alSource3f(source[0], AL_POSITION, 0.0f, 0.0f, 0.0f);
-    alSource3f(source[0], AL_VELOCITY, 0.0f, 0.0f, 0.0f);
-    alSource3f(source[0], AL_DIRECTION, 0.0f, 0.0f, 0.0f);
-    alSourcef(source[0], AL_ROLLOFF_FACTOR, 0.0f);
-    alSourcei(source[0], AL_SOURCE_RELATIVE, AL_TRUE);
-    alSource3f(source[1], AL_POSITION, 0.0f, 0.0f, 0.0f);
-    alSource3f(source[1], AL_VELOCITY, 0.0f, 0.0f, 0.0f);
-    alSource3f(source[1], AL_DIRECTION, 0.0f, 0.0f, 0.0f);
-    alSourcef(source[1], AL_ROLLOFF_FACTOR, 0.0f);
-    alSourcei(source[1], AL_SOURCE_RELATIVE, AL_TRUE);
-    alSource3f(source[2], AL_POSITION, 0.0f, 0.0f, 0.0f);
-    alSource3f(source[2], AL_VELOCITY, 0.0f, 0.0f, 0.0f);
-    alSource3f(source[2], AL_DIRECTION, 0.0f, 0.0f, 0.0f);
-    alSourcef(source[2], AL_ROLLOFF_FACTOR, 0.0f);
-    alSourcei(source[2], AL_SOURCE_RELATIVE, AL_TRUE);
-    alSource3f(source[3], AL_POSITION, 0.0f, 0.0f, 0.0f);
-    alSource3f(source[3], AL_VELOCITY, 0.0f, 0.0f, 0.0f);
-    alSource3f(source[3], AL_DIRECTION, 0.0f, 0.0f, 0.0f);
-    alSourcef(source[3], AL_ROLLOFF_FACTOR, 0.0f);
-    alSourcei(source[3], AL_SOURCE_RELATIVE, AL_TRUE);
-    if (init_midi) {
-        alSource3f(source[4], AL_POSITION, 0.0f, 0.0f, 0.0f);
-        alSource3f(source[4], AL_VELOCITY, 0.0f, 0.0f, 0.0f);
-        alSource3f(source[4], AL_DIRECTION, 0.0f, 0.0f, 0.0f);
-        alSourcef(source[4], AL_ROLLOFF_FACTOR, 0.0f);
-        alSourcei(source[4], AL_SOURCE_RELATIVE, AL_TRUE);
-    }
-
-    if (sound_is_float) {
-        memset(buf, 0, BUFLEN * 2 * sizeof(float));
-        memset(cd_buf, 0, CD_BUFLEN * 2 * sizeof(float));
-        memset(music_buf, 0, MUSICBUFLEN * 2 * sizeof(float));
-        memset(wt_buf, 0, WTBUFLEN * 2 * sizeof(float));
-        if (init_midi)
-            memset(midi_buf, 0, midi_buf_size * sizeof(float));
-    } else {
-        memset(buf_int16, 0, BUFLEN * 2 * sizeof(int16_t));
-        memset(cd_buf_int16, 0, CD_BUFLEN * 2 * sizeof(int16_t));
-        memset(music_buf_int16, 0, MUSICBUFLEN * 2 * sizeof(int16_t));
-        memset(wt_buf_int16, 0, WTBUFLEN * 2 * sizeof(int16_t));
-        if (init_midi)
-            memset(midi_buf_int16, 0, midi_buf_size * sizeof(int16_t));
-    }
-
-    for (uint8_t c = 0; c < 4; c++) {
-        if (sound_is_float) {
-            alBufferData(buffers[c], AL_FORMAT_STEREO_FLOAT32, buf, BUFLEN * 2 * sizeof(float), FREQ);
-            alBufferData(buffers_music[c], AL_FORMAT_STEREO_FLOAT32, music_buf, MUSICBUFLEN * 2 * sizeof(float), MUSIC_FREQ);
-            alBufferData(buffers_wt[c], AL_FORMAT_STEREO_FLOAT32, wt_buf, WTBUFLEN * 2 * sizeof(float), WT_FREQ);
-            alBufferData(buffers_cd[c], AL_FORMAT_STEREO_FLOAT32, cd_buf, CD_BUFLEN * 2 * sizeof(float), CD_FREQ);
-            if (init_midi)
-                alBufferData(buffers_midi[c], AL_FORMAT_STEREO_FLOAT32, midi_buf, midi_buf_size * (int) sizeof(float), midi_freq);
-        } else {
-            alBufferData(buffers[c], AL_FORMAT_STEREO16, buf_int16, BUFLEN * 2 * sizeof(int16_t), FREQ);
-            alBufferData(buffers_music[c], AL_FORMAT_STEREO16, music_buf_int16, MUSICBUFLEN * 2 * sizeof(int16_t), MUSIC_FREQ);
-            alBufferData(buffers_wt[c], AL_FORMAT_STEREO16, wt_buf_int16, WTBUFLEN * 2 * sizeof(int16_t), WT_FREQ);
-            alBufferData(buffers_cd[c], AL_FORMAT_STEREO16, cd_buf_int16, CD_BUFLEN * 2 * sizeof(int16_t), CD_FREQ);
-            if (init_midi)
-                alBufferData(buffers_midi[c], AL_FORMAT_STEREO16, midi_buf_int16, midi_buf_size * (int) sizeof(int16_t), midi_freq);
-        }
-    }
-
-    alSourceQueueBuffers(source[0], 4, buffers);
-    alSourceQueueBuffers(source[1], 4, buffers_music);
-    alSourceQueueBuffers(source[2], 4, buffers_wt);
-    alSourceQueueBuffers(source[3], 4, buffers_cd);
-    if (init_midi)
-        alSourceQueueBuffers(source[4], 4, buffers_midi);
-    alSourcePlay(source[0]);
-    alSourcePlay(source[1]);
-    alSourcePlay(source[2]);
-    alSourcePlay(source[3]);
-    if (init_midi)
-        alSourcePlay(source[4]);
-
-    if (sound_is_float) {
-        if (init_midi)
-            free(midi_buf);
-        free(cd_buf);
-        free(wt_buf);
-        free(music_buf);
-        free(buf);
-    } else {
-        if (init_midi)
-            free(midi_buf_int16);
-        free(cd_buf_int16);
-        free(wt_buf_int16);
-        free(music_buf_int16);
-        free(buf_int16);
-    }
+    atexit(sound_backend_close);
 
     initialized = 1;
 }
 
-void
-givealbuffer_common(const void *buf, const uint8_t src, const int size, const int freq)
+void *
+sound_backend_add_source(void)
 {
-    int    processed;
-    int    state;
-    ALuint buffer;
+    if (!initialized)
+        fatal("OpenAL: Adding source without initializing first\n");
 
+    al_source_t *source = (al_source_t *) calloc(1, sizeof(al_source_t));
+
+    ALenum e;
+    alGenBuffers(sizeof(source->buffers) / sizeof(source->buffers[0]), source->buffers);
+    if ((e = alGetError()))
+        fatal("OpenAL: alGenBuffers failed (%04X)\n", (int) e);
+    alGenSources(1, &source->source);
+    if ((e = alGetError()))
+        fatal("OpenAL: alGenSources failed (%04X)\n", (int) e);
+
+    openal_log("OpenAL: Allocating source %d\n", (int) source->source);
+    alSource3i(source->source, AL_POSITION, 0, 0, 0);
+    alSource3i(source->source, AL_VELOCITY, 0, 0, 0);
+    alSource3i(source->source, AL_DIRECTION, 0, 0, 0);
+    alSourcei(source->source, AL_ROLLOFF_FACTOR, 0);
+    alSourcei(source->source, AL_SOURCE_RELATIVE, AL_TRUE);
+
+    return source;
+}
+
+static const ALenum formats[SOUND_MAX][8] = {
+    [SOUND_U8] = {AL_FORMAT_MONO8, AL_FORMAT_STEREO8, AL_NONE, AL_FORMAT_QUAD8, AL_NONE, AL_FORMAT_51CHN8, AL_FORMAT_61CHN8, AL_FORMAT_71CHN8},
+    [SOUND_S16] = {AL_FORMAT_MONO16, AL_FORMAT_STEREO16, AL_NONE, AL_FORMAT_QUAD16, AL_NONE, AL_FORMAT_51CHN16, AL_FORMAT_61CHN16, AL_FORMAT_71CHN16},
+    [SOUND_MULAW] = {AL_FORMAT_MONO_MULAW_EXT, AL_FORMAT_STEREO_MULAW_EXT, AL_NONE, AL_FORMAT_QUAD_MULAW, AL_NONE, AL_FORMAT_51CHN_MULAW, AL_FORMAT_61CHN_MULAW, AL_FORMAT_71CHN_MULAW},
+    [SOUND_ALAW] = {AL_FORMAT_MONO_ALAW_EXT, AL_FORMAT_STEREO_ALAW_EXT, AL_NONE, AL_NONE, AL_NONE, AL_NONE, AL_NONE, AL_NONE},
+    [SOUND_IMA_ADPCM] = {AL_FORMAT_MONO_IMA4, AL_FORMAT_STEREO_IMA4, AL_NONE, AL_NONE, AL_NONE, AL_NONE, AL_NONE, AL_NONE},
+};
+
+int
+sound_backend_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t freq)
+{
+    al_source_t *source = (al_source_t *) priv;
+
+    /* Block invalid formats. */
+    if ((format >= (sizeof(formats) / sizeof(formats[0]))) || (channels < 1) || (channels > 8))
+        return 0;
+
+    /* Allow this source to be reused if it's already set to the requested format. */
+    ALenum new_format = formats[format][channels - 1];
+    if ((source->format == new_format) && (source->freq == freq)) {
+        openal_log("OpenAL: Reusing source %d as fmt=%d ch=%d freq=%d\n", (int) source->source, (int) format, (int) channels, (int) freq);
+        return 1;
+    }
+
+    /* Don't change the format of an active source. */
+    ALint state;
+    alGetSourcei(source->source, AL_SOURCE_STATE, &state);
+    if (state == AL_PLAYING)
+        return 0;
+
+    /* Checks passed, change the format. */
+    openal_log("OpenAL: Setting source %d to fmt=%d ch=%d freq=%d\n", (int) source->source, (int) format, (int) channels, (int) freq);
+    source->freq = freq;
+    source->format = new_format;
+
+    /* Requeue all buffers. */
+    ALint processed;
+    alGetSourcei(source->source, AL_BUFFERS_PROCESSED, &processed);
+    ALuint buffers[processed];
+    alSourceUnqueueBuffers(source->source, processed, buffers);
+    static const uint8_t empty[16] = {0};
+    for (int i = 0; i < (sizeof(source->buffers) / sizeof(source->buffers[0])); i++)
+        alBufferData(source->buffers[i], source->format, &empty, sizeof(empty), source->freq);
+    alSourceQueueBuffers(source->source, sizeof(source->buffers) / sizeof(source->buffers[0]), source->buffers);
+
+    return source->format != AL_NONE;
+}
+
+void
+sound_backend_buffer(void *priv, void *buf, uint32_t bytes)
+{
     if (!initialized)
         return;
 
-    alGetSourcei(source[src], AL_SOURCE_STATE, &state);
+    al_source_t *source = (al_source_t *) priv;
 
-    if (state == 0x1014) {
-        alSourcePlay(source[src]);
-    }
+    ALint state;
+    alGetSourcei(source->source, AL_SOURCE_STATE, &state);
 
-    alGetSourcei(source[src], AL_BUFFERS_PROCESSED, &processed);
+    ALint processed;
+    alGetSourcei(source->source, AL_BUFFERS_PROCESSED, &processed);
     if (processed >= 1) {
-        const double gain = pow(10.0, (double) sound_gain / 20.0);
-        alListenerf(AL_GAIN, (float) gain);
+        double gain = pow(10.0, (double) sound_gain / 20.0);
+        alListenerf(AL_GAIN, gain);
 
-        alSourceUnqueueBuffers(source[src], 1, &buffer);
-
-        if (sound_is_float)
-            alBufferData(buffer, AL_FORMAT_STEREO_FLOAT32, buf, size * (int) sizeof(float), freq);
-        else
-            alBufferData(buffer, AL_FORMAT_STEREO16, buf, size * (int) sizeof(int16_t), freq);
-
-        alSourceQueueBuffers(source[src], 1, &buffer);
+        ALuint buffer;
+        alSourceUnqueueBuffers(source->source, 1, &buffer);
+        alBufferData(buffer, source->format, buf, bytes, source->freq);
+        alSourceQueueBuffers(source->source, 1, &buffer);
     }
-}
 
-void
-givealbuffer(const void *buf)
-{
-    givealbuffer_common(buf, 0, BUFLEN << 1, FREQ);
-}
-
-void
-givealbuffer_music(const void *buf)
-{
-    givealbuffer_common(buf, 1, MUSICBUFLEN << 1, MUSIC_FREQ);
-}
-
-void
-givealbuffer_wt(const void *buf)
-{
-    givealbuffer_common(buf, 2, WTBUFLEN << 1, WT_FREQ);
-}
-
-void
-givealbuffer_cd(const void *buf)
-{
-    givealbuffer_common(buf, 3, CD_BUFLEN << 1, CD_FREQ);
-}
-
-void
-givealbuffer_midi(const void *buf, const uint32_t size)
-{
-    givealbuffer_common(buf, 4, (int) size, midi_freq);
+    if (state != AL_PLAYING)
+        alSourcePlay(source->source);
 }

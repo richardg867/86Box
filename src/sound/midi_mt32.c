@@ -24,9 +24,6 @@
 #define CM32LN_CTRL_ROM   "roms/sound/cm32ln/CM32LN_CONTROL.ROM"
 #define CM32LN_PCM_ROM    "roms/sound/cm32ln/CM32LN_PCM.ROM"
 
-extern void givealbuffer_midi(void *buf, uint32_t size);
-extern void al_set_midi(int freq, int buf_size);
-
 static mt32emu_report_handler_version get_mt32_report_handler_version(mt32emu_report_handler_i i);
 static void                           display_mt32_message(void *instance_data, const char *message);
 
@@ -159,9 +156,9 @@ static int       mt32_on     = 0;
 #define BUFFER_SEGMENTS 10
 
 static uint32_t samplerate   = 44100;
+static void    *source       = NULL;
 static int      buf_size     = 0;
-static float   *buffer       = NULL;
-static int16_t *buffer_int16 = NULL;
+static int16_t *buffer       = NULL;
 static int      midi_pos     = 0;
 
 static mt32emu_report_handler_version
@@ -213,8 +210,7 @@ mt32_thread(UNUSED(void *param))
 {
     int      buf_pos = 0;
     int      bsize   = buf_size / BUFFER_SEGMENTS;
-    float   *buf;
-    int16_t *buf16;
+    int16_t *buf;
 
     thread_set_event(start_event);
 
@@ -222,24 +218,13 @@ mt32_thread(UNUSED(void *param))
         thread_wait_event(event, -1);
         thread_reset_event(event);
 
-        if (sound_is_float) {
-            buf = (float *) ((uint8_t *) buffer + buf_pos);
-            memset(buf, 0, bsize);
-            mt32_stream(buf, bsize / (2 * sizeof(float)));
-            buf_pos += bsize;
-            if (buf_pos >= buf_size) {
-                givealbuffer_midi(buffer, buf_size / sizeof(float));
-                buf_pos = 0;
-            }
-        } else {
-            buf16 = (int16_t *) ((uint8_t *) buffer_int16 + buf_pos);
-            memset(buf16, 0, bsize);
-            mt32_stream_int16(buf16, bsize / (2 * sizeof(int16_t)));
-            buf_pos += bsize;
-            if (buf_pos >= buf_size) {
-                givealbuffer_midi(buffer_int16, buf_size / sizeof(int16_t));
-                buf_pos = 0;
-            }
+        buf = (int16_t *) ((uint8_t *) buffer + buf_pos);
+        memset(buf, 0, bsize);
+        mt32_stream_int16(buf, bsize / (2 * sizeof(int16_t)));
+        buf_pos += bsize;
+        if (buf_pos >= buf_size) {
+            sound_backend_buffer(source, buffer, buf_size);
+            buf_pos = 0;
         }
     }
 }
@@ -280,15 +265,8 @@ mt32emu_init(char *control_rom, char *pcm_rom)
 
     samplerate = mt32emu_get_actual_stereo_output_samplerate(context);
     /* buf_size = samplerate/RENDER_RATE*2; */
-    if (sound_is_float) {
-        buf_size     = (samplerate / RENDER_RATE) * 2 * BUFFER_SEGMENTS * sizeof(float);
-        buffer       = malloc(buf_size);
-        buffer_int16 = NULL;
-    } else {
-        buf_size     = (samplerate / RENDER_RATE) * 2 * BUFFER_SEGMENTS * sizeof(int16_t);
-        buffer       = NULL;
-        buffer_int16 = malloc(buf_size);
-    }
+    buf_size   = (samplerate / RENDER_RATE) * 2 * BUFFER_SEGMENTS * sizeof(int16_t);
+    buffer     = malloc(buf_size);
 
     mt32emu_set_output_gain(context, device_get_config_int("output_gain") / 100.0f);
     mt32emu_set_reverb_enabled(context, device_get_config_int("reverb"));
@@ -296,7 +274,8 @@ mt32emu_init(char *control_rom, char *pcm_rom)
     mt32emu_set_reversed_stereo_enabled(context, device_get_config_int("reversed_stereo"));
     mt32emu_set_nice_amp_ramp_enabled(context, device_get_config_int("nice_ramp"));
 
-    al_set_midi(samplerate, buf_size);
+    source = sound_backend_add_source();
+    sound_backend_set_format(source, SOUND_S16, 2, samplerate);
 
     dev = malloc(sizeof(midi_device_t));
     memset(dev, 0, sizeof(midi_device_t));
@@ -369,10 +348,6 @@ mt32_close(void *priv)
     if (buffer)
         free(buffer);
     buffer = NULL;
-
-    if (buffer_int16)
-        free(buffer_int16);
-    buffer_int16 = NULL;
 }
 
 static const device_config_t mt32_config[] = {

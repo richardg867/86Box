@@ -276,8 +276,8 @@ typedef struct opl4_midi {
     fm_drv_t          opl4;
     MIDI_CHANNEL_DATA midi_channel_data[16];
     VOICE_DATA        voice_data[24];
+    void             *source;
     int16_t           buffer[(48000 / 100) * 2 * BUFFER_SEGMENTS];
-    float             buffer_float[(48000 / 100) * 2 * BUFFER_SEGMENTS];
     uint32_t          midi_pos;
     bool              on;
     atomic_bool       gen_in_progress;
@@ -567,7 +567,6 @@ opl4_midi_thread(void *arg)
 
     int32_t buffer[RENDER_RATE * 2];
 
-    extern void givealbuffer_midi(void *buf, uint32_t size);
     while (opl4_midi->on) {
         thread_wait_event(opl4_midi->wait_event, -1);
         thread_reset_event(opl4_midi->wait_event);
@@ -576,26 +575,14 @@ opl4_midi_thread(void *arg)
         atomic_store(&opl4_midi->gen_in_progress, true);
         opl4_midi->opl4.generate(opl4_midi->opl4.priv, buffer, RENDER_RATE);
         atomic_store(&opl4_midi->gen_in_progress, false);
-        if (sound_is_float) {
-            for (i = 0; i < (buf_size / 2); i++) {
-                opl4_midi->buffer_float[(i + buf_pos) * 2]       = buffer[i * 2] / 32768.0;
-                opl4_midi->buffer_float[((i + buf_pos) * 2) + 1] = buffer[(i * 2) + 1] / 32768.0;
-            }
-            buf_pos += buf_size / 2;
-            if (buf_pos >= (buf_size_segments / 2)) {
-                givealbuffer_midi(opl4_midi->buffer_float, buf_size_segments);
-                buf_pos = 0;
-            }
-        } else {
-            for (i = 0; i < (buf_size / 2); i++) {
-                opl4_midi->buffer[(i + buf_pos) * 2]       = buffer[i * 2] & 0xFFFF;       /* Outputs are clamped beforehand. */
-                opl4_midi->buffer[((i + buf_pos) * 2) + 1] = buffer[(i * 2) + 1] & 0xFFFF; /* Outputs are clamped beforehand. */
-            }
-            buf_pos += buf_size / 2;
-            if (buf_pos >= (buf_size_segments / 2)) {
-                givealbuffer_midi(opl4_midi->buffer, buf_size_segments);
-                buf_pos = 0;
-            }
+        for (i = 0; i < (buf_size / 2); i++) {
+            opl4_midi->buffer[(i + buf_pos) * 2]       = buffer[i * 2] & 0xFFFF;       /* Outputs are clamped beforehand. */
+            opl4_midi->buffer[((i + buf_pos) * 2) + 1] = buffer[(i * 2) + 1] & 0xFFFF; /* Outputs are clamped beforehand. */
+        }
+        buf_pos += buf_size / 2;
+        if (buf_pos >= (buf_size_segments / 2)) {
+            sound_backend_buffer(opl4_midi->source, opl4_midi->buffer, buf_size_segments * sizeof(int16_t));
+            buf_pos = 0;
         }
     }
 }
@@ -656,7 +643,6 @@ void *
 opl4_init(const device_t *info)
 {
     midi_device_t *dev;
-    extern void    al_set_midi(int freq, int buf_size);
 
     dev = malloc(sizeof(midi_device_t));
     memset(dev, 0, sizeof(midi_device_t));
@@ -665,9 +651,10 @@ opl4_init(const device_t *info)
     dev->play_sysex = opl4_midi_sysex;
     dev->poll       = opl4_midi_poll;
 
-    al_set_midi(48000, 4800);
-
     opl4_midi_cur = calloc(1, sizeof(opl4_midi_t));
+
+    opl4_midi_cur->source = sound_backend_add_source();
+    sound_backend_set_format(opl4_midi_cur->source, SOUND_S16, 2, 48000);
 
     fm_driver_get(FM_YMF278B, &opl4_midi_cur->opl4);
 

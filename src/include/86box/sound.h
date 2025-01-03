@@ -47,6 +47,21 @@ enum {
     SOUND_INTERNAL
 };
 
+enum {
+    SOUND_U8 = 0,
+    SOUND_S16,
+    SOUND_MULAW,
+    SOUND_ALAW,
+    SOUND_IMA_ADPCM,
+    SOUND_MAX
+};
+
+typedef union {
+    uint8_t *u8;
+    int16_t *s16;
+    float   *f;
+} sound_buffer_t;
+
 extern int ppispeakon;
 extern int gated;
 extern int speakval;
@@ -93,20 +108,21 @@ extern void        sound_set_cd_volume(unsigned int vol_l, unsigned int vol_r);
 
 extern void sound_speed_changed(void);
 
-extern void sound_init(void);
-extern void sound_reset(void);
+extern void  sound_init(void);
+extern void  sound_reset(void);
+extern void *sound_add_source(void (*poll)(sound_buffer_t buffer, void *priv), void *priv, const char *name);
+extern void  sound_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t freq);
 
 extern void sound_card_reset(void);
 
 extern void sound_cd_thread_end(void);
 extern void sound_cd_thread_reset(void);
 
-extern void closeal(void);
-extern void inital(void);
-extern void givealbuffer(const void *buf);
-extern void givealbuffer_music(const void *buf);
-extern void givealbuffer_wt(const void *buf);
-extern void givealbuffer_cd(const void *buf);
+extern void  sound_backend_close(void);
+extern void  sound_backend_reset(void);
+extern void *sound_backend_add_source(void);
+extern int   sound_backend_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t freq);
+extern void  sound_backend_buffer(void *priv, void *buf, uint32_t bytes);
 
 #define sb_vibra16c_onboard_relocate_base sb_vibra16s_onboard_relocate_base
 #define sb_vibra16cl_onboard_relocate_base sb_vibra16s_onboard_relocate_base

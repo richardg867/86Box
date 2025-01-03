@@ -58,8 +58,6 @@ SettingsSound::save()
     midi_input_device_current  = ui->comboBoxMidiIn->currentData().toInt();
     mpu401_standalone_enable   = ui->checkBoxMPU401->isChecked() ? 1 : 0;
 
-    sound_is_float = ui->checkBoxFloat32->isChecked() ? 1 : 0;
-
     if (ui->radioButtonYMFM->isChecked())
         fm_driver = FM_DRV_YMFM;
     else
@@ -156,7 +154,6 @@ SettingsSound::onCurrentMachineChanged(const int machineId)
     ui->comboBoxMidiIn->setCurrentIndex(selectedRow);
 
     ui->checkBoxMPU401->setChecked(mpu401_standalone_enable > 0);
-    ui->checkBoxFloat32->setChecked(sound_is_float > 0);
 
     switch (fm_driver) {
         case FM_DRV_YMFM:

@@ -26,9 +26,6 @@
 #    define USE_OLD_FLUIDSYNTH_API
 #endif
 
-extern void givealbuffer_midi(void *buf, uint32_t size);
-extern void al_set_midi(int freq, int buf_size);
-
 typedef struct fluidsynth {
     fluid_settings_t *settings;
     fluid_synth_t    *synth;
@@ -37,9 +34,9 @@ typedef struct fluidsynth {
 
     thread_t *thread_h;
     event_t  *event, *start_event;
+    void     *source;
     int       buf_size;
-    float    *buffer;
-    int16_t  *buffer_int16;
+    int16_t  *buffer;
     int       midi_pos;
 
     int on;
@@ -77,26 +74,14 @@ fluidsynth_thread(void *param)
         thread_wait_event(data->event, -1);
         thread_reset_event(data->event);
 
-        if (sound_is_float) {
-            float *buf = (float *) ((uint8_t *) data->buffer + buf_pos);
-            memset(buf, 0, buf_size);
-            if (data->synth)
-                fluid_synth_write_float(data->synth, buf_size / (2 * sizeof(float)), buf, 0, 2, buf, 1, 2);
-            buf_pos += buf_size;
-            if (buf_pos >= data->buf_size) {
-                givealbuffer_midi(data->buffer, data->buf_size / sizeof(float));
-                buf_pos = 0;
-            }
-        } else {
-            int16_t *buf = (int16_t *) ((uint8_t *) data->buffer_int16 + buf_pos);
-            memset(buf, 0, buf_size);
-            if (data->synth)
-                fluid_synth_write_s16(data->synth, buf_size / (2 * sizeof(int16_t)), buf, 0, 2, buf, 1, 2);
-            buf_pos += buf_size;
-            if (buf_pos >= data->buf_size) {
-                givealbuffer_midi(data->buffer_int16, data->buf_size / sizeof(int16_t));
-                buf_pos = 0;
-            }
+        int16_t *buf = (int16_t *) ((uint8_t *) data->buffer + buf_pos);
+        memset(buf, 0, buf_size);
+        if (data->synth)
+            fluid_synth_write_s16(data->synth, buf_size / (2 * sizeof(int16_t)), buf, 0, 2, buf, 1, 2);
+        buf_pos += buf_size;
+        if (buf_pos >= data->buf_size) {
+            sound_backend_buffer(data->source, data->buffer, data->buf_size);
+            buf_pos = 0;
         }
     }
 }
@@ -250,17 +235,11 @@ fluidsynth_init(UNUSED(const device_t *info))
     double samplerate;
     fluid_settings_getnum(data->settings, "synth.sample-rate", &samplerate);
     data->samplerate = (int) samplerate;
-    if (sound_is_float) {
-        data->buf_size     = (data->samplerate / RENDER_RATE) * 2 * sizeof(float) * BUFFER_SEGMENTS;
-        data->buffer       = malloc(data->buf_size);
-        data->buffer_int16 = NULL;
-    } else {
-        data->buf_size     = (data->samplerate / RENDER_RATE) * 2 * sizeof(int16_t) * BUFFER_SEGMENTS;
-        data->buffer       = NULL;
-        data->buffer_int16 = malloc(data->buf_size);
-    }
+    data->buf_size   = (data->samplerate / RENDER_RATE) * 2 * sizeof(int16_t) * BUFFER_SEGMENTS;
+    data->buffer     = malloc(data->buf_size);
 
-    al_set_midi(data->samplerate, data->buf_size);
+    data->source = sound_backend_add_source();
+    sound_backend_set_format(data->source, SOUND_S16, 2, data->samplerate);
 
     dev = malloc(sizeof(midi_device_t));
     memset(dev, 0, sizeof(midi_device_t));
@@ -309,11 +288,6 @@ fluidsynth_close(void *priv)
     if (data->buffer) {
         free(data->buffer);
         data->buffer = NULL;
-    }
-
-    if (data->buffer_int16) {
-        free(data->buffer_int16);
-        data->buffer_int16 = NULL;
     }
 }
 

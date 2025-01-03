@@ -12,9 +12,11 @@
  *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
+ *          RichardG, <richardg867@gmail.com>
  *
  *          Copyright 2008-2020 Sarah Walker.
  *          Copyright 2016-2020 Miran Grca.
+ *          Copyright 2024-2025 RichardG.
  */
 #include <math.h>
 #include <stdarg.h>
@@ -46,11 +48,55 @@ typedef struct {
     void *priv;
 } sound_handler_t;
 
+typedef struct _sound_backend_source_ {
+    struct _sound_backend_source_ *next;
+
+    uint8_t active;
+    void    *priv;
+} sound_backend_source_t;
+
+typedef struct _sound_source_ {
+    struct _sound_source_ *next_timer;
+    struct _sound_source_ *next;
+
+    const char *name;
+
+    void     *buffer;
+    uint32_t buf_len;
+    uint32_t pos;
+    uint32_t freq;
+    uint8_t  format;
+    uint8_t  channels;
+    uint8_t  bytes_per_sample;
+    sound_backend_source_t *backend_source;
+
+    void (*poll)(sound_buffer_t buffer, void *priv);
+    void *priv;
+} sound_source_t;
+
+typedef struct _sound_timer_ {
+    struct _sound_timer_ *next;
+
+    uint32_t       freq;
+    uint64_t       latch;
+    pc_timer_t     timer;
+    sound_source_t *sources;
+} sound_timer_t;
+
 int sound_card_current[SOUND_CARD_MAX] = { 0, 0, 0, 0 };
 int sound_pos_global                   = 0;
 int music_pos_global                   = 0;
 int wavetable_pos_global               = 0;
 int sound_gain                         = 0;
+
+static sound_source_t *sources;
+static sound_timer_t  *timers;
+static sound_backend_source_t *backend_sources = NULL;
+
+static sound_source_t *sound_legacy_source = NULL;
+static sound_source_t *music_legacy_source = NULL;
+static sound_source_t *wavetable_legacy_source = NULL;
+static void           *cd_source = NULL;
 
 static sound_handler_t sound_handlers[8];
 
@@ -63,27 +109,14 @@ static thread_t  *sound_cd_thread_h;
 static event_t   *sound_cd_event;
 static event_t   *sound_cd_start_event;
 static int32_t   *outbuffer;
-static float     *outbuffer_ex;
-static int16_t   *outbuffer_ex_int16;
 static int32_t   *outbuffer_m;
-static float     *outbuffer_m_ex;
-static int16_t   *outbuffer_m_ex_int16;
 static int32_t   *outbuffer_w;
-static float     *outbuffer_w_ex;
-static int16_t   *outbuffer_w_ex_int16;
 static int        sound_handlers_num;
 static int        music_handlers_num;
 static int        wavetable_handlers_num;
-static pc_timer_t sound_poll_timer;
-static uint64_t   sound_poll_latch;
-static pc_timer_t music_poll_timer;
-static uint64_t   music_poll_latch;
-static pc_timer_t wavetable_poll_timer;
-static uint64_t   wavetable_poll_latch;
 
 static int16_t      cd_buffer[CDROM_NUM][CD_BUFLEN * 2];
-static float        cd_out_buffer[CD_BUFLEN * 2];
-static int16_t      cd_out_buffer_int16[CD_BUFLEN * 2];
+static int16_t      cd_out_buffer[CD_BUFLEN * 2];
 static unsigned int cd_vol_l;
 static unsigned int cd_vol_r;
 static int          cd_buf_update    = CD_BUFLEN / SOUNDBUFLEN;
@@ -165,7 +198,7 @@ static const SOUND_CARD sound_cards[] = {
     { NULL                          }
     // clang-format on
 };
-
+#define ENABLE_SOUND_LOG 1
 #ifdef ENABLE_SOUND_LOG
 int sound_do_log = ENABLE_SOUND_LOG;
 
@@ -183,6 +216,10 @@ sound_log(const char *fmt, ...)
 #else
 #    define sound_log(fmt, ...)
 #endif
+
+static void sound_poll_legacy(sound_buffer_t buffer, void *priv);
+static void music_poll_legacy(sound_buffer_t buffer, void *priv);
+static void sound_poll(void *priv);
 
 int
 sound_card_available(int card)
@@ -245,10 +282,7 @@ sound_set_cd_volume(unsigned int vol_l, unsigned int vol_r)
 static void
 sound_cd_clean_buffers(void)
 {
-    if (sound_is_float)
-        memset(cd_out_buffer, 0, (CD_BUFLEN * 2) * sizeof(float));
-    else
-        memset(cd_out_buffer_int16, 0, (CD_BUFLEN * 2) * sizeof(int16_t));
+    memset(cd_out_buffer, 0, (CD_BUFLEN * 2) * sizeof(int16_t));
 }
 
 static void
@@ -349,82 +383,13 @@ sound_cd_thread(UNUSED(void *param))
                     if (temp_buffer[1] < -32768)
                         temp_buffer[1] = -32768;
 
-                    cd_out_buffer_int16[c]     = (int16_t) temp_buffer[0];
-                    cd_out_buffer_int16[c + 1] = (int16_t) temp_buffer[1];
+                    ((int16_t *) sound_legacy_source->buffer)[c]     = (int16_t) temp_buffer[0];
+                    ((int16_t *) sound_legacy_source->buffer)[c + 1] = (int16_t) temp_buffer[1];
                 }
             }
         }
 
-        if (sound_is_float)
-            givealbuffer_cd(cd_out_buffer);
-        else
-            givealbuffer_cd(cd_out_buffer_int16);
-    }
-}
-
-static void
-sound_realloc_buffers(void)
-{
-    if (outbuffer_ex != NULL) {
-        free(outbuffer_ex);
-        outbuffer_ex = NULL;
-    }
-
-    if (outbuffer_ex_int16 != NULL) {
-        free(outbuffer_ex_int16);
-        outbuffer_ex_int16 = NULL;
-    }
-
-    if (sound_is_float) {
-        outbuffer_ex = calloc(SOUNDBUFLEN * 2, sizeof(float));
-        memset(outbuffer_ex, 0x00, SOUNDBUFLEN * 2 * sizeof(float));
-    } else {
-        outbuffer_ex_int16 = calloc(SOUNDBUFLEN * 2, sizeof(int16_t));
-        memset(outbuffer_ex_int16, 0x00, SOUNDBUFLEN * 2 * sizeof(int16_t));
-    }
-}
-
-static void
-music_realloc_buffers(void)
-{
-    if (outbuffer_m_ex != NULL) {
-        free(outbuffer_m_ex);
-        outbuffer_m_ex = NULL;
-    }
-
-    if (outbuffer_m_ex_int16 != NULL) {
-        free(outbuffer_m_ex_int16);
-        outbuffer_m_ex_int16 = NULL;
-    }
-
-    if (sound_is_float) {
-        outbuffer_m_ex = calloc(MUSICBUFLEN * 2, sizeof(float));
-        memset(outbuffer_m_ex, 0x00, MUSICBUFLEN * 2 * sizeof(float));
-    } else {
-        outbuffer_m_ex_int16 = calloc(MUSICBUFLEN * 2, sizeof(int16_t));
-        memset(outbuffer_m_ex_int16, 0x00, MUSICBUFLEN * 2 * sizeof(int16_t));
-    }
-}
-
-static void
-wavetable_realloc_buffers(void)
-{
-    if (outbuffer_w_ex != NULL) {
-        free(outbuffer_w_ex);
-        outbuffer_w_ex = NULL;
-    }
-
-    if (outbuffer_w_ex_int16 != NULL) {
-        free(outbuffer_w_ex_int16);
-        outbuffer_w_ex_int16 = NULL;
-    }
-
-    if (sound_is_float) {
-        outbuffer_w_ex = calloc(WTBUFLEN * 2, sizeof(float));
-        memset(outbuffer_w_ex, 0x00, WTBUFLEN * 2 * sizeof(float));
-    } else {
-        outbuffer_w_ex_int16 = calloc(WTBUFLEN * 2, sizeof(int16_t));
-        memset(outbuffer_w_ex_int16, 0x00, WTBUFLEN * 2 * sizeof(int16_t));
+        sound_backend_buffer(cd_source, cd_out_buffer, CD_BUFLEN);
     }
 }
 
@@ -433,26 +398,9 @@ sound_init(void)
 {
     int available_cdrom_drives = 0;
 
-    outbuffer_ex       = NULL;
-    outbuffer_ex_int16 = NULL;
-
-    outbuffer_m_ex       = NULL;
-    outbuffer_m_ex_int16 = NULL;
-
-    outbuffer_w_ex       = NULL;
-    outbuffer_w_ex_int16 = NULL;
-
-    outbuffer = NULL;
     outbuffer = calloc(SOUNDBUFLEN * 2, sizeof(int32_t));
-    memset(outbuffer, 0x00, SOUNDBUFLEN * 2 * sizeof(int32_t));
-
-    outbuffer_m = NULL;
     outbuffer_m = calloc(MUSICBUFLEN * 2, sizeof(int32_t));
-    memset(outbuffer_m, 0x00, MUSICBUFLEN * 2 * sizeof(int32_t));
-
-    outbuffer_w = NULL;
     outbuffer_w = calloc(WTBUFLEN * 2, sizeof(int32_t));
-    memset(outbuffer_w, 0x00, WTBUFLEN * 2 * sizeof(int32_t));
 
     for (uint16_t i = 0; i < 256; i++) {
         double di = (double) i;
@@ -480,10 +428,10 @@ sound_init(void)
         sound_cd_event    = thread_create_event();
         sound_cd_thread_h = thread_create(sound_cd_thread, NULL);
 
-        sound_log("Waiting for CD start event...\n");
+        sound_log("Sound: Waiting for CD start event...\n");
         thread_wait_event(sound_cd_start_event, -1);
         thread_reset_event(sound_cd_start_event);
-        sound_log("Done!\n");
+        sound_log("Sound: Done!\n");
     } else
         cdaudioon = 0;
 
@@ -514,6 +462,137 @@ wavetable_add_handler(void (*get_buffer)(int32_t *buffer, int len, void *priv), 
     wavetable_handlers_num++;
 }
 
+void *
+sound_add_source(void (*poll)(sound_buffer_t buffer, void *priv), void *priv, const char *name)
+{
+    /* Generate new source. */
+    sound_source_t *new_source = (sound_source_t *) calloc(1, sizeof(sound_source_t));
+    new_source->poll = poll;
+    new_source->priv = priv;
+    new_source->name = name;
+    sound_log("Sound [%s]: Added source\n", new_source->name);
+
+    /* Add new source to the list. */
+    if (!sources) {
+        sources = new_source;
+    } else {
+        sound_source_t *source = sources;
+        while (source->next)
+            source = source->next;
+        source->next = new_source;
+    }
+
+    return new_source;
+}
+
+static inline void
+sound_flush_source(void *priv)
+{
+    sound_source_t *source = (sound_source_t *) priv;
+    if (source->buffer && source->pos)
+        sound_backend_buffer(source->backend_source->priv, source->buffer, MIN(source->pos, source->buf_len));
+    source->pos = 0;
+}
+
+static const int8_t bytes_per_sample[SOUND_MAX] = {
+    [SOUND_U8] = 1,
+    [SOUND_S16] = 2,
+    [SOUND_MULAW] = 1,
+    [SOUND_ALAW] = 1,
+    [SOUND_IMA_ADPCM] = 1,
+};
+
+void
+sound_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t freq)
+{
+    sound_source_t *source = (sound_source_t *) priv;
+
+    /* Stop if there was no change. */
+    if ((format == source->format) && (channels == source->channels) && (freq == source->freq))
+        return;
+
+    /* Flush existing samples in the previous format. */
+    sound_flush_source(source);
+
+    /* Recalculate bytes per sample. */
+    source->bytes_per_sample = bytes_per_sample[format] * channels;
+    sound_log("Sound [%s]: Setting to fmt=%d ch=%d bps=%d freq=%d\n", source->name, format, channels, source->bytes_per_sample, freq);
+
+    /* Find a new backend source to back this source. */
+    sound_backend_source_t *backend_source = backend_sources;
+    while (backend_source) {
+        if (!backend_source->active && sound_backend_set_format(backend_source->priv, format, channels, freq))
+            break;
+        backend_source = backend_source->next;
+    }
+
+    if (!backend_source) {
+        /* No spare source found, create a new one. */
+        sound_log("Sound [%s]: Creating new backend source\n", source->name);
+        backend_source = calloc(1, sizeof(sound_backend_source_t));
+        backend_source->priv = sound_backend_add_source();
+        backend_source->next = backend_sources;
+        backend_sources = backend_source;
+        sound_backend_set_format(backend_source->priv, format, channels, freq);
+    }
+    backend_source->active = 1;
+    if (source->backend_source)
+        source->backend_source->active = 0;
+    source->backend_source = backend_source;
+
+    /* Grow buffer if required. */
+#define BUFLEN MAX(SOUNDBUFLEN, MAX(MUSICBUFLEN, MAX(CD_BUFLEN, WTBUFLEN)))
+    uint32_t buf_len = (BUFLEN - (BUFLEN % channels)) * source->bytes_per_sample; /* avoid going out of bounds with non powers of 2 */
+    buf_len -= buf_len % 4; /* OpenAL requires 4-byte alignment */
+    if (buf_len > source->buf_len) {
+        free(source->buffer);
+        source->buffer = calloc(1, buf_len);
+    }
+    source->buf_len = buf_len; // TODO: allow to get smaller
+
+    /* Set frequency and recalculate timers if required. */
+    if (freq != source->freq) {
+        /* Stop if no poller is set for the timer. */
+        if (source->poll) {
+            /* Look for an existing timer to add to. */
+            sound_timer_t *timer = timers;
+            while (timer) {
+                if (timer->freq == freq) {
+                    source->next_timer = timer->sources;
+                    timer->sources = source;
+                    break;
+                }
+                timer = timer->next;
+            }
+
+            if (!timer) {
+                /* Add a new timer. */
+                timer = (sound_timer_t *) calloc(1, sizeof(sound_timer_t));
+                timer->freq = freq;
+                timer->latch = (uint64_t) ((double) TIMER_USEC * (1000000.0 / (double) freq));
+                timer->sources = source;
+                timer->next = timers;
+                timers = timer;
+
+                /* Start the new timer. */
+                timer_add(&timer->timer, sound_poll, timer, 1);
+            }
+        }
+    }
+
+    /* Save new format. */
+    source->freq = freq;
+    source->channels = channels;
+    source->format = format;
+}
+
+void
+sound_buffer(void *priv, void *buffer, uint32_t bytes)
+{
+    sound_source_t *source = (sound_source_t *) priv;
+    sound_backend_buffer(source->backend_source->priv, buffer, bytes);
+}
+
 void
 sound_set_cd_audio_filter(void (*filter)(int channel, double *buffer, void *priv), void *priv)
 {
@@ -532,11 +611,9 @@ sound_set_pc_speaker_filter(void (*filter)(int channel, double *buffer, void *pr
     }
 }
 
-void
-sound_poll(UNUSED(void *priv))
+static void
+sound_poll_legacy(sound_buffer_t buffer, void *priv)
 {
-    timer_advance_u64(&sound_poll_timer, sound_poll_latch);
-
     midi_poll();
 
     sound_pos_global++;
@@ -549,22 +626,15 @@ sound_poll(UNUSED(void *priv))
             sound_handlers[c].get_buffer(outbuffer, SOUNDBUFLEN, sound_handlers[c].priv);
 
         for (c = 0; c < SOUNDBUFLEN * 2; c++) {
-            if (sound_is_float)
-                outbuffer_ex[c] = ((float) outbuffer[c]) / (float) 32768.0;
-            else {
-                if (outbuffer[c] > 32767)
-                    outbuffer[c] = 32767;
-                if (outbuffer[c] < -32768)
-                    outbuffer[c] = -32768;
+            if (outbuffer[c] > 32767)
+                outbuffer[c] = 32767;
+            if (outbuffer[c] < -32768)
+                outbuffer[c] = -32768;
 
-                outbuffer_ex_int16[c] = (int16_t) outbuffer[c];
-            }
+            ((int16_t *) sound_legacy_source->buffer)[c] = outbuffer[c];
         }
 
-        if (sound_is_float)
-            givealbuffer(outbuffer_ex);
-        else
-            givealbuffer(outbuffer_ex_int16);
+        sound_legacy_source->pos = sound_legacy_source->buf_len = SOUNDBUFLEN * sound_legacy_source->bytes_per_sample; /* force flush */
 
         if (cd_thread_enable) {
             cd_buf_update--;
@@ -578,11 +648,9 @@ sound_poll(UNUSED(void *priv))
     }
 }
 
-void
-music_poll(UNUSED(void *priv))
+static void
+music_poll_legacy(sound_buffer_t buffer, void *priv)
 {
-    timer_advance_u64(&music_poll_timer, music_poll_latch);
-
     music_pos_global++;
     if (music_pos_global == MUSICBUFLEN) {
         int c;
@@ -593,32 +661,23 @@ music_poll(UNUSED(void *priv))
             music_handlers[c].get_buffer(outbuffer_m, MUSICBUFLEN, music_handlers[c].priv);
 
         for (c = 0; c < MUSICBUFLEN * 2; c++) {
-            if (sound_is_float)
-                outbuffer_m_ex[c] = ((float) outbuffer_m[c]) / (float) 32768.0;
-            else {
-                if (outbuffer_m[c] > 32767)
-                    outbuffer_m[c] = 32767;
-                if (outbuffer_m[c] < -32768)
-                    outbuffer_m[c] = -32768;
+            if (outbuffer_m[c] > 32767)
+                outbuffer_m[c] = 32767;
+            if (outbuffer_m[c] < -32768)
+                outbuffer_m[c] = -32768;
 
-                outbuffer_m_ex_int16[c] = (int16_t) outbuffer_m[c];
-            }
+            ((int16_t *) music_legacy_source->buffer)[c] = outbuffer_m[c];
         }
 
-        if (sound_is_float)
-            givealbuffer_music(outbuffer_m_ex);
-        else
-            givealbuffer_music(outbuffer_m_ex_int16);
+        music_legacy_source->pos = music_legacy_source->buf_len = MUSICBUFLEN * music_legacy_source->bytes_per_sample; /* force flush */
 
         music_pos_global = 0;
     }
 }
 
-void
-wavetable_poll(UNUSED(void *priv))
+static void
+wavetable_poll_legacy(sound_buffer_t buffer, void *priv)
 {
-    timer_advance_u64(&wavetable_poll_timer, wavetable_poll_latch);
-
     wavetable_pos_global++;
     if (wavetable_pos_global == WTBUFLEN) {
         int c;
@@ -629,62 +688,75 @@ wavetable_poll(UNUSED(void *priv))
             wavetable_handlers[c].get_buffer(outbuffer_w, WTBUFLEN, wavetable_handlers[c].priv);
 
         for (c = 0; c < WTBUFLEN * 2; c++) {
-            if (sound_is_float)
-                outbuffer_w_ex[c] = ((float) outbuffer_w[c]) / (float) 32768.0;
-            else {
-                if (outbuffer_w[c] > 32767)
-                    outbuffer_w[c] = 32767;
-                if (outbuffer_w[c] < -32768)
-                    outbuffer_w[c] = -32768;
+            if (outbuffer_w[c] > 32767)
+                outbuffer_w[c] = 32767;
+            if (outbuffer_w[c] < -32768)
+                outbuffer_w[c] = -32768;
 
-                outbuffer_w_ex_int16[c] = (int16_t) outbuffer_w[c];
-            }
+            ((int16_t *) wavetable_legacy_source->buffer)[c] = outbuffer_w[c];
         }
 
-        if (sound_is_float)
-            givealbuffer_wt(outbuffer_w_ex);
-        else
-            givealbuffer_wt(outbuffer_w_ex_int16);
+        wavetable_legacy_source->pos = wavetable_legacy_source->buf_len = WTBUFLEN * wavetable_legacy_source->bytes_per_sample; /* force flush */
 
         wavetable_pos_global = 0;
+    }
+}
+
+static void
+sound_poll(void *priv)
+{
+    sound_timer_t *timer = (sound_timer_t *) priv;
+    timer_advance_u64(&timer->timer, timer->latch);
+
+    sound_source_t *source = timer->sources;
+    while (source) {
+        source->poll((sound_buffer_t) &((uint8_t *) source->buffer)[source->pos], source->priv);
+        source->pos += source->bytes_per_sample;
+        if (UNLIKELY(source->pos >= source->buf_len))
+            sound_flush_source(source);
+        source = source->next_timer;
     }
 }
 
 void
 sound_speed_changed(void)
 {
-    sound_poll_latch = (uint64_t) ((double) TIMER_USEC * (1000000.0 / (double) SOUND_FREQ));
-
-    music_poll_latch = (uint64_t) ((double) TIMER_USEC * (1000000.0 / (double) MUSIC_FREQ));
-
-    wavetable_poll_latch = (uint64_t) ((double) TIMER_USEC * (1000000.0 / (double) WT_FREQ));
+    sound_timer_t *timer = timers;
+    while (timer) {
+        timer->latch = (uint64_t) ((double) TIMER_USEC * (1000000.0 / (double) timer->freq));
+        timer = timer->next;
+    }
 }
 
 void
 sound_reset(void)
 {
-    sound_realloc_buffers();
-
-    music_realloc_buffers();
-
-    wavetable_realloc_buffers();
+    memset(outbuffer, 0x00, SOUNDBUFLEN * 2 * sizeof(int32_t));
+    memset(outbuffer_m, 0x00, MUSICBUFLEN * 2 * sizeof(int32_t));
 
     midi_out_device_init();
     midi_in_device_init();
 
-    inital();
+    sound_backend_reset();
 
-    timer_add(&sound_poll_timer, sound_poll, NULL, 1);
+    if (!sound_legacy_source)
+        sound_legacy_source = sound_add_source(sound_poll_legacy, NULL, "Legacy 48K");
+    if (!music_legacy_source)
+        music_legacy_source = sound_add_source(music_poll_legacy, NULL, "Legacy 49K");
+    if (!wavetable_legacy_source)
+        wavetable_legacy_source = sound_add_source(wavetable_poll_legacy, NULL, "Legacy 44K");
+    if (!cd_source)
+        cd_source = sound_backend_add_source();
+    sound_set_format(sound_legacy_source, SOUND_S16, 2, SOUND_FREQ);
+    sound_set_format(music_legacy_source, SOUND_S16, 2, MUSIC_FREQ);
+    sound_set_format(wavetable_legacy_source, SOUND_S16, 2, WT_FREQ);
+    sound_backend_set_format(cd_source, SOUND_S16, 2, CD_FREQ);
 
     sound_handlers_num = 0;
     memset(sound_handlers, 0x00, 8 * sizeof(sound_handler_t));
 
-    timer_add(&music_poll_timer, music_poll, NULL, 1);
-
     music_handlers_num = 0;
     memset(music_handlers, 0x00, 8 * sizeof(sound_handler_t));
-
-    timer_add(&wavetable_poll_timer, wavetable_poll, NULL, 1);
 
     wavetable_handlers_num = 0;
     memset(wavetable_handlers, 0x00, 8 * sizeof(sound_handler_t));
