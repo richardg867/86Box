@@ -59,9 +59,9 @@ typedef struct cmi8x38_dma_t {
     uint8_t           id;
     uint8_t           reg;
     uint8_t           always_run;
-    uint8_t           playback_enabled;
-    uint8_t           channels;
     struct _cmi8x38_ *dev;
+    void             *source;
+    char              source_name[14];
 
     uint32_t sample_ptr;
     uint32_t fifo_pos;
@@ -72,21 +72,14 @@ typedef struct cmi8x38_dma_t {
     uint8_t  fifo[256];
     uint8_t  restart;
 
-    int16_t  out_fl;
-    int16_t  out_fr;
-    int16_t  out_rl;
-    int16_t  out_rr;
-    int16_t  out_c;
-    int16_t  out_lfe;
     int      vol_l;
     int      vol_r;
     int      pos;
-    int32_t  buffer[SOUNDBUFLEN * 2];
-    uint64_t timer_latch;
+    uint8_t  cfr;
+    uint8_t  channels;
     double   dma_latch;
 
     pc_timer_t dma_timer;
-    pc_timer_t poll_timer;
 } cmi8x38_dma_t;
 
 typedef struct _cmi8x38_ {
@@ -137,7 +130,7 @@ cmi8x38_log(const char *fmt, ...)
 #    define cmi8x38_log(fmt, ...)
 #endif
 
-static const double   freqs[]             = { 5512.0, 11025.0, 22050.0, 44100.0, 8000.0, 16000.0, 32000.0, 48000.0 };
+static const uint32_t freqs[]             = { 5512, 11025, 22050, 44100, 8000, 16000, 32000, 48000 };
 static const uint16_t opl_ports_cmi8738[] = { 0x388, 0x3c8, 0x3e0, 0x3e8 };
 
 static void cmi8x38_dma_process(void *priv);
@@ -596,15 +589,10 @@ cmi8x38_start_playback(cmi8x38_t *dev)
     uint8_t i;
     uint8_t val = dev->io_regs[0x00];
 
-    i = !(val & 0x01);
-    if (!dev->dma[0].playback_enabled && i)
-        timer_set_delay_u64(&dev->dma[0].poll_timer, dev->dma[0].timer_latch);
-    dev->dma[0].playback_enabled = i;
-
-    i = !(val & 0x02);
-    if (!dev->dma[1].playback_enabled && i)
-        timer_set_delay_u64(&dev->dma[1].poll_timer, dev->dma[1].timer_latch);
-    dev->dma[1].playback_enabled = i;
+    if (!(val & 0x01))
+        sound_start_source(dev->dma[0].source);
+    if (!(val & 0x02))
+        sound_start_source(dev->dma[1].source);
 }
 
 static uint8_t
@@ -753,6 +741,8 @@ cmi8x38_write(uint16_t addr, uint8_t val, void *priv)
         case 0x08:
             if (dev->type == CMEDIA_CMI8338)
                 val &= 0x0f;
+            dev->io_regs[addr] = val;
+            cmi8x38_speed_changed(dev);
             break;
 
         case 0x09:
@@ -1038,19 +1028,6 @@ cmi8x38_pci_write(int func, int addr, uint8_t val, void *priv)
 }
 
 static void
-cmi8x38_update(cmi8x38_t *dev, cmi8x38_dma_t *dma)
-{
-    const sb_ct1745_mixer_t *mixer = &dev->sb->mixer_sb16;
-    int32_t                  l     = (dma->out_fl * mixer->voice_l) * mixer->master_l;
-    int32_t                  r     = (dma->out_fr * mixer->voice_r) * mixer->master_r;
-
-    for (; dma->pos < sound_pos_global; dma->pos++) {
-        dma->buffer[dma->pos * 2]     = l;
-        dma->buffer[dma->pos * 2 + 1] = r;
-    }
-}
-
-static void
 cmi8x38_dma_process(void *priv)
 {
     cmi8x38_dma_t *dma = (cmi8x38_dma_t *) priv;
@@ -1129,62 +1106,49 @@ cmi8x38_dma_process(void *priv)
     }
 }
 
-static void
-cmi8x38_poll(void *priv)
+static uint8_t
+cmi8x38_poll(sound_buffer_t buffer, void *priv)
 {
     cmi8x38_dma_t *dma = (cmi8x38_dma_t *) priv;
     cmi8x38_t     *dev = dma->dev;
-    int16_t       *out_l;
-    int16_t       *out_r;
-    int16_t       *out_ol;
-    int16_t       *out_or; /* o = opposite */
-
-    /* Schedule next run if playback is enabled. */
-    if (dma->playback_enabled)
-        timer_advance_u64(&dma->poll_timer, dma->timer_latch);
-
-    /* Update audio buffer. */
-    cmi8x38_update(dev, dma);
 
     /* Swap stereo pair if this is the rear DMA channel according to ENDBDAC and XCHGDAC. */
-    if ((dev->io_regs[0x1a] & 0x80) && (!!(dev->io_regs[0x1a] & 0x40) ^ dma->id)) {
-        out_l  = &dma->out_rl;
-        out_r  = &dma->out_rr;
-        out_ol = &dma->out_fl;
-        out_or = &dma->out_fr;
-    } else {
-        out_l  = &dma->out_fl;
-        out_r  = &dma->out_fr;
-        out_ol = &dma->out_rl;
-        out_or = &dma->out_rr;
-    }
-    *out_ol = *out_or = dma->out_c = dma->out_lfe = 0;
+    uint8_t swap = ((dev->io_regs[0x1a] & 0x80) && (!!(dev->io_regs[0x1a] & 0x40) ^ dma->id)) << 1;
 
     /* Feed next sample from the FIFO. */
-    switch ((dev->io_regs[0x08] >> (dma->id << 1)) & 0x03) {
+    switch (dma->cfr) {
         case 0x00: /* Mono, 8-bit PCM */
             if ((dma->fifo_end - dma->fifo_pos) >= 1) {
-                *out_l = *out_r = (dma->fifo[dma->fifo_pos++ & (sizeof(dma->fifo) - 1)] ^ 0x80) << 8;
+                buffer.u8[swap | 0] = buffer.u8[swap | 1] = dma->fifo[dma->fifo_pos++ & (sizeof(dma->fifo) - 1)];
                 dma->sample_count_out--;
-                goto n4spk3d;
+                if (dev->io_regs[0x1b] & 0x04) /* N4SPK3D copy to rear */
+                    AS_U16(buffer.u8[swap ^ 2]) = AS_U16(buffer.u8[swap]);
+            } else {
+                buffer.s32[0] = 0;
             }
             break;
 
         case 0x01: /* Stereo, 8-bit PCM */
             if ((dma->fifo_end - dma->fifo_pos) >= 2) {
-                *out_l = (dma->fifo[dma->fifo_pos++ & (sizeof(dma->fifo) - 1)] ^ 0x80) << 8;
-                *out_r = (dma->fifo[dma->fifo_pos++ & (sizeof(dma->fifo) - 1)] ^ 0x80) << 8;
+                buffer.u8[swap | 0] = dma->fifo[dma->fifo_pos++ & (sizeof(dma->fifo) - 1)];
+                buffer.u8[swap | 1] = dma->fifo[dma->fifo_pos++ & (sizeof(dma->fifo) - 1)];
                 dma->sample_count_out -= 2;
-                goto n4spk3d;
+                if (dev->io_regs[0x1b] & 0x04) /* N4SPK3D copy to rear */
+                    AS_U16(buffer.u8[swap ^ 2]) = AS_U16(buffer.u8[swap]);
+            } else {
+                buffer.s32[0] = 0;
             }
             break;
 
         case 0x02: /* Mono, 16-bit PCM */
             if ((dma->fifo_end - dma->fifo_pos) >= 2) {
-                *out_l = *out_r = *((uint16_t *) &dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                buffer.s16[swap | 0] = buffer.s16[swap | 1] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                 dma->fifo_pos += 2;
                 dma->sample_count_out -= 2;
-                goto n4spk3d;
+                if (dev->io_regs[0x1b] & 0x04) /* N4SPK3D copy to rear */
+                    AS_U32(buffer.s16[swap ^ 2]) = AS_U32(buffer.s16[swap]);
+            } else {
+                buffer.s64[0] = 0;
             }
             break;
 
@@ -1192,63 +1156,75 @@ cmi8x38_poll(void *priv)
             switch (dma->channels) {
                 case 2:
                     if ((dma->fifo_end - dma->fifo_pos) >= 4) {
-                        *out_l = *((uint16_t *) &dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        pclog("were sampling\n");
+                        buffer.s16[swap | 0] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        *out_r = *((uint16_t *) &dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[swap | 1] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
                         dma->sample_count_out -= 4;
-                        goto n4spk3d;
+                        if (dev->io_regs[0x1b] & 0x04) /* N4SPK3D copy to rear */
+                            AS_U32(buffer.s16[swap ^ 2]) = AS_U32(buffer.s16[swap]);
+                    } else {
+                        pclog("not sampling\n");
+                        buffer.s64[0] = 0;
                     }
                     break;
 
                 case 4:
                     if ((dma->fifo_end - dma->fifo_pos) >= 8) {
-                        dma->out_fl = *((uint16_t *) &dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[0] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        dma->out_fr = *((uint16_t *) &dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[1] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        dma->out_rl = *((uint16_t *) &dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[2] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        dma->out_rr = *((uint16_t *) &dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[3] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
                         dma->sample_count_out -= 8;
-                        return;
+                    } else {
+                        buffer.s64[0] = 0;
                     }
                     break;
 
                 case 5: /* not supported by WDM and Linux drivers; channel layout assumed */
                     if ((dma->fifo_end - dma->fifo_pos) >= 10) {
-                        dma->out_fl = *((uint16_t *) &dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[0] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        dma->out_fr = *((uint16_t *) &dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[1] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        dma->out_rl = *((uint16_t *) &dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[4] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        dma->out_rr = *((uint16_t *) &dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[5] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        dma->out_c = *((uint16_t *) &dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[2] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
                         dma->sample_count_out -= 10;
-                        return;
+                    } else {
+                        buffer.s64[0] = 0;
+                        buffer.s32[2] = 0;
                     }
                     break;
 
                 case 6:
                     if ((dma->fifo_end - dma->fifo_pos) >= 12) {
-                        dma->out_fl = *((uint16_t *) &dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        pclog("6c sampling\n");
+                        buffer.s16[0] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        dma->out_fr = *((uint16_t *) &dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[1] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        dma->out_rl = *((uint16_t *) &dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[4] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        dma->out_rr = *((uint16_t *) &dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[5] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        dma->out_c = *((uint16_t *) &dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[2] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        dma->out_lfe = *((uint16_t *) &dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[3] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
                         dma->sample_count_out -= 12;
-                        return;
+                    } else {
+                        pclog("6c not sampling\n");
+                        buffer.s64[0] = 0;
+                        buffer.s32[2] = 0;
                     }
                     break;
 
@@ -1261,50 +1237,20 @@ cmi8x38_poll(void *priv)
             break;
     }
 
-    /* Feed silence if the FIFO is empty. */
-    *out_l = *out_r = 0;
-
     /* Stop playback if DMA is disabled. */
     if ((*((uint32_t *) &dev->io_regs[0x00]) & (0x00010001 << dma->id)) != (0x00010000 << dma->id)) {
         cmi8x38_log("CMI8x38: Stopping playback of DMA channel %d\n", dma->id);
-        dma->playback_enabled = 0;
+        return 0;
     }
 
-    return;
-n4spk3d:
-    /* Mirror front and rear channels if requested. */
-    if (dev->io_regs[0x1b] & 0x04) {
-        *out_ol = *out_l;
-        *out_or = *out_r;
-    }
-}
-
-static void
-cmi8x38_get_buffer(int32_t *buffer, int len, void *priv)
-{
-    cmi8x38_t *dev = (cmi8x38_t *) priv;
-
-    /* Update wave playback channels. */
-    cmi8x38_update(dev, &dev->dma[0]);
-    cmi8x38_update(dev, &dev->dma[1]);
-
-    /* Apply wave mute. */
-    if (!(dev->io_regs[0x24] & 0x40)) {
-        /* Fill buffer. */
-        for (int c = 0; c < len * 2; c++) {
-            buffer[c] += dev->dma[0].buffer[c];
-            buffer[c] += dev->dma[1].buffer[c];
-        }
-    }
-
-    dev->dma[0].pos = dev->dma[1].pos = 0;
+    return 1;
 }
 
 static void
 cmi8x38_speed_changed(void *priv)
 {
     cmi8x38_t *dev = (cmi8x38_t *) priv;
-    double     freq;
+    uint8_t    cfr = dev->io_regs[0x08];
     uint8_t    dsr = dev->io_regs[0x09];
     uint8_t    freqreg = dev->io_regs[0x05] >> 2;
     uint8_t    chfmt45 = dev->io_regs[0x0b];
@@ -1322,16 +1268,17 @@ cmi8x38_speed_changed(void *priv)
         /* More confusion. The Linux driver implies the sample rate doubling
            bits take precedence over any configured sample rate. 128K with both
            doubling bits set is also supported there, but that's for newer chips. */
+        uint32_t freq;
         switch (dsr & 0x03) {
             case 0x01:
-                freq = 88200.0;
+                freq = 88200;
                 break;
             case 0x02:
-                freq = 96000.0;
+                freq = 96000;
                 break;
 #if 0
             case 0x03:
-                freq = 128000.0;
+                freq = 128000;
                 break;
 #endif
             default:
@@ -1339,28 +1286,36 @@ cmi8x38_speed_changed(void *priv)
                 break;
         }
 
-        /* Set polling timer period. */
-        freq                    = 1000000.0 / freq;
-        dev->dma[i].timer_latch = (uint64_t) ((double) TIMER_USEC * freq);
-
         /* Calculate channel count and set DMA timer period. */
-        if ((dev->type == CMEDIA_CMI8338) || (i == 0)) { /* multi-channel requires channel 1 */
-stereo:
-            dev->dma[i].channels = 2;
-        } else {
-            if (chfmt45 & 0x80)
+        dev->dma[i].cfr = cfr & 0x03;
+        uint8_t format = SOUND_S16;
+        uint8_t source_channels;
+        if ((dev->type != CMEDIA_CMI8338) && (i == 1) && ((cfr & 0x03) == 0x03)) { /* multi-channel requires channel 1 at 16-bit stereo */
+            if (chfmt45 & 0x80) {
+                source_channels = 6;
                 dev->dma[i].channels = (chfmt6 & 0x80) ? 6 : 5;
-            else if (chfmt45 & 0x20)
-                dev->dma[i].channels = 4;
-            else
+            } else if (chfmt45 & 0x20) {
+                source_channels = dev->dma[i].channels = 4;
+            } else {
                 goto stereo;
+            }
+        } else {
+stereo:
+            if (!(cfr & 0x02))
+                format = SOUND_U8;
+            dev->dma[i].channels = (cfr & 0x01) ? 2 : 1;
+            source_channels = (dev->io_regs[0x1a] & 0x80) ? 4 : 2; /* ENDBDAC - each DMA feeds its own channel pair */
         }
-        dev->dma[i].dma_latch = freq / dev->dma[i].channels; /* frequency / approximately(dwords * 2) */
+        dev->dma[i].dma_latch = (1000000.0 / freq) / dev->dma[i].channels; /* frequency / approximately(dwords * 2) */
 
-        /* Shift sample rate configuration registers. */
+        /* Set source format. */
+        sound_set_format(dev->dma[i].source, format, source_channels, freq);
+
+        /* Shift configuration registers. */
 #ifdef ENABLE_CMI8X38_LOG
-        sprintf(&buf[strlen(buf)], " %d:%X-%X-%.0f-%dC", i, dsr & 0x03, freqreg & 0x07, 1000000.0 / freq, dev->dma[i].channels);
+        sprintf(&buf[strlen(buf)], " %d:%X-%X-%d-%dC", i, dsr & 0x03, freqreg & 0x07, freq, channels);
 #endif
+        cfr >>= 2;
         dsr >>= 2;
         freqreg >>= 3;
     }
@@ -1417,7 +1372,6 @@ cmi8x38_reset(void *priv)
 
     /* Reset DMA channels. */
     for (int i = 0; i < (sizeof(dev->dma) / sizeof(dev->dma[0])); i++) {
-        dev->dma[i].playback_enabled = 0;
         dev->dma[i].fifo_pos = dev->dma[i].fifo_end = 0;
         memset(dev->dma[i].fifo, 0, sizeof(dev->dma[i].fifo));
     }
@@ -1464,13 +1418,14 @@ cmi8x38_init(const device_t *info)
         dev->dma[i].reg = 0x80 + (8 * i);
         dev->dma[i].dev = dev;
 
+        snprintf(dev->dma[i].source_name, sizeof(dev->dma[i].source_name), "CMI8x38 DMA %d", i);
+        dev->dma[i].source = sound_add_source(cmi8x38_poll, &dev->dma[i], dev->dma[i].source_name);
+
         timer_add(&dev->dma[i].dma_timer, cmi8x38_dma_process, &dev->dma[i], 0);
-        timer_add(&dev->dma[i].poll_timer, cmi8x38_poll, &dev->dma[i], 0);
     }
     cmi8x38_speed_changed(dev);
 
-    /* Initialize playback handler and CD audio filter. */
-    sound_add_handler(cmi8x38_get_buffer, dev);
+    /* Initialize CD audio filter. */
     sound_set_cd_audio_filter(sb16_awe32_filter_cd_audio, dev->sb);
 
     /* Initialize game port. */

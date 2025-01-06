@@ -59,6 +59,8 @@ enum {
 typedef union {
     uint8_t *u8;
     int16_t *s16;
+    int32_t *s32;
+    int64_t *s64;
     float   *f;
 } sound_buffer_t;
 
@@ -110,7 +112,8 @@ extern void sound_speed_changed(void);
 
 extern void  sound_init(void);
 extern void  sound_reset(void);
-extern void *sound_add_source(void (*poll)(sound_buffer_t buffer, void *priv), void *priv, const char *name);
+extern void *sound_add_source(uint8_t (*poll)(sound_buffer_t buffer, void *priv), void *priv, const char *name);
+extern void  sound_start_source(void *priv);
 extern void  sound_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t freq);
 
 extern void sound_card_reset(void);

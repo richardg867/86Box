@@ -56,7 +56,7 @@ typedef struct _sound_backend_source_ {
 } sound_backend_source_t;
 
 typedef struct _sound_source_ {
-    struct _sound_source_ *next_timer;
+    struct _sound_source_ *timer_next;
     struct _sound_source_ *next;
 
     const char *name;
@@ -68,9 +68,10 @@ typedef struct _sound_source_ {
     uint8_t  format;
     uint8_t  channels;
     uint8_t  bytes_per_sample;
+    uint8_t  active;
     sound_backend_source_t *backend_source;
 
-    void (*poll)(sound_buffer_t buffer, void *priv);
+    uint8_t (*poll)(sound_buffer_t buffer, void *priv);
     void *priv;
 } sound_source_t;
 
@@ -217,8 +218,6 @@ sound_log(const char *fmt, ...)
 #    define sound_log(fmt, ...)
 #endif
 
-static void sound_poll_legacy(sound_buffer_t buffer, void *priv);
-static void music_poll_legacy(sound_buffer_t buffer, void *priv);
 static void sound_poll(void *priv);
 
 int
@@ -280,12 +279,6 @@ sound_set_cd_volume(unsigned int vol_l, unsigned int vol_r)
 }
 
 static void
-sound_cd_clean_buffers(void)
-{
-    memset(cd_out_buffer, 0, (CD_BUFLEN * 2) * sizeof(int16_t));
-}
-
-static void
 sound_cd_thread(UNUSED(void *param))
 {
     int      temp_buffer[2];
@@ -303,7 +296,7 @@ sound_cd_thread(UNUSED(void *param))
         if (!cdaudioon)
             return;
 
-        sound_cd_clean_buffers();
+        memset(cd_out_buffer, 0, (CD_BUFLEN * 2) * sizeof(int16_t));
 
         temp_buffer[0] = temp_buffer[1] = 0;
 
@@ -463,26 +456,26 @@ wavetable_add_handler(void (*get_buffer)(int32_t *buffer, int len, void *priv), 
 }
 
 void *
-sound_add_source(void (*poll)(sound_buffer_t buffer, void *priv), void *priv, const char *name)
+sound_add_source(uint8_t (*poll)(sound_buffer_t buffer, void *priv), void *priv, const char *name)
 {
     /* Generate new source. */
-    sound_source_t *new_source = (sound_source_t *) calloc(1, sizeof(sound_source_t));
-    new_source->poll = poll;
-    new_source->priv = priv;
-    new_source->name = name;
-    sound_log("Sound [%s]: Added source\n", new_source->name);
+    sound_source_t *source = (sound_source_t *) calloc(1, sizeof(sound_source_t));
+    source->poll = poll;
+    source->priv = priv;
+    source->name = name;
+    sound_log("Sound [%s]: Added source\n", source->name);
 
     /* Add new source to the list. */
     if (!sources) {
-        sources = new_source;
+        sources = source;
     } else {
-        sound_source_t *source = sources;
-        while (source->next)
-            source = source->next;
-        source->next = new_source;
+        sound_source_t *other = sources;
+        while (other->next)
+            other = other->next;
+        other->next = source;
     }
 
-    return new_source;
+    return source;
 }
 
 static inline void
@@ -492,6 +485,115 @@ sound_flush_source(void *priv)
     if (source->buffer && source->pos)
         sound_backend_buffer(source->backend_source->priv, source->buffer, MIN(source->pos, source->buf_len));
     source->pos = 0;
+}
+
+static inline sound_timer_t *
+sound_get_timer(uint32_t freq)
+{
+    sound_timer_t *timer = timers;
+    while (timer) {
+        if (timer->freq == freq)
+            return timer;
+        timer = timer->next;
+    }
+    return NULL;
+}
+
+void
+sound_start_source(void *priv)
+{
+    sound_source_t *source = (sound_source_t *) priv;
+
+    /* Stop if no poller or frequency is set or the source is active. */
+    if (source->active || !source->poll || !source->freq)
+        return;
+    sound_log("Sound [%s]: Starting source\n", source->name);
+    source->active = 1;
+
+    /* Try using the existing backend source. */
+    sound_backend_source_t *backend_source = source->backend_source;
+    if (!backend_source || !sound_backend_set_format(backend_source->priv, source->format, source->channels, source->freq)) {
+        /* Find another backend source. */
+        backend_source = backend_sources;
+        while (backend_source) {
+            if (!backend_source->active && sound_backend_set_format(backend_source->priv, source->format, source->channels, source->freq))
+                break;
+            backend_source = backend_source->next;
+        }
+        if (!backend_source) {
+            /* No inactive source found, create a new one. */
+            sound_log("Sound [%s]: Creating new backend source\n", source->name);
+            backend_source = calloc(1, sizeof(sound_backend_source_t));
+            backend_source->priv = sound_backend_add_source();
+            backend_source->next = backend_sources;
+            backend_sources = backend_source;
+            sound_backend_set_format(backend_source->priv, source->format, source->channels, source->freq);
+        }
+        if (source->backend_source)
+            source->backend_source->active = 0;
+        source->backend_source = backend_source;
+    }
+    backend_source->active = 1;
+
+    /* Look for an existing timer to add to. */
+    sound_timer_t *timer = sound_get_timer(source->freq);
+    if (timer) {
+        /* Restart timer if it was paused from a lack of sources. */
+        if (!source->timer_next)
+            timer_set_delay_u64(&timer->timer, 0);
+
+        /* Add this source to an existing timer. */
+        source->timer_next = timer->sources;
+        timer->sources = source;
+    } else {
+        /* Add a new timer. */
+        timer = (sound_timer_t *) calloc(1, sizeof(sound_timer_t));
+        timer->freq = source->freq;
+        timer->latch = (uint64_t) ((double) TIMER_USEC * (1000000.0 / (double) timer->freq));
+        timer->sources = source;
+        timer->next = timers;
+        timers = timer;
+
+        /* Start the new timer. */
+        timer_add(&timer->timer, sound_poll, timer, 1);
+    }
+}
+
+static void
+sound_stop_source(void *priv)
+{
+    sound_source_t *source = (sound_source_t *) priv;
+
+    /* Don't stop an inactive source. */
+    if (!source->active)
+        return;
+
+    sound_log("Sound [%s]: Stopping source\n", source->name);
+
+    /* Flush remaining samples. */
+    sound_flush_source(source);
+    source->active = 0;
+    if (source->backend_source)
+        source->backend_source->active = 0;
+
+    /* Get timer for this frequency. */
+    sound_timer_t *timer = sound_get_timer(source->freq);
+    if (timer) {
+        /* Remove source from list. */
+        if (timer->sources == source) {
+            timer->sources = source->timer_next;
+        } else {
+            sound_source_t *other = timer->sources;
+            while (other) {
+                if (other->timer_next == source) {
+                    other->timer_next = source->timer_next;
+                    break;
+                }
+                other = other->timer_next;
+            }
+        }
+        source->timer_next = NULL;
+    }
 }
 
 static const int8_t bytes_per_sample[SOUND_MAX] = {
@@ -518,28 +620,6 @@ sound_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t freq)
     source->bytes_per_sample = bytes_per_sample[format] * channels;
     sound_log("Sound [%s]: Setting to fmt=%d ch=%d bps=%d freq=%d\n", source->name, format, channels, source->bytes_per_sample, freq);
 
-    /* Find a new backend source to back this source. */
-    sound_backend_source_t *backend_source = backend_sources;
-    while (backend_source) {
-        if (!backend_source->active && sound_backend_set_format(backend_source->priv, format, channels, freq))
-            break;
-        backend_source = backend_source->next;
-    }
-
-    if (!backend_source) {
-        /* No spare source found, create a new one. */
-        sound_log("Sound [%s]: Creating new backend source\n", source->name);
-        backend_source = calloc(1, sizeof(sound_backend_source_t));
-        backend_source->priv = sound_backend_add_source();
-        backend_source->next = backend_sources;
-        backend_sources = backend_source;
-        sound_backend_set_format(backend_source->priv, format, channels, freq);
-    }
-    backend_source->active = 1;
-    if (source->backend_source)
-        source->backend_source->active = 0;
-    source->backend_source = backend_source;
-
     /* Grow buffer if required. */
 #define BUFLEN MAX(SOUNDBUFLEN, MAX(MUSICBUFLEN, MAX(CD_BUFLEN, WTBUFLEN)))
     uint32_t buf_len = (BUFLEN - (BUFLEN % channels)) * source->bytes_per_sample; /* avoid going out of bounds with non powers of 2 */
@@ -550,40 +630,15 @@ sound_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t freq)
     }
     source->buf_len = buf_len; // TODO: allow to get smaller
 
-    /* Set frequency and recalculate timers if required. */
-    if (freq != source->freq) {
-        /* Stop if no poller is set for the timer. */
-        if (source->poll) {
-            /* Look for an existing timer to add to. */
-            sound_timer_t *timer = timers;
-            while (timer) {
-                if (timer->freq == freq) {
-                    source->next_timer = timer->sources;
-                    timer->sources = source;
-                    break;
-                }
-                timer = timer->next;
-            }
-
-            if (!timer) {
-                /* Add a new timer. */
-                timer = (sound_timer_t *) calloc(1, sizeof(sound_timer_t));
-                timer->freq = freq;
-                timer->latch = (uint64_t) ((double) TIMER_USEC * (1000000.0 / (double) freq));
-                timer->sources = source;
-                timer->next = timers;
-                timers = timer;
-
-                /* Start the new timer. */
-                timer_add(&timer->timer, sound_poll, timer, 1);
-            }
-        }
-    }
-
-    /* Save new format. */
+    /* Restart source if it's already running. */
+    uint8_t was_active = source->active;
+    if (was_active)
+        sound_stop_source(source);
     source->freq = freq;
     source->channels = channels;
     source->format = format;
+    if (was_active)
+        sound_start_source(source);
 }
 
 void
@@ -611,7 +666,7 @@ sound_set_pc_speaker_filter(void (*filter)(int channel, double *buffer, void *pr
     }
 }
 
-static void
+static uint8_t
 sound_poll_legacy(sound_buffer_t buffer, void *priv)
 {
     midi_poll();
@@ -646,9 +701,11 @@ sound_poll_legacy(sound_buffer_t buffer, void *priv)
 
         sound_pos_global = 0;
     }
+
+    return 1;
 }
 
-static void
+static uint8_t
 music_poll_legacy(sound_buffer_t buffer, void *priv)
 {
     music_pos_global++;
@@ -673,9 +730,11 @@ music_poll_legacy(sound_buffer_t buffer, void *priv)
 
         music_pos_global = 0;
     }
+
+    return 1;
 }
 
-static void
+static uint8_t
 wavetable_poll_legacy(sound_buffer_t buffer, void *priv)
 {
     wavetable_pos_global++;
@@ -700,6 +759,8 @@ wavetable_poll_legacy(sound_buffer_t buffer, void *priv)
 
         wavetable_pos_global = 0;
     }
+
+    return 1;
 }
 
 static void
@@ -709,12 +770,15 @@ sound_poll(void *priv)
     timer_advance_u64(&timer->timer, timer->latch);
 
     sound_source_t *source = timer->sources;
+    uint8_t ret;
     while (source) {
-        source->poll((sound_buffer_t) &((uint8_t *) source->buffer)[source->pos], source->priv);
+        ret = source->poll((sound_buffer_t) &((uint8_t *) source->buffer)[source->pos], source->priv);
         source->pos += source->bytes_per_sample;
         if (UNLIKELY(source->pos >= source->buf_len))
             sound_flush_source(source);
-        source = source->next_timer;
+        else if (UNLIKELY(!ret))
+            sound_stop_source(source);
+        source = source->timer_next;
     }
 }
 
@@ -748,8 +812,11 @@ sound_reset(void)
     if (!cd_source)
         cd_source = sound_backend_add_source();
     sound_set_format(sound_legacy_source, SOUND_S16, 2, SOUND_FREQ);
+    sound_start_source(sound_legacy_source);
     sound_set_format(music_legacy_source, SOUND_S16, 2, MUSIC_FREQ);
+    sound_start_source(music_legacy_source);
     sound_set_format(wavetable_legacy_source, SOUND_S16, 2, WT_FREQ);
+    sound_start_source(wavetable_legacy_source);
     sound_backend_set_format(cd_source, SOUND_S16, 2, CD_FREQ);
 
     sound_handlers_num = 0;

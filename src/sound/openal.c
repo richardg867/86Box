@@ -142,10 +142,10 @@ sound_backend_add_source(void)
 
     al_source_t *source = (al_source_t *) calloc(1, sizeof(al_source_t));
 
-    ALenum e;
+    ALenum e = alGetError();
     alGenBuffers(sizeof(source->buffers) / sizeof(source->buffers[0]), source->buffers);
     if ((e = alGetError()))
-        fatal("OpenAL: alGenBuffers failed (%04X)\n", (int) e);
+        fatal("OpenAL: alGenBuffers %d failed (%04X)\n", (int) (sizeof(source->buffers) / sizeof(source->buffers[0])), (int) e);
     alGenSources(1, &source->source);
     if ((e = alGetError()))
         fatal("OpenAL: alGenSources failed (%04X)\n", (int) e);
@@ -174,8 +174,10 @@ sound_backend_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t 
     al_source_t *source = (al_source_t *) priv;
 
     /* Block invalid formats. */
-    if ((format >= (sizeof(formats) / sizeof(formats[0]))) || (channels < 1) || (channels > 8))
+    if ((format >= (sizeof(formats) / sizeof(formats[0]))) || (channels < 1) || (channels > 8)) {
+        openal_log("OpenAL: Invalid source %d fmt=%d ch=%d freq=%d\n", (int) source->source, (int) format, (int) channels, (int) freq);
         return 0;
+    }
 
     /* Allow this source to be reused if it's already set to the requested format. */
     ALenum new_format = formats[format][channels - 1];
@@ -187,8 +189,10 @@ sound_backend_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t 
     /* Don't change the format of an active source. */
     ALint state;
     alGetSourcei(source->source, AL_SOURCE_STATE, &state);
-    if (state == AL_PLAYING)
+    if (state == AL_PLAYING) {
+        openal_log("OpenAL: Skipping source %d as it is playing\n", (int) source->source);
         return 0;
+    }
 
     /* Checks passed, change the format. */
     openal_log("OpenAL: Setting source %d to fmt=%d ch=%d freq=%d\n", (int) source->source, (int) format, (int) channels, (int) freq);
