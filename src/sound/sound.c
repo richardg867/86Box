@@ -739,6 +739,7 @@ sound_reset(void)
 {
     memset(outbuffer, 0x00, SOUNDBUFLEN * 2 * sizeof(int32_t));
     memset(outbuffer_m, 0x00, MUSICBUFLEN * 2 * sizeof(int32_t));
+    memset(outbuffer_w, 0x00, WTBUFLEN * 2 * sizeof(int32_t));
 
     midi_out_device_init();
     midi_in_device_init();
