@@ -56,10 +56,11 @@ typedef struct _sound_backend_source_ {
 } sound_backend_source_t;
 
 typedef struct _sound_source_ {
-    struct _sound_source_ *timer_next;
     struct _sound_source_ *next;
 
     const char *name;
+    uint8_t (*poll)(sound_buffer_t buffer, void *priv);
+    void *priv;
 
     void     *buffer;
     uint32_t buf_len;
@@ -70,19 +71,9 @@ typedef struct _sound_source_ {
     uint8_t  bytes_per_sample;
     uint8_t  active;
     sound_backend_source_t *backend_source;
-
-    uint8_t (*poll)(sound_buffer_t buffer, void *priv);
-    void *priv;
-} sound_source_t;
-
-typedef struct _sound_timer_ {
-    struct _sound_timer_ *next;
-
-    uint32_t       freq;
-    uint64_t       latch;
     pc_timer_t     timer;
-    sound_source_t *sources;
-} sound_timer_t;
+    uint64_t       latch;
+} sound_source_t;
 
 int sound_card_current[SOUND_CARD_MAX] = { 0, 0, 0, 0 };
 int sound_pos_global                   = 0;
@@ -91,7 +82,6 @@ int wavetable_pos_global               = 0;
 int sound_gain                         = 0;
 
 static sound_source_t *sources;
-static sound_timer_t  *timers;
 static sound_backend_source_t *backend_sources = NULL;
 
 static sound_source_t *sound_legacy_source = NULL;
@@ -466,14 +456,11 @@ sound_add_source(uint8_t (*poll)(sound_buffer_t buffer, void *priv), void *priv,
     sound_log("Sound [%s]: Added source\n", source->name);
 
     /* Add new source to the list. */
-    if (!sources) {
-        sources = source;
-    } else {
-        sound_source_t *other = sources;
-        while (other->next)
-            other = other->next;
-        other->next = source;
-    }
+    source->next = sources;
+    sources = source;
+
+    /* Register the source's polling timer. */
+    timer_add(&source->timer, sound_poll, source, 0);
 
     return source;
 }
@@ -487,16 +474,11 @@ sound_flush_source(void *priv)
     source->pos = 0;
 }
 
-static inline sound_timer_t *
-sound_get_timer(uint32_t freq)
+static inline void
+sound_recalc_source(sound_source_t *source)
 {
-    sound_timer_t *timer = timers;
-    while (timer) {
-        if (timer->freq == freq)
-            return timer;
-        timer = timer->next;
-    }
-    return NULL;
+    if (source->freq)
+        source->latch = (uint64_t) ((double) TIMER_USEC * (1000000.0 / (double) source->freq));
 }
 
 void
@@ -535,28 +517,8 @@ sound_start_source(void *priv)
     }
     backend_source->active = 1;
 
-    /* Look for an existing timer to add to. */
-    sound_timer_t *timer = sound_get_timer(source->freq);
-    if (timer) {
-        /* Restart timer if it was paused from a lack of sources. */
-        if (!source->timer_next)
-            timer_set_delay_u64(&timer->timer, 0);
-
-        /* Add this source to an existing timer. */
-        source->timer_next = timer->sources;
-        timer->sources = source;
-    } else {
-        /* Add a new timer. */
-        timer = (sound_timer_t *) calloc(1, sizeof(sound_timer_t));
-        timer->freq = source->freq;
-        timer->latch = (uint64_t) ((double) TIMER_USEC * (1000000.0 / (double) timer->freq));
-        timer->sources = source;
-        timer->next = timers;
-        timers = timer;
-
-        /* Start the new timer. */
-        timer_add(&timer->timer, sound_poll, timer, 1);
-    }
+    /* Start polling timer. */
+    timer_set_delay_u64(&source->timer, 0);
 }
 
 static void
@@ -575,25 +537,6 @@ sound_stop_source(void *priv)
     source->active = 0;
     if (source->backend_source)
         source->backend_source->active = 0;
-
-    /* Get timer for this frequency. */
-    sound_timer_t *timer = sound_get_timer(source->freq);
-    if (timer) {
-        /* Remove source from list. */
-        if (timer->sources == source) {
-            timer->sources = source->timer_next;
-        } else {
-            sound_source_t *other = timer->sources;
-            while (other) {
-                if (other->timer_next == source) {
-                    other->timer_next = source->timer_next;
-                    break;
-                }
-                other = other->timer_next;
-            }
-        }
-        source->timer_next = NULL;
-    }
 }
 
 static const int8_t bytes_per_sample[SOUND_MAX] = {
@@ -637,6 +580,7 @@ sound_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t freq)
     source->freq = freq;
     source->channels = channels;
     source->format = format;
+    sound_recalc_source(source);
     if (was_active)
         sound_start_source(source);
 }
@@ -766,29 +710,27 @@ wavetable_poll_legacy(sound_buffer_t buffer, void *priv)
 static void
 sound_poll(void *priv)
 {
-    sound_timer_t *timer = (sound_timer_t *) priv;
-    timer_advance_u64(&timer->timer, timer->latch);
+    sound_source_t *source = (sound_source_t *) priv;
 
-    sound_source_t *source = timer->sources;
-    uint8_t ret;
-    while (source) {
-        ret = source->poll((sound_buffer_t) &((uint8_t *) source->buffer)[source->pos], source->priv);
-        source->pos += source->bytes_per_sample;
-        if (UNLIKELY(source->pos >= source->buf_len))
-            sound_flush_source(source);
-        else if (UNLIKELY(!ret))
-            sound_stop_source(source);
-        source = source->timer_next;
-    }
+    uint8_t ret = source->poll((sound_buffer_t) &((uint8_t *) source->buffer)[source->pos], source->priv);
+    source->pos += source->bytes_per_sample;
+    if (UNLIKELY(!ret))
+        sound_stop_source(source);
+    else if (UNLIKELY(source->pos >= source->buf_len))
+        sound_flush_source(source);
+
+    /* Don't re-run timer if the source is inactive. */
+    if (source->active)
+        timer_advance_u64(&source->timer, source->latch);
 }
 
 void
 sound_speed_changed(void)
 {
-    sound_timer_t *timer = timers;
-    while (timer) {
-        timer->latch = (uint64_t) ((double) TIMER_USEC * (1000000.0 / (double) timer->freq));
-        timer = timer->next;
+    sound_source_t *source = sources;
+    while (source) {
+        sound_recalc_source(source);
+        source = source->next;
     }
 }
 
