@@ -1130,8 +1130,6 @@ pc_reset_hard_close(void)
 
     scsi_disk_close();
 
-    sound_backend_close();
-
     video_reset_close();
 
     cpu_close();

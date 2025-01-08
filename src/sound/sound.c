@@ -737,6 +737,17 @@ sound_speed_changed(void)
 void
 sound_reset(void)
 {
+    sound_log("Sound: reset()\n");
+
+    /* Remove all sources. */
+    sound_source_t *other;
+    while (sources) {
+        sound_stop_source(sources);
+        other = sources->next;
+        free(sources);
+        sources = other;
+    }
+
     memset(outbuffer, 0x00, SOUNDBUFLEN * 2 * sizeof(int32_t));
     memset(outbuffer_m, 0x00, MUSICBUFLEN * 2 * sizeof(int32_t));
     memset(outbuffer_w, 0x00, WTBUFLEN * 2 * sizeof(int32_t));
@@ -746,20 +757,16 @@ sound_reset(void)
 
     sound_backend_reset();
 
-    if (!sound_legacy_source)
-        sound_legacy_source = sound_add_source(sound_poll_legacy, NULL, "Legacy 48K");
-    if (!music_legacy_source)
-        music_legacy_source = sound_add_source(music_poll_legacy, NULL, "Legacy 49K");
-    if (!wavetable_legacy_source)
-        wavetable_legacy_source = sound_add_source(wavetable_poll_legacy, NULL, "Legacy 44K");
-    if (!cd_source)
-        cd_source = sound_backend_add_source();
+    sound_legacy_source = sound_add_source(sound_poll_legacy, NULL, "Legacy 48K");
     sound_set_format(sound_legacy_source, SOUND_S16, 2, SOUND_FREQ);
     sound_start_source(sound_legacy_source);
+    music_legacy_source = sound_add_source(music_poll_legacy, NULL, "Legacy 49K");
     sound_set_format(music_legacy_source, SOUND_S16, 2, MUSIC_FREQ);
     sound_start_source(music_legacy_source);
+    wavetable_legacy_source = sound_add_source(wavetable_poll_legacy, NULL, "Legacy 44K");
     sound_set_format(wavetable_legacy_source, SOUND_S16, 2, WT_FREQ);
     sound_start_source(wavetable_legacy_source);
+    cd_source = sound_backend_add_source();
     sound_backend_set_format(cd_source, SOUND_S16, 2, CD_FREQ);
 
     sound_handlers_num = 0;
@@ -786,6 +793,8 @@ sound_reset(void)
 void
 sound_card_reset(void)
 {
+    sound_log("Sound: card_reset()\n");
+
     sound_card_init();
 
     if (mpu401_standalone_enable)
@@ -798,10 +807,10 @@ sound_cd_thread_end(void)
     if (cdaudioon) {
         cdaudioon = 0;
 
-        sound_log("Waiting for CD Audio thread to terminate...\n");
+        sound_log("Sound: Waiting for CD Audio thread to terminate...\n");
         thread_set_event(sound_cd_event);
         thread_wait(sound_cd_thread_h);
-        sound_log("CD Audio thread terminated...\n");
+        sound_log("Sound: CD Audio thread terminated\n");
 
         if (sound_cd_event) {
             thread_destroy_event(sound_cd_event);
