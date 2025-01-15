@@ -449,7 +449,7 @@ void *
 sound_add_source(uint8_t (*poll)(sound_buffer_t buffer, void *priv), void *priv, const char *name)
 {
     /* Generate new source. */
-    sound_source_t *source = (sound_source_t *) calloc(1, sizeof(sound_source_t));
+    sound_source_t *source = calloc(1, sizeof(sound_source_t));
     source->poll = poll;
     source->priv = priv;
     source->name = name;
@@ -568,7 +568,8 @@ sound_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t freq)
     uint32_t buf_len = (BUFLEN - (BUFLEN % channels)) * source->bytes_per_sample; /* avoid going out of bounds with non powers of 2 */
     buf_len -= buf_len % 4; /* OpenAL requires 4-byte alignment */
     if (buf_len > source->buf_len) {
-        free(source->buffer);
+        if (source->buffer)
+            free(source->buffer);
         source->buffer = calloc(1, buf_len);
     }
     source->buf_len = buf_len; // TODO: allow to get smaller
