@@ -63,6 +63,8 @@ extern const device_t ibmxt_device;
 extern const device_t ibmxt86_device;
 extern const device_t ibmat_device;
 extern const device_t ibmxt286_device;
+extern const device_t pb450_device;
+extern const device_t jukopc_device;
 
 const machine_filter_t machine_types[] = {
     { "None",                             MACHINE_TYPE_NONE       },
@@ -953,7 +955,7 @@ const machine_t machines[] = {
         .kbc_p1 = 0xff,
         .gpio = 0xffffffff,
         .gpio_acpi = 0xffffffff,
-        .device = NULL,
+        .device = &jukopc_device,
         .fdc_device = NULL,
         .sio_device = NULL,
         .vid_device = NULL,
@@ -3596,7 +3598,7 @@ const machine_t machines[] = {
         .flags = MACHINE_IDE | MACHINE_VIDEO,
         .ram = {
             .min = 512,
-            .max = 16384,
+            .max = 5120,
             .step = 128
         },
         .nvrmask = 127,
@@ -3636,7 +3638,7 @@ const machine_t machines[] = {
         .flags = MACHINE_FLAGS_NONE,
         .ram = {
             .min = 512,
-            .max = 16384,
+            .max = 8192,
             .step = 128
         },
         .nvrmask = 127,
@@ -5961,10 +5963,10 @@ const machine_t machines[] = {
     /* Uses some variant of Phoenix MultiKey/42 as the Intel 8242 chip has a Phoenix
        copyright. */
     {
-        .name = "[OPTi 895] Mylex MVI486",
+        .name = "[OPTi 495] Mylex MVI486",
         .internal_name = "mvi486",
         .type = MACHINE_TYPE_486,
-        .chipset = MACHINE_CHIPSET_OPTI_895_802G,
+        .chipset = MACHINE_CHIPSET_OPTI_495,
         .init = machine_at_mvi486_init,
         .p1_handler = NULL,
         .gpio_handler = NULL,
@@ -6888,7 +6890,7 @@ const machine_t machines[] = {
         .kbc_p1 = 0xff,
         .gpio = 0xffffffff,
         .gpio_acpi = 0xffffffff,
-        .device = NULL,
+        .device = &pb450_device,
         .fdc_device = NULL,
         .sio_device = NULL,
         .vid_device = &gd5428_vlb_onboard_device,
@@ -14631,6 +14633,47 @@ const machine_t machines[] = {
     },
     /* Has a Winbond W83977EF Super I/O chip with on-chip KBC with AMIKey-2 KBC
        firmware. */
+
+{
+        .name = "[i440BX] ABIT BX6",
+        .internal_name = "bx6",
+        .type = MACHINE_TYPE_SLOT1,
+        .chipset = MACHINE_CHIPSET_INTEL_440BX,
+        .init = machine_at_bx6_init,
+        .p1_handler = NULL,
+        .gpio_handler = NULL,
+        .available_flag = MACHINE_AVAILABLE,
+        .gpio_acpi_handler = NULL,
+        .cpu = {
+            .package = CPU_PKG_SLOT1,
+            .block = CPU_BLOCK_NONE,
+            .min_bus = 66666667,
+            .max_bus = 133333333,
+            .min_voltage = 1500,
+            .max_voltage = 3500,
+            .min_multi = 2.0,
+            .max_multi = 5.5
+        },
+        .bus_flags = MACHINE_PS2_AGP | MACHINE_BUS_USB,
+        .flags = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .ram = {
+            .min = 8192,
+            .max = 524288,
+            .step = 8192
+        },
+        .nvrmask = 255,
+        .kbc_device = NULL,
+        .kbc_p1 = 0xff,
+        .gpio = 0xffffffff,
+        .gpio_acpi = 0xffffffff,
+        .device = NULL,
+        .fdc_device = NULL,
+        .sio_device = NULL,
+        .vid_device = NULL,
+        .snd_device = NULL,
+        .net_device = NULL
+    },
+
     {
         .name = "[i440BX] ABIT BF6",
         .internal_name = "bf6",
