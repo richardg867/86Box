@@ -125,6 +125,20 @@ log2i(uint32_t i)
     return ret;
 }
 
+uint32_t
+ceilpow2(uint32_t i)
+{
+	uint32_t size = i;
+	uint32_t pow_size = 1 << log2i(size);
+
+	if (pow_size < size)
+	size = pow_size << 1;
+	if (size >= 8388608)
+		size = 8388608; /* address space limit of 8 MB = 7 bits from I2C address + 16 bits from command address */
+
+	return size;
+}
+
 void *
 i2c_eeprom_init(void *i2c, uint8_t addr, uint8_t *data, uint32_t size, uint8_t writable)
 {
