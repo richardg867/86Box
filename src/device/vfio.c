@@ -112,7 +112,7 @@ typedef struct _vfio_device_ {
 
         struct {
             int     raised;
-            uint8_t pin;
+            uint8_t pin,state;
         } intx;
         struct {
             uint32_t address, address_upper, pending, mask;
@@ -1950,7 +1950,7 @@ vfio_irq_timer(void *priv)
                             '@' + dev->irq.intx.pin);
 
                 /* Raise IRQ. */
-                pci_set_irq(dev->slot, dev->irq.intx.pin);
+                pci_set_irq(dev->slot, dev->irq.intx.pin, &dev->irq.intx.state);
 
                 /* Mark the IRQ as active, so that a BAR read/write can lower it. */
                 dev->irq.intx.raised = intx_high = 1;
@@ -1959,7 +1959,7 @@ vfio_irq_timer(void *priv)
                             '@' + dev->irq.intx.pin);
 
                 /* Lower IRQ. */
-                pci_clear_irq(dev->slot, dev->irq.intx.pin);
+                pci_clear_irq(dev->slot, dev->irq.intx.pin, &dev->irq.intx.state);
 
                 /* Mark the IRQ as no longer high. */
                 dev->irq.intx.raised = intx_high = 0;
@@ -2017,7 +2017,7 @@ vfio_irq_intx_disable(vfio_device_t *dev)
     /* Clear pending interrupts. */
     dev->irq.intx.raised = intx_high = 0;
     if (dev->irq.intx.pin)
-        pci_clear_irq(dev->slot, dev->irq.intx.pin);
+        pci_clear_irq(dev->slot, dev->irq.intx.pin, &dev->irq.intx.state);
 
     /* Disable interrupts altogether. */
     dev->irq.type = VFIO_PCI_NUM_IRQS;
@@ -2762,7 +2762,7 @@ vfio_dev_init(vfio_device_t *dev)
     vfio_irq_intx_setpin(dev);
 
     /* Add PCI card while mapping the configuration space. */
-    dev->slot = pci_add_card(PCI_ADD_NORMAL, vfio_config_readb, vfio_config_writeb, dev);
+    pci_add_card(PCI_ADD_NORMAL, vfio_config_readb, vfio_config_writeb, dev, (uint8_t*)&dev->slot);
 
     return 0;
 
@@ -3304,7 +3304,7 @@ static const device_t vfio_device = {
     .local         = 0,
     .init          = NULL,
     .close         = vfio_close,
-    .reset         = vfio_reset,
+    .reset         = (void(*)(void*))vfio_reset,
     { .available = NULL },
     .speed_changed = vfio_speed_changed,
     .force_redraw  = NULL,
