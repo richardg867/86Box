@@ -578,10 +578,17 @@ cli_input_csi_dispatch(int c)
 
     /* Determine keycode. */
     if (c == '~') {
-        if ((code >= 0) && (code < (sizeof(csi_num_seqs) / sizeof(csi_num_seqs[0]))))
-            code = csi_num_seqs[code];
-        else
-            code = 0;
+        if (code == 27) { /* xterm modifyOtherKeys */
+            if ((third >= 0) && (third < (sizeof(ascii_seqs) / sizeof(ascii_seqs[0]))))
+                code = ascii_seqs[third];
+            else
+                code = 0;
+        } else {
+            if ((code >= 0) && (code < (sizeof(csi_num_seqs) / sizeof(csi_num_seqs[0]))))
+                code = csi_num_seqs[code];
+            else
+                code = 0;
+        }
     } else {
         if ((code >= 0) && (code < (sizeof(csi_letter_seqs) / sizeof(csi_letter_seqs[0]))))
             code = csi_letter_seqs[c];
@@ -628,7 +635,9 @@ cli_input_execute(int c)
     switch (c) {
         case 0x01 ... 0x08: /* Ctrl+A to Ctrl+H */
         /* skip Ctrl+I (Tab), Ctrl+J (Enter) */
-        case 0x0b ... 0x1a: /* Ctrl+K to Ctrl+Z */
+        case 0x0b ... 0x0c: /* Ctrl+K to Ctrl+L */
+        /* skip Ctrl+M (Enter) */
+        case 0x0e ... 0x1a: /* Ctrl+N to Ctrl+Z */
             cli_input_send(ascii_seqs['`' + c], VT_CTRL);
             break;
 
@@ -836,7 +845,7 @@ cli_input_process(void *priv)
                 if (ir.Event.KeyEvent.dwControlKeyState & SHIFT_PRESSED)
                     keyboard_input(ir.Event.KeyEvent.bKeyDown, 0x002a);
 
-                /* Send key. . */
+                /* Send key. */
                 keyboard_input(ir.Event.KeyEvent.bKeyDown, c);
 
                 /* Update lock states. */
