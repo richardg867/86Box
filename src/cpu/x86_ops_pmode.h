@@ -172,12 +172,12 @@ opLAR(w_a16, fetch_ea_16, 0, 0)
         return cpu_state.abrt;                                                                                              \
     }
 
-                opLSL(w_a16, fetch_ea_16, 0, 0)
-                    opLSL(w_a32, fetch_ea_32, 0, 1)
-                        opLSL(l_a16, fetch_ea_16, 1, 0)
-                            opLSL(l_a32, fetch_ea_32, 1, 1)
+opLSL(w_a16, fetch_ea_16, 0, 0)
+opLSL(w_a32, fetch_ea_32, 0, 1)
+opLSL(l_a16, fetch_ea_16, 1, 0)
+opLSL(l_a32, fetch_ea_32, 1, 1)
 
-                                static int op0F00_common(uint32_t fetchdat, int ea32)
+static int op0F00_common(uint32_t fetchdat, UNUSED(int ea32))
 {
     int      dpl;
     int      valid;
@@ -359,7 +359,7 @@ op0F00_a32(uint32_t fetchdat)
 }
 
 static int
-op0F01_common(uint32_t fetchdat, int is32, int is286, int ea32)
+op0F01_common(UNUSED(uint32_t fetchdat), int is32, int is286, UNUSED(int ea32))
 {
     uint32_t base;
     uint16_t limit;
@@ -367,6 +367,7 @@ op0F01_common(uint32_t fetchdat, int is32, int is286, int ea32)
 
     switch (rmdat & 0x38) {
         case 0x00: /*SGDT*/
+            ILLEGAL_ON(cpu_mod == 3);
             if (cpu_mod != 3)
                 SEG_CHECK_WRITE(cpu_state.ea_seg);
             seteaw(gdt.limit);
@@ -389,6 +390,7 @@ op0F01_common(uint32_t fetchdat, int is32, int is286, int ea32)
             PREFETCH_RUN(7, 2, rmdat, 0, 0, 1, 1, ea32);
             break;
         case 0x10: /*LGDT*/
+            ILLEGAL_ON(cpu_mod == 3);
             if ((CPL || cpu_state.eflags & VM_FLAG) && (cr0 & 1)) {
                 x86gpf(NULL, 0);
                 break;
@@ -428,12 +430,21 @@ op0F01_common(uint32_t fetchdat, int is32, int is286, int ea32)
         case 0x20: /*SMSW*/
             if (cpu_mod != 3)
                 SEG_CHECK_WRITE(cpu_state.ea_seg);
-            if (is486 || isibm486)
-                seteaw(msw);
-            else if (is386)
-                seteaw(msw | /* 0xFF00 */ 0xFFE0);
-            else
-                seteaw(msw | 0xFFF0);
+            if (is386 && is32 && (cpu_mod == 3)) {
+                if (is486 || isibm486)
+                    seteaw(cr0);
+                else if (is386 && !cpu_16bitbus)
+                    seteaw(cr0 | /* 0x7FFFFF00 */ 0x7FFFFFE0);
+                else
+                    seteaw(cr0 | 0x7FFFFFF0);
+            } else {
+                if (is486 || isibm486)
+                    seteaw(msw);
+                else if (is386 && !cpu_16bitbus)
+                    seteaw(msw | /* 0xFF00 */ 0xFFE0);
+                else
+                    seteaw(msw | 0xFFF0);
+            }
             CLOCK_CYCLES(2);
             PREFETCH_RUN(2, 2, rmdat, 0, 0, (cpu_mod == 3) ? 0 : 1, 0, ea32);
             break;

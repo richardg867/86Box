@@ -87,13 +87,21 @@
     <property name="title">
      <string>&amp;Tools</string>
     </property>
+    <widget class="QMenu" name="menuSound">
+     <property name="title">
+      <string>S&amp;ound</string>
+     </property>
+     <addaction name="actionMute_Unmute"/>
+     <addaction name="separator"/>
+     <addaction name="actionSound_gain"/>
+    </widget>
     <addaction name="actionSettings"/>
     <addaction name="actionUpdate_status_bar_icons"/>
     <addaction name="separator"/>
     <addaction name="actionEnable_Discord_integration"/>
     <addaction name="separator"/>
     <addaction name="actionTake_screenshot"/>
-    <addaction name="actionSound_gain"/>
+    <addaction name="menuSound"/>
     <addaction name="separator"/>
     <addaction name="actionPreferences"/>
     <addaction name="separator"/>
@@ -117,7 +125,6 @@
      <addaction name="actionHardware_Renderer_OpenGL_ES"/>
      <addaction name="actionOpenGL_3_0_Core"/>
      <addaction name="actionVulkan"/>
-     <addaction name="actionDirect3D_9"/>
      <addaction name="actionVNC"/>
     </widget>
     <widget class="QMenu" name="menuWindow_scale_factor">
@@ -180,7 +187,6 @@
     </widget>
     <addaction name="actionHide_tool_bar"/>
     <addaction name="actionHide_status_bar"/>
-    <addaction name="actionShow_status_icons_in_fullscreen"/>
     <addaction name="separator"/>
     <addaction name="actionShow_non_primary_monitors"/>
     <addaction name="actionResizable_window"/>
@@ -294,7 +300,7 @@
   <action name="actionHard_Reset">
    <property name="icon">
     <iconset resource="../qt_resources.qrc">
-     <normaloff>:/menuicons/win/icons/hard_reset.ico</normaloff>:/menuicons/win/icons/hard_reset.ico</iconset>
+     <normaloff>:/menuicons/qt/icons/hard_reset.ico</normaloff>:/menuicons/qt/icons/hard_reset.ico</iconset>
    </property>
    <property name="text">
     <string>&amp;Hard Reset...</string>
@@ -306,7 +312,7 @@
   <action name="actionCtrl_Alt_Del">
    <property name="icon">
     <iconset resource="../qt_resources.qrc">
-     <normaloff>:/menuicons/win/icons/send_cad.ico</normaloff>:/menuicons/win/icons/send_cad.ico</iconset>
+     <normaloff>:/menuicons/qt/icons/send_cad.ico</normaloff>:/menuicons/qt/icons/send_cad.ico</iconset>
    </property>
    <property name="text">
     <string>&amp;Ctrl+Alt+Del</string>
@@ -327,7 +333,7 @@
   <action name="actionCtrl_Alt_Esc">
    <property name="icon">
     <iconset resource="../qt_resources.qrc">
-     <normaloff>:/menuicons/win/icons/send_cae.ico</normaloff>:/menuicons/win/icons/send_cae.ico</iconset>
+     <normaloff>:/menuicons/qt/icons/send_cae.ico</normaloff>:/menuicons/qt/icons/send_cae.ico</iconset>
    </property>
    <property name="text">
     <string>Ctrl+Alt+&amp;Esc</string>
@@ -342,7 +348,7 @@
    </property>
    <property name="icon">
     <iconset resource="../qt_resources.qrc">
-     <normaloff>:/menuicons/win/icons/pause.ico</normaloff>:/menuicons/win/icons/pause.ico</iconset>
+     <normaloff>:/menuicons/qt/icons/pause.ico</normaloff>:/menuicons/qt/icons/pause.ico</iconset>
    </property>
    <property name="text">
     <string>&amp;Pause</string>
@@ -355,11 +361,14 @@
    <property name="text">
     <string>Exit</string>
    </property>
+   <property name="menuRole">
+    <enum>QAction::QuitRole</enum>
+   </property>
   </action>
   <action name="actionSettings">
    <property name="icon">
     <iconset resource="../qt_resources.qrc">
-     <normaloff>:/menuicons/win/icons/settings.ico</normaloff>:/menuicons/win/icons/settings.ico</iconset>
+     <normaloff>:/menuicons/qt/icons/settings.ico</normaloff>:/menuicons/qt/icons/settings.ico</iconset>
    </property>
    <property name="text">
     <string>&amp;Settings...</string>
@@ -374,6 +383,9 @@
   <action name="actionFullscreen">
    <property name="text">
     <string>&amp;Fullscreen</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+Alt+PgUp</string>
    </property>
   </action>
   <action name="actionSoftware_Renderer">
@@ -721,6 +733,11 @@
     <bool>false</bool>
    </property>
   </action>
+  <action name="actionMute_Unmute">
+   <property name="text">
+    <string>&amp;Mute</string>
+   </property>
+  </action>
   <action name="actionSound_gain">
    <property name="text">
     <string>Sound &amp;gain...</string>
@@ -770,13 +787,13 @@
    </property>
    <property name="icon">
     <iconset resource="../qt_resources.qrc">
-     <normaloff>:/menuicons/win/icons/acpi_shutdown.ico</normaloff>:/menuicons/win/icons/acpi_shutdown.ico</iconset>
+     <normaloff>:/menuicons/qt/icons/acpi_shutdown.ico</normaloff>:/menuicons/qt/icons/acpi_shutdown.ico</iconset>
    </property>
    <property name="text">
-    <string>ACPI Shutdown</string>
+    <string>ACPI shutdown</string>
    </property>
    <property name="toolTip">
-    <string>ACPI Shutdown</string>
+    <string>ACPI shutdown</string>
    </property>
    <property name="visible">
     <bool>true</bool>
@@ -814,6 +831,9 @@
    <property name="text">
     <string>Renderer options...</string>
    </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
   </action>
   <action name="actionVulkan">
    <property name="checkable">
@@ -829,17 +849,6 @@
   <action name="actionMCA_devices">
    <property name="text">
     <string>MCA devices...</string>
-   </property>
-  </action>
-  <action name="actionDirect3D_9">
-   <property name="checkable">
-    <bool>true</bool>
-   </property>
-   <property name="text">
-    <string>Direct3D 9</string>
-   </property>
-   <property name="vid_api" stdset="0">
-    <number>5</number>
    </property>
   </action>
   <action name="actionShow_non_primary_monitors">
@@ -858,7 +867,7 @@
     <string>VNC</string>
    </property>
    <property name="vid_api" stdset="0">
-    <number>6</number>
+    <number>5</number>
    </property>
   </action>
   <action name="actionOpen_screenshots_folder">
@@ -880,14 +889,6 @@
    </property>
    <property name="text">
     <string>Cursor/Puck</string>
-   </property>
-  </action>
-  <action name="actionShow_status_icons_in_fullscreen">
-   <property name="checkable">
-    <bool>true</bool>
-   </property>
-   <property name="text">
-    <string>Show status icons in fullscreen</string>
    </property>
   </action>
   <action name="actionPen">

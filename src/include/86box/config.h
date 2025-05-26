@@ -8,16 +8,16 @@
  *
  *          Configuration file handler header.
  *
- *
- *
  * Authors: Sarah Walker,
  *          Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
  *          Overdoze,
+ *          Jasmine Iwanek, <jriwanek@gmail.com>
  *
  *          Copyright 2008-2017 Sarah Walker.
  *          Copyright 2016-2017 Miran Grca.
  *          Copyright 2017 Fred N. van Kempen.
+ *          Copyright 2021-2025 Jasmine Iwanek.
  */
 #ifndef EMU_CONFIG_H
 #define EMU_CONFIG_H
@@ -111,9 +111,11 @@ typedef struct config_t {
 #    ifdef USE_SERIAL_DEVICES
     char serial_devices[SERIAL_MAX][32];     /* Serial device names */
 #    endif
+    char gameport_devices[GAMEPORT_MAX][32]; /* gameport device names */
 
     /* Other peripherals category */
-    int fdc_type;                 /* Floppy disk controller type */
+    int fdc_current[FDC_MAX];     /* Floppy disk controller type */
+    int hdc_current[HDC_MAX];     /* Hard disk controller type */
     int hdc;                      /* Hard disk controller */
     int scsi_card;                /* SCSI controller */
     int ide_ter_enabled;          /* Tertiary IDE controller enabled */

@@ -24,7 +24,9 @@ extern "C" {
 #include <86box/device.h>
 #include <86box/machine.h>
 #include <86box/video.h>
+#include <86box/vid_8514a_device.h>
 #include <86box/vid_xga_device.h>
+#include <86box/vid_ps55da2.h>
 }
 
 #include "qt_deviceconfig.hpp"
@@ -36,8 +38,8 @@ SettingsDisplay::SettingsDisplay(QWidget *parent)
 {
     ui->setupUi(this);
 
-    videoCard[0] = gfxcard[0];
-    videoCard[1] = gfxcard[1];
+    for (uint8_t i = 0; i < GFXCARD_MAX; i ++)
+        videoCard[i] = gfxcard[i];
     onCurrentMachineChanged(machine);
 }
 
@@ -50,10 +52,14 @@ void
 SettingsDisplay::save()
 {
     gfxcard[0]                 = ui->comboBoxVideo->currentData().toInt();
-    gfxcard[1]                 = ui->comboBoxVideoSecondary->currentData().toInt();
+    // TODO
+    for (uint8_t i = 1; i < GFXCARD_MAX; i ++)
+        gfxcard[i]                 = ui->comboBoxVideoSecondary->currentData().toInt();
+
     voodoo_enabled             = ui->checkBoxVoodoo->isChecked() ? 1 : 0;
     ibm8514_standalone_enabled = ui->checkBox8514->isChecked() ? 1 : 0;
     xga_standalone_enabled     = ui->checkBoxXga->isChecked() ? 1 : 0;
+    da2_standalone_enabled = ui->checkBoxDa2->isChecked() ? 1 : 0;
 }
 
 void
@@ -103,8 +109,10 @@ SettingsDisplay::onCurrentMachineChanged(int machineId)
         ui->pushButtonConfigureSecondary->setEnabled(true);
     }
     ui->comboBoxVideo->setCurrentIndex(selectedRow);
-    if (gfxcard[1] == 0)
-        ui->pushButtonConfigureSecondary->setEnabled(false);
+    // TODO
+    for (uint8_t i = 1; i < GFXCARD_MAX; i ++)
+        if (gfxcard[i] == 0)
+            ui->pushButtonConfigureSecondary->setEnabled(false);
 }
 
 void
@@ -114,23 +122,39 @@ SettingsDisplay::on_pushButtonConfigure_clicked()
     auto *device = video_card_getdevice(videoCard);
     if (videoCard == VID_INTERNAL)
         device = machine_get_vid_device(machineId);
-    DeviceConfig::ConfigureDevice(device, 0, qobject_cast<Settings *>(Settings::settings));
+    DeviceConfig::ConfigureDevice(device);
 }
 
 void
 SettingsDisplay::on_pushButtonConfigureVoodoo_clicked()
 {
-    DeviceConfig::ConfigureDevice(&voodoo_device, 0, qobject_cast<Settings *>(Settings::settings));
+    DeviceConfig::ConfigureDevice(&voodoo_device);
+}
+
+void
+SettingsDisplay::on_pushButtonConfigure8514_clicked()
+{
+    if (machine_has_bus(machineId, MACHINE_BUS_MCA) > 0) {
+        DeviceConfig::ConfigureDevice(&ibm8514_mca_device);
+    } else {
+        DeviceConfig::ConfigureDevice(&gen8514_isa_device);
+    }
 }
 
 void
 SettingsDisplay::on_pushButtonConfigureXga_clicked()
 {
     if (machine_has_bus(machineId, MACHINE_BUS_MCA) > 0) {
-        DeviceConfig::ConfigureDevice(&xga_device, 0, qobject_cast<Settings *>(Settings::settings));
+        DeviceConfig::ConfigureDevice(&xga_device);
     } else {
-        DeviceConfig::ConfigureDevice(&xga_isa_device, 0, qobject_cast<Settings *>(Settings::settings));
+        DeviceConfig::ConfigureDevice(&xga_isa_device);
     }
+}
+
+void
+SettingsDisplay::on_pushButtonConfigureDa2_clicked()
+{
+    DeviceConfig::ConfigureDevice(&ps55da2_device);
 }
 
 void
@@ -139,6 +163,7 @@ SettingsDisplay::on_comboBoxVideo_currentIndexChanged(int index)
     if (index < 0) {
         return;
     }
+    static QRegularExpression voodooRegex("3dfx|voodoo|banshee", QRegularExpression::CaseInsensitiveOption);
     auto curVideoCard_2 = videoCard[1];
     videoCard[0] = ui->comboBoxVideo->currentData().toInt();
     if (videoCard[0] == VID_INTERNAL)
@@ -147,10 +172,6 @@ SettingsDisplay::on_comboBoxVideo_currentIndexChanged(int index)
     else
         ui->pushButtonConfigure->setEnabled(video_card_has_config(videoCard[0]) > 0);
     bool machineHasPci = machine_has_bus(machineId, MACHINE_BUS_PCI) > 0;
-    ui->checkBoxVoodoo->setEnabled(machineHasPci);
-    if (machineHasPci) {
-        ui->checkBoxVoodoo->setChecked(voodoo_enabled);
-    }
     ui->pushButtonConfigureVoodoo->setEnabled(machineHasPci && ui->checkBoxVoodoo->isChecked());
 
     bool machineHasIsa16 = machine_has_bus(machineId, MACHINE_BUS_ISA16) > 0;
@@ -159,15 +180,23 @@ SettingsDisplay::on_comboBoxVideo_currentIndexChanged(int index)
     bool videoCardHas8514 = ((videoCard[0] == VID_INTERNAL) ? machine_has_flags(machineId, MACHINE_VIDEO_8514A) : (video_card_get_flags(videoCard[0]) == VIDEO_FLAG_TYPE_8514));
     bool videoCardHasXga  = ((videoCard[0] == VID_INTERNAL) ? machine_has_flags(machineId, MACHINE_VIDEO_XGA) : (video_card_get_flags(videoCard[0]) == VIDEO_FLAG_TYPE_XGA));
 
-    ui->checkBox8514->setEnabled((machineHasIsa16 || machineHasMca) && !videoCardHas8514);
-    if (machineHasIsa16 || machineHasMca)
-        ui->checkBox8514->setChecked(ibm8514_standalone_enabled && !videoCardHas8514);
+    bool machineSupports8514 = ((machineHasIsa16 || machineHasMca) && !videoCardHas8514);
+    bool machineSupportsXga  = (((machineHasIsa16 && device_available(&xga_isa_device)) || (machineHasMca && device_available(&xga_device))) && !videoCardHasXga);
+    bool machineSupportsDa2 = machineHasMca && device_available(&ps55da2_device);
 
-    ui->checkBoxXga->setEnabled((machineHasIsa16 || machineHasMca) && !videoCardHasXga);
-    if (machineHasIsa16 || machineHasMca)
-        ui->checkBoxXga->setChecked(xga_standalone_enabled && !videoCardHasXga);
+    ui->checkBox8514->setEnabled(machineSupports8514);
+    ui->checkBox8514->setChecked(ibm8514_standalone_enabled && machineSupports8514);
 
-    ui->pushButtonConfigureXga->setEnabled((machineHasIsa16 || machineHasMca) && ui->checkBoxXga->isChecked() && !videoCardHasXga);
+    ui->pushButtonConfigure8514->setEnabled(ui->checkBox8514->isEnabled() && ui->checkBox8514->isChecked());
+
+    ui->checkBoxXga->setEnabled(machineSupportsXga);
+    ui->checkBoxXga->setChecked(xga_standalone_enabled && machineSupportsXga);
+
+    ui->checkBoxDa2->setEnabled(machineSupportsDa2);
+    ui->checkBoxDa2->setChecked(da2_standalone_enabled && machineSupportsDa2);
+
+    ui->pushButtonConfigureXga->setEnabled(ui->checkBoxXga->isEnabled() && ui->checkBoxXga->isChecked());
+    ui->pushButtonConfigureDa2->setEnabled(ui->checkBoxDa2->isEnabled() && ui->checkBoxDa2->isChecked());
 
     int c = 2;
 
@@ -191,9 +220,9 @@ SettingsDisplay::on_comboBoxVideo_currentIndexChanged(int index)
         int secondaryFlags = video_card_get_flags(c);
         if (video_card_available(c)
             && device_is_valid(video_dev, machineId)
-            && !((secondaryFlags == primaryFlags) && (secondaryFlags != VIDEO_FLAG_TYPE_SPECIAL))
-            && !(((primaryFlags == VIDEO_FLAG_TYPE_8514) || (primaryFlags == VIDEO_FLAG_TYPE_XGA)) && (secondaryFlags != VIDEO_FLAG_TYPE_MDA) && (secondaryFlags != VIDEO_FLAG_TYPE_SPECIAL))
-            && !((primaryFlags != VIDEO_FLAG_TYPE_MDA) && (primaryFlags != VIDEO_FLAG_TYPE_SPECIAL) && ((secondaryFlags == VIDEO_FLAG_TYPE_8514) || (secondaryFlags == VIDEO_FLAG_TYPE_XGA)))) {
+            && !((secondaryFlags == primaryFlags) && (secondaryFlags != VIDEO_FLAG_TYPE_SECONDARY))
+            && !(((primaryFlags == VIDEO_FLAG_TYPE_8514) || (primaryFlags == VIDEO_FLAG_TYPE_XGA)) && (secondaryFlags != VIDEO_FLAG_TYPE_MDA) && (secondaryFlags != VIDEO_FLAG_TYPE_SECONDARY))
+            && !((primaryFlags != VIDEO_FLAG_TYPE_MDA) && (primaryFlags != VIDEO_FLAG_TYPE_SECONDARY) && ((secondaryFlags == VIDEO_FLAG_TYPE_8514) || (secondaryFlags == VIDEO_FLAG_TYPE_XGA)))) {
             ui->comboBoxVideoSecondary->addItem(name, c);
             if (c == curVideoCard_2)
                 ui->comboBoxVideoSecondary->setCurrentIndex(ui->comboBoxVideoSecondary->count() - 1);
@@ -206,6 +235,28 @@ SettingsDisplay::on_comboBoxVideo_currentIndexChanged(int index)
         ui->comboBoxVideoSecondary->setCurrentIndex(0);
         ui->pushButtonConfigureSecondary->setEnabled(false);
     }
+
+    // Is the currently selected video card a voodoo?
+    if (ui->comboBoxVideo->currentText().contains(voodooRegex)) {
+        // Get the name of the video card currently in use
+        const device_t *video_dev        = video_card_getdevice(gfxcard[0]);
+        const QString   currentVideoName = DeviceConfig::DeviceName(video_dev, video_get_internal_name(gfxcard[0]), 1);
+        // Is it a voodoo?
+        const bool currentCardIsVoodoo = currentVideoName.contains(voodooRegex);
+        // Don't uncheck if
+        // * Current card is voodoo
+        // * Add-on voodoo was manually overridden in config
+        if (ui->checkBoxVoodoo->isChecked() && !currentCardIsVoodoo) {
+            // Otherwise, uncheck the add-on voodoo when a main voodoo is selected
+            ui->checkBoxVoodoo->setCheckState(Qt::Unchecked);
+        }
+        ui->checkBoxVoodoo->setDisabled(true);
+    } else {
+        ui->checkBoxVoodoo->setEnabled(machineHasPci);
+        if (machineHasPci) {
+            ui->checkBoxVoodoo->setChecked(voodoo_enabled);
+        }
+    }
 }
 
 void
@@ -215,9 +266,21 @@ SettingsDisplay::on_checkBoxVoodoo_stateChanged(int state)
 }
 
 void
+SettingsDisplay::on_checkBox8514_stateChanged(int state)
+{
+    ui->pushButtonConfigure8514->setEnabled(state == Qt::Checked);
+}
+
+void
 SettingsDisplay::on_checkBoxXga_stateChanged(int state)
 {
     ui->pushButtonConfigureXga->setEnabled(state == Qt::Checked);
+}
+
+void
+SettingsDisplay::on_checkBoxDa2_stateChanged(int state)
+{
+    ui->pushButtonConfigureDa2->setEnabled(state == Qt::Checked);
 }
 
 void
@@ -235,5 +298,5 @@ void
 SettingsDisplay::on_pushButtonConfigureSecondary_clicked()
 {
     auto *device = video_card_getdevice(ui->comboBoxVideoSecondary->currentData().toInt());
-    DeviceConfig::ConfigureDevice(device, 0, qobject_cast<Settings *>(Settings::settings));
+    DeviceConfig::ConfigureDevice(device);
 }

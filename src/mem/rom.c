@@ -86,6 +86,48 @@ rom_add_path(const char *path)
     path_slash(rom_path->path);
 }
 
+static int
+rom_check(const char *fn)
+{
+    FILE *fp = NULL;
+    int ret = 0;
+
+    if ((fn[strlen(fn) - 1] == '/') || (fn[strlen(fn) - 1] == '\\'))
+        ret = plat_dir_check((char *) fn);
+    else {
+        fp = fopen(fn, "rb");
+        ret = (fp != NULL);
+        fclose(fp);
+    }
+
+    return ret;
+}
+
+void
+rom_get_full_path(char *dest, const char *fn)
+{
+    char temp[1024] = { 0 };
+
+    dest[0] = 0x00;
+
+    if (strstr(fn, "roms/") == fn) {
+        /* Relative path */
+        for (rom_path_t *rom_path = &rom_paths; rom_path != NULL; rom_path = rom_path->next) {
+            path_append_filename(temp, rom_path->path, fn + 5);
+
+            if (rom_check(temp)) {
+                strcpy(dest, temp);
+                return;
+            }
+        }
+
+        return;
+    } else {
+        /* Absolute path */
+        strcpy(dest, fn);
+    }
+}
+
 FILE *
 rom_fopen(const char *fn, char *mode)
 {
@@ -202,6 +244,57 @@ rom_readl(uint32_t addr, void *priv)
     return (*(uint32_t *) &rom->rom[(addr - rom->mapping.base) & rom->mask]);
 }
 
+void
+rom_write(uint32_t addr, uint8_t val, void *priv)
+{
+    const rom_t *rom = (rom_t *) priv;
+
+#ifdef ROM_TRACE
+    if (rom->mapping.base == ROM_TRACE)
+        rom_log("ROM: write byte from BIOS at %06lX\n", addr);
+#endif
+
+    if (addr < rom->mapping.base)
+        return;
+    if (addr >= (rom->mapping.base + rom->sz))
+        return;
+    rom->rom[(addr - rom->mapping.base) & rom->mask] = val;
+}
+
+void
+rom_writew(uint32_t addr, uint16_t val, void *priv)
+{
+    rom_t *rom = (rom_t *) priv;
+
+#ifdef ROM_TRACE
+    if (rom->mapping.base == ROM_TRACE)
+        rom_log("ROM: write word from BIOS at %06lX\n", addr);
+#endif
+
+    if (addr < (rom->mapping.base - 1))
+        return;
+    if (addr >= (rom->mapping.base + rom->sz))
+        return;
+    *(uint16_t *) &rom->rom[(addr - rom->mapping.base) & rom->mask] = val;
+}
+
+void
+rom_writel(uint32_t addr, uint32_t val, void *priv)
+{
+    rom_t *rom = (rom_t *) priv;
+
+#ifdef ROM_TRACE
+    if (rom->mapping.base == ROM_TRACE)
+        rom_log("ROM: write long from BIOS at %06lX\n", addr);
+#endif
+
+    if (addr < (rom->mapping.base - 3))
+        return;
+    if (addr >= (rom->mapping.base + rom->sz))
+        return;
+    *(uint32_t *) &rom->rom[(addr - rom->mapping.base) & rom->mask] = val;
+}
+
 int
 rom_load_linear_oddeven(const char *fn, uint32_t addr, int sz, int off, uint8_t *ptr)
 {
@@ -296,6 +389,12 @@ rom_load_linear_inverted(const char *fn, uint32_t addr, int sz, int off, uint8_t
             fatal("rom_load_linear_inverted(): Error reading the upper half of the data\n");
         if (fread(ptr + addr, sz >> 1, 1, fp) > (sz >> 1))
             fatal("rom_load_linear_inverted(): Error reading the lower half of the data\n");
+        if (sz == 0x40000) {
+            if (fread(ptr + addr + 0x30000, 1, sz >> 1, fp) > (sz >> 1))
+                fatal("rom_load_linear_inverted(): Error reading the upper half of the data\n");
+            if (fread(ptr + addr + 0x20000, sz >> 1, 1, fp) > (sz >> 1))
+                fatal("rom_load_linear_inverted(): Error reading the lower half of the data\n");
+        }
     }
 
     (void) fclose(fp);

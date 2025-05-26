@@ -311,8 +311,10 @@ contaq_82c59x_close(void *priv)
 {
     contaq_82c59x_t *dev = (contaq_82c59x_t *) priv;
 
-    smram_del(dev->smram[1]);
-    smram_del(dev->smram[0]);
+    if (dev->green) {
+        smram_del(dev->smram[1]);
+        smram_del(dev->smram[0]);
+    }
 
     free(dev);
 }
@@ -320,8 +322,7 @@ contaq_82c59x_close(void *priv)
 static void *
 contaq_82c59x_init(const device_t *info)
 {
-    contaq_82c59x_t *dev = (contaq_82c59x_t *) malloc(sizeof(contaq_82c59x_t));
-    memset(dev, 0x00, sizeof(contaq_82c59x_t));
+    contaq_82c59x_t *dev = (contaq_82c59x_t *) calloc(1, sizeof(contaq_82c59x_t));
 
     dev->green = info->local;
 
@@ -357,7 +358,7 @@ const device_t contaq_82c596a_device = {
     .init          = contaq_82c59x_init,
     .close         = contaq_82c59x_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -371,7 +372,7 @@ const device_t contaq_82c597_device = {
     .init          = contaq_82c59x_init,
     .close         = contaq_82c59x_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

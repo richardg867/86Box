@@ -35,10 +35,8 @@ qt_nvr_save(void)
     return nvr_save();
 }
 
-char icon_set[256] = ""; /* name of the iconset to be used */
-
 int
-plat_vidapi(char *api)
+plat_vidapi(const char *api)
 {
     if (!strcasecmp(api, "default") || !strcasecmp(api, "system")) {
         return 0;
@@ -52,10 +50,8 @@ plat_vidapi(char *api)
         return 3;
     } else if (!strcasecmp(api, "qt_vulkan")) {
         return 4;
-    } else if (!strcasecmp(api, "qt_d3d9")) {
-        return 5;
     } else if (!strcasecmp(api, "vnc")) {
-        return 6;
+        return 5;
     }
 
     return 0;
@@ -83,9 +79,6 @@ plat_vidapi_name(int api)
             name = "qt_vulkan";
             break;
         case 5:
-            name = "qt_d3d9";
-            break;
-        case 6:
             name = "vnc";
             break;
         default:

@@ -17,15 +17,11 @@
 
 #include "qt_renderercommon.hpp"
 #include "qt_mainwindow.hpp"
-#include "qt_machinestatus.hpp"
 
 #include <QPainter>
 #include <QWidget>
 #include <QEvent>
 #include <QApplication>
-#include <QFontMetrics>
-#include <QStatusBar>
-#include <QLayout>
 
 #include <cmath>
 
@@ -33,8 +29,6 @@ extern "C" {
 #include <86box/86box.h>
 #include <86box/plat.h>
 #include <86box/video.h>
-
-int status_icons_fullscreen = 0;
 }
 
 RendererCommon::RendererCommon() = default;
@@ -64,6 +58,9 @@ RendererCommon::onResize(int width, int height)
     bool main_is_ancestor = main_window->isAncestorOf(parentWidget);
     bool main_max = main_window->isMaximized();
     bool main_is_max = (main_is_ancestor && main_max == false);
+
+    width = round(pixelRatio * width);
+    height = round(pixelRatio * height);
 
     if (is_fs && (video_fullscreen_scale_maximized ? (parent_max && main_is_max) : 1))
         destination.setRect(0, 0, width, height);
@@ -135,52 +132,9 @@ RendererCommon::onResize(int width, int height)
 
     monitors[r_monitor_index].mon_res_x = (double) destination.width();
     monitors[r_monitor_index].mon_res_y = (double) destination.height();
-}
 
-void RendererCommon::drawStatusBarIcons(QPainter* painter)
-{
-    uint32_t x = 0;
-    auto prevcompositionMode = painter->compositionMode();
-    painter->setCompositionMode(QPainter::CompositionMode::CompositionMode_SourceOver);
-    for (int i = 0; i < main_window->statusBar()->children().count(); i++) {
-        QLabel* label = qobject_cast<QLabel*>(main_window->statusBar()->children()[i]);
-        if (label) {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-            const QPixmap pixmap = label->pixmap();
-#elif QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
-            const QPixmap pixmap = label->pixmap(Qt::ReturnByValue);
-#else
-            const QPixmap pixmap = (label->pixmap() ? *label->pixmap() : QPixmap());
-#endif
-            if (!pixmap.isNull()) {
-                painter->setBrush(QColor::fromRgbF(0, 0, 0, 1.));
-                painter->fillRect(x, painter->device()->height() - pixmap.height() - 5,
-                                  pixmap.width(), pixmap.height() + 5, QColor::fromRgbF(0, 0, 0, .5));
-                painter->drawPixmap(x + main_window->statusBar()->layout()->spacing() / 2,
-                                    painter->device()->height() - pixmap.height() - 3, pixmap);
-                x += pixmap.width();
-                if (i <= main_window->statusBar()->children().count() - 3) {
-                    painter->fillRect(x, painter->device()->height() - pixmap.height() - 5,
-                                      main_window->statusBar()->layout()->spacing(), pixmap.height() + 5,
-                                      QColor::fromRgbF(0, 0, 0, .5));
-                    x += main_window->statusBar()->layout()->spacing();
-                } else
-                    painter->fillRect(x, painter->device()->height() - pixmap.height() - 4, 4,
-                                      pixmap.height() + 4, QColor::fromRgbF(0, 0, 0, .5));
-            }
-        }
-    }
-    if (main_window->status->getMessage().isEmpty() == false) {
-        auto curStatusMsg = main_window->status->getMessage();
-        auto textSize = painter->fontMetrics().size(Qt::TextSingleLine, QChar(' ') + curStatusMsg + QChar(' '));
-        painter->setPen(QColor(0, 0, 0, 127));
-        painter->fillRect(painter->device()->width() - textSize.width(), painter->device()->height() - textSize.height(),
-                          textSize.width(), textSize.height(), QColor(0, 0, 0, 127));
-        painter->setPen(QColor(255, 255, 255, 255));
-        painter->drawText(QRectF(painter->device()->width() - textSize.width(), painter->device()->height() - textSize.height(),
-                                 textSize.width(), textSize.height()), Qt::TextSingleLine, QChar(' ') + curStatusMsg + QChar(' '));
-    }
-    painter->setCompositionMode(prevcompositionMode);
+    destinationF.setRect((double)destination.x() / (double)width, (double)destination.y() / (double)height,
+                        (double)destination.width() / (double)width, (double)destination.height() / (double)height);
 }
 
 bool
@@ -196,6 +150,10 @@ RendererCommon::eventDelegate(QEvent *event, bool &result)
         case QEvent::MouseButtonPress:
         case QEvent::MouseMove:
         case QEvent::MouseButtonRelease:
+        case QEvent::TouchBegin:
+        case QEvent::TouchEnd:
+        case QEvent::TouchCancel:
+        case QEvent::TouchUpdate:
         case QEvent::Wheel:
         case QEvent::Enter:
         case QEvent::Leave:

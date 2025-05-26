@@ -29,6 +29,7 @@
 #    define FLAG_ATI          128
 #    define FLAG_S3_911_16BIT 256
 #    define FLAG_512K_MASK    512
+#    define FLAG_NO_SHIFT3    1024 /* Needed for Bochs VBE. */
 struct monitor_t;
 
 typedef struct hwcursor_t {
@@ -77,6 +78,8 @@ typedef struct svga_t {
     uint8_t overlay_oddeven;
     uint8_t fcr;
     uint8_t hblank_overscan;
+    uint8_t vidsys_ena;
+    uint8_t sleep;
 
     int dac_addr;
     int dac_pos;
@@ -85,6 +88,7 @@ typedef struct svga_t {
     int dac_b;
     int vtotal;
     int dispend;
+    int vdisp;
     int vsyncstart;
     int split;
     int vblankstart;
@@ -118,17 +122,18 @@ typedef struct svga_t {
     int vram_display_mask;
     int vidclock;
     int dots_per_clock;
-    int hblank_ext;
     int hwcursor_on;
     int dac_hwcursor_on;
     int overlay_on;
     int set_override;
     int hblankstart;
     int hblankend;
-    int hblank_sub;
     int hblank_end_val;
     int hblank_end_len;
+    int hblank_end_mask;
+    int hblank_sub;
     int packed_4bpp;
+    int ps_bit_bug;
     int ati_4color;
 
     /*The three variables below allow us to implement memory maps like that seen on a 1MB Trio64 :
@@ -166,8 +171,14 @@ typedef struct svga_t {
     latch_t  latch;
 
     pc_timer_t timer;
+    pc_timer_t timer_8514;
+    pc_timer_t timer_xga;
 
     double clock;
+    double clock_8514;
+    double clock_xga;
+
+    double multiplier;
 
     hwcursor_t hwcursor;
     hwcursor_t hwcursor_latch;
@@ -178,6 +189,7 @@ typedef struct svga_t {
 
     void (*render)(struct svga_t *svga);
     void (*render8514)(struct svga_t *svga);
+    void (*render_xga)(struct svga_t *svga);
     void (*recalctimings_ex)(struct svga_t *svga);
 
     void (*video_out)(uint16_t addr, uint8_t val, void *priv);
@@ -191,8 +203,17 @@ typedef struct svga_t {
 
     void (*vblank_start)(struct svga_t *svga);
 
+    void (*write)(uint32_t addr, uint8_t val, void *priv);
+    void (*writew)(uint32_t addr, uint16_t val, void *priv);
+    void (*writel)(uint32_t addr, uint32_t val, void *priv);
+
+    uint8_t (*read)(uint32_t addr, void *priv);
+    uint16_t (*readw)(uint32_t addr, void *priv);
+    uint32_t (*readl)(uint32_t addr, void *priv);
+
     void (*ven_write)(struct svga_t *svga, uint8_t val, uint32_t addr);
     float (*getclock)(int clock, void *priv);
+    float (*getclock8514)(int clock, void *priv);
 
     /* Called when VC=R18 and friends. If this returns zero then MA resetting
        is skipped. Matrox Mystique in Power mode reuses this counter for
@@ -207,6 +228,11 @@ typedef struct svga_t {
       card should not attempt to display anything */
     int   override;
     void *priv;
+
+    int vga_enabled;
+    /* The PS/55 POST BIOS has a special monitor detection for its internal VGA
+       when the monitor is connected to the Display Adapter. */
+    int cable_connected;
 
     uint8_t  crtc[256];
     uint8_t  gdcreg[256];
@@ -274,27 +300,55 @@ typedef struct svga_t {
     /* Enable LUT mapping of >= 24 bpp modes. */
     int lut_map;
 
+    /* Override the horizontal blanking stuff. */
+    int hoverride;
+
     /* Return a 32 bpp color from a 15/16 bpp color. */
     uint32_t (*conv_16to32)(struct svga_t *svga, uint16_t color, uint8_t bpp);
 
     void *  dev8514;
+    void *  ext8514;
+    void *  clock_gen8514;
     void *  xga;
+
+    /* If set then another device is driving the monitor output and the EGA
+      card should not attempt to display anything. */
+    void       (*render_override)(void *priv);
+    void *     priv_parent;
+
+    void *     local;
 } svga_t;
 
-extern int vga_on;
+extern void     ibm8514_set_poll(svga_t *svga);
+extern void     ibm8514_poll(void *priv);
+extern void     ibm8514_recalctimings(svga_t *svga);
+extern uint8_t  ibm8514_ramdac_in(uint16_t port, void *priv);
+extern void     ibm8514_ramdac_out(uint16_t port, uint8_t val, void *priv);
+extern void     ibm8514_accel_out_fifo(svga_t *svga, uint16_t port, uint32_t val, int len);
+extern void     ibm8514_accel_out(uint16_t port, uint32_t val, svga_t *svga, int len);
+extern uint16_t ibm8514_accel_in_fifo(svga_t *svga, uint16_t port, int len);
+extern uint8_t  ibm8514_accel_in(uint16_t port, svga_t *svga);
+extern int      ibm8514_cpu_src(svga_t *svga);
+extern int      ibm8514_cpu_dest(svga_t *svga);
+extern void     ibm8514_accel_out_pixtrans(svga_t *svga, uint16_t port, uint32_t val, int len);
+extern void     ibm8514_short_stroke_start(int count, int cpu_input, uint32_t mix_dat, uint32_t cpu_dat, svga_t *svga, uint8_t ssv, int len);
+extern void     ibm8514_accel_start(int count, int cpu_input, uint32_t mix_dat, uint32_t cpu_dat, svga_t *svga, int len);
 
-extern void    ibm8514_poll(void *priv, svga_t *svga);
-extern void    ibm8514_recalctimings(svga_t *svga);
-extern uint8_t ibm8514_ramdac_in(uint16_t port, void *priv);
-extern void    ibm8514_ramdac_out(uint16_t port, uint8_t val, void *priv);
-extern int     ibm8514_cpu_src(svga_t *svga);
-extern int     ibm8514_cpu_dest(svga_t *svga);
-extern void    ibm8514_accel_out_pixtrans(svga_t *svga, uint16_t port, uint32_t val, int len);
-extern void    ibm8514_short_stroke_start(int count, int cpu_input, uint32_t mix_dat, uint32_t cpu_dat, svga_t *svga, uint8_t ssv, int len);
-extern void    ibm8514_accel_start(int count, int cpu_input, uint32_t mix_dat, uint32_t cpu_dat, svga_t *svga, int len);
+extern void     ati8514_out(uint16_t addr, uint8_t val, void *priv);
+extern uint8_t  ati8514_in(uint16_t addr, void *priv);
+extern void     ati8514_recalctimings(svga_t *svga);
+extern uint8_t  ati8514_mca_read(int port, void *priv);
+extern void     ati8514_mca_write(int port, uint8_t val, void *priv);
+extern void     ati8514_pos_write(uint16_t port, uint8_t val, void *priv);
+extern void     ati8514_init(svga_t *svga, void *ext8514, void *dev8514);
 
-extern void xga_poll(void *priv, svga_t *svga);
-extern void xga_recalctimings(svga_t *svga);
+extern void     xga_write_test(uint32_t addr, uint8_t val, void *priv);
+extern uint8_t  xga_read_test(uint32_t addr, void *priv);
+extern void     xga_set_poll(svga_t *svga);
+extern void     xga_poll(void *priv);
+extern void     xga_recalctimings(svga_t *svga);
+
+extern uint32_t svga_decode_addr(svga_t *svga, uint32_t addr, int write);
 
 extern int  svga_init(const device_t *info, svga_t *svga, void *priv, int memsize,
                       void (*recalctimings_ex)(struct svga_t *svga),
@@ -337,6 +391,8 @@ uint32_t svga_mask_addr(uint32_t addr, svga_t *svga);
 uint32_t svga_mask_changedaddr(uint32_t addr, svga_t *svga);
 
 void svga_doblit(int wx, int wy, svga_t *svga);
+void svga_set_poll(svga_t *svga);
+void svga_poll(void *priv);
 
 enum {
     RAMDAC_6BIT = 0,
@@ -363,6 +419,9 @@ extern uint8_t att49x_ramdac_in(uint16_t addr, int rs2, void *priv, svga_t *svga
 extern void    att498_ramdac_out(uint16_t addr, int rs2, uint8_t val, void *priv, svga_t *svga);
 extern uint8_t att498_ramdac_in(uint16_t addr, int rs2, void *priv, svga_t *svga);
 extern float   av9194_getclock(int clock, void *priv);
+
+extern void    bt481_ramdac_out(uint16_t addr, int rs2, uint8_t val, void *priv, svga_t *svga);
+extern uint8_t bt481_ramdac_in(uint16_t addr, int rs2, void *priv, svga_t *svga);
 
 extern void    bt48x_ramdac_out(uint16_t addr, int rs2, int rs3, uint8_t val, void *priv, svga_t *svga);
 extern uint8_t bt48x_ramdac_in(uint16_t addr, int rs2, int rs3, void *priv, svga_t *svga);
@@ -404,12 +463,13 @@ extern float   stg_getclock(int clock, void *priv);
 extern void    tkd8001_ramdac_out(uint16_t addr, uint8_t val, void *priv, svga_t *svga);
 extern uint8_t tkd8001_ramdac_in(uint16_t addr, void *priv, svga_t *svga);
 
-extern void    tvp3026_ramdac_out(uint16_t addr, int rs2, int rs3, uint8_t val, void *priv, svga_t *svga);
-extern uint8_t tvp3026_ramdac_in(uint16_t addr, int rs2, int rs3, void *priv, svga_t *svga);
-extern void    tvp3026_recalctimings(void *priv, svga_t *svga);
-extern void    tvp3026_hwcursor_draw(svga_t *svga, int displine);
-extern float   tvp3026_getclock(int clock, void *priv);
-extern void    tvp3026_gpio(uint8_t (*read)(uint8_t cntl, void *priv), void (*write)(uint8_t cntl, uint8_t data, void *priv), void *cb_priv, void *priv);
+extern void     tvp3026_ramdac_out(uint16_t addr, int rs2, int rs3, uint8_t val, void *priv, svga_t *svga);
+extern uint8_t  tvp3026_ramdac_in(uint16_t addr, int rs2, int rs3, void *priv, svga_t *svga);
+extern uint32_t tvp3026_conv_16to32(svga_t* svga, uint16_t color, uint8_t bpp);
+extern void     tvp3026_recalctimings(void *priv, svga_t *svga);
+extern void     tvp3026_hwcursor_draw(svga_t *svga, int displine);
+extern float    tvp3026_getclock(int clock, void *priv);
+extern void     tvp3026_gpio(uint8_t (*read)(uint8_t cntl, void *priv), void (*write)(uint8_t cntl, uint8_t data, void *priv), void *cb_priv, void *priv);
 
 #    ifdef EMU_DEVICE_H
 extern const device_t ati68860_ramdac_device;
@@ -419,6 +479,7 @@ extern const device_t att491_ramdac_device;
 extern const device_t att492_ramdac_device;
 extern const device_t att498_ramdac_device;
 extern const device_t av9194_device;
+extern const device_t bt481_ramdac_device;
 extern const device_t bt484_ramdac_device;
 extern const device_t att20c504_ramdac_device;
 extern const device_t bt485_ramdac_device;

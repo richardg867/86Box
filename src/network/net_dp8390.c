@@ -384,14 +384,19 @@ dp8390_rx_common(void *priv, uint8_t *buf, int io_len)
                pkthdr[0], pkthdr[1], pkthdr[2], pkthdr[3]);
 
     /* Copy into buffer, update curpage, and signal interrupt if config'd */
-    startptr = &dev->mem[(dev->curr_page * 256) - dev->mem_start];
+    if (((dev->curr_page * 256) - dev->mem_start) >= dev->mem_size)
+        /* Do this to fix Windows 2000 crashing the emulator when its
+           MPU-401 probe hits the NIC. */
+        startptr = dev->sink_buffer;
+    else
+        startptr = &dev->mem[(dev->curr_page * 256) - dev->mem_start];
     memcpy(startptr, pkthdr, sizeof(pkthdr));
     if ((nextpage > dev->curr_page) || ((dev->curr_page + pages) == dev->page_stop)) {
         memcpy(startptr + sizeof(pkthdr), buf, io_len);
     } else {
         endbytes = (dev->page_stop - dev->curr_page) * 256;
         memcpy(startptr + sizeof(pkthdr), buf, endbytes - sizeof(pkthdr));
-        startptr = &dev->mem[((dev->tx_page_start * 256) - dev->mem_start) & dev->mem_wrap];
+        startptr = &dev->mem[((dev->page_start * 256) - dev->mem_start) & dev->mem_wrap];
         memcpy(startptr, buf + endbytes - sizeof(pkthdr), io_len - endbytes + 8);
     }
     dev->curr_page = nextpage;
@@ -913,8 +918,7 @@ dp8390_set_defaults(dp8390_t *dev, uint8_t flags)
 void
 dp8390_mem_alloc(dp8390_t *dev, uint32_t start, uint32_t size)
 {
-    dev->mem = (uint8_t *) malloc(size * sizeof(uint8_t));
-    memset(dev->mem, 0, size * sizeof(uint8_t));
+    dev->mem = (uint8_t *) calloc(size, sizeof(uint8_t));
     dev->mem_start = start;
     dev->mem_end   = start + size;
     dev->mem_size  = size;
@@ -1002,8 +1006,7 @@ dp8390_soft_reset(dp8390_t *dev)
 static void *
 dp8390_init(UNUSED(const device_t *info))
 {
-    dp8390_t *dp8390 = (dp8390_t *) malloc(sizeof(dp8390_t));
-    memset(dp8390, 0, sizeof(dp8390_t));
+    dp8390_t *dp8390 = (dp8390_t *) calloc(1, sizeof(dp8390_t));
 
     /* Set values assuming WORD and only the clear IRQ flag -
        - the NIC can then call dp8390_set_defaults() again to
@@ -1042,7 +1045,7 @@ const device_t dp8390_device = {
     .init          = dp8390_init,
     .close         = dp8390_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

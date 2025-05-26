@@ -103,8 +103,7 @@ adlib_mca_feedb(void *priv)
 void *
 adlib_init(UNUSED(const device_t *info))
 {
-    adlib_t *adlib = malloc(sizeof(adlib_t));
-    memset(adlib, 0, sizeof(adlib_t));
+    adlib_t *adlib = calloc(1, sizeof(adlib_t));
 
     adlib_log("adlib_init\n");
     fm_driver_get(FM_YM3812, &adlib->opl);
@@ -112,7 +111,7 @@ adlib_init(UNUSED(const device_t *info))
                   adlib->opl.read, NULL, NULL,
                   adlib->opl.write, NULL, NULL,
                   adlib->opl.priv);
-    sound_add_handler(adlib_get_buffer, adlib);
+    music_add_handler(adlib_get_buffer, adlib);
     return adlib;
 }
 
@@ -146,12 +145,12 @@ adlib_close(void *priv)
 const device_t adlib_device = {
     .name          = "AdLib",
     .internal_name = "adlib",
-    .flags         = DEVICE_ISA,
+    .flags         = DEVICE_ISA | DEVICE_SIDECAR,
     .local         = 0,
     .init          = adlib_init,
     .close         = adlib_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -165,7 +164,7 @@ const device_t adlib_mca_device = {
     .init          = adlib_mca_init,
     .close         = adlib_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

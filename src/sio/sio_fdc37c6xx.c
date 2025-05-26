@@ -111,16 +111,16 @@ lpt1_handler(fdc37c6xx_t *dev)
     lpt1_remove();
     switch (dev->regs[1] & 3) {
         case 1:
-            lpt1_init(LPT_MDA_ADDR);
-            lpt1_irq(7);
+            lpt1_setup(LPT_MDA_ADDR);
+            lpt1_irq(LPT_MDA_IRQ);
             break;
         case 2:
-            lpt1_init(LPT1_ADDR);
-            lpt1_irq(7 /*5*/);
+            lpt1_setup(LPT1_ADDR);
+            lpt1_irq(LPT1_IRQ /*LPT2_IRQ*/);
             break;
         case 3:
-            lpt1_init(LPT2_ADDR);
-            lpt1_irq(7 /*5*/);
+            lpt1_setup(LPT2_ADDR);
+            lpt1_irq(LPT1_IRQ /*LPT2_IRQ*/);
             break;
 
         default:
@@ -232,7 +232,7 @@ fdc37c6xx_read(uint16_t port, void *priv)
     uint8_t            ret = 0xff;
 
     if (dev->tries == 2) {
-        if (port == 0x3f1)
+        if ((port == 0x3f1) && (dev->cur_reg <= dev->max_reg))
             ret = dev->regs[dev->cur_reg];
     }
 
@@ -252,7 +252,7 @@ fdc37c6xx_reset(fdc37c6xx_t *dev)
     serial_setup(dev->uart[1], COM2_ADDR, COM2_IRQ);
 
     lpt1_remove();
-    lpt1_init(LPT1_ADDR);
+    lpt1_setup(LPT1_ADDR);
 
     fdc_reset(dev->fdc);
     fdc_remove(dev->fdc);
@@ -312,8 +312,7 @@ fdc37c6xx_close(void *priv)
 static void *
 fdc37c6xx_init(const device_t *info)
 {
-    fdc37c6xx_t *dev = (fdc37c6xx_t *) malloc(sizeof(fdc37c6xx_t));
-    memset(dev, 0, sizeof(fdc37c6xx_t));
+    fdc37c6xx_t *dev = (fdc37c6xx_t *) calloc(1, sizeof(fdc37c6xx_t));
 
     dev->fdc = device_add(&fdc_at_smc_device);
 
@@ -346,7 +345,7 @@ const device_t fdc37c651_device = {
     .init          = fdc37c6xx_init,
     .close         = fdc37c6xx_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -360,7 +359,7 @@ const device_t fdc37c651_ide_device = {
     .init          = fdc37c6xx_init,
     .close         = fdc37c6xx_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -374,7 +373,7 @@ const device_t fdc37c661_device = {
     .init          = fdc37c6xx_init,
     .close         = fdc37c6xx_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -388,7 +387,21 @@ const device_t fdc37c661_ide_device = {
     .init          = fdc37c6xx_init,
     .close         = fdc37c6xx_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+const device_t fdc37c661_ide_sec_device = {
+    .name          = "SMC FDC37C661 Super I/O (With Secondary IDE)",
+    .internal_name = "fdc37c661_ide_sec",
+    .flags         = 0,
+    .local         = 0x261,
+    .init          = fdc37c6xx_init,
+    .close         = fdc37c6xx_close,
+    .reset         = NULL,
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -402,7 +415,7 @@ const device_t fdc37c663_device = {
     .init          = fdc37c6xx_init,
     .close         = fdc37c6xx_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -416,7 +429,7 @@ const device_t fdc37c663_ide_device = {
     .init          = fdc37c6xx_init,
     .close         = fdc37c6xx_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -430,7 +443,7 @@ const device_t fdc37c665_device = {
     .init          = fdc37c6xx_init,
     .close         = fdc37c6xx_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -444,7 +457,7 @@ const device_t fdc37c665_ide_device = {
     .init          = fdc37c6xx_init,
     .close         = fdc37c6xx_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -458,7 +471,21 @@ const device_t fdc37c665_ide_pri_device = {
     .init          = fdc37c6xx_init,
     .close         = fdc37c6xx_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+const device_t fdc37c665_ide_sec_device = {
+    .name          = "SMC FDC37C665 Super I/O (With Secondary IDE)",
+    .internal_name = "fdc37c665_ide_sec",
+    .flags         = 0,
+    .local         = 0x265,
+    .init          = fdc37c6xx_init,
+    .close         = fdc37c6xx_close,
+    .reset         = NULL,
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -472,7 +499,7 @@ const device_t fdc37c666_device = {
     .init          = fdc37c6xx_init,
     .close         = fdc37c6xx_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

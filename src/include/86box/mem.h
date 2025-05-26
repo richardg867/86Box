@@ -179,6 +179,7 @@ typedef struct _mem_mapping_ {
     uint32_t base;
     uint32_t size;
 
+    uint32_t base_ignore;
     uint32_t mask;
 
     uint8_t (*read_b)(uint32_t addr, void *priv);
@@ -299,10 +300,12 @@ extern int writelnum;
 
 extern int memspeed[11];
 
-extern int     mmu_perm;
 extern uint8_t high_page; /* if a high (> 4 gb) page was detected */
 
+extern uint8_t *_mem_exec[MEM_MAPPINGS_NO];
+
 extern uint32_t pages_sz; /* #pages in table */
+extern int      read_type;
 
 extern int mem_a20_state;
 extern int mem_a20_alt;
@@ -388,16 +391,23 @@ extern void mem_mapping_set_handler(mem_mapping_t *,
                                     void (*write_w)(uint32_t addr, uint16_t val, void *priv),
                                     void (*write_l)(uint32_t addr, uint32_t val, void *priv));
 
+extern void mem_mapping_set_write_handler(mem_mapping_t *,
+                                          void (*write_b)(uint32_t addr, uint8_t val, void *priv),
+                                          void (*write_w)(uint32_t addr, uint16_t val, void *priv),
+                                          void (*write_l)(uint32_t addr, uint32_t val, void *priv));
+
 extern void mem_mapping_set_p(mem_mapping_t *, void *priv);
 
 extern void mem_mapping_set_addr(mem_mapping_t *,
                                  uint32_t base, uint32_t size);
+extern void mem_mapping_set_base_ignore(mem_mapping_t *, uint32_t base_ignore);
 extern void mem_mapping_set_exec(mem_mapping_t *, uint8_t *exec);
 extern void mem_mapping_set_mask(mem_mapping_t *, uint32_t mask);
 extern void mem_mapping_disable(mem_mapping_t *);
 extern void mem_mapping_enable(mem_mapping_t *);
 extern void mem_mapping_recalc(uint64_t base, uint64_t size);
 
+extern void mem_set_wp(uint64_t base, uint64_t size, uint8_t flags, uint8_t wp);
 extern void mem_set_access(uint8_t bitmap, int mode, uint32_t base, uint32_t size, uint16_t access);
 
 extern uint8_t  mem_readb_phys(uint32_t addr);
@@ -437,15 +447,25 @@ extern void mem_flush_write_page(uint32_t addr, uint32_t virt);
 extern void mem_reset_page_blocks(void);
 
 extern void flushmmucache(void);
+extern void flushmmucache_write(void);
+extern void flushmmucache_pc(void);
 extern void flushmmucache_nopc(void);
+
+extern void mem_debug_check_addr(uint32_t addr, int write);
 
 extern void mem_a20_init(void);
 extern void mem_a20_recalc(void);
 
 extern void mem_init(void);
 extern void mem_close(void);
+extern void mem_zero(void);
 extern void mem_reset(void);
+extern void mem_remap_top_ex(int kb, uint32_t start);
+extern void mem_remap_top_ex_nomid(int kb, uint32_t start);
 extern void mem_remap_top(int kb);
+extern void mem_remap_top_nomid(int kb);
+
+extern void umc_smram_recalc(uint32_t start, int set);
 
 extern mem_mapping_t *read_mapping[MEM_MAPPINGS_NO];
 extern mem_mapping_t *write_mapping[MEM_MAPPINGS_NO];

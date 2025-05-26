@@ -12,16 +12,39 @@
 #          dob205
 #
 #          Copyright 2020-2022 David Hrdlička.
-#          Copyright 2021 dob205.
+#          Copyright 2021      dob205.
+#          Copyright 2024      Jasmine Iwanek.
 #
+
 if(APPLE)
     set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 endif()
 
-add_executable(86Box 86box.c config.c log.c random.c timer.c io.c acpi.c apm.c
-    dma.c ddma.c nmi.c pic.c pit.c pit_fast.c port_6x.c port_92.c ppi.c pci.c
-    mca.c usb.c fifo.c fifo8.c device.c nvr.c nvr_at.c nvr_ps2.c
-    machine_status.c ini.c)
+add_executable(86Box
+    86box.c
+    config.c
+    timer.c
+    io.c
+    acpi.c
+    apm.c
+    dma.c
+    ddma.c
+    nmi.c
+    pic.c
+    pit.c
+    pit_fast.c
+    port_6x.c
+    port_92.c
+    ppi.c
+    pci.c
+    mca.c
+    usb.c
+    device.c
+    nvr.c
+    nvr_at.c
+    nvr_ps2.c
+    machine_status.c
+)
 
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")
     add_compile_definitions(_FILE_OFFSET_BITS=64 _LARGEFILE_SOURCE=1 _LARGEFILE64_SOURCE=1)
@@ -48,21 +71,24 @@ if(DYNAREC)
     add_compile_definitions(USE_DYNAREC)
 endif()
 
-if(DEV_BRANCH)
-    add_compile_definitions(DEV_BRANCH)
-endif()
-
 if(DISCORD)
     add_compile_definitions(DISCORD)
     target_sources(86Box PRIVATE discord.c)
+endif()
+
+if(DEBUGREGS486)
+    add_compile_definitions(USE_DEBUG_REGS_486)
 endif()
 
 if(VNC)
     find_package(LibVNCServer)
     if(LibVNCServer_FOUND)
         add_compile_definitions(USE_VNC)
-        add_library(vnc OBJECT vnc.c vnc_keymap.c)
-            target_link_libraries(86Box vnc LibVNCServer::vncserver)
+        add_library(vnc OBJECT
+            vnc.c
+            vnc_keymap.c
+        )
+        target_link_libraries(86Box vnc LibVNCServer::vncserver)
         if(WIN32)
             target_link_libraries(86Box ws2_32)
         endif()
@@ -84,7 +110,11 @@ if(INSTRUMENT)
 endif()
 
 target_link_libraries(86Box cpu chipset mch dev mem fdd game cdrom zip mo hdd
-    net print scsi sio snd vid voodoo plat ui)
+    net print scsi sio snd utils vid voodoo plat ui)
+
+if(HAIKU)
+    target_link_libraries(86Box be)
+endif()
 
 if(WIN32 AND ARCH STREQUAL "i386")
     if(MINGW)
@@ -149,8 +179,10 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR}/include)
 include_directories(include)
 if(NEW_DYNAREC)
     include_directories(cpu codegen_new)
-else()
+elseif(DYNAREC)
     include_directories(cpu codegen)
+else()
+    include_directories(cpu)
 endif()
 
 add_subdirectory(cdrom)
@@ -159,7 +191,7 @@ add_subdirectory(chipset)
 add_subdirectory(cpu)
 if(NEW_DYNAREC)
     add_subdirectory(codegen_new)
-else()
+elseif(DYNAREC)
     add_subdirectory(codegen)
 endif()
 
@@ -199,7 +231,6 @@ elseif(APPLE AND NOT QT)
     COMPONENT Runtime)
 endif()
 
-
 # Install the PDB file on Windows builds
 if(MSVC)
     # CMake fully supports PDB files on MSVC-compatible compilers
@@ -229,15 +260,15 @@ add_subdirectory(printer)
 add_subdirectory(sio)
 add_subdirectory(scsi)
 add_subdirectory(sound)
+add_subdirectory(utils)
 add_subdirectory(video)
+
 if (APPLE)
     add_subdirectory(mac)
 endif()
 
 if (QT)
     add_subdirectory(qt)
-elseif(WIN32)
-    add_subdirectory(win)
 else()
     add_compile_definitions(USE_SDL_UI)
     add_subdirectory(unix)
@@ -245,4 +276,8 @@ endif()
 
 if(CLI)
     add_subdirectory(cli)
+endif()
+
+if(CMAKE_SYSTEM_NAME MATCHES "NetBSD")
+    add_custom_command(TARGET 86Box POST_BUILD COMMAND paxctl ARGS +m $<TARGET_FILE:86Box> COMMENT "Disable PaX MPROTECT")
 endif()

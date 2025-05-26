@@ -9,11 +9,23 @@
 #          CMake build script.
 #
 # Authors: David Hrdlička, <hrdlickadavid@outlook.com>
+#          Jasmine Iwanek, <jriwanek@gmail.com>
 #
 #          Copyright 2020-2021 David Hrdlička.
+#          Copyright 2024      Jasmine Iwanek.
 #
 
-add_library(print OBJECT png.c prt_cpmap.c prt_escp.c prt_text.c prt_ps.c)
+add_library(print OBJECT
+    png.c
+    prt_cpmap.c
+    prt_escp.c
+    prt_text.c
+    prt_ps.c
+)
+
+if(PCL)
+    target_compile_definitions(print PRIVATE USE_PCL)
+endif()
 
 if(APPLE)
     find_library(GHOSTSCRIPT_LIB gs)
@@ -26,9 +38,9 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(FREETYPE REQUIRED IMPORTED_TARGET freetype2)
 target_link_libraries(86Box PkgConfig::FREETYPE)
 if(STATIC_BUILD)
-    if(QT)
+    # if(QT)
         # Qt provides its own version of harfbuzz which leads to duplicated symbols.
         target_link_options(86Box PRIVATE "LINKER:--allow-multiple-definition")
-    endif()
+    # endif()
     target_link_libraries(86Box -static ${FREETYPE_STATIC_LIBRARIES})
 endif()

@@ -10,7 +10,7 @@ extern "C" {
 }
 class QMenu;
 
-class MediaMenu : QObject {
+class MediaMenu : public QObject {
     Q_OBJECT
 public:
     MediaMenu(QWidget *parent);
@@ -24,12 +24,14 @@ public:
     void cassetteNewImage();
     void cassetteSelectImage(bool wp);
     void cassetteMount(const QString &filename, bool wp);
+    void cassetteMenuSelect(int slot);
     void cassetteEject();
     void cassetteUpdateMenu();
 
     void cartridgeSelectImage(int i);
     void cartridgeMount(int i, const QString &filename);
     void cartridgeEject(int i);
+    void cartridgeMenuSelect(int index, int slot);
     void cartridgeUpdateMenu(int i);
 
     void floppyNewImage(int i);
@@ -41,7 +43,7 @@ public:
     void floppyUpdateMenu(int i);
 
     void cdromMute(int i);
-    void cdromMount(int i, int dir);
+    void cdromMount(int i, int dir, const QString &arg);
     void cdromMount(int i, const QString &filename);
     void cdromEject(int i);
     void cdromReload(int index, int slot);
@@ -53,19 +55,27 @@ public:
     void zipSelectImage(int i, bool wp);
     void zipMount(int i, const QString &filename, bool wp);
     void zipEject(int i);
-    void zipReload(int i);
+    void zipReloadPrev(int i);
+    void zipReload(int index, int slot);
     void zipUpdateMenu(int i);
 
     void moNewImage(int i);
     void moSelectImage(int i, bool wp);
     void moMount(int i, const QString &filename, bool wp);
     void moEject(int i);
-    void moReload(int i);
+    void moReloadPrev(int i);
+    void moReload(int index, int slot);
     void moUpdateMenu(int i);
 
     void nicConnect(int i);
     void nicDisconnect(int i);
     void nicUpdateMenu(int i);
+
+public slots:
+    void cdromUpdateUi(int i);
+
+signals:
+    void onCdromUpdateUi(int i);
 
 private:
     QWidget *parentWidget = nullptr;
@@ -81,29 +91,31 @@ private:
     QString                 getMediaOpenDirectory();
     ui::MediaHistoryManager mhm;
 
+    const QByteArray driveLetters = QByteArrayLiteral("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+
     int cassetteRecordPos;
     int cassettePlayPos;
     int cassetteRewindPos;
     int cassetteFastFwdPos;
     int cassetteEjectPos;
+    int cassetteImageHistoryPos[MAX_PREV_IMAGES];
 
     int cartridgeEjectPos;
+    int cartridgeImageHistoryPos[MAX_PREV_IMAGES];
 
     int floppyExportPos;
     int floppyEjectPos;
-
-    int cdromMutePos;
-    int cdromReloadPos;
-    int cdromImagePos;
-    int cdromDirPos;
-    int cdromImageHistoryPos[MAX_PREV_IMAGES];
     int floppyImageHistoryPos[MAX_PREV_IMAGES];
 
+    int cdromMutePos;
+    int cdromEjectPos;
+    int cdromImageHistoryPos[MAX_PREV_IMAGES];
+
     int zipEjectPos;
-    int zipReloadPos;
+    int zipImageHistoryPos[MAX_PREV_IMAGES];
 
     int moEjectPos;
-    int moReloadPos;
+    int moImageHistoryPos[MAX_PREV_IMAGES];
 
     int netDisconnPos;
 

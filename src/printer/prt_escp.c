@@ -1475,7 +1475,7 @@ process_char(escp_t *dev, uint8_t ch)
             }
             dev->curr_x = dev->left_margin;
             dev->curr_y += dev->linespacing;
-            if (dev->curr_y > dev->bottom_margin)
+            if ((dev->curr_y + 0.0001f) > dev->bottom_margin)
                 new_page(dev, 1, 0);
             return 1;
 
@@ -1952,7 +1952,7 @@ read_status(void *priv)
 static void *
 escp_init(void *lpt)
 {
-    escp_t *dev;
+    escp_t *dev = NULL;
 
     /* Initialize FreeType. */
     if (ft_lib == NULL) {
@@ -1964,20 +1964,19 @@ escp_init(void *lpt)
     }
 
     /* Initialize a device instance. */
-    dev = (escp_t *) malloc(sizeof(escp_t));
-    memset(dev, 0x00, sizeof(escp_t));
+    dev = (escp_t *) calloc(1, sizeof(escp_t));
     dev->ctrl = 0x04;
     dev->lpt  = lpt;
 
+    rom_get_full_path(dev->fontpath, "roms/printer/fonts/");
+
     /* Create a full pathname for the font files. */
-    if (strlen(exe_path) >= sizeof(dev->fontpath)) {
+    if (strlen(dev->fontpath) == 0) {
+        ui_msgbox_header(MBX_ERROR, plat_get_string(STRING_ESCP_ERROR_TITLE),
+                         plat_get_string(STRING_ESCP_ERROR_DESC));
         free(dev);
         return (NULL);
     }
-
-    strcpy(dev->fontpath, exe_path);
-    path_slash(dev->fontpath);
-    strcat(dev->fontpath, "roms/printer/fonts/");
 
     /* Create the full path for the page images. */
     path_append_filename(dev->pagepath, usr_path, "printer");
@@ -2058,7 +2057,7 @@ escp_close(void *priv)
 }
 
 const lpt_device_t lpt_prt_escp_device = {
-    .name          = "Generic ESC/P Dot-Matrix",
+    .name          = "Generic ESC/P Dot-Matrix Printer",
     .internal_name = "dot_matrix",
     .init          = escp_init,
     .close         = escp_close,

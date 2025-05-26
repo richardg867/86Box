@@ -11,7 +11,10 @@
 #include <86box/pic.h>
 #include <86box/sound.h>
 #include <86box/prt_devs.h>
-#include <86box/net_plip.h>
+#include <86box/thread.h>
+#include <86box/timer.h>
+#include <86box/device.h>
+#include <86box/network.h>
 
 lpt_port_t lpt_ports[PARALLEL_MAX];
 
@@ -39,6 +42,9 @@ static const struct {
     {"text_prt",        &lpt_prt_text_device      },
     {"dot_matrix",      &lpt_prt_escp_device      },
     {"postscript",      &lpt_prt_ps_device        },
+#ifdef USE_PCL
+    {"pcl",             &lpt_prt_pcl_device       },
+#endif
     {"plip",            &lpt_plip_device          },
     {"dongle_savquest", &lpt_hasp_savquest_device },
     {"",                NULL                      }
@@ -166,6 +172,15 @@ lpt_read(uint16_t port, void *priv)
 }
 
 uint8_t
+lpt_read_port(int port, uint16_t reg)
+{
+    lpt_port_t *dev = &(lpt_ports[port]);
+    uint8_t ret = lpt_read(reg, dev);
+
+    return ret;
+}
+
+uint8_t
 lpt_read_status(int port)
 {
     lpt_port_t *dev = &(lpt_ports[port]);
@@ -204,14 +219,14 @@ lpt_init(void)
         lpt_ports[i].enable_irq = 0x10;
 
         if (lpt_ports[i].enabled) {
-            lpt_port_init(i, default_ports[i]);
+            lpt_port_setup(i, default_ports[i]);
             lpt_port_irq(i, default_irqs[i]);
         }
     }
 }
 
 void
-lpt_port_init(int i, uint16_t port)
+lpt_port_setup(int i, uint16_t port)
 {
     if (lpt_ports[i].enabled) {
         if (lpt_ports[i].addr != 0xffff)

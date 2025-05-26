@@ -58,7 +58,7 @@ kbc_at_dev_log(const char *fmt, ...)
 #    define kbc_at_dev_log(fmt, ...)
 #endif
 
-static void
+void
 kbc_at_dev_queue_reset(atkbc_dev_t *dev, uint8_t reset_main)
 {
     if (reset_main) {
@@ -95,10 +95,6 @@ kbc_at_dev_queue_add(atkbc_dev_t *dev, uint8_t val, uint8_t main)
         dev->cmd_queue[dev->cmd_queue_end] = val;
         dev->cmd_queue_end                 = (dev->cmd_queue_end + 1) & 0xf;
     }
-
-    /* TODO: This should be done on actual send to host. */
-    if (val != 0xfe)
-        dev->last_scan_code = val;
 }
 
 static void
@@ -119,12 +115,15 @@ kbc_at_dev_poll(void *priv)
             break;
         case DEV_STATE_MAIN_2:
             /* Output from scan queue if needed and then return to main loop #1. */
-            if (*dev->scan && (dev->port->out_new == -1) && (dev->queue_start != dev->queue_end)) {
+            if (!dev->ignore && *dev->scan && (dev->port->out_new == -1) &&
+                (dev->queue_start != dev->queue_end)) {
                 kbc_at_dev_log("%s: %02X (DATA) on channel 1\n", dev->name, dev->queue[dev->queue_start]);
                 dev->port->out_new   = dev->queue[dev->queue_start];
+                if (dev->port->out_new != 0xfe)
+                    dev->last_scan_code = dev->port->out_new;
                 dev->queue_start     = (dev->queue_start + 1) & dev->fifo_mask;
             }
-            if (!(*dev->scan) || dev->port->wantcmd)
+            if (dev->ignore || !(*dev->scan) || dev->port->wantcmd)
                 dev->state = DEV_STATE_MAIN_1;
             break;
         case DEV_STATE_MAIN_OUT:
@@ -142,6 +141,8 @@ kbc_at_dev_poll(void *priv)
             if ((dev->port->out_new == -1) && (dev->cmd_queue_start != dev->cmd_queue_end)) {
                 kbc_at_dev_log("%s: %02X (CMD ) on channel 1\n", dev->name, dev->cmd_queue[dev->cmd_queue_start]);
                 dev->port->out_new   = dev->cmd_queue[dev->cmd_queue_start];
+                if (dev->port->out_new != 0xfe)
+                    dev->last_scan_code = dev->port->out_new;
                 dev->cmd_queue_start = (dev->cmd_queue_start + 1) & 0xf;
             }
             if (dev->cmd_queue_start == dev->cmd_queue_end)
@@ -165,6 +166,8 @@ kbc_at_dev_poll(void *priv)
             if ((dev->port->out_new == -1) && (dev->cmd_queue_start != dev->cmd_queue_end)) {
                 kbc_at_dev_log("%s: %02X (CMD ) on channel 1\n", dev->name, dev->cmd_queue[dev->cmd_queue_start]);
                 dev->port->out_new   = dev->cmd_queue[dev->cmd_queue_start];
+                if (dev->port->out_new != 0xfe)
+                    dev->last_scan_code = dev->port->out_new;
                 dev->cmd_queue_start = (dev->cmd_queue_start + 1) & 0xf;
             }
             if (dev->cmd_queue_start == dev->cmd_queue_end)
@@ -199,8 +202,7 @@ kbc_at_dev_init(uint8_t inst)
 {
     atkbc_dev_t *dev;
 
-    dev = (atkbc_dev_t *) malloc(sizeof(atkbc_dev_t));
-    memset(dev, 0x00, sizeof(atkbc_dev_t));
+    dev = (atkbc_dev_t *) calloc(1, sizeof(atkbc_dev_t));
 
     dev->port = kbc_at_ports[inst];
 

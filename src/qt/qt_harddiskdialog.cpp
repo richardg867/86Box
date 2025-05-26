@@ -20,6 +20,9 @@
 #include "ui_qt_harddiskdialog.h"
 
 extern "C" {
+#ifdef __unix__
+#include <unistd.h>
+#endif
 #include <86box/86box.h>
 #include <86box/hdd.h>
 #include "../disk/minivhd/minivhd.h"
@@ -74,8 +77,7 @@ HarddiskDialog::HarddiskDialog(bool existing, QWidget *parent)
     for (int i = 0; i < 127; i++) {
         uint64_t size    = ((uint64_t) hdd_table[i][0]) * hdd_table[i][1] * hdd_table[i][2];
         uint32_t size_mb = size >> 11LL;
-        // QString text = QString("%1 MiB (CHS: %2, %3, %4)").arg(size_mb).arg(hdd_table[i][0]).arg(hdd_table[i][1]).arg(hdd_table[i][2]);
-        QString text = QString::asprintf(tr("%u MB (CHS: %i, %i, %i)").toUtf8().constData(), size_mb, (hdd_table[i][0]), (hdd_table[i][1]), (hdd_table[i][2]));
+        QString text = tr("%1 MB (CHS: %2, %3, %4)").arg(size_mb).arg(hdd_table[i][0]).arg(hdd_table[i][1]).arg(hdd_table[i][2]);
         Models::AddEntry(model, text, i);
     }
     Models::AddEntry(model, tr("Custom..."), 127);
@@ -227,7 +229,11 @@ static HarddiskDialog *callbackPtr = nullptr;
 static MVHDGeom
 create_drive_vhd_fixed(const QString &fileName, HarddiskDialog *p, uint16_t cyl, uint8_t heads, uint8_t spt)
 {
-    MVHDGeom _86box_geometry = { .cyl = cyl, .heads = heads, .spt = spt };
+    MVHDGeom _86box_geometry = {
+        .cyl   = cyl,
+        .heads = heads,
+        .spt   = spt
+    };
     MVHDGeom vhd_geometry;
     adjust_86box_geometry_for_vhd(&_86box_geometry, &vhd_geometry);
 
@@ -253,7 +259,11 @@ create_drive_vhd_fixed(const QString &fileName, HarddiskDialog *p, uint16_t cyl,
 static MVHDGeom
 create_drive_vhd_dynamic(const QString &fileName, uint16_t cyl, uint8_t heads, uint8_t spt, int blocksize)
 {
-    MVHDGeom _86box_geometry = { .cyl = cyl, .heads = heads, .spt = spt };
+    MVHDGeom _86box_geometry = {
+        .cyl   = cyl,
+        .heads = heads,
+        .spt   = spt
+    };
     MVHDGeom vhd_geometry;
     adjust_86box_geometry_for_vhd(&_86box_geometry, &vhd_geometry);
     int                 vhd_error     = 0;
@@ -447,6 +457,7 @@ HarddiskDialog::onCreateNewFile()
     }
 
     // formats 0, 1 and 2
+#ifndef __unix__
     connect(this, &HarddiskDialog::fileProgress, this, [this](int value) { ui->progressBar->setValue(value); QApplication::processEvents(); });
     ui->progressBar->setVisible(true);
     [size, &file, this] {
@@ -469,6 +480,13 @@ HarddiskDialog::onCreateNewFile()
         }
         emit fileProgress(100);
     }();
+#else
+    int ret = ftruncate(file.handle(), (size_t) size);
+
+    if (ret) {
+        QMessageBox::critical(this, tr("Unable to write file"), tr("Make sure the file is being saved to a writable directory."));
+    }
+#endif
 
     QMessageBox::information(this, tr("Disk image created"), tr("Remember to partition and format the newly-created drive."));
     setResult(QDialog::Accepted);
@@ -516,8 +534,8 @@ HarddiskDialog::onExistingFileSelected(const QString &fileName, bool precheck)
         fp = _wfopen(wopenfilestring, L"rb");
         if (fp != NULL) {
             fclose(fp);
-            if (settings_msgbox_ex(MBX_QUESTION_YN, (wchar_t *) IDS_4111, (wchar_t *) IDS_4118, (wchar_t *) IDS_4120, (wchar_t *) IDS_4121, NULL) != 0)	/ * yes * /
-                return FALSE;
+            if (settings_msgbox_ex(MBX_QUESTION_YN, L"Disk image file already exists", L"The selected file will be overwritten. Are you sure you want to use it?", L"Overwrite", L"Don't overwrite", NULL) != 0)	/ * yes * /
+                return false;
         }
     }
 
@@ -525,8 +543,8 @@ HarddiskDialog::onExistingFileSelected(const QString &fileName, bool precheck)
     if (fp == NULL) {
     hdd_add_file_open_error:
         fclose(fp);
-        settings_msgbox_header(MBX_ERROR, (existing & 1) ? (wchar_t *) IDS_4114 : (wchar_t *) IDS_4115, (existing & 1) ? (wchar_t *) IDS_4107 : (wchar_t *) IDS_4108);
-        return TRUE;
+        settings_msgbox_header(MBX_ERROR, (existing & 1) ? L"Make sure the file exists and is readable." : L"Make sure the file is being saved to a writable directory.", (existing & 1) ? L"Unable to read file" : L"Unable to write file");
+        return true;
     }
 #endif
 
@@ -567,7 +585,7 @@ HarddiskDialog::onExistingFileSelected(const QString &fileName, bool precheck)
     } else if (image_is_vhd(fileNameUtf8.data(), 1)) {
         MVHDMeta *vhd = mvhd_open(fileNameUtf8.data(), 0, &vhd_error);
         if (vhd == nullptr) {
-            QMessageBox::critical(this, tr("Unable to read file"), tr("Make sure the file exists and is readable"));
+            QMessageBox::critical(this, tr("Unable to read file"), tr("Make sure the file exists and is readable."));
             return;
         } else if (vhd_error == MVHD_ERR_TIMESTAMP) {
             QMessageBox::StandardButton btn = QMessageBox::warning(this, tr("Parent and child disk timestamps do not match"), tr("This could mean that the parent image was modified after the differencing image was created.\n\nIt can also happen if the image files were moved or copied, or by a bug in the program that created this disk.\n\nDo you want to fix the timestamps?"), QMessageBox::Yes | QMessageBox::No);
@@ -618,7 +636,7 @@ HarddiskDialog::onExistingFileSelected(const QString &fileName, bool precheck)
     }
 
     if ((sectors > max_sectors) || (heads > max_heads) || (cylinders > max_cylinders)) {
-        QMessageBox::critical(this, tr("Unable to read file"), tr("Make sure the file exists and is readable"));
+        QMessageBox::critical(this, tr("Unable to read file"), tr("Make sure the file exists and is readable."));
         return;
     }
 
@@ -746,7 +764,7 @@ HarddiskDialog::on_comboBoxBus_currentIndexChanged(int index)
     ui->lineEditHeads->setValidator(new QIntValidator(1, max_heads, this));
     ui->lineEditSectors->setValidator(new QIntValidator(1, max_sectors, this));
 
-    Harddrives::populateBusChannels(ui->comboBoxChannel->model(), ui->comboBoxBus->currentData().toInt());
+    Harddrives::populateBusChannels(ui->comboBoxChannel->model(), ui->comboBoxBus->currentData().toInt(), Harddrives::busTrackClass);
     Harddrives::populateSpeeds(ui->comboBoxSpeed->model(), ui->comboBoxBus->currentData().toInt());
 
     switch (ui->comboBoxBus->currentData().toInt()) {

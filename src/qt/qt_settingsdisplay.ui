@@ -42,7 +42,7 @@
    <item row="6" column="0" colspan="2">
     <widget class="QCheckBox" name="checkBoxXga">
      <property name="text">
-      <string>XGA</string>
+      <string>XGA Graphics</string>
      </property>
     </widget>
    </item>
@@ -61,14 +61,14 @@
    </item>
    <item row="1" column="0" colspan="2">
     <widget class="QComboBox" name="comboBoxVideo">
-     <property name="maxVisibleItems">
-      <number>30</number>
-     </property>
      <property name="sizePolicy">
       <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
        <horstretch>0</horstretch>
        <verstretch>0</verstretch>
       </sizepolicy>
+     </property>
+     <property name="maxVisibleItems">
+      <number>30</number>
      </property>
     </widget>
    </item>
@@ -95,19 +95,40 @@
    <item row="5" column="0" colspan="2">
     <widget class="QCheckBox" name="checkBox8514">
      <property name="text">
-      <string>8514/A</string>
+      <string>IBM 8514/A Graphics</string>
      </property>
     </widget>
    </item>
    <item row="4" column="0" colspan="2">
     <widget class="QCheckBox" name="checkBoxVoodoo">
      <property name="text">
-      <string>Voodoo Graphics</string>
+      <string>Voodoo 1 or 2 Graphics</string>
+     </property>
+    </widget>
+   </item>
+   <item row="5" column="2">
+    <widget class="QPushButton" name="pushButtonConfigure8514">
+     <property name="text">
+      <string>Configure</string>
      </property>
     </widget>
    </item>
    <item row="6" column="2">
     <widget class="QPushButton" name="pushButtonConfigureXga">
+     <property name="text">
+      <string>Configure</string>
+     </property>
+    </widget>
+   </item>
+   <item row="7" column="0">
+    <widget class="QCheckBox" name="checkBoxDa2">
+     <property name="text">
+      <string>IBM PS/55 Display Adapter Graphics</string>
+     </property>
+    </widget>
+   </item>
+   <item row="7" column="2">
+    <widget class="QPushButton" name="pushButtonConfigureDa2">
      <property name="text">
       <string>Configure</string>
      </property>
@@ -122,18 +143,18 @@
    </item>
    <item row="3" column="0" colspan="2">
     <widget class="QComboBox" name="comboBoxVideoSecondary">
-     <property name="maxVisibleItems">
-      <number>30</number>
-     </property>
      <property name="sizePolicy">
       <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
        <horstretch>0</horstretch>
        <verstretch>0</verstretch>
       </sizepolicy>
      </property>
+     <property name="maxVisibleItems">
+      <number>30</number>
+     </property>
     </widget>
    </item>
-   <item row="7" column="0" colspan="3">
+   <item row="8" column="0" colspan="3">
     <spacer name="verticalSpacer">
      <property name="orientation">
       <enum>Qt::Vertical</enum>

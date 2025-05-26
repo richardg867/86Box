@@ -24,6 +24,7 @@ extern const device_t acc2168_device;
 extern const device_t ali1217_device;
 extern const device_t ali1429_device;
 extern const device_t ali1429g_device;
+extern const device_t ali1409_device;
 extern const device_t ali1435_device;
 extern const device_t ali1489_device;
 extern const device_t ali1531_device;
@@ -36,8 +37,12 @@ extern const device_t ali6117d_device;
 /* AMD */
 extern const device_t amd640_device;
 
+/* ASUS */
+extern const device_t isa486c_device;
+
 /* Compaq */
 extern const device_t compaq_386_device;
+extern const device_t compaq_genoa_device;
 
 /* Contaq/Cypress */
 extern const device_t contaq_82c596a_device;
@@ -46,6 +51,7 @@ extern const device_t contaq_82c597_device;
 /* C&T */
 extern const device_t ct_82c100_device;
 extern const device_t neat_device;
+extern const device_t neat_sx_device;
 extern const device_t scat_device;
 extern const device_t scat_4_device;
 extern const device_t scat_sx_device;
@@ -109,8 +115,12 @@ extern const device_t ioapic_device;
 /* OPTi */
 extern const device_t opti283_device;
 extern const device_t opti291_device;
+extern const device_t opti381_device;
+extern const device_t opti391_device;
+extern const device_t opti481_device;
 extern const device_t opti493_device;
 extern const device_t opti495_device;
+extern const device_t opti499_device;
 extern const device_t opti601_device;
 extern const device_t opti602_device;
 extern const device_t opti802g_device;
@@ -130,8 +140,16 @@ extern const device_t sis_85c471_device;
 extern const device_t sis_85c496_device;
 extern const device_t sis_85c496_ls486e_device;
 extern const device_t sis_85c50x_device;
+extern const device_t sis_550x_85c503_device;
+extern const device_t sis_85c50x_5503_device;
+extern const device_t sis_550x_device;
 extern const device_t sis_5511_device;
 extern const device_t sis_5571_device;
+extern const device_t sis_5581_device;
+extern const device_t sis_5591_1997_device;
+extern const device_t sis_5591_device;
+extern const device_t sis_5600_1997_device;
+extern const device_t sis_5600_device;
 
 /* ST */
 extern const device_t stpc_client_device;
@@ -141,9 +159,14 @@ extern const device_t stpc_atlas_device;
 extern const device_t stpc_serial_device;
 extern const device_t stpc_lpt_device;
 
+/* Symphony */
+extern const device_t sl82c461_device;
+
 /* UMC */
 extern const device_t umc_8886f_device;
 extern const device_t umc_8886af_device;
+extern const device_t umc_8886bf_device;
+extern const device_t umc_8890_device;
 extern const device_t umc_hb4_device;
 
 /* VIA */
@@ -174,10 +197,12 @@ extern const device_t vlsi_scamp_device;
 extern const device_t wd76c10_device;
 
 /* Miscellaneous Hardware */
+extern const device_t nec_mate_unk_device;
+
 extern const device_t phoenix_486_jumper_device;
 extern const device_t phoenix_486_jumper_pci_device;
 
-#if defined(DEV_BRANCH) && defined(USE_OLIVETTI)
+#ifdef USE_OLIVETTI
 extern const device_t olivetti_eva_device;
-#endif
+#endif /* USE_OLIVETTI */
 #endif /*EMU_CHIPSET_H*/

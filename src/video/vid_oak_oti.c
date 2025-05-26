@@ -36,13 +36,16 @@
 #define BIOS_067_M300_08_PATH "roms/machines/m30008/EVC_BIOS.ROM"
 #define BIOS_067_M300_15_PATH "roms/machines/m30015/EVC_BIOS.ROM"
 #define BIOS_077_PATH         "roms/video/oti/oti077.vbi"
+#define BIOS_077_ACER100T_PATH "roms/machines/acer100t/oti077_acer100t.BIN"
+
 
 enum {
     OTI_037C        = 0,
     OTI_067         = 2,
     OTI_067_AMA932J = 3,
     OTI_067_M300    = 4,
-    OTI_077         = 5
+    OTI_077         = 5,
+    OTI_077_ACER100T = 6
 };
 
 typedef struct {
@@ -92,7 +95,7 @@ oti_out(uint16_t addr, uint8_t val, void *priv)
         case 0x3c7:
         case 0x3c8:
         case 0x3c9:
-            if (oti->chip_id == OTI_077)
+            if (oti->chip_id == OTI_077 || oti->chip_id == OTI_077_ACER100T)
                 sc1148x_ramdac_out(addr, 0, val, svga->ramdac, svga);
             else
                 svga_out(addr, val, svga);
@@ -153,7 +156,7 @@ oti_out(uint16_t addr, uint8_t val, void *priv)
                             mem_mapping_disable(&svga->mapping);
                         else
                             mem_mapping_enable(&svga->mapping);
-                    } else if (oti->chip_id == OTI_077) {
+                    } else if (oti->chip_id == OTI_077 || oti->chip_id == OTI_077_ACER100T) {
                         svga->vram_display_mask = (val & 0x0c) ? oti->vram_mask : 0x3ffff;
 
                         switch ((val & 0xc0) >> 6) {
@@ -238,7 +241,7 @@ oti_in(uint16_t addr, void *priv)
         case 0x3c7:
         case 0x3c8:
         case 0x3c9:
-            if (oti->chip_id == OTI_077)
+            if (oti->chip_id == OTI_077 || oti->chip_id == OTI_077_ACER100T)
                 return sc1148x_ramdac_in(addr, 0, svga->ramdac, svga);
             return svga_in(addr, svga);
 
@@ -464,6 +467,12 @@ oti_init(const device_t *info)
             oti->pos       = 0x08; /* Tell the BIOS the I/O ports are already enabled to avoid a double I/O handler mess. */
             io_sethandler(0x46e8, 1, oti_pos_in, NULL, NULL, oti_pos_out, NULL, NULL, oti);
             break;
+        case OTI_077_ACER100T:
+            romfn          = BIOS_077_ACER100T_PATH;
+            oti->vram_size = device_get_config_int("memory");
+            oti->pos = 0x08; /* Tell the BIOS the I/O ports are already enabled to avoid a double I/O handler mess. */
+            io_sethandler(0x46e8, 1, oti_pos_in, NULL, NULL, oti_pos_out, NULL, NULL, oti);
+            break;
 
         default:
             break;
@@ -476,12 +485,19 @@ oti_init(const device_t *info)
 
     oti->vram_mask = (oti->vram_size << 10) - 1;
 
-    video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_oti);
+    if (oti->chip_id == OTI_077_ACER100T){
+        /* josephillips: Required to show all BIOS 
+        information on Acer 100T only
+        */
+        video_inform(0x1,&timing_oti);   
+    }else{
+         video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_oti);
+    }
 
     svga_init(info, &oti->svga, oti, oti->vram_size << 10,
               oti_recalctimings, oti_in, oti_out, NULL, NULL);
 
-    if (oti->chip_id == OTI_077)
+    if (oti->chip_id == OTI_077 || oti->chip_id == OTI_077_ACER100T)
         oti->svga.ramdac = device_add(&sc11487_ramdac_device); /*Actually a 82c487, probably a clone.*/
 
     io_sethandler(0x03c0, 32,
@@ -489,7 +505,7 @@ oti_init(const device_t *info)
 
     oti->svga.miscout       = 1;
     oti->svga.packed_chain4 = 1;
-
+    
     return oti;
 }
 
@@ -532,6 +548,12 @@ oti067_ama932j_available(void)
 }
 
 static int
+oti077_acer100t_available(void)
+{
+    return (rom_present(BIOS_077_ACER100T_PATH));
+}
+
+static int
 oti067_077_available(void)
 {
     return (rom_present(BIOS_077_PATH));
@@ -549,81 +571,80 @@ oti067_m300_available(void)
 // clang-format off
 static const device_config_t oti067_config[] = {
     {
-        .name = "memory",
-        .description = "Memory size",
-        .type = CONFIG_SELECTION,
-        .default_int = 512,
-        .selection = {
-            {
-                .description = "256 kB",
-                .value = 256
-            },
-            {
-                .description = "512 kB",
-                .value = 512
-            },
-            {
-                .description = ""
-            }
-        }
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 512,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "256 KB", .value = 256 },
+            { .description = "512 KB", .value = 512 },
+            { .description = ""                     }
+        },
+        .bios           = { { 0 } }
     },
-    {
-        .type = CONFIG_END
-    }
+    { .name = "", .description = "", .type = CONFIG_END }
 };
 
 static const device_config_t oti067_ama932j_config[] = {
     {
-        .name = "memory",
-        .description = "Memory size",
-        .type = CONFIG_SELECTION,
-        .default_int = 256,
-        .selection = {
-            {
-                .description = "256 kB",
-                .value = 256
-            },
-            {
-                .description = "512 kB",
-                .value = 512
-            },
-            {
-                .description = ""
-            }
-        }
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 256,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "256 KB", .value = 256 },
+            { .description = "512 KB", .value = 512 },
+            { .description = ""                     }
+        },
+        .bios           = { { 0 } }
     },
+    { .name = "", .description = "", .type = CONFIG_END }
+};
+
+static const device_config_t oti077_acer100t_config[] = {
     {
-        .type = CONFIG_END
-    }
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 512,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "256 KB", .value =  256 },
+            { .description = "512 KB", .value =  512 },
+            { .description = "1 MB",   .value = 1024 },
+            { .description = ""                      }
+        },
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
 };
 
 static const device_config_t oti077_config[] = {
     {
-        .name = "memory",
-        .description = "Memory size",
-        .type = CONFIG_SELECTION,
-        .default_int = 1024,
-        .selection = {
-            {
-                .description = "256 kB",
-                .value = 256
-            },
-            {
-                .description = "512 kB",
-                .value = 512
-            },
-            {
-                .description = "1 MB",
-                .value = 1024
-            },
-            {
-                .description = ""
-            }
-        }
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 1024,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "256 KB", .value =  256 },
+            { .description = "512 KB", .value =  512 },
+            { .description = "1 MB",   .value = 1024 },
+            { .description = ""                      }
+        },
+        .bios           = { { 0 } }
     },
-    {
-        .type = CONFIG_END
-    }
+    { .name = "", .description = "", .type = CONFIG_END }
 };
 // clang-format on
 
@@ -635,7 +656,7 @@ const device_t oti037c_device = {
     .init          = oti_init,
     .close         = oti_close,
     .reset         = NULL,
-    { .available = oti037c_available },
+    .available     = oti037c_available,
     .speed_changed = oti_speed_changed,
     .force_redraw  = oti_force_redraw,
     .config        = NULL
@@ -649,7 +670,7 @@ const device_t oti067_device = {
     .init          = oti_init,
     .close         = oti_close,
     .reset         = NULL,
-    { .available = oti067_077_available },
+    .available     = oti067_077_available,
     .speed_changed = oti_speed_changed,
     .force_redraw  = oti_force_redraw,
     .config        = oti067_config
@@ -663,7 +684,7 @@ const device_t oti067_m300_device = {
     .init          = oti_init,
     .close         = oti_close,
     .reset         = NULL,
-    { .available = oti067_m300_available },
+    .available     = oti067_m300_available,
     .speed_changed = oti_speed_changed,
     .force_redraw  = oti_force_redraw,
     .config        = oti067_config
@@ -677,11 +698,26 @@ const device_t oti067_ama932j_device = {
     .init          = oti_init,
     .close         = oti_close,
     .reset         = NULL,
-    { .available = oti067_ama932j_available },
+    .available     = oti067_ama932j_available,
     .speed_changed = oti_speed_changed,
     .force_redraw  = oti_force_redraw,
     .config        = oti067_ama932j_config
 };
+
+const device_t oti077_acer100t_device = {
+    .name          = "Oak OTI-077 (Acer 100T)",
+    .internal_name = "oti077_acer100t",
+    .flags         = DEVICE_ISA,
+    .local         = 6,
+    .init          = oti_init,
+    .close         = oti_close,
+    .reset         = NULL,
+    .available     = oti077_acer100t_available,
+    .speed_changed = oti_speed_changed,
+    .force_redraw  = oti_force_redraw,
+    .config        = oti077_acer100t_config
+};
+
 
 const device_t oti077_device = {
     .name          = "Oak OTI-077",
@@ -691,7 +727,7 @@ const device_t oti077_device = {
     .init          = oti_init,
     .close         = oti_close,
     .reset         = NULL,
-    { .available = oti067_077_available },
+    .available     = oti067_077_available,
     .speed_changed = oti_speed_changed,
     .force_redraw  = oti_force_redraw,
     .config        = oti077_config

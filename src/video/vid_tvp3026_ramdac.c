@@ -65,7 +65,7 @@ typedef struct tvp3026_ramdac_t {
 static void
 tvp3026_set_bpp(tvp3026_ramdac_t *ramdac, svga_t *svga)
 {
-    if ((ramdac->true_color & 0x80) == 0x80) {
+    if (ramdac->true_color & 0x80) {
         if (ramdac->mcr & 0x08)
             svga->bpp = 8;
         else
@@ -514,7 +514,39 @@ tvp3026_recalctimings(void *priv, svga_t *svga)
 {
     const tvp3026_ramdac_t *ramdac = (tvp3026_ramdac_t *) priv;
 
-    svga->interlace = (ramdac->ccr & 0x40);
+    svga->interlace = !!(ramdac->ccr & 0x40);
+    /* TODO: Figure out gamma correction for 15/16 bpp color. */
+    svga->lut_map = !!((svga->bpp >= 15 && (svga->bpp != 24)) && (ramdac->true_color & 0xf0) != 0x00);
+
+    if (!(ramdac->clock_sel & 0x70)) {
+        if (ramdac->mcr != 0x98) {
+            svga->hdisp <<= 1;
+            svga->dots_per_clock <<= 1;
+        }
+    }
+}
+
+uint32_t
+tvp3026_conv_16to32(svga_t* svga, uint16_t color, uint8_t bpp)
+{
+    uint32_t ret = 0x00000000;
+
+    if (svga->lut_map) {
+        if (bpp == 15) {
+            uint8_t b = getcolr(svga->pallook[(color & 0x1f) << 3]);
+            uint8_t g = getcolg(svga->pallook[(color & 0x3e0) >> 2]);
+            uint8_t r = getcolb(svga->pallook[(color & 0x7c00) >> 7]);
+            ret = (video_15to32[color] & 0xFF000000) | makecol(r, g, b);
+        } else {
+            uint8_t b = getcolr(svga->pallook[(color & 0x1f) << 3]);
+            uint8_t g = getcolg(svga->pallook[(color & 0x7e0) >> 3]);
+            uint8_t r = getcolb(svga->pallook[(color & 0xf800) >> 8]);
+            ret = (video_16to32[color] & 0xFF000000) | makecol(r, g, b);
+        }
+    } else
+        ret = (bpp == 15) ? video_15to32[color] : video_16to32[color];
+
+    return ret;
 }
 
 void
@@ -565,7 +597,7 @@ tvp3026_hwcursor_draw(svga_t *svga, int displine)
             comb = (b0 | (b1 << 1));
 
             y_pos = displine;
-            x_pos = offset + svga->x_add;
+            x_pos = (offset + svga->x_add) & 2047;
             p     = svga->monitor->target_buffer->line[y_pos];
 
             if (offset >= svga->dac_hwcursor_latch.x) {
@@ -701,7 +733,7 @@ const device_t tvp3026_ramdac_device = {
     .init          = tvp3026_ramdac_init,
     .close         = tvp3026_ramdac_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

@@ -660,7 +660,7 @@ europc_boot(UNUSED(const device_t *info))
      *
      * We only do this if we have not configured another one.
      */
-    if (hdc_current == 1)
+    if (hdc_current[0] == HDC_INTERNAL)
         (void) device_add(&xta_hd20_device);
 
     return sys;
@@ -703,7 +703,7 @@ const device_t europc_device = {
     .init          = europc_boot,
     .close         = europc_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = europc_config

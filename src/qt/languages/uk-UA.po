@@ -1,3 +1,11 @@
+msgid ""
+msgstr ""
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Language: uk_UA\n"
+"X-Source-Language: en_US\n"
+
 msgid "&Action"
 msgstr "&Дія"
 
@@ -10,8 +18,8 @@ msgstr "&Правий CTRL - це лівий ALT"
 msgid "&Hard Reset..."
 msgstr "&Холодне перезавантаження..."
 
-msgid "&Ctrl+Alt+Del\tCtrl+F12"
-msgstr "&Ctrl+Alt+Del\tCtrl+F12"
+msgid "&Ctrl+Alt+Del"
+msgstr "&Ctrl+Alt+Del"
 
 msgid "Ctrl+Alt+&Esc"
 msgstr "Ctrl+Alt+&Esc"
@@ -40,14 +48,11 @@ msgstr "&Запам'ятати розмір і становище"
 msgid "Re&nderer"
 msgstr "&Рендеринг"
 
-msgid "&SDL (Software)"
-msgstr "&SDL (Software)"
+msgid "&Qt (Software)"
+msgstr "&Qt (Software)"
 
-msgid "SDL (&Hardware)"
-msgstr "SDL (&Hardware)"
-
-msgid "SDL (&OpenGL)"
-msgstr "SDL (&OpenGL)"
+msgid "Qt (&OpenGL)"
+msgstr "Qt (&OpenGL)"
 
 msgid "Open&GL (3.0 Core)"
 msgstr "Open&GL (3.0)"
@@ -106,8 +111,8 @@ msgstr "&Лінійний"
 msgid "Hi&DPI scaling"
 msgstr "Масштабування Hi&DPI"
 
-msgid "&Fullscreen\tCtrl+Alt+PgUp"
-msgstr "&Повноекранний режим\tCtrl+Alt+PgUp"
+msgid "&Fullscreen"
+msgstr "&Повноекранний режим"
 
 msgid "Fullscreen &stretch mode"
 msgstr "&Розстягування у повноекранному режимі"
@@ -181,8 +186,11 @@ msgstr "&Налаштування машини..."
 msgid "&Update status bar icons"
 msgstr "&Обновлення значків рядка стану"
 
-msgid "Take s&creenshot\tCtrl+F11"
-msgstr "Зробити &знімок\tCtrl+F11"
+msgid "Take s&creenshot"
+msgstr "Зробити &знімок"
+
+msgid "S&ound"
+msgstr "&Звук"
 
 msgid "&Preferences..."
 msgstr "&Параметри..."
@@ -193,11 +201,11 @@ msgstr "Увімкнути інтеграцію &Discord"
 msgid "Sound &gain..."
 msgstr "&Посилення звуку..."
 
-msgid "Begin trace\tCtrl+T"
-msgstr "Почати трасування\tCtrl+T"
+msgid "Begin trace"
+msgstr "Почати трасування"
 
-msgid "End trace\tCtrl+T"
-msgstr "Завершити трасування\tCtrl+T"
+msgid "End trace"
+msgstr "Завершити трасування"
 
 msgid "&Help"
 msgstr "&Допомога"
@@ -244,8 +252,8 @@ msgstr "&Відключити звук"
 msgid "E&mpty"
 msgstr "&Пустий"
 
-msgid "&Reload previous image"
-msgstr "&Знову завантажити попередній образ"
+msgid "Reload previous image"
+msgstr "Знову завантажити попередній образ"
 
 msgid "&Folder..."
 msgstr "&Тека..."
@@ -301,17 +309,11 @@ msgstr "OK"
 msgid "Cancel"
 msgstr "Відміна"
 
-msgid "Save these settings as &global defaults"
-msgstr "Зберегти ці параметри як &глобальні за замовчуванням"
-
 msgid "&Default"
 msgstr "&За замовчуванням"
 
 msgid "Language:"
 msgstr "Мова:"
-
-msgid "Icon set:"
-msgstr "Набір іконок:"
 
 msgid "Gain"
 msgstr "Посилення"
@@ -352,6 +354,9 @@ msgstr "Тип ЦП:"
 msgid "Speed:"
 msgstr "Швидкість:"
 
+msgid "Frequency:"
+msgstr "Частота:"
+
 msgid "FPU:"
 msgstr "FPU:"
 
@@ -382,11 +387,14 @@ msgstr "Динамічний рекомпілятор"
 msgid "Video:"
 msgstr "Відеокарта:"
 
-msgid "Voodoo Graphics"
-msgstr "Прискорювач Voodoo"
+msgid "Video #2:"
+msgstr "Відеокарта 2:"
 
-msgid "IBM 8514/a Graphics"
-msgstr "Прискорювач IBM 8514/a"
+msgid "Voodoo 1 or 2 Graphics"
+msgstr "Прискорювач Voodoo 1 або 2"
+
+msgid "IBM 8514/A Graphics"
+msgstr "Прискорювач IBM 8514/A"
 
 msgid "XGA Graphics"
 msgstr "Прискорювач XGA"
@@ -409,16 +417,16 @@ msgstr "Джойстик 3..."
 msgid "Joystick 4..."
 msgstr "Джойстик 4..."
 
-msgid "Sound card 1:"
+msgid "Sound card #1:"
 msgstr "Звукова карта 1:"
 
-msgid "Sound card 2:"
+msgid "Sound card #2:"
 msgstr "Звукова карта 2:"
 
-msgid "Sound card 3:"
+msgid "Sound card #3:"
 msgstr "Звукова карта 3:"
 
-msgid "Sound card 4:"
+msgid "Sound card #4:"
 msgstr "Звукова карта 4:"
 
 msgid "MIDI Out Device:"
@@ -441,15 +449,6 @@ msgstr "Nuked (більш точний)"
 
 msgid "YMFM (faster)"
 msgstr "YMFM (швидший)"
-
-msgid "Network type:"
-msgstr "Тип мережі:"
-
-msgid "PCap device:"
-msgstr "Пристрій PCap:"
-
-msgid "Network adapter:"
-msgstr "Мережевий адаптер:"
 
 msgid "COM1 Device:"
 msgstr "Пристрій COM1:"
@@ -586,9 +585,6 @@ msgstr "Перевіряти BPB"
 msgid "CD-ROM drives:"
 msgstr "Дисководи CD-ROM:"
 
-msgid "Earlier drive"
-msgstr "Більш ранній дисковод"
-
 msgid "MO drives:"
 msgstr "Магнітооптичні дисководи:"
 
@@ -622,12 +618,6 @@ msgstr "Пристрій ISABugger"
 msgid "POST card"
 msgstr "Карта POST"
 
-msgid "FONT_SIZE"
-msgstr "9"
-
-msgid "FONT_NAME"
-msgstr "Segoe UI"
-
 msgid "86Box"
 msgstr "86Box"
 
@@ -638,16 +628,13 @@ msgid "Fatal error"
 msgstr "Непереробна помилка"
 
 msgid " - PAUSED"
-msgstr " - PAUSED"
-
-msgid "Press Ctrl+Alt+PgDn to return to windowed mode."
-msgstr "Натисніть Ctrl+Alt+PgDn для повернення у віконний режим."
+msgstr " - ПРИЗУПИНЕННЯ"
 
 msgid "Speed"
 msgstr "Швидкість"
 
-msgid "ZIP %03i %i (%s): %ls"
-msgstr "ZIP %03i %i (%s): %ls"
+msgid "ZIP %1 %2 (%3): %4"
+msgstr "ZIP %1 %2 (%3): %4"
 
 msgid "ZIP images"
 msgstr "Образи ZIP"
@@ -685,6 +672,12 @@ msgstr "Системна плата \"%hs\" недоступна через ві
 msgid "Video card \"%hs\" is not available due to missing ROMs in the roms/video directory. Switching to an available video card."
 msgstr "Відеокарта \"%hs\" недоступна через відсутність файлу її ПЗУ в каталозі roms/video. Переключення на доступну відеокарту."
 
+msgid "Video card #2 \"%hs\" is not available due to missing ROMs in the roms/video directory. Disabling the second video card."
+msgstr "Відеокарта 2 \"%hs\" недоступна через відсутність файлу її ПЗУ в каталозі roms/video. Відключення другої відеокарти."
+
+msgid "Device \"%hs\" is not available due to missing ROMs. Ignoring the device."
+msgstr "Пристрій \"%hs\" недоступний через відсутність файлу його ПЗУ. Ігнорування пристрою."
+
 msgid "Machine"
 msgstr "Комп'ютер"
 
@@ -721,11 +714,11 @@ msgstr "Інша периферія"
 msgid "Click to capture mouse"
 msgstr "Клацніть мишею для захвату курсора"
 
-msgid "Press F8+F12 to release mouse"
-msgstr "Натисніть F8+F12, щоб звільнити курсор"
+msgid "Press %1 to release mouse"
+msgstr "Натисніть %1, щоб звільнити курсор"
 
-msgid "Press F8+F12 or middle button to release mouse"
-msgstr "Натисніть F8+F12 або середню кнопку миші, щоб звільнити курсор"
+msgid "Press %1 or middle button to release mouse"
+msgstr "Натисніть %1 або середню кнопку миші, щоб звільнити курсор"
 
 msgid "Bus"
 msgstr "Шина"
@@ -745,20 +738,14 @@ msgstr "S"
 msgid "KB"
 msgstr "КБ"
 
-msgid "Could not initialize the video renderer."
-msgstr "Не вдалося ініціалізувати рендер відео."
-
 msgid "Default"
 msgstr "За замовчуванням"
 
-msgid "%i Wait state(s)"
-msgstr "%i WS"
+msgid "%1 Wait state(s)"
+msgstr "%1 WS"
 
 msgid "Type"
 msgstr "Тип"
-
-msgid "Failed to set up PCap"
-msgstr "Не вдалося налаштувати PCap"
 
 msgid "No PCap devices found"
 msgstr "Пристрої PCap не знайдені"
@@ -766,17 +753,26 @@ msgstr "Пристрої PCap не знайдені"
 msgid "Invalid PCap device"
 msgstr "Невірний пристрій PCap"
 
-msgid "Standard 2-button joystick(s)"
-msgstr "Стандартний 2-кнопковий джойстик"
+msgid "2-axis, 2-button joystick(s)"
+msgstr "2-осьовий, 2-кнопковий джойстик"
 
-msgid "Standard 4-button joystick"
-msgstr "Стандартний 4-кнопковий джойстик"
+msgid "2-axis, 4-button joystick"
+msgstr "2-осьовий, 4-кнопковий джойстик"
 
-msgid "Standard 6-button joystick"
-msgstr "Стандартний 6-кнопковий джойстик"
+msgid "2-axis, 6-button joystick"
+msgstr "2-осьовий, 6-кнопковий джойстик"
 
-msgid "Standard 8-button joystick"
-msgstr "Стандартний 8-кнопковий джойстик"
+msgid "2-axis, 8-button joystick"
+msgstr "2-осьовий, 8-кнопковий джойстик"
+
+msgid "3-axis, 2-button joystick"
+msgstr "3-осьовий, 2-кнопковий джойстик"
+
+msgid "3-axis, 4-button joystick"
+msgstr "3-осьовий, 4-кнопковий джойстик"
+
+msgid "4-axis, 4-button joystick"
+msgstr "4-осьовий, 4-кнопковий джойстик"
 
 msgid "CH Flightstick Pro"
 msgstr "CH Flightstick Pro"
@@ -790,29 +786,17 @@ msgstr "Система управління польотом Thrustmaster"
 msgid "None"
 msgstr "Ні"
 
-msgid "Unable to load keyboard accelerators."
-msgstr "Неможливо завантажити прискорювачі клавіатури."
+msgid "%1 MB (CHS: %2, %3, %4)"
+msgstr "%1 МБ (CHS: %2, %3, %4)"
 
-msgid "Unable to register raw input."
-msgstr "Неможливо зарреєструвати необроблене (RAW) введення."
-
-msgid "%u"
-msgstr "%u"
-
-msgid "%u MB (CHS: %i, %i, %i)"
-msgstr "%u МБ (CHS: %i, %i, %i)"
-
-msgid "Floppy %i (%s): %ls"
-msgstr "Дисковод %i (%s): %ls"
+msgid "Floppy %1 (%2): %3"
+msgstr "Дисковод %1 (%2): %3"
 
 msgid "Advanced sector images"
 msgstr "Розширені образи секторів"
 
 msgid "Flux images"
 msgstr "Образи Flux"
-
-msgid "Unable to initialize SDL, SDL2.dll is required"
-msgstr "Неможливо ініціалізувати SDL, потрібно SDL2.dll"
 
 msgid "Are you sure you want to hard reset the emulated machine?"
 msgstr "Ви впевнені, що хочете виконати холодне перезавантаження емульованої машини?"
@@ -823,8 +807,11 @@ msgstr "Ви впевнені, що хочете вийти з 86Box?"
 msgid "Unable to initialize Ghostscript"
 msgstr "Неможливо ініціалізувати Ghostscript"
 
-msgid "MO %i (%ls): %ls"
-msgstr "Магнітооптичний %i (%ls): %ls"
+msgid "Unable to initialize GhostPCL"
+msgstr "Неможливо ініціалізувати GhostPCL"
+
+msgid "MO %1 (%2): %3"
+msgstr "Магнітооптичний %1 (%2): %3"
 
 msgid "MO images"
 msgstr "Образи магнітооптичних дисків"
@@ -832,8 +819,8 @@ msgstr "Образи магнітооптичних дисків"
 msgid "Welcome to 86Box!"
 msgstr "Ласкаво просимо в 86Box!"
 
-msgid "Internal controller"
-msgstr "Вбудований контролер"
+msgid "Internal device"
+msgstr "Вбудований пристрій"
 
 msgid "Exit"
 msgstr "Вихід"
@@ -854,37 +841,25 @@ msgid "About 86Box"
 msgstr "Про 86Box"
 
 msgid "86Box v"
-msgstr "86Box v."
+msgstr "86Box v"
 
 msgid "An emulator of old computers\n\nAuthors: Miran Grča (OBattler), RichardG867, Jasmine Iwanek, TC1995, coldbrewed, Teemu Korhonen (Manaatti), Joakim L. Gilje, Adrien Moulin (elyosh), Daniel Balsom (gloriouscow), Cacodemon345, Fred N. van Kempen (waltje), Tiseno100, reenigne, and others.\n\nWith previous core contributions from Sarah Walker, leilei, JohnElliott, greatpsycho, and others.\n\nReleased under the GNU General Public License version 2 or later. See LICENSE for more information."
-msgstr "Емулятор старих комп'ютерів\n\nАвтори: Miran Grča (OBattler), RichardG867, Jasmine Iwanek, TC1995, coldbrewed, Teemu Korhonen (Manaatti), Joakim L. Gilje, Adrien Moulin (elyosh), Daniel Balsom (gloriouscow), Cacodemon345, Fred N. van Kempen (waltje), Tiseno100, reenigne, and others.\n\nWith previous core contributions from Sarah Walker, leilei, JohnElliott, greatpsycho, and others.\n\nВипускаєтся під ліцензією GNU General Public License версії 2 або більше пізніше. Додадкову інформацію см. у файлі LICENSE."
+msgstr "Емулятор старих комп'ютерів\n\nАвтори: Miran Grča (OBattler), RichardG867, Jasmine Iwanek, TC1995, coldbrewed, Teemu Korhonen (Manaatti), Joakim L. Gilje, Adrien Moulin (elyosh), Daniel Balsom (gloriouscow), Cacodemon345, Fred N. van Kempen (waltje), Tiseno100, reenigne, and others.\n\nЗ попередніми основними внесками Sarah Walker, leilei, JohnElliott, greatpsycho та інших.\n\nВипускаєтся під ліцензією GNU General Public License версії 2 або більше пізніше. Додадкову інформацію см. у файлі LICENSE."
 
 msgid "Hardware not available"
 msgstr "Обладнання недоступне"
 
-msgid "WinPcap"
-msgstr "WinPcap"
-
-msgid "libpcap"
-msgstr "libpcap"
-
-msgid "Make sure libpcap is installed and that you are on a libpcap-compatible network connection."
-msgstr "Переконайтесь, що libpcap встановлений і ваше мережеве з'єднання, сумісне з libpcap."
+msgid "Make sure %1 is installed and that you are on a libpcap-compatible network connection."
+msgstr "Переконайтесь, що %1 встановлений і ваше мережеве з'єднання, сумісне з libpcap."
 
 msgid "Invalid configuration"
 msgstr "Неприпустима конфігурація"
 
-msgid "gsdll32.dll"
-msgstr "gsdll32.dll"
+msgid "%1 is required for automatic conversion of PostScript files to PDF.\n\nAny documents sent to the generic PostScript printer will be saved as PostScript (.ps) files."
+msgstr "%1 потрібно для автоматичного перетворення файлів PostScript в PDF.\n\nВсі документи, відправлені на загальний принтер PostScript, будуть збережені у вигляді файлів PostScript (.ps)."
 
-msgid "libgs"
-msgstr "libgs"
-
-msgid " is required for automatic conversion of PostScript files to PDF.\n\nAny documents sent to the generic PostScript printer will be saved as PostScript (.ps) files."
-msgstr " потрібно для автоматичного перетворення файлів PostScript в PDF.\n\nВсі документи, відправлені на загальний принтер PostScript, будуть збережені у вигляді файлів PostScript (.ps)."
-
-msgid "Entering fullscreen mode"
-msgstr "Вхід у повноекранний режим"
+msgid "%1 is required for automatic conversion of PCL files to PDF.\n\nAny documents sent to the generic PCL printer will be saved as Printer Command Language (.pcl) files."
+msgstr "%1 потрібно для автоматичного перетворення файлів PCL в PDF.\n\nВсі документи, відправлені на загальний принтер PCL, будуть збережені у вигляді файлів Printer Command Language (.ps)."
 
 msgid "Don't show this message again"
 msgstr "Більше не показувати це повідомлення"
@@ -901,17 +876,14 @@ msgstr "Не перезавантажувати"
 msgid "CD-ROM images"
 msgstr "Образи CD-ROM"
 
-msgid "%hs Device Configuration"
-msgstr "Конфігурація пристрою %hs"
+msgid "%1 Device Configuration"
+msgstr "Конфігурація пристрою %1"
 
 msgid "Monitor in sleep mode"
 msgstr "Монітор у сплячому режимі"
 
-msgid "OpenGL Shaders"
-msgstr "Шейдери OpenGL"
-
-msgid "OpenGL options"
-msgstr "Параметри OpenGL"
+msgid "GLSL shaders"
+msgstr "Шейдери GLSL"
 
 msgid "You are loading an unsupported configuration"
 msgstr "Ви завантажуєте непідтримувану конфігурацію"
@@ -922,23 +894,17 @@ msgstr "Вибір типів ЦП для цієї системної плати
 msgid "Continue"
 msgstr "Продовжити"
 
-msgid "Cassette: %s"
-msgstr "Касета: %s"
+msgid "Cassette: %1"
+msgstr "Касета: %1"
 
 msgid "Cassette images"
 msgstr "Образи касет"
 
-msgid "Cartridge %i: %ls"
-msgstr "Картридж %i: %ls"
+msgid "Cartridge %1: %2"
+msgstr "Картридж %1: %2"
 
 msgid "Cartridge images"
 msgstr "Образи картриджів"
-
-msgid "Error initializing renderer"
-msgstr "Помилка ініціалізації рендерера"
-
-msgid "OpenGL (3.0 Core) renderer could not be initialized. Use another renderer."
-msgstr "Неможливо ініціалізувати рендерер OpenGL (3.0). Будь ласка, використовуйте інший рендерер."
 
 msgid "Resume execution"
 msgstr "Відновити виконання"
@@ -958,14 +924,8 @@ msgstr "Холодне перезавантаження"
 msgid "ACPI shutdown"
 msgstr "Сигнал завершення ACPI"
 
-msgid "Hard disk (%s)"
-msgstr "Жорсткий диск (%s)"
-
-msgid "%01i:%01i"
-msgstr "%01i:%01i"
-
-msgid "%01i"
-msgstr "%01i"
+msgid "Hard disk (%1)"
+msgstr "Жорсткий диск (%1)"
 
 msgid "MFM/RLL or ESDI CD-ROM drives never existed"
 msgstr "MFM/RLL або ESDI дисководів CD-ROM ніколи не існувало"
@@ -1000,9 +960,6 @@ msgstr "Неможливо записати файл"
 msgid "HDI or HDX images with a sector size other than 512 are not supported."
 msgstr "Образи HDI або HDX з розміром сектора, відмінним від 512, не підтримуються."
 
-msgid "USB is not yet supported"
-msgstr "USB поки не підтримується"
-
 msgid "Disk image file already exists"
 msgstr "Файл образу диска вже існує"
 
@@ -1035,6 +992,27 @@ msgstr "Перезаписати"
 
 msgid "Don't overwrite"
 msgstr "Не перезаписувати"
+
+msgid "Raw image"
+msgstr "RAW образ"
+
+msgid "HDI image"
+msgstr "Образ HDI"
+
+msgid "HDX image"
+msgstr "Образ HDX"
+
+msgid "Fixed-size VHD"
+msgstr "VHD фіксованого розміру"
+
+msgid "Dynamic-size VHD"
+msgstr "VHD динамічного розміру"
+
+msgid "Differencing VHD"
+msgstr "Диференційований образ VHD"
+
+msgid "(N/A)"
+msgstr "(Ні)"
 
 msgid "Raw image (.img)"
 msgstr "RAW образ (.img)"
@@ -1075,9 +1053,6 @@ msgstr "Тимчасові мітки батьківського та дочір
 msgid "Could not fix VHD timestamp."
 msgstr "Не вдалося виправити тимчасову позначку VHD."
 
-msgid "%01i:%02i"
-msgstr "%01i:%02i"
-
 msgid "MFM/RLL"
 msgstr "MFM/RLL"
 
@@ -1093,44 +1068,26 @@ msgstr "IDE"
 msgid "ATAPI"
 msgstr "ATAPI"
 
-msgid "MFM/RLL (%01i:%01i)"
-msgstr "MFM/RLL (%01i:%01i)"
+msgid "CD-ROM %1 (%2): %3"
+msgstr "CD-ROM %1 (%2): %3"
 
-msgid "XTA (%01i:%01i)"
-msgstr "XTA (%01i:%01i)"
+msgid "160 KB"
+msgstr "160 КБ"
 
-msgid "ESDI (%01i:%01i)"
-msgstr "ESDI (%01i:%01i)"
+msgid "180 KB"
+msgstr "180 КБ"
 
-msgid "IDE (%01i:%01i)"
-msgstr "IDE (%01i:%01i)"
+msgid "320 KB"
+msgstr "320 КБ"
 
-msgid "ATAPI (%01i:%01i)"
-msgstr "ATAPI (%01i:%01i)"
+msgid "360 KB"
+msgstr "360 КБ"
 
-msgid "SCSI (%01i:%02i)"
-msgstr "SCSI (%01i:%02i)"
+msgid "640 KB"
+msgstr "640 КБ"
 
-msgid "CD-ROM %i (%s): %s"
-msgstr "CD-ROM %i (%s): %s"
-
-msgid "160 kB"
-msgstr "160 кБ"
-
-msgid "180 kB"
-msgstr "180 кБ"
-
-msgid "320 kB"
-msgstr "320 кБ"
-
-msgid "360 kB"
-msgstr "360 кБ"
-
-msgid "640 kB"
-msgstr "640 кБ"
-
-msgid "720 kB"
-msgstr "720 кБ"
+msgid "720 KB"
+msgstr "720 КБ"
 
 msgid "1.2 MB"
 msgstr "1.2 МБ"
@@ -1224,3 +1181,975 @@ msgstr "Швидкий"
 
 msgid "&Auto-pause on focus loss"
 msgstr "&Автопауза при втраті фокусу"
+
+msgid "WinBox is no longer supported"
+msgstr "WinBox більше не підтримується"
+
+msgid "Development of the WinBox manager stopped in 2022 due to a lack of maintainers. As we direct our efforts towards making 86Box even better, we have made the decision to no longer support WinBox as a manager.\n\nNo further updates will be provided through WinBox, and you may encounter incorrect behavior should you continue using it with newer versions of 86Box. Any bug reports related to WinBox behavior will be closed as invalid.\n\nGo to 86box.net for a list of other managers you can use."
+msgstr "Розробку менеджера WinBox було припинено у 2022 році через брак супровідників. Оскільки ми спрямовуємо наші зусилля на те, щоб зробити 86Box ще кращим, ми прийняли рішення більше не підтримувати WinBox як менеджер.\n\nБільше ніяких оновлень не буде надаватися через WinBox, і ви можете зіткнутися з некоректною поведінкою, якщо продовжите використовувати його з новими версіями 86Box. Будь-які повідомлення про помилки, пов'язані з поведінкою WinBox, будуть закриті як недійсні.\n\nПерейдіть на 86box.net для отримання списку інших менеджерів, які ви можете використовувати."
+
+msgid "Generate"
+msgstr "Згенерувати"
+
+msgid "Joystick configuration"
+msgstr "Конфігурація джойстика"
+
+msgid "Device"
+msgstr "Пристрій"
+
+msgid "%1 (X axis)"
+msgstr "%1 (вісь X)"
+
+msgid "%1 (Y axis)"
+msgstr "%1 (вісь Y)"
+
+msgid "MCA devices"
+msgstr "Пристрої MCA"
+
+msgid "List of MCA devices:"
+msgstr "Список пристроїв MCA:"
+
+msgid "Tablet tool"
+msgstr "Інструмент для планшета"
+
+msgid "Qt (OpenGL &ES)"
+msgstr "Qt (OpenGL &ES)"
+
+msgid "About Qt"
+msgstr "Про Qt"
+
+msgid "MCA devices..."
+msgstr "Пристрої MCA..."
+
+msgid "Show non-primary monitors"
+msgstr "Показати неосновні монітори"
+
+msgid "Open screenshots folder..."
+msgstr "Відкрийте папку скріншотів..."
+
+msgid "Apply fullscreen stretch mode when maximized"
+msgstr "Застосовувати розстягування у повноекранному режимі у максимізованому стані"
+
+msgid "Cursor/Puck"
+msgstr "Курсор/шайба"
+
+msgid "Pen"
+msgstr "Ручка"
+
+msgid "Host CD/DVD Drive (%1:)"
+msgstr "CD/DVD привід хоста (%1:)"
+
+msgid "&Connected"
+msgstr "&Підключено"
+
+msgid "Clear image history"
+msgstr "Очистити історію образів"
+
+msgid "Create..."
+msgstr "Створити..."
+
+msgid "Host CD/DVD Drive (%1)"
+msgstr "CD/DVD привід хоста (%1)"
+
+msgid "Unknown Bus"
+msgstr "Невідома шина"
+
+msgid "Null Driver"
+msgstr "Нульовий драйвер"
+
+msgid "NIC %1 (%2) %3"
+msgstr "NIC %1 (%2) %3"
+
+msgid "Render behavior"
+msgstr "Поведінка рендерингу"
+
+msgid "Use target framerate:"
+msgstr "Використовувати цільову частоту кадрів:"
+
+msgid " fps"
+msgstr " fps"
+
+msgid "VSync"
+msgstr "VSync"
+
+msgid "Synchronize with video"
+msgstr "Синхронізація з відео"
+
+msgid "Shaders"
+msgstr "Шейдери"
+
+msgid "Remove"
+msgstr "Видалити"
+
+msgid "Browse..."
+msgstr "Переглянути..."
+
+msgid "Couldn't create OpenGL context."
+msgstr "Не вдалося створити контекст OpenGL."
+
+msgid "Couldn't switch to OpenGL context."
+msgstr "Не вдалося переключитися на контекст OpenGL."
+
+msgid "OpenGL version 3.0 or greater is required. Current version is %1.%2"
+msgstr "Потрібна версія OpenGL 3.0 або новіша. Поточна версія %1.%2"
+
+msgid "Error initializing OpenGL"
+msgstr "Помилка ініціалізації OpenGL"
+
+msgid "\nFalling back to software rendering."
+msgstr "\nПовернення до програмного рендерингу."
+
+msgid "<html><head/><body><p>When selecting media images (CD-ROM, floppy, etc.) the open dialog will start in the same directory as the 86Box configuration file. This setting will likely only make a difference on macOS.</p></body></html>"
+msgstr "<html><head/><body><p>При виборі медіа-образів (CD-ROM, дискета і т.д.) діалогове вікно буде відкриватися в тому ж каталозі, що і файл конфігурації 86Box. Цей параметр, швидше за все, матиме значення лише на macOS.</p></body></html>"
+
+msgid "This machine might have been moved or copied."
+msgstr "Цю машину могли перемістити або скопіювати."
+
+msgid "In order to ensure proper networking functionality, 86Box needs to know if this machine was moved or copied.\n\nSelect \"I Copied It\" if you are not sure."
+msgstr "Щоб забезпечити належну мережеву функціональність, 86Box повинен знати, чи машина була переміщена або скопійована.\n\nЯкщо ви не впевнені, виберіте \"Скопійована\"."
+
+msgid "I Moved It"
+msgstr "Переміщена"
+
+msgid "I Copied It"
+msgstr "Скопійована"
+
+msgid "86Box Monitor #"
+msgstr "Монітор 86Box "
+
+msgid "No MCA devices."
+msgstr "Ніяких пристроїв MCA."
+
+msgid "MiB"
+msgstr "МіБ"
+
+msgid "Network Card #1"
+msgstr "Мережева карта 1"
+
+msgid "Network Card #2"
+msgstr "Мережева карта 2"
+
+msgid "Network Card #3"
+msgstr "Мережева карта 3"
+
+msgid "Network Card #4"
+msgstr "Мережева карта 4"
+
+msgid "Mode:"
+msgstr "Режим:"
+
+msgid "Interface:"
+msgstr "Інтерфейс:"
+
+msgid "Adapter:"
+msgstr "Адаптер:"
+
+msgid "VDE Socket:"
+msgstr "VDE сокет:"
+
+msgid "86Box Unit Tester"
+msgstr "Тестер блоків 86Box"
+
+msgid "Novell NetWare 2.x Key Card"
+msgstr "Ключова картка Novell NetWare 2.x"
+
+msgid "Serial port passthrough 1"
+msgstr "Пропуск послідовного порту 1"
+
+msgid "Serial port passthrough 2"
+msgstr "Пропуск послідовного порту 2"
+
+msgid "Serial port passthrough 3"
+msgstr "Пропуск послідовного порту 3"
+
+msgid "Serial port passthrough 4"
+msgstr "Пропуск послідовного порту 4"
+
+msgid "Renderer options..."
+msgstr "Параметри рендерингу..."
+
+msgid "Logitech/Microsoft Bus Mouse"
+msgstr "Шинна миша Logitech/Microsoft"
+
+msgid "Microsoft Bus Mouse (InPort)"
+msgstr "Шинна миша Microsoft (InPort)"
+
+msgid "Mouse Systems Serial Mouse"
+msgstr "Послідовна миша Mouse Systems"
+
+msgid "Microsoft Serial Mouse"
+msgstr "Послідовна миша Microsoft"
+
+msgid "Logitech Serial Mouse"
+msgstr "Послідовна миша Logitech"
+
+msgid "PS/2 Mouse"
+msgstr "Миша PS/2"
+
+msgid "3M MicroTouch (Serial)"
+msgstr "3M MicroTouch (послідовна)"
+
+msgid "[COM] Standard Hayes-compliant Modem"
+msgstr "[COM] Стандартний модем, сумісний зі стандартом Hayes"
+
+msgid "Roland MT-32 Emulation"
+msgstr "Емуляція Roland MT-32"
+
+msgid "Roland MT-32 (New) Emulation"
+msgstr "Емуляція Roland MT-32 (новий)"
+
+msgid "Roland CM-32L Emulation"
+msgstr "Емуляція Roland CM-32L"
+
+msgid "Roland CM-32LN Emulation"
+msgstr "Емуляція Roland CM-32LN"
+
+msgid "OPL4-ML Daughterboard"
+msgstr "Дочірня плата OPL4-ML"
+
+msgid "System MIDI"
+msgstr "MIDI системи"
+
+msgid "MIDI Input Device"
+msgstr "Пристрій введення MIDI"
+
+msgid "BIOS Address"
+msgstr "Адреса BIOS"
+
+msgid "Enable BIOS extension ROM Writes"
+msgstr "Увімкнути розширення BIOS Записи в ПЗУ"
+
+msgid "Address"
+msgstr "Адреса"
+
+msgid "IRQ"
+msgstr "IRQ"
+
+msgid "BIOS Revision"
+msgstr "Ревізія BIOS"
+
+msgid "Translate 26 -> 17"
+msgstr "Перекладіть 26 -> 17"
+
+msgid "Language"
+msgstr "Мова"
+
+msgid "Enable backlight"
+msgstr "Увімкнути підсвічування"
+
+msgid "Invert colors"
+msgstr "Інвертувати кольори"
+
+msgid "BIOS size"
+msgstr "Розмір BIOS"
+
+msgid "Map C0000-C7FFF as UMB"
+msgstr "Зіставлення C0000-C7FFF як UMB"
+
+msgid "Map C8000-CFFFF as UMB"
+msgstr "Зіставлення C8000-CFFFF як UMB"
+
+msgid "Map D0000-D7FFF as UMB"
+msgstr "Зіставлення D0000-D7FFF як UMB"
+
+msgid "Map D8000-DFFFF as UMB"
+msgstr "Зіставлення D8000-DFFFF як UMB"
+
+msgid "Map E0000-E7FFF as UMB"
+msgstr "Зіставлення E0000-E7FFF як UMB"
+
+msgid "Map E8000-EFFFF as UMB"
+msgstr "Зіставлення E8000-EFFFF як UMB"
+
+msgid "JS9 Jumper (JIM)"
+msgstr "Джампер JS9 (JIM)"
+
+msgid "MIDI Output Device"
+msgstr "Вихідний пристрій MIDI"
+
+msgid "MIDI Real time"
+msgstr "MIDI в реальному часі"
+
+msgid "MIDI Thru"
+msgstr "Прохід MIDI-вхіду"
+
+msgid "MIDI Clockout"
+msgstr "Вихід MIDI-годинника"
+
+msgid "SoundFont"
+msgstr "SoundFont"
+
+msgid "Output Gain"
+msgstr "Вихідний коефіцієнт підсилення"
+
+msgid "Chorus"
+msgstr "Приспів"
+
+msgid "Chorus Voices"
+msgstr "Голоси приспіву"
+
+msgid "Chorus Level"
+msgstr "Рівень приспіву"
+
+msgid "Chorus Speed"
+msgstr "Швидкість приспіву"
+
+msgid "Chorus Depth"
+msgstr "Глибина приспіву"
+
+msgid "Chorus Waveform"
+msgstr "Форма сигналу приспіву"
+
+msgid "Reverb"
+msgstr "Реверберація"
+
+msgid "Reverb Room Size"
+msgstr "Розмір ревербераційної кімнати"
+
+msgid "Reverb Damping"
+msgstr "Демпфування реверберації"
+
+msgid "Reverb Width"
+msgstr "Ширина реверберації"
+
+msgid "Reverb Level"
+msgstr "Рівень реверберації"
+
+msgid "Interpolation Method"
+msgstr "Метод інтерполяції"
+
+msgid "Reverb Output Gain"
+msgstr "Посилення виходу реверберації"
+
+msgid "Reversed stereo"
+msgstr "Реверсивне стерео"
+
+msgid "Nice ramp"
+msgstr "Гарний пандус"
+
+msgid "Hz"
+msgstr "Гц"
+
+msgid "Buttons"
+msgstr "Кнопки"
+
+msgid "Serial Port"
+msgstr "Послідовний порт"
+
+msgid "RTS toggle"
+msgstr "Перемикач RTS"
+
+msgid "Revision"
+msgstr "Ревізія"
+
+msgid "Controller"
+msgstr "Контролер"
+
+msgid "Show Crosshair"
+msgstr "Показати перехрестя"
+
+msgid "DMA"
+msgstr "DMA"
+
+msgid "MAC Address"
+msgstr "MAC-адреса"
+
+msgid "MAC Address OUI"
+msgstr "MAC-адреса OUI"
+
+msgid "Enable BIOS"
+msgstr "Увімкнення BIOS"
+
+msgid "Baud Rate"
+msgstr "Швидкість передачі даних"
+
+msgid "TCP/IP listening port"
+msgstr "Порт прослуховування TCP/IP"
+
+msgid "Phonebook File"
+msgstr "Файл телефонної книги"
+
+msgid "Telnet emulation"
+msgstr "Емуляція Telnet"
+
+msgid "RAM Address"
+msgstr "Адреса оперативної пам'яті"
+
+msgid "RAM size"
+msgstr "Розмір оперативної пам'яті"
+
+msgid "Initial RAM size"
+msgstr "Початковий розмір оперативної пам'яті"
+
+msgid "Serial Number"
+msgstr "Серійний номер"
+
+msgid "Host ID"
+msgstr "Ідентифікатор хоста"
+
+msgid "FDC Address"
+msgstr "Адреса FDC"
+
+msgid "MPU-401 Address"
+msgstr "Адреса MPU-401"
+
+msgid "MPU-401 IRQ"
+msgstr "IRQ MPU-401"
+
+msgid "Receive MIDI input"
+msgstr "Отримання MIDI-входу"
+
+msgid "Low DMA"
+msgstr "Низький рівень DMA"
+
+msgid "Enable Game port"
+msgstr "Увімкнути ігровий порт"
+
+msgid "Surround module"
+msgstr "Модуль об'ємного звучання"
+
+msgid "CODEC"
+msgstr "CODEC"
+
+msgid "Raise CODEC interrupt on CODEC setup (needed by some drivers)"
+msgstr "Піднімати переривання CODEC під час встановлення CODEC (потрібно для деяких драйверів)"
+
+msgid "SB Address"
+msgstr "Адреса SB"
+
+msgid "WSS IRQ"
+msgstr "IRQ WSS"
+
+msgid "WSS DMA"
+msgstr "DMA WSS"
+
+msgid "Enable OPL"
+msgstr "Ввімкнути OPL"
+
+msgid "Receive MIDI input (MPU-401)"
+msgstr "Отримання MIDI-входу (MPU-401)"
+
+msgid "SB low DMA"
+msgstr "SB низький DMA"
+
+msgid "6CH variant (6-channel)"
+msgstr "Варіант 6CH (6-канальний)"
+
+msgid "Enable CMS"
+msgstr "Ввімкнути CMS"
+
+msgid "Mixer"
+msgstr "Міксер"
+
+msgid "High DMA"
+msgstr "Високий DMA"
+
+msgid "Control PC speaker"
+msgstr "Керування динаміком ПК"
+
+msgid "Memory size"
+msgstr "Обсяг пам'яті"
+
+msgid "EMU8000 Address"
+msgstr "Адреса EMU8000"
+
+msgid "IDE Controller"
+msgstr "Контролер IDE"
+
+msgid "Codec"
+msgstr "Кодек"
+
+msgid "GUS type"
+msgstr "Тип GUS"
+
+msgid "Enable 0x04 \"Exit 86Box\" command"
+msgstr "Увімкнути команду 0x04 \"Вихід з 86Box\"."
+
+msgid "Display type"
+msgstr "Тип відображення"
+
+msgid "Composite type"
+msgstr "Композитний тип"
+
+msgid "RGB type"
+msgstr "Тип RGB"
+
+msgid "Line doubling type"
+msgstr "Тип подвоєння лінії"
+
+msgid "Snow emulation"
+msgstr "Емуляція снігу"
+
+msgid "Monitor type"
+msgstr "Тип монітора"
+
+msgid "Character set"
+msgstr "Набір символів"
+
+msgid "XGA type"
+msgstr "Тип XGA"
+
+msgid "Instance"
+msgstr "Примірник"
+
+msgid "MMIO Address"
+msgstr "Адреса MMIO"
+
+msgid "RAMDAC type"
+msgstr "Тип RAMDAC"
+
+msgid "Blend"
+msgstr "Суміш"
+
+msgid "Bilinear filtering"
+msgstr "Білінійна фільтрація"
+
+msgid "Dithering"
+msgstr "Дизеринг"
+
+msgid "Enable NMI for CGA emulation"
+msgstr "Увімкнути NMI для емуляції CGA"
+
+msgid "Voodoo type"
+msgstr "Тип вуду"
+
+msgid "Framebuffer memory size"
+msgstr "Розмір пам'яті фреймбуфера"
+
+msgid "Texture memory size"
+msgstr "Розмір пам'яті текстур"
+
+msgid "Dither subtraction"
+msgstr "Віднімання з похибкою"
+
+msgid "Screen Filter"
+msgstr "Сітчастий фільтр"
+
+msgid "Render threads"
+msgstr "Відрендерити потоки"
+
+msgid "SLI"
+msgstr "SLI"
+
+msgid "Start Address"
+msgstr "Початкова адреса"
+
+msgid "Contiguous Size"
+msgstr "Суміжний розмір"
+
+msgid "I/O Width"
+msgstr "Ширина вводу/виводу"
+
+msgid "Transfer Speed"
+msgstr "Швидкість передачі даних"
+
+msgid "EMS mode"
+msgstr "Режим EMS"
+
+msgid "Address for > 2 MB"
+msgstr "Адреса для > 2 МБ"
+
+msgid "Frame Address"
+msgstr "Адреса кадру"
+
+msgid "USA"
+msgstr "США"
+
+msgid "Danish"
+msgstr "Данська"
+
+msgid "Always at selected speed"
+msgstr "Завжди на обраній швидкості"
+
+msgid "BIOS setting + Hotkeys (off during POST)"
+msgstr "Налаштування BIOS + Гарячі клавіші (вимкнено під час POST)"
+
+msgid "64 kB starting from F0000"
+msgstr "64 кБ, починаючи з F0000"
+
+msgid "128 kB starting from E0000 (address MSB inverted, last 64KB first)"
+msgstr "128 кБ, починаючи з E0000 (адреса MSB інвертована, останні 64 кБ першими)"
+
+msgid "Sine"
+msgstr "Синусоїдальна"
+
+msgid "Triangle"
+msgstr "Трикутна"
+
+msgid "Linear"
+msgstr "Лінійний"
+
+msgid "4th Order"
+msgstr "4-го порядку"
+
+msgid "7th Order"
+msgstr "7-го порядку"
+
+msgid "Non-timed (original)"
+msgstr "Без таймера (оригінал)"
+
+msgid "45 Hz (JMP2 not populated)"
+msgstr "45 Гц (без джампера на JMP2)"
+
+msgid "Two"
+msgstr "Два"
+
+msgid "Three"
+msgstr "Три"
+
+msgid "Wheel"
+msgstr "Колесо"
+
+msgid "Five + Wheel"
+msgstr "П'ять + колесо"
+
+msgid "Five + 2 Wheels"
+msgstr ""
+
+msgid "A3 - SMT2 Serial / SMT3(R)V"
+msgstr "A3 - SMT2 послідовна / SMT3(R)V"
+
+msgid "Q1 - SMT3(R) Serial"
+msgstr "Q1 - SMT3(R) послідовна"
+
+msgid "8 KB"
+msgstr "8 КБ"
+
+msgid "32 KB"
+msgstr "32 КБ"
+
+msgid "16 KB"
+msgstr "16 КБ"
+
+msgid "64 KB"
+msgstr "64 КБ"
+
+msgid "Disable BIOS"
+msgstr "Вимкнення BIOS"
+
+msgid "512 KB"
+msgstr "512 КБ"
+
+msgid "2 MB"
+msgstr "2 МБ"
+
+msgid "8 MB"
+msgstr "8 МБ"
+
+msgid "28 MB"
+msgstr "28 МБ"
+
+msgid "1 MB"
+msgstr "1 МБ"
+
+msgid "4 MB"
+msgstr "4 МБ"
+
+msgid "12 MB"
+msgstr "12 МБ"
+
+msgid "16 MB"
+msgstr "16 МБ"
+
+msgid "20 MB"
+msgstr "20 МБ"
+
+msgid "24 MB"
+msgstr "24 МБ"
+
+msgid "SigmaTel STAC9721T (stereo)"
+msgstr "SigmaTel STAC9721T (стерео)"
+
+msgid "Classic"
+msgstr "Класичний"
+
+msgid "256 KB"
+msgstr "256 КБ"
+
+msgid "Composite"
+msgstr "Композитний"
+
+msgid "Old"
+msgstr "Старий"
+
+msgid "New"
+msgstr "Новий"
+
+msgid "Color (generic)"
+msgstr "Кольоровий (загальний)"
+
+msgid "Green Monochrome"
+msgstr "Зелений монохромний"
+
+msgid "Amber Monochrome"
+msgstr "Бурштиновий монохромний"
+
+msgid "Gray Monochrome"
+msgstr "Сірий монохромний"
+
+msgid "Color (no brown)"
+msgstr "Кольоровий (без коричневого)"
+
+msgid "Color (IBM 5153)"
+msgstr "Кольоровий (IBM 5153)"
+
+msgid "Simple doubling"
+msgstr "Просте подвоєння"
+
+msgid "sRGB interpolation"
+msgstr "sRGB інтерполяція"
+
+msgid "Linear interpolation"
+msgstr "Лінійна інтерполяція"
+
+msgid "128 KB"
+msgstr "128 КБ"
+
+msgid "Monochrome (5151/MDA) (white)"
+msgstr "Монохромний (5151/MDA) (білий)"
+
+msgid "Monochrome (5151/MDA) (green)"
+msgstr "Монохромний (5151/MDA) (зелений)"
+
+msgid "Monochrome (5151/MDA) (amber)"
+msgstr "Монохромний (5151/MDA) (бурштиновий)"
+
+msgid "Color 40x25 (5153/CGA)"
+msgstr "Кольоровий 40x25 (5153/CGA)"
+
+msgid "Color 80x25 (5153/CGA)"
+msgstr "Кольоровий 80x25 (5153/CGA)"
+
+msgid "Enhanced Color - Normal Mode (5154/ECD)"
+msgstr "Покращений колір - звичайний режим (5154/ECD)"
+
+msgid "Enhanced Color - Enhanced Mode (5154/ECD)"
+msgstr "Покращений колір - розширений режим (5154/ECD)"
+
+msgid "Green"
+msgstr "Зелений"
+
+msgid "Amber"
+msgstr "Бурштиновий"
+
+msgid "Gray"
+msgstr "Сірий"
+
+msgid "Color"
+msgstr "Кольоровий"
+
+msgid "U.S. English"
+msgstr "Американський англійський"
+
+msgid "Scandinavian"
+msgstr "Скандинавський"
+
+msgid "Other languages"
+msgstr "Інші мови"
+
+msgid "Bochs latest"
+msgstr "Bochs останній"
+
+msgid "Mono Non-Interlaced"
+msgstr "Монохромний неінтерлейсний"
+
+msgid "Color Interlaced"
+msgstr "Кольоровий інтерлейсний"
+
+msgid "Color Non-Interlaced"
+msgstr "Кольоровий неінтерлейсний"
+
+msgid "3Dfx Voodoo Graphics"
+msgstr "Прискорювач 3Dfx Voodoo"
+
+msgid "Obsidian SB50 + Amethyst (2 TMUs)"
+msgstr "Obsidian SB50 + Amethyst (2 TMU)"
+
+msgid "8-bit"
+msgstr "8-розрядний"
+
+msgid "16-bit"
+msgstr "16-розрядний"
+
+msgid "Standard (150ns)"
+msgstr "Стандартний (150 нс)"
+
+msgid "High-Speed (120ns)"
+msgstr "Високошвидкісний (120нс)"
+
+msgid "Enabled"
+msgstr "Увімкнено"
+
+msgid "Standard"
+msgstr "Стандартний"
+
+msgid "High-Speed"
+msgstr "Високошвидкісний"
+
+msgid "Stereo LPT DAC"
+msgstr "Стерео LPT ЦАП"
+
+msgid "Generic Text Printer"
+msgstr "Загальний текстовий принтер"
+
+msgid "Generic ESC/P Dot-Matrix Printer"
+msgstr "Загальний матричний принтер ESC/P"
+
+msgid "Generic PostScript Printer"
+msgstr "Загальний принтер PostScript"
+
+msgid "Generic PCL5e Printer"
+msgstr "Загальний принтер PCL5e"
+
+msgid "Parallel Line Internet Protocol"
+msgstr "Parallel Line Internet Protocol"
+
+msgid "Protection Dongle for Savage Quest"
+msgstr "Ключовий захист для Savage Quest"
+
+msgid "Serial Passthrough Device"
+msgstr "Пристрій для пропуску послідовного порту"
+
+msgid "Passthrough Mode"
+msgstr "Наскрізний режим"
+
+msgid "Host Serial Device"
+msgstr "Послідовний пристрій хоста"
+
+msgid "Name of pipe"
+msgstr "Назва пайпа"
+
+msgid "Data bits"
+msgstr "Біти даних"
+
+msgid "Stop bits"
+msgstr "Стоп-біти"
+
+msgid "Baud Rate of Passthrough"
+msgstr "Швидкість передачі даних пропуску"
+
+msgid "Named Pipe (Server)"
+msgstr "Іменований пайп (сервер)"
+
+msgid "Host Serial Passthrough"
+msgstr "Пропуск послідовного порту хоста"
+
+msgid "E&ject %1"
+msgstr "&Вилучити %1"
+
+msgid "&Unmute"
+msgstr "&Увімкнути звук"
+
+msgid "Softfloat FPU"
+msgstr "FPU Softfloat"
+
+msgid "High performance impact"
+msgstr "Високий вплив на продуктивність"
+
+msgid "[Generic] RAM Disk (max. speed)"
+msgstr "[Generic] Диск оперативної пам'яті (макс. швидкість)"
+
+msgid "[Generic] 1989 (3500 RPM)"
+msgstr ""
+
+msgid "[Generic] 1992 (3600 RPM)"
+msgstr ""
+
+msgid "[Generic] 1994 (4500 RPM)"
+msgstr ""
+
+msgid "[Generic] 1996 (5400 RPM)"
+msgstr ""
+
+msgid "[Generic] 1997 (5400 RPM)"
+msgstr ""
+
+msgid "[Generic] 1998 (5400 RPM)"
+msgstr ""
+
+msgid "[Generic] 2000 (7200 RPM)"
+msgstr ""
+
+msgid "IBM 8514/A clone (ISA)"
+msgstr "Клон IBM 8514/A (ISA)"
+
+msgid "Vendor"
+msgstr "Виробник"
+
+msgid "30 Hz (JMP2 = 1)"
+msgstr "30 Гц (JMP2 = 1)"
+
+msgid "60 Hz (JMP2 = 2)"
+msgstr "60 Гц (JMP2 = 2)"
+
+msgid "Generic PC/XT Memory Expansion"
+msgstr "Загальне розширення пам'яті PC/XT"
+
+msgid "Generic PC/AT Memory Expansion"
+msgstr "Загальне розширення пам'яті PC/AT"
+
+msgid "Unable to find Dot-Matrix fonts"
+msgstr "Неможливо знайти матричні шрифти"
+
+msgid "TrueType fonts in the \"roms/printer/fonts\" directory are required for the emulation of the Generic ESC/P Dot-Matrix Printer."
+msgstr "Шрифти TrueType у каталозі \"roms/printer/fonts\" потрібні для емуляції загального матричного принтера Generic ESC/P."
+
+msgid "Inhibit multimedia keys"
+msgstr ""
+
+msgid "Ask for confirmation before saving settings"
+msgstr ""
+
+msgid "Ask for confirmation before hard resetting"
+msgstr ""
+
+msgid "Ask for confirmation before quitting"
+msgstr ""
+
+msgid "Options"
+msgstr ""
+
+msgid "Model"
+msgstr ""
+
+msgid "Model:"
+msgstr ""
+
+msgid "Failed to initialize Vulkan renderer."
+msgstr ""
+
+msgid "GLSL Error"
+msgstr ""
+
+msgid "Could not load shader: %1"
+msgstr ""
+
+msgid "OpenGL version 3.0 or greater is required. Current GLSL version is %1.%2"
+msgstr ""
+
+msgid "Could not load texture: %1"
+msgstr ""
+
+msgid "Could not compile shader:\n\n%1"
+msgstr ""
+
+msgid "Program not linked:\n\n%1"
+msgstr ""
+
+msgid "Shader Manager"
+msgstr ""
+
+msgid "Shader Configuration"
+msgstr ""
+
+msgid "Add"
+msgstr ""
+
+msgid "Move up"
+msgstr ""
+
+msgid "Move down"
+msgstr ""
+
+msgid "Could not load file %1"
+msgstr ""

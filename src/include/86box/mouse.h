@@ -41,6 +41,7 @@
 #define MOUSE_TYPE_PS2       11 /* PS/2 series Bus Mouse */
 #define MOUSE_TYPE_WACOM     12 /* WACOM tablet */
 #define MOUSE_TYPE_WACOMARTP 13 /* WACOM tablet (ArtPad) */
+#define MOUSE_TYPE_MSYSTEMSB 14 /* Mouse Systems bus mouse */
 
 #define MOUSE_TYPE_ONBOARD   0x80 /* Mouse is an on-board version of one of the above. */
 
@@ -50,7 +51,7 @@ extern "C" {
 #endif
 
 extern int    mouse_type;
-extern int    mouse_input_mode; /* 1 = Absolute, 0 = Relative */
+extern int    mouse_input_mode; /* 2 = Absolute (Visible Crosshair), 1 = Absolute, 0 = Relative */
 extern int    mouse_timed; /* 1 = Timed, 0 = Constant */
 extern int    mouse_tablet_in_proximity;
 extern double mouse_x_abs;
@@ -68,11 +69,15 @@ extern const device_t mouse_msinport_device;
 extern const device_t mouse_genibus_device;
 #    endif
 extern const device_t mouse_mssystems_device;
+extern const device_t mouse_mssystems_bus_device;
 extern const device_t mouse_msserial_device;
 extern const device_t mouse_ltserial_device;
 extern const device_t mouse_ps2_device;
+#    ifdef USE_WACOM
 extern const device_t mouse_wacom_device;
 extern const device_t mouse_wacom_artpad_device;
+#    endif
+extern const device_t mouse_mtouch_device;
 #endif
 
 extern void            mouse_clear_x(void);
@@ -93,9 +98,13 @@ extern void            mouse_scale_x(int x);
 extern void            mouse_scale_y(int y);
 extern void            mouse_scalef(double x, double y);
 extern void            mouse_scale(int x, int y);
+extern void            mouse_scale_axis(int axis, int val);
 extern void            mouse_set_z(int z);
 extern void            mouse_clear_z(void);
 extern void            mouse_subtract_z(int *delta_z, int min, int max, int invert);
+extern void            mouse_set_w(int w);
+extern void            mouse_clear_w(void);
+extern void            mouse_subtract_w(int *delta_w, int min, int max, int invert);
 extern void            mouse_set_buttons_ex(int b);
 extern int             mouse_get_buttons_ex(void);
 extern void            mouse_set_sample_rate(double new_rate);

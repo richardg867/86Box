@@ -22,7 +22,11 @@
 #    define _BSD_SOURCE     1
 #endif
 #if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
-#    define __BSD_VISIBLE   1
+#    define __BSD_VISIBLE 1
+#endif
+#ifdef __NetBSD__
+#    define _NETBSD_VISIBLE 1
+#    define _NETBSD_SOURCE 1
 #endif
 #include <stdio.h>
 #include <fcntl.h>
@@ -112,7 +116,7 @@ plat_serpt_write_vcon(serial_passthrough_t *dev, uint8_t data)
     if (dev->mode == SERPT_MODE_HOSTSER) {
         do {
             res = write(dev->master_fd, &data, 1);
-        } while (res == 0 || (res == -1 && (errno == EAGAIN || res == EWOULDBLOCK)));
+        } while (res == 0 || (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)));
     } else
         res = write(dev->master_fd, &data, 1);
 }
@@ -146,8 +150,11 @@ plat_serpt_set_params(void *priv)
         BAUDRATE_RANGE(dev->baudrate, 9600, 19200, B9600);
         BAUDRATE_RANGE(dev->baudrate, 19200, 38400, B19200);
         BAUDRATE_RANGE(dev->baudrate, 38400, 57600, B38400);
+#ifndef __NetBSD__
+	/* nonexistent on NetBSD */
         BAUDRATE_RANGE(dev->baudrate, 57600, 115200, B57600);
         BAUDRATE_RANGE(dev->baudrate, 115200, 0xFFFFFFFF, B115200);
+#endif
 
         term_attr.c_cflag &= ~CSIZE;
         switch (dev->data_bits) {
