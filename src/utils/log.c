@@ -25,6 +25,7 @@
 #include <string.h>
 #include <time.h>
 #include <wchar.h>
+#include <unistd.h>
 
 #define HAVE_STDARG_H
 #include <86box/86box.h>

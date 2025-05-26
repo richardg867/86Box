@@ -184,7 +184,8 @@ static struct {
 
     uint8_t mode, block, invalidate_all;
 
-    uint8_t *fb, prev_mode, y, rowcount, prev_rowcount,
+    const uint8_t *fb;
+    uint8_t  prev_mode, y, rowcount, prev_rowcount,
         do_render, do_blink, con;
     uint16_t ca;
     uint32_t fb_base, fb_mask, fb_step;
@@ -332,7 +333,7 @@ cli_render_gfx_box(char *str)
 void
 cli_render_cga(uint8_t y, uint8_t rowcount,
                int xlimit, int xinc,
-               uint8_t *fb, uint32_t fb_base, uint32_t fb_mask, uint8_t fb_step,
+               const uint8_t *fb, uint32_t fb_base, uint32_t fb_mask, uint8_t fb_step,
                uint8_t do_render, uint8_t do_blink,
                uint32_t ca, uint8_t con)
 {
@@ -360,7 +361,7 @@ cli_render_cga(uint8_t y, uint8_t rowcount,
 
 void
 cli_render_mda(int xlimit, uint8_t rowcount,
-               uint8_t *fb, uint16_t fb_base,
+               const uint8_t *fb, uint16_t fb_base,
                uint8_t do_render, uint8_t do_blink,
                uint16_t ca, uint8_t con)
 {

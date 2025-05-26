@@ -842,7 +842,8 @@ cli_input_process(void *priv)
                 /* Update lock states. */
                 keyboard_update_states(!!(ir.Event.KeyEvent.dwControlKeyState & CAPSLOCK_ON),
                                        !!(ir.Event.KeyEvent.dwControlKeyState & NUMLOCK_ON),
-                                       !!(ir.Event.KeyEvent.dwControlKeyState & SCROLLLOCK_ON));
+                                       !!(ir.Event.KeyEvent.dwControlKeyState & SCROLLLOCK_ON),
+                                       0);
 
                 /* Don't process as ANSI. */
                 continue;
