@@ -212,23 +212,6 @@ static const uint16_t csi_letter_seqs[] = {
     ['X'] = 0x000d, /* = */
     ['Z'] = 0x2a0f, /* Shift+Tab */
 };
-static const uint8_t csi_modifiers[] = {
-    [2]  = VT_SHIFT,
-    [3]  = VT_ALT,
-    [4]  = VT_SHIFT | VT_ALT,
-    [5]  = VT_CTRL,
-    [6]  = VT_SHIFT | VT_CTRL,
-    [7]  = VT_ALT | VT_CTRL,
-    [8]  = VT_SHIFT | VT_ALT | VT_CTRL,
-    [9]  = VT_META,
-    [10] = VT_META | VT_SHIFT,
-    [11] = VT_META | VT_ALT,
-    [12] = VT_META | VT_ALT | VT_SHIFT,
-    [13] = VT_META | VT_CTRL,
-    [14] = VT_META | VT_CTRL | VT_SHIFT,
-    [15] = VT_META | VT_CTRL | VT_ALT,
-    [16] = VT_META | VT_CTRL | VT_ALT | VT_SHIFT
-};
 static const uint8_t mouse_button_values[] = {
     [0] = 1, /* left */
     [1] = 4, /* middle */
@@ -596,13 +579,9 @@ cli_input_csi_dispatch(int c)
             code = 0;
     }
 
-    /* Determine modifiers. */
-    if ((modifier >= 0) && (modifier < sizeof(csi_modifiers)))
-        modifier = csi_modifiers[modifier];
-    else
-        modifier = 0;
-
     /* Press key with any modifiers. */
+    if (modifier > 0)
+        modifier = (modifier - 1) & (VT_SHIFT | VT_ALT | VT_CTRL | VT_META);
     cli_input_send(code, modifier);
 }
 
