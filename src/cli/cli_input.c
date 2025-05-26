@@ -38,6 +38,7 @@
 #include <86box/keyboard.h>
 #include <86box/mouse.h>
 #include <86box/plat.h>
+#include <86box/plat_fallthrough.h>
 #include <86box/thread.h>
 #include <86box/video.h>
 
@@ -492,11 +493,11 @@ cli_input_csi_dispatch(int c)
         case EOF:
         case 0:
             code = 0;
-            /* fall-through */
+            fallthrough;
 
         case 1 ... 2:
             modifier = 0;
-            /* fall-through */
+            fallthrough;
 
         case 3 ... 4:
             third = 0;
@@ -1019,7 +1020,7 @@ monitor:
                             state = VT_MOUSE_BTN;
                             break;
                         }
-                        /* fall-through */
+                        fallthrough;
 
                     case 0x40 ... 0x4c:
                     case 0x4e ... 0x7e:
