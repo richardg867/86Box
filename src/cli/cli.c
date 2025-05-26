@@ -237,7 +237,7 @@ cli_term_updatesize(int runtime)
        bash environment variable data, since that may be inaccurate. */
     if (cli_term.can_input) {
         cli_term.cpr |= 1;
-        cli_render_write(RENDER_SIDEBAND_CPR_SIZE,
+        cli_render_write(
             "\033[999;999H" /* set cursor to an arbitrarily high coordinate */
             "\033[6n" /* query Cursor Position Report */
             "\033[1;1H" /* reset cursor */
@@ -308,7 +308,7 @@ cmd_nt10:
         } else if (cli_term.can_input) {
             /* Start detecting the terminal's color capabilities through DECRQSS queries. */
             cli_term.decrqss_color = TERM_COLOR_24BIT;
-            cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR,
+            cli_render_write(
                 "\033[38;2;255;255;255m" /* set 24-bit color to #ffffff */
                 "\033P$qm\033\\\033[0m" /* query SGR */
             );
@@ -326,7 +326,7 @@ cmd_nt10:
     if (cli_term.can_input) {
         /* Probe terminal. */
         cli_term.cpr |= 2;
-        cli_render_write(RENDER_SIDEBAND_INITIAL_QUERIES,
+        cli_render_write(
             "\033[1;1H" /* reset cursor */
             "\xC2\xA0" /* send UTF-8 non-breaking space */
             "\033[6n" /* query Cursor Position Report to determine UTF-8 support */

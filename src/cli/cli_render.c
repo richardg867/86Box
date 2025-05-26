@@ -34,6 +34,7 @@
 #define HAVE_STDARG_H
 #include <86box/86box.h>
 #include <86box/cli.h>
+#include <86box/fifo8.h>
 #include <86box/path.h>
 #include <86box/plat.h>
 #include <86box/plat_dynld.h>
@@ -195,8 +196,7 @@ static struct {
     png_bytep *blit_lines;
     int        blit_sx, blit_sy;
 
-    uint8_t has_sideband;
-    char    sideband_slots[RENDER_SIDEBAND_MAX][32];
+    Fifo8   sideband;
     wchar_t title[200];
 
     char *infobox;
@@ -388,17 +388,9 @@ cli_render_mda(int xlimit, uint8_t rowcount,
 }
 
 void
-cli_render_write(int slot, char *s)
+cli_render_write(char *s)
 {
-    /* Copy string to the specified slot. */
-    int len                               = strlen(s);
-    len                                   = MIN(len, sizeof(render_data.sideband_slots[slot]) - 1);
-    render_data.sideband_slots[slot][len] = '\0'; /* avoid potential race conditions leading to unbounded strings */
-    strncpy(render_data.sideband_slots[slot], s, len);
-
-    /* Mark that we have side-band data on this slot. */
-    render_data.has_sideband |= 1 << slot;
-
+    fifo8_push_all(&render_data.sideband, (uint8_t *) s, strlen(s));
     thread_set_event(render_data.wake_render_thread);
 }
 
@@ -1076,15 +1068,8 @@ cli_render_process(void *priv)
             continue;
 
         /* Output any requested side-band messages. */
-        if (render_data.has_sideband) {
-            for (i = 0; i < RENDER_SIDEBAND_MAX; i++) {
-                if (!render_data.sideband_slots[i][0])
-                    continue;
-                fputs(render_data.sideband_slots[i], CLI_RENDER_OUTPUT);
-                render_data.sideband_slots[i][0] = '\0';
-                render_data.has_sideband &= ~(1 << i); /* FIXME: this is not atomic, there could be trouble... */
-            }
-        }
+        while (fifo8_num_used(&render_data.sideband))
+            fputc(fifo8_pop(&render_data.sideband), CLI_RENDER_OUTPUT);
 
         /* Trigger invalidation on a mode transition. */
         if (render_data.mode != render_data.prev_mode) {
@@ -1531,6 +1516,7 @@ no_libsixel:
     }
 
     /* Start rendering thread. */
+    fifo8_create(&render_data.sideband, 0x1000);
     render_data.wake_render_thread = thread_create_event();
     render_data.render_complete    = thread_create_event();
     render_data.thread             = thread_create(cli_render_process, NULL);

@@ -672,7 +672,7 @@ cli_input_unhook(int c)
                         } else if (cli_term.color_level < TERM_COLOR_8BIT) {
                             /* Try 8-bit color if we don't explicitly know it's supported. */
                             cli_term.decrqss_color = TERM_COLOR_8BIT;
-                            cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR,
+                            cli_render_write(
                                 "\033[38;5;255m" /* set 8-bit color to the last gray */
                                 "\033P$qm\033\\\033[0m" /* query SGR */
                             );
@@ -687,7 +687,7 @@ cli_input_unhook(int c)
                         } else if (cli_term.color_level < TERM_COLOR_4BIT) {
                             /* Try 4-bit color if we don't explicitly know it's supported. */
                             cli_term.decrqss_color = TERM_COLOR_4BIT;
-                            cli_render_write(RENDER_SIDEBAND_DECRQSS_COLOR,
+                            cli_render_write(
                                 "\033[97m" /* set foreground to bright white */
                                 "\033P$qm\033\\\033[0m" /* query SGR */
                             );
