@@ -1037,21 +1037,21 @@ cli_render_process(void *priv)
                 if (cli_term.can_utf8 && (render_data.title[i] >= 0x80)) {
                     /* Encode UTF-8. */
                     if (render_data.title[i] < 0x800) {
-                        w = 6;
+                        w = 1;
                         x = 0xc0;
                     } else if (render_data.title[i] < 0x10000) {
-                        w = 12;
+                        w = 2;
                         x = 0xe0;
                     } else if (render_data.title[i] < 0x200000) {
-                        w = 18;
+                        w = 3;
                         x = 0xf0;
                     } else {
                         continue;
                     }
-                    *p++ = ~(0x7f >> (w / 6)) | ((render_data.title[i] >> w) & (0x3f >> (w / 6)));
+                    *p++ = ~(0x7f >> w) | ((render_data.title[i] >> (w * 6)) & (0x3f >> w));
                     while (w > 0) {
-                        w -= 6;
-                        *p++ = 0x80 | ((render_data.title[i] >> w) & 0x3f);
+                        w--;
+                        *p++ = 0x80 | ((render_data.title[i] >> (w * 6)) & 0x3f);
                     }
                 } else if ((render_data.title[i] >= 0x20) && (render_data.title[i] <= 0x7e)) {
                     *p++ = render_data.title[i];
@@ -1338,7 +1338,7 @@ cli_render_process(void *priv)
                     /* Finish any SGRs we may have started. */
                     if (sgr_started) {
                         sgr_started = 0;
-                        p += sprintf(p, "m");
+                        *p++ = 'm';
                     }
 
                     /* Add character. */
