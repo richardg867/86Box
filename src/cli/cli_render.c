@@ -826,7 +826,7 @@ cli_render_process_sixel(uint8_t *fb, int sx, int sy)
         sixel_colors[j].rgb = SIXEL_COLOR_AVAILABLE;
 
     /* Start sixel output. */
-    fputs("\033Pq", CLI_RENDER_OUTPUT);
+    fputs("\033P7;0q", CLI_RENDER_OUTPUT);
 
     /* Render each sixel row, which corresponds to 6 pixel rows. */
     for (int y = 0; (y < sy) && (y < (CLI_RENDER_GFXBUF_H - 6)); y += 6) {
