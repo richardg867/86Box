@@ -190,14 +190,27 @@ static const uint16_t csi_num_seqs[] = {
     [24] = 0x0058, /* F12 */
     [25] = 0xe037, /* F13 (SysRq for Mac users) */
     [26] = 0x0046, /* F14 (Scroll Lock for Mac users) */
-    [28] = 0xe11d  /* F15 (Pause for Mac users) */
+    [28] = 0xe11d, /* F15 (Pause for Mac users) */
+    [29] = 0xe05d  /* Menu */
 };
 static const uint16_t csi_letter_seqs[] = {
     [' '] = 0x0039, /* Space */
-    ['j'] = 0x0037, /* * */
-    ['k'] = 0x004e, /* + */
-    ['l'] = 0x0033, /* , */
-    ['m'] = 0x004a, /* - */
+    ['j'] = 0xe037, /* Num* */
+    ['k'] = 0x004e, /* Num+ */
+    ['l'] = 0x0053, /* Num, (NumDel) */
+    ['m'] = 0x004a, /* Num- */
+    ['n'] = 0x0053, /* Num. (NumDel) */
+    ['o'] = 0xe035, /* Num/ */
+    ['p'] = 0x0052, /* Num0 */
+    ['q'] = 0x004f, /* Num1 */
+    ['r'] = 0x0050, /* Num2 */
+    ['s'] = 0x0051, /* Num3 */
+    ['t'] = 0x004b, /* Num4 */
+    ['u'] = 0x004c, /* Num5 */
+    ['v'] = 0x004d, /* Num6 */
+    ['w'] = 0x0047, /* Num7 */
+    ['x'] = 0x0048, /* Num8 */
+    ['y'] = 0x0049, /* Num9 */
     ['A'] = 0xe048, /* Up */
     ['B'] = 0xe050, /* Down */
     ['C'] = 0xe04d, /* Right */
@@ -205,12 +218,12 @@ static const uint16_t csi_letter_seqs[] = {
     ['F'] = 0xe04f, /* End */
     ['H'] = 0xe047, /* Home */
     ['I'] = 0x000f, /* Tab */
-    ['M'] = 0x001c, /* Enter */
+    ['M'] = 0xe01c, /* NumEnter */
     ['P'] = 0x003b, /* F1 */
     ['Q'] = 0x003c, /* F2 */
     ['R'] = 0x003d, /* F3 */
     ['S'] = 0x003e, /* F4 */
-    ['X'] = 0x000d, /* = */
+    ['X'] = 0x0059, /* Num= (multimedia) */
     ['Z'] = 0x2a0f, /* Shift+Tab */
 };
 static const uint8_t mouse_button_values[] = {
@@ -561,28 +574,29 @@ cli_input_csi_dispatch(int c)
     }
 
     /* Determine keycode. */
-    if (c == '~') {
-        if (code == 27) { /* xterm modifyOtherKeys */
-            if ((third >= 0) && (third < (sizeof(ascii_seqs) / sizeof(ascii_seqs[0]))))
-                code = ascii_seqs[third];
-            else
-                code = 0;
-        } else {
-            if ((code >= 0) && (code < (sizeof(csi_num_seqs) / sizeof(csi_num_seqs[0]))))
-                code = csi_num_seqs[code];
-            else
-                code = 0;
-        }
-    } else {
-        if ((code >= 0) && (code < (sizeof(csi_letter_seqs) / sizeof(csi_letter_seqs[0]))))
-            code = csi_letter_seqs[c];
-        else
-            code = 0;
+#define SAFE_INDEX(a, i) ((((i) >= 0) && ((i) < (sizeof((a)) / sizeof((a)[0])))) ? (a)[(i)] : 0)
+    switch (c) {
+        case '~':
+            if (code == 27) /* CSI 27 ; modifier ; ascii ~ (xterm modifyOtherKeys=2) */
+                code = SAFE_INDEX(ascii_seqs, third);
+            else /* CSI code [; modifier] ~ */
+                code = SAFE_INDEX(csi_num_seqs, code);
+            break;
+
+        case 'u': /* CSI ascii ; modifier u (xterm modifyOtherKeys>0 && formatOtherKeys=1) */
+            code = SAFE_INDEX(ascii_seqs, code);
+            break;
+
+        default: /* CSI [[1 ;] modifier] letter */
+            if ((code > 1) && !modifier)
+                modifier = code; /* account for missing 1 ; (xterm modify*Keys=1) */
+            code = SAFE_INDEX(csi_letter_seqs, c);
+            break;
     }
 
     /* Press key with any modifiers. */
-    if (modifier > 0)
-        modifier = (modifier - 1) & (VT_SHIFT | VT_ALT | VT_CTRL | VT_META);
+    if (modifier)
+        modifier = (modifier - 1) & (VT_SHIFT | VT_ALT | VT_CTRL | VT_META); /* modifiers are received with +1 offset */
     cli_input_send(code, modifier);
 }
 
@@ -600,9 +614,9 @@ cli_input_esc_dispatch(int c)
             }
             break;
 
-        case 'O': /* SS3 */
-            /* Handle as a CSI with no parameters. */
-            cli_input_csi_dispatch(c);
+        case 'O': /* SS3 (VT220 Application Keypad) */
+        case '?': /* (VT52 Application Keypad) */
+            cli_input_csi_dispatch(c); /* route numpad keys */
             break;
     }
 }
@@ -614,16 +628,19 @@ cli_input_execute(int c)
 
     switch (c) {
         case 0x01 ... 0x08: /* Ctrl+A to Ctrl+H */
-        /* skip Ctrl+I (Tab), Ctrl+J (Enter) */
         case 0x0b ... 0x0c: /* Ctrl+K to Ctrl+L */
-        /* skip Ctrl+M (Enter) */
         case 0x0e ... 0x1a: /* Ctrl+N to Ctrl+Z */
             cli_input_send(ascii_seqs['`' + c], VT_CTRL);
             break;
 
-        case 0x09: /* Tab */
-        case 0x0a: /* Enter */
+        case 0x09: /* Ctrl+I (Tab) */
+        case 0x0a: /* Ctrl+J (Enter) */
+        case 0x0d: /* Ctrl+M (Enter) */
             cli_input_send(ascii_seqs[c], 0);
+            break;
+
+        case 0x1b ... 0x1f: /* Ctrl+[ to Ctrl+_ */
+            cli_input_send(ascii_seqs['@' + c], VT_CTRL);
             break;
     }
 }
