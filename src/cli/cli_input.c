@@ -297,6 +297,9 @@ cli_input_send(uint16_t code, int modifier)
         case 0x5b:
             modifier |= VT_META;
             break;
+
+        default:
+            break;
     }
 
     /* Handle special cases. */
@@ -317,6 +320,9 @@ cli_input_send(uint16_t code, int modifier)
                 modifier &= ~VT_CTRL;
                 code = 0xe046;
             }
+            break;
+
+        default:
             break;
     }
 
@@ -515,6 +521,9 @@ cli_input_csi_dispatch(int c)
         case 3 ... 4:
             third = 0;
             break;
+
+        default:
+            break;
     }
 
     /* Determine if this is a terminal size query response. */
@@ -611,12 +620,18 @@ cli_input_esc_dispatch(int c)
                 case 0x20 ... 0x7f: /* Alt+Space to Alt+Backspace */
                     cli_input_send(ascii_seqs[c], VT_ALT);
                     break;
+
+                default:
+                    break;
             }
             break;
 
         case 'O': /* SS3 (VT220 Application Keypad) */
         case '?': /* (VT52 Application Keypad) */
             cli_input_csi_dispatch(c); /* route numpad keys */
+            break;
+
+        default:
             break;
     }
 }
@@ -641,6 +656,9 @@ cli_input_execute(int c)
 
         case 0x1b ... 0x1f: /* Ctrl+[ to Ctrl+_ */
             cli_input_send(ascii_seqs['@' + c], VT_CTRL);
+            break;
+
+        default:
             break;
     }
 }
@@ -732,6 +750,9 @@ cli_input_unhook(int c)
                 if (sscanf(&dcs_buf[1], "%u", &cli_term.decrqss_cursor) != 1)
                     cli_term.decrqss_cursor = 0;
                 cli_input_log("CLI Input: DECRQSS reports a cursor style of %d\n", cli_term.decrqss_cursor);
+                break;
+
+            default:
                 break;
         }
     }
@@ -891,6 +912,9 @@ cli_input_process(void *priv)
                 /* Something went wrong. */
                 cli_input_log("CLI Input: stdin read error\n");
                 return;
+
+            default:
+                break;
         }
 
         /* Interpret conditions for specific states. */
@@ -907,6 +931,9 @@ cli_input_process(void *priv)
 
                     case 0x7f: /* Backspace */
                         cli_input_send(ascii_seqs['\b'], 0);
+                        break;
+
+                    default:
                         break;
                 }
                 break;
@@ -983,6 +1010,9 @@ monitor:
                         state = VT_OSC_STRING;
                         cli_input_osc_start(c);
                         break;
+
+                    default:
+                        break;
                 }
                 break;
 
@@ -1000,6 +1030,9 @@ monitor:
                     case 0x30 ... 0x7e:
                         cli_input_esc_dispatch(c);
                         state = VT_GROUND;
+                        break;
+
+                    default:
                         break;
                 }
                 break;
@@ -1044,6 +1077,9 @@ monitor:
                         cli_input_csi_dispatch(c);
                         state = VT_GROUND;
                         break;
+
+                    default:
+                        break;
                 }
                 break;
 
@@ -1056,6 +1092,9 @@ monitor:
 
                     case 0x40 ... 0x7e:
                         state = VT_GROUND;
+                        break;
+
+                    default:
                         break;
                 }
                 break;
@@ -1086,6 +1125,9 @@ monitor:
                         cli_input_csi_dispatch(c);
                         state = VT_GROUND;
                         break;
+
+                    default:
+                        break;
                 }
                 break;
 
@@ -1107,6 +1149,9 @@ monitor:
                     case 0x40 ... 0x7e:
                         cli_input_csi_dispatch(c);
                         state = VT_GROUND;
+                        break;
+
+                    default:
                         break;
                 }
                 break;
@@ -1139,6 +1184,9 @@ monitor:
                         state = VT_DCS_PASSTHROUGH;
                         cli_input_hook(c);
                         break;
+
+                    default:
+                        break;
                 }
                 break;
 
@@ -1155,6 +1203,9 @@ monitor:
                     case 0x40 ... 0x7e:
                         state = VT_DCS_PASSTHROUGH;
                         cli_input_hook(c);
+                        break;
+
+                    default:
                         break;
                 }
                 break;
@@ -1180,6 +1231,9 @@ monitor:
                         state = VT_DCS_PASSTHROUGH;
                         cli_input_hook(c);
                         break;
+
+                    default:
+                        break;
                 }
                 break;
 
@@ -1188,6 +1242,9 @@ monitor:
                     case 0x00 ... 0x7e:
                         cli_input_put(c);
                         break;
+
+                    default:
+                        break;
                 }
                 break;
 
@@ -1195,6 +1252,9 @@ monitor:
                 switch (c) {
                     case 0x20 ... 0x7e:
                         cli_input_osc_put(c);
+                        break;
+
+                    default:
                         break;
                 }
                 break;
@@ -1242,6 +1302,9 @@ monitor:
                     mouse_set_z(1);
                 else if (btn < sizeof(mouse_button_values))
                     mouse_set_buttons_ex(mouse_button_values[btn]);
+                break;
+
+            default:
                 break;
         }
     }

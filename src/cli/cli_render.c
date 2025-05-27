@@ -1452,6 +1452,9 @@ next:
                 /* Update render time to keep track of framerate. */
                 gfx_last = time(NULL);
                 break;
+
+            default:
+                break;
         }
     }
 }
