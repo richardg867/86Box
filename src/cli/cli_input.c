@@ -274,6 +274,7 @@ static const uint16_t csi_pua_seqs[] = {
     [0x50] = 0x004f, /* KP_END => Num1 */
     [0x51] = 0x0052, /* KP_INSERT => Num0 */
     [0x52] = 0x0053, /* KP_DELETE */
+    [0x53] = 0x0047, /* KP_BEGIN => Num7 */
     [0x54] = 0xe052, /* MEDIA_PLAY => Play/Pause */
     [0x55] = 0xe052, /* MEDIA_PAUSE => Play/Pause */
     [0x56] = 0xe052, /* MEDIA_PLAY_PAUSE */
@@ -688,6 +689,8 @@ cli_input_csi_dispatch(int c)
         case '~':
             if (code == 27) /* CSI 27 ; modifier ; ascii ~ (xterm modifyOtherKeys=2) */
                 code = SAFE_INDEX(ascii_seqs, third);
+            if ((code & ~0x1fff) == 0xe000) /* Unicode PUA (kitty) - only documented for KP_BEGIN/e053, mistake? */
+                code = SAFE_INDEX(csi_pua_seqs, code & 0x1fff);
             else /* CSI code [; modifier] ~ */
                 code = SAFE_INDEX(csi_num_seqs, code);
             break;
