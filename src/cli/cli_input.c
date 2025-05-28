@@ -188,18 +188,18 @@ static const uint16_t csi_num_seqs[] = {
     [21] = 0x0044, /* F10 */
     [23] = 0x0057, /* F11 */
     [24] = 0x0058, /* F12 */
-    [25] = 0xe037, /* F13 (SysRq for Mac users) */
-    [26] = 0x0046, /* F14 (Scroll Lock for Mac users) */
-    [28] = 0xe11d, /* F15 (Pause for Mac users) */
+    [25] = 0xe037, /* F13 => SysRq (for Apple keyboards) */
+    [26] = 0x0046, /* F14 => Scroll Lock (for Apple keyboards) */
+    [28] = 0xe11d, /* F15 => Pause (for Apple keyboards) */
     [29] = 0xe05d  /* Menu */
 };
 static const uint16_t csi_letter_seqs[] = {
     [' '] = 0x0039, /* Space */
     ['j'] = 0x0037, /* Num* */
     ['k'] = 0x004e, /* Num+ */
-    ['l'] = 0x0053, /* Num, (NumDel) */
+    ['l'] = 0x0053, /* Num, => NumDel */
     ['m'] = 0x004a, /* Num- */
-    ['n'] = 0x0053, /* Num. (NumDel) */
+    ['n'] = 0x0053, /* Num. => NumDel */
     ['o'] = 0xe035, /* Num/ */
     ['p'] = 0x0052, /* Num0 */
     ['q'] = 0x004f, /* Num1 */
@@ -215,6 +215,7 @@ static const uint16_t csi_letter_seqs[] = {
     ['B'] = 0xe050, /* Down */
     ['C'] = 0xe04d, /* Right */
     ['D'] = 0xe04b, /* Left */
+    ['E'] = 0xe047, /* Begin => Home */
     ['F'] = 0xe04f, /* End */
     ['H'] = 0xe047, /* Home */
     ['I'] = 0x000f, /* Tab */
@@ -255,31 +256,31 @@ static const uint16_t csi_pua_seqs[] = {
     [0x3e] = 0x0047, /* KP_7 */
     [0x3f] = 0x0048, /* KP_8 */
     [0x40] = 0x0049, /* KP_9 */
-    [0x41] = 0x0053, /* KP_DECIMAL (NumDel) */
+    [0x41] = 0x0053, /* KP_DECIMAL => NumDel */
     [0x42] = 0xe035, /* KP_DIVIDE */
     [0x43] = 0x0037, /* KP_MULTIPLY */
     [0x44] = 0x004a, /* KP_SUBTRACT */
     [0x45] = 0x004e, /* KP_ADD */
     [0x46] = 0xe01c, /* KP_ENTER */
     [0x47] = 0x0059, /* KP_EQUAL (multimedia) */
-    [0x48] = 0x0053, /* KP_SEPARATOR (NumDel) */
-    [0x49] = 0x004b, /* KP_LEFT (Num4) */
-    [0x4a] = 0x004d, /* KP_RIGHT (Num6) */
-    [0x4b] = 0x0048, /* KP_UP (Num8) */
-    [0x4c] = 0x0050, /* KP_DOWN (Num2) */
-    [0x4d] = 0x0049, /* KP_PAGE_UP (Num9) */
-    [0x4e] = 0x0051, /* KP_PAGE_DOWN (Num3) */
-    [0x4f] = 0x0047, /* KP_HOME (Num7) */
-    [0x50] = 0x004f, /* KP_END (Num1) */
-    [0x51] = 0x0052, /* KP_INSERT (Num0) */
+    [0x48] = 0x0053, /* KP_SEPARATOR => NumDel */
+    [0x49] = 0x004b, /* KP_LEFT => Num4 */
+    [0x4a] = 0x004d, /* KP_RIGHT => Num6 */
+    [0x4b] = 0x0048, /* KP_UP => Num8 */
+    [0x4c] = 0x0050, /* KP_DOWN => Num2 */
+    [0x4d] = 0x0049, /* KP_PAGE_UP => Num9 */
+    [0x4e] = 0x0051, /* KP_PAGE_DOWN => Num3 */
+    [0x4f] = 0x0047, /* KP_HOME => Num7 */
+    [0x50] = 0x004f, /* KP_END => Num1 */
+    [0x51] = 0x0052, /* KP_INSERT => Num0 */
     [0x52] = 0x0053, /* KP_DELETE */
-    [0x54] = 0xe052, /* MEDIA_PLAY (PlayPause) */
-    [0x55] = 0xe052, /* MEDIA_PAUSE (PlayPause) */
+    [0x54] = 0xe052, /* MEDIA_PLAY => Play/Pause */
+    [0x55] = 0xe052, /* MEDIA_PAUSE => Play/Pause */
     [0x56] = 0xe052, /* MEDIA_PLAY_PAUSE */
-    [0x57] = 0xe06a, /* MEDIA_REVERSE (Back) */
+    [0x57] = 0xe06a, /* MEDIA_REVERSE => Back */
     [0x58] = 0xe068, /* MEDIA_STOP */
-    [0x59] = 0xe069, /* MEDIA_FAST_FORWARD (Forward) */
-    [0x5a] = 0xe010, /* MEDIA_REWIND (Previous) */
+    [0x59] = 0xe069, /* MEDIA_FAST_FORWARD => Forward */
+    [0x5a] = 0xe010, /* MEDIA_REWIND => Previous */
     [0x5b] = 0xe019, /* MEDIA_TRACK_NEXT */
     [0x5c] = 0xe010, /* MEDIA_TRACK_PREVIOUS */
     [0x5d] = 0xe078, /* MEDIA_RECORD (Logitech) */
@@ -289,15 +290,15 @@ static const uint16_t csi_pua_seqs[] = {
     [0x61] = 0x002a, /* LEFT_SHIFT */
     [0x62] = 0x001d, /* LEFT_CONTROL */
     [0x63] = 0x0038, /* LEFT_ALT */
-    [0x64] = 0xe05b, /* LEFT_SUPER (Win) */
-    [0x65] = 0xe05b, /* LEFT_HYPER (Win) */
-    [0x66] = 0xe05b, /* LEFT_META (Win) */
+    [0x64] = 0xe05b, /* LEFT_SUPER => Left Win */
+    [0x65] = 0xe05b, /* LEFT_HYPER => Left Win */
+    [0x66] = 0xe05b, /* LEFT_META => Left Win */
     [0x67] = 0x0036, /* RIGHT_SHIFT */
     [0x68] = 0xe01d, /* RIGHT_CONTROL */
     [0x69] = 0xe038, /* RIGHT_ALT */
-    [0x6a] = 0xe05c, /* RIGHT_SUPER (Win) */
-    [0x6b] = 0xe05c, /* RIGHT_HYPER (Win) */
-    [0x6c] = 0xe05c  /* RIGHT_META (Win) */
+    [0x6a] = 0xe05c, /* RIGHT_SUPER => Right Win */
+    [0x6b] = 0xe05c, /* RIGHT_HYPER => Right Win */
+    [0x6c] = 0xe05c  /* RIGHT_META => Right Win */
 };
 static const uint8_t mouse_button_values[] = {
     [0] = 1, /* left */
@@ -692,8 +693,8 @@ cli_input_csi_dispatch(int c)
             break;
 
         case 'u': /* CSI ascii ; modifier [: kittyevent] u (xterm modifyOtherKeys>0 && formatOtherKeys=1 or kitty) */
-            if ((code >= 0xe000) && (code < 0xf900)) /* Unicode PUA (kitty) */
-                code = SAFE_INDEX(csi_pua_seqs, code & 0xfff);
+            if ((code & ~0x1fff) == 0xe000) /* Unicode PUA (kitty) */
+                code = SAFE_INDEX(csi_pua_seqs, code & 0x1fff);
             else
                 code = SAFE_INDEX(ascii_seqs, code);
             if (delimiter1 == ':') { /* just in case we get kitty alternate codes without asking for it */
