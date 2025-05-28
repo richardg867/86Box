@@ -725,7 +725,7 @@ kitty_event:
 
     /* Update lock states based on kitty modifiers. */
     if (cli_term.kitty_input & 1) {
-        uint8_t *cl, *nl, *sl, *kl;
+        uint8_t cl, nl, sl, kl;
         keyboard_get_states(&cl, &nl, &sl, &kl);
         keyboard_update_states(modifier & VT_CAPSLOCK, modifier & VT_NUMLOCK, sl, kl);
     }
@@ -989,7 +989,7 @@ cli_input_process(void *priv)
                 keyboard_input(ir.Event.KeyEvent.bKeyDown, c);
 
                 /* Update lock states. */
-                uint8_t *cl, *nl, *sl, *kl;
+                uint8_t cl, nl, sl, kl;
                 keyboard_get_states(&cl, &nl, &sl, &kl);
                 keyboard_update_states(!!(ir.Event.KeyEvent.dwControlKeyState & CAPSLOCK_ON),
                                        !!(ir.Event.KeyEvent.dwControlKeyState & NUMLOCK_ON),
