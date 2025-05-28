@@ -396,7 +396,7 @@ machine_at_pb410a_init(const machine_t *model)
     device_add(&phoenix_486_jumper_device);
 
     if (gfxcard[0] == VID_INTERNAL)
-        device_add(&ht216_32_pb410a_device);
+        device_add(machine_get_vid_device(machine));
 
     return ret;
 }
@@ -412,14 +412,16 @@ machine_at_vect486vl_init(const machine_t *model) // has HDC problems
     if (bios_only || !ret)
         return ret;
 
-    machine_at_common_ide_init(model);
-
-    device_add(&vl82c480_device);
-
     if (gfxcard[0] == VID_INTERNAL)
         device_add(&gd5428_onboard_device);
 
+    machine_at_common_init_ex(model, 2);
+
+    device_add(&vl82c480_device);
+
     device_add(&vl82c113_device);
+
+    device_add(&ide_isa_device);
     device_add(&fdc37c651_ide_device);
 
     return ret;
@@ -436,12 +438,12 @@ machine_at_d824_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    machine_at_common_init(model);
-
-    device_add(&vl82c480_device);
-
     if (gfxcard[0] == VID_INTERNAL)
         device_add(&gd5428_onboard_device);
+
+    machine_at_common_init_ex(model, 2);
+
+    device_add(&vl82c480_device);
 
     /*
        Technically, it should be the VL82C114 but we do not have
@@ -451,6 +453,30 @@ machine_at_d824_init(const machine_t *model)
 
     device_add(&ide_isa_device);
     device_add(&fdc37c651_device);
+    
+    return ret;
+}
+
+int
+machine_at_martin_init(const machine_t *model)
+{
+    int ret;
+
+    ret = bios_load_linear("roms/machines/martin/NONSCSI.ROM",
+                           0x000e0000, 131072, 0);
+
+    if (bios_only || !ret)
+        return ret;
+
+    machine_at_common_init_ex(model, 2);
+
+    device_add(&vl82c480_device);
+    device_add(&vl82c113_device);
+
+    device_add(&ide_vlb_device);
+    device_add(&fdc37c651_ide_device);
+
+    device_add(&intel_flash_bxt_device);
     
     return ret;
 }
@@ -519,12 +545,43 @@ machine_at_decpclpv_init(const machine_t *model)
     device_add(&sis_85c461_device);
 
     if (gfxcard[0] == VID_INTERNAL)
-        device_add(&s3_86c805_onboard_vlb_device);
+        device_add(machine_get_vid_device(machine));
 
-    /* TODO: Phoenix MultiKey KBC */
-    device_add(&keyboard_ps2_ami_pci_device);
+    device_add(&keyboard_ps2_phoenix_pci_device);
+
     device_add(&ide_isa_2ch_device);
     device_add(&fdc37c663_ide_device);
+
+    return ret;
+}
+
+int
+machine_at_dell466np_init(const machine_t *model)
+{
+    int ret;
+
+    ret = bios_load_linear("roms/machines/dell466np/466np.bin",
+                           0x000c0000, 262144, 0);
+
+    if (bios_only || !ret)
+        return ret;
+
+    machine_at_common_init(model);
+    device_add(&sis_85c461_device);
+
+    if (gfxcard[0] == VID_INTERNAL)
+        device_add(machine_get_vid_device(machine));
+    else {
+        for (uint16_t i = 0; i < 32768; i++)
+            rom[i] = mem_readb_phys(0x000c0000 + i);
+    }
+    mem_mapping_set_addr(&bios_mapping, 0x0c0000, 0x40000);
+    mem_mapping_set_exec(&bios_mapping, rom);
+
+    device_add(&keyboard_ps2_phoenix_pci_device);
+
+    device_add(&ide_isa_device);
+    device_add(&fdc37c661_ide_device);
 
     return ret;
 }
@@ -730,7 +787,6 @@ machine_at_403tg_d_mr_init(const machine_t *model)
 
     return ret;
 }
-
 static const device_config_t pb450_config[] = {
     // clang-format off
     {
@@ -1614,6 +1670,87 @@ machine_at_486sp3g_init(const machine_t *model)
     return ret;
 }
 
+static const device_config_t sb486pv_config[] = {
+    // clang-format off
+    {
+        .name = "bios",
+        .description = "BIOS Version",
+        .type = CONFIG_BIOS,
+        .default_string = "sb486pv",
+        .default_int = 0,
+        .file_filter = "",
+        .spinner = { 0 },
+        .bios = {
+            { .name = "AMI 062594 (0108)", .internal_name = "sb486pv", .bios_type = BIOS_NORMAL, 
+              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/sb486pv/41-0108-062594-SATURN2.rom", "" } },
+            { .name = "AMI 062594 (0301)", .internal_name = "sb486pv_94", .bios_type = BIOS_NORMAL, 
+              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/sb486pv/0301-062594-SATURN2.rom", "" } },
+            { .name = "AMI 071595 (1301)", .internal_name = "sb486pv_95", .bios_type = BIOS_NORMAL,
+              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/sb486pv/amiboot.rom", "" } },
+            { .files_no = 0 }
+        },
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+    // clang-format on
+};
+
+const device_t sb486pv_device = {
+    .name          = "ICS SB486PV",
+    .internal_name = "sb486pv_device",
+    .flags         = 0,
+    .local         = 0,
+    .init          = NULL,
+    .close         = NULL,
+    .reset         = NULL,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = sb486pv_config
+};
+
+int
+machine_at_sb486pv_init(const machine_t *model)
+{
+    int ret = 0;
+    const char* fn;
+
+    /* No ROMs available */
+    if (!device_available(model->device))
+        return ret;
+
+    device_context(model->device);
+    fn = device_get_bios_file(machine_get_device(machine), device_get_config_bios("bios"), 0);
+    if (!strcmp(fn, "roms/machines/sb486pv/amiboot.rom"))
+        ret = bios_load_linear(fn, 0x000e0000, 131072, 0);
+    else
+        ret = bios_load_linear_inverted(fn, 0x000e0000, 131072, 0);
+    device_context_restore();
+
+    machine_at_common_init(model);
+
+    pci_init(PCI_CONFIG_TYPE_2);
+    pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
+    pci_register_slot(0x0e, PCI_CARD_IDE,         0, 0, 0, 0);
+    pci_register_slot(0x0f, PCI_CARD_VIDEO,       1, 2, 3, 4);
+    pci_register_slot(0x02, PCI_CARD_SOUTHBRIDGE, 0, 0, 0, 0);
+
+    if (gfxcard[0] == VID_INTERNAL)
+        device_add(machine_get_vid_device(machine));
+
+    device_add(&keyboard_ps2_ami_pci_device);
+    device_add(&sio_zb_device);
+    device_add(&ide_rz1000_pci_single_channel_device);
+    device_add(&i82091aa_26e_device);
+    if (!strcmp(fn, "roms/machines/sb486pv/amiboot.rom"))
+        device_add(&intel_flash_bxt_device);
+    else
+        device_add(&intel_flash_bxt_ami_device);
+
+    device_add(&i420zx_device);
+
+    return ret;
+}
+
 int
 machine_at_486ap4_init(const machine_t *model)
 {
@@ -1807,12 +1944,11 @@ machine_at_sbc490_init(const machine_t *model)
     pci_register_slot(0x0C, PCI_CARD_NORMAL,      1, 2, 3, 4);
     pci_register_slot(0x01, PCI_CARD_VIDEO,       4, 1, 2, 3);
 
+    if (gfxcard[0] == VID_INTERNAL)
+        device_add(machine_get_vid_device(machine));
+
     device_add(&ali1489_device);
     device_add(&fdc37c665_device);
-
-    if (gfxcard[0] == VID_INTERNAL)
-        device_add(&tgui9440_onboard_pci_device);
-
     device_add(&keyboard_ps2_ami_device);
     device_add(&sst_flash_29ee010_device);
 
