@@ -679,9 +679,9 @@ cli_input_csi_dispatch(int c)
         return;
     }
 
-    /* Decode modifier. */
+    /* Account for the +1 offset on received modifiers. */
     if (modifier)
-        modifier = (modifier - 1) & VT_MODS_ONLY; /* modifiers are received with +1 offset */
+        modifier = (modifier - 1) & VT_MODS_ONLY;
 
     /* Determine keycode. */
 #define SAFE_INDEX(a, i) ((((i) >= 0) && ((i) < (sizeof((a)) / sizeof((a)[0])))) ? (a)[(i)] : 0)
@@ -715,7 +715,7 @@ kitty_event:
 
         default: /* CSI [[1 ;] modifier] letter */
             if ((code > 1) && !modifier)
-                modifier = (code - 1) & VT_MODS_ONLY; /* shift modifier to account for missing 1 ; (xterm modify*Keys=1) */
+                modifier = (code - 1) & VT_MODS_ONLY; /* if 1 ; is missing (xterm modify*Keys=1), first parameter is the modifier */
             code = SAFE_INDEX(csi_letter_seqs, c);
             goto kitty_event;
     }

@@ -443,6 +443,9 @@ cli_render_monitorenter(void)
 void
 cli_render_monitorexit(void)
 {
+    /* Clear kitty keyboard protocol flags as we'll be querying them again. */
+    cli_term.kitty_input = 0;
+
     /* Set up terminal. */
     fprintf(CLI_RENDER_OUTPUT,
             "\033[?1049h" /* switch to Alternate Screen Buffer (do it first to prevent consequences of it not being supported) */
@@ -452,7 +455,7 @@ cli_render_monitorexit(void)
             "\033[>4;2m" /* enable xterm modifyOtherKeys for all keys */
             "\033[>11u" /* enable kitty keyboard protocol: disambiguate escape codes, report event types, report all keys as escape codes */
             "\033=" /* switch to Application Keypad */
-            "%s" /* query current cursor style (saved on DECRQSS response) and kitty keyboard protocol if input is enabled */
+            "%s" /* query current cursor style and kitty keyboard protocol (all saved on response) if input is enabled */
             "\033[3 q" /* set cursor style to blinking underline */
             "\033[%%%c", /* set terminal encoding to UTF-8 or ISO-8859-1 */
             cli_term.can_input ? "\033P$q q\033\\\033[?u" : "", cli_term.can_utf8 ? 'G' : '@');
