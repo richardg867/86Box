@@ -14,7 +14,7 @@
  *          RichardG, <richardg867@gmail.com>
  *
  *          Copyright 2021-2023 Cacodemon345.
- *          Copyright 2021-2023 RichardG.
+ *          Copyright 2021-2025 RichardG.
  */
 #include <errno.h>
 #include <stdint.h>
@@ -409,7 +409,7 @@ separator: /* Search lookup table. */
     }
 
     /* Send key combination. */
-    cli_input_send(code, modifier);
+    cli_input_send(code, modifier | VT_KEY_DOWN | VT_KEY_UP);
     fprintf(CLI_RENDER_OUTPUT, "Key combination sent: %s\n", argv[1]);
 }
 
@@ -443,7 +443,7 @@ cli_monitor_type(int argc, char **argv, const void *priv)
 
         /* Send key if a table match was found, otherwise warn about unknown keys. */
         if (code)
-            cli_input_send(code, 0);
+            cli_input_send(code, VT_KEY_DOWN | VT_KEY_UP);
         else
             fprintf(CLI_RENDER_OUTPUT, "Ignoring unknown key: %c\n", ch);
     }

@@ -12,7 +12,7 @@
  *
  * Authors: RichardG, <richardg867@gmail.com>
  *
- *          Copyright 2021-2023 RichardG.
+ *          Copyright 2021-2025 RichardG.
  */
 #include <math.h>
 #define PNG_DEBUG 0
@@ -426,7 +426,11 @@ cli_render_monitorenter(void)
             "\033[%d q" /* set cursor style to default (from query response, or default 0 which some terminals accept) */
             "\033[?25h" /* show cursor */
             "\033>" /* switch to Normal Keypad */
+            "\033[<u" /* disable kitty keyboard protocol */
             "\033[>4m" /* reset xterm modifyOtherKeys */
+            "\033[?1036l" /* disable xterm metaSendsEscape */
+            "\033[?1039l" /* disable xterm altSendsEscape */
+            "\033[?80l" /* enable sixel scrolling */
             "\033[?1049l", /* switch to Main Screen Buffer (do it last to prevent consequences of it not being supported) */
             cli_term.decrqss_cursor);
 
@@ -442,13 +446,16 @@ cli_render_monitorexit(void)
     /* Set up terminal. */
     fprintf(CLI_RENDER_OUTPUT,
             "\033[?1049h" /* switch to Alternate Screen Buffer (do it first to prevent consequences of it not being supported) */
+            "\033[?80h" /* disable sixel scrolling */
+            "\033[?1039h" /* enable xterm altSendsEscape (no-op on default config but we can't override this) */
             "\033[?1036h" /* enable xterm metaSendsEscape */
             "\033[>4;2m" /* enable xterm modifyOtherKeys for all keys */
+            "\033[>11u" /* enable kitty keyboard protocol: disambiguate escape codes, report event types, report all keys as escape codes */
             "\033=" /* switch to Application Keypad */
-            "%s" /* query current cursor style (saved on DECRQSS response) if input is enabled */
+            "%s" /* query current cursor style (saved on DECRQSS response) and kitty keyboard protocol if input is enabled */
             "\033[3 q" /* set cursor style to blinking underline */
             "\033[%%%c", /* set terminal encoding to UTF-8 or ISO-8859-1 */
-            cli_term.can_input ? "\033P$q q\033\\" : "", cli_term.can_utf8 ? 'G' : '@');
+            cli_term.can_input ? "\033P$q q\033\\\033[?u" : "", cli_term.can_utf8 ? 'G' : '@');
 #ifdef _WIN32
     SetConsoleOutputCP(cli_term.can_utf8 ? 65001 : 1252);
 #endif

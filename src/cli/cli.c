@@ -12,7 +12,7 @@
  *
  * Authors: RichardG, <richardg867@gmail.com>
  *
- *          Copyright 2021-2023 RichardG.
+ *          Copyright 2021-2025 RichardG.
  */
 #include <signal.h>
 #include <stdarg.h>

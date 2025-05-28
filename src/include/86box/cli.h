@@ -12,7 +12,7 @@
  *
  * Authors: RichardG, <richardg867@gmail.com>
  *
- *          Copyright 2021-2023 RichardG.
+ *          Copyright 2021-2025 RichardG.
  */
 #ifndef EMU_CLI_H
 #define EMU_CLI_H
@@ -61,7 +61,7 @@ enum {
 typedef struct {
     uint8_t color_level, ctl_level, gfx_level,
         can_input, can_utf8, cpr, decrqss_color,
-        size_x, size_y;
+        kitty_input, size_x, size_y;
     unsigned int decrqss_cursor, sixel_color_regs;
 
     int (*setcolor)(char *p, uint8_t index, uint8_t is_background);
@@ -126,14 +126,21 @@ enum {
     VT_SHIFT      = 0x01,
     VT_ALT        = 0x02,
     VT_CTRL       = 0x04,
-    VT_META       = 0x08,
-    VT_SHIFT_FAKE = 0x10
+    VT_SUPER      = 0x08, /* Meta on xterm */
+    VT_HYPER      = 0x10,
+    VT_META       = 0x20,
+    VT_CAPSLOCK   = 0x40,
+    VT_NUMLOCK    = 0x80,
+    VT_MODS_ONLY  = VT_SHIFT | VT_ALT | VT_CTRL | VT_SUPER | VT_HYPER | VT_META | VT_CAPSLOCK | VT_NUMLOCK,
+    VT_SHIFT_FAKE = 0x100,
+    VT_KEY_DOWN   = 0x200,
+    VT_KEY_UP     = 0x400
 };
 
 /* cli_input.c */
 extern const uint16_t ascii_seqs[128];
 
-extern void cli_input_send(uint16_t code, int modifier);
+extern void cli_input_send(uint16_t code, uint16_t modifier);
 
 /* cli_monitor.c */
 extern void cli_monitor_thread(void *priv);

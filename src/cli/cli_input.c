@@ -16,7 +16,7 @@
  *
  * Authors: RichardG, <richardg867@gmail.com>
  *
- *          Copyright 2021-2023 RichardG.
+ *          Copyright 2021-2025 RichardG.
  */
 #include <stdarg.h>
 #include <stdint.h>
@@ -67,7 +67,7 @@ enum {
 
 /* Lookup tables for converting keys and escape sequences to keyboard scan codes. */
 const uint16_t ascii_seqs[128] = {
-    ['\b'] = 0x000e,
+    ['\b'] = 0x000e, /* terminals prefer 7F/del for backspace */
     ['\t'] = 0x000f,
     ['\n'] = 0x001c,
     ['\r'] = 0x001c,
@@ -166,7 +166,7 @@ const uint16_t ascii_seqs[128] = {
     ['|']  = 0x2a2b,
     ['}']  = 0x2a1b,
     ['~']  = 0x2a29,
-    [0x7f] = 0x0053
+    [0x7f] = 0x000e
 };
 #ifdef USE_CLI
 static const uint16_t csi_num_seqs[] = {
@@ -195,7 +195,7 @@ static const uint16_t csi_num_seqs[] = {
 };
 static const uint16_t csi_letter_seqs[] = {
     [' '] = 0x0039, /* Space */
-    ['j'] = 0xe037, /* Num* */
+    ['j'] = 0x0037, /* Num* */
     ['k'] = 0x004e, /* Num+ */
     ['l'] = 0x0053, /* Num, (NumDel) */
     ['m'] = 0x004a, /* Num- */
@@ -225,6 +225,79 @@ static const uint16_t csi_letter_seqs[] = {
     ['S'] = 0x003e, /* F4 */
     ['X'] = 0x0059, /* Num= (multimedia) */
     ['Z'] = 0x2a0f, /* Shift+Tab */
+};
+static const uint16_t csi_pua_seqs[] = {
+    [0x0e] = 0x003a, /* CAPS_LOCK */
+    [0x0f] = 0x0046, /* SCROLL_LOCK */
+    [0x10] = 0x0045, /* NUM_LOCK */
+    [0x11] = 0xe037, /* PRINT_SCREEN */
+    [0x12] = 0xe11d, /* PAUSE */
+    [0x13] = 0xe05d, /* MENU */
+    [0x20] = 0x005d, /* F13 */
+    [0x21] = 0x005e, /* F14 */
+    [0x22] = 0x005f, /* F15 */
+    [0x23] = 0x0067, /* F16 */
+    [0x24] = 0x0068, /* F17 */
+    [0x25] = 0x0069, /* F18 */
+    [0x26] = 0x006a, /* F19 */
+    [0x27] = 0x006b, /* F20 */
+    [0x28] = 0x006c, /* F21 */
+    [0x29] = 0x006d, /* F22 */
+    [0x2a] = 0x006e, /* F23 */
+    [0x2b] = 0x0076, /* F24 */
+    [0x37] = 0x0052, /* KP_0 */
+    [0x38] = 0x004f, /* KP_1 */
+    [0x39] = 0x0050, /* KP_2 */
+    [0x3a] = 0x0051, /* KP_3 */
+    [0x3b] = 0x004b, /* KP_4 */
+    [0x3c] = 0x004c, /* KP_5 */
+    [0x3d] = 0x004d, /* KP_6 */
+    [0x3e] = 0x0047, /* KP_7 */
+    [0x3f] = 0x0048, /* KP_8 */
+    [0x40] = 0x0049, /* KP_9 */
+    [0x41] = 0x0053, /* KP_DECIMAL (NumDel) */
+    [0x42] = 0xe035, /* KP_DIVIDE */
+    [0x43] = 0x0037, /* KP_MULTIPLY */
+    [0x44] = 0x004a, /* KP_SUBTRACT */
+    [0x45] = 0x004e, /* KP_ADD */
+    [0x46] = 0xe01c, /* KP_ENTER */
+    [0x47] = 0x0059, /* KP_EQUAL (multimedia) */
+    [0x48] = 0x0053, /* KP_SEPARATOR (NumDel) */
+    [0x49] = 0x004b, /* KP_LEFT (Num4) */
+    [0x4a] = 0x004d, /* KP_RIGHT (Num6) */
+    [0x4b] = 0x0048, /* KP_UP (Num8) */
+    [0x4c] = 0x0050, /* KP_DOWN (Num2) */
+    [0x4d] = 0x0049, /* KP_PAGE_UP (Num9) */
+    [0x4e] = 0x0051, /* KP_PAGE_DOWN (Num3) */
+    [0x4f] = 0x0047, /* KP_HOME (Num7) */
+    [0x50] = 0x004f, /* KP_END (Num1) */
+    [0x51] = 0x0052, /* KP_INSERT (Num0) */
+    [0x52] = 0x0053, /* KP_DELETE */
+    [0x54] = 0xe052, /* MEDIA_PLAY (PlayPause) */
+    [0x55] = 0xe052, /* MEDIA_PAUSE (PlayPause) */
+    [0x56] = 0xe052, /* MEDIA_PLAY_PAUSE */
+    [0x57] = 0xe06a, /* MEDIA_REVERSE (Back) */
+    [0x58] = 0xe068, /* MEDIA_STOP */
+    [0x59] = 0xe069, /* MEDIA_FAST_FORWARD (Forward) */
+    [0x5a] = 0xe010, /* MEDIA_REWIND (Previous) */
+    [0x5b] = 0xe019, /* MEDIA_TRACK_NEXT */
+    [0x5c] = 0xe010, /* MEDIA_TRACK_PREVIOUS */
+    [0x5d] = 0xe078, /* MEDIA_RECORD (Logitech) */
+    [0x5e] = 0xe02e, /* LOWER_VOLUME */
+    [0x5f] = 0xe030, /* RAISE_VOLUME */
+    [0x60] = 0xe020, /* MUTE_VOLUME */
+    [0x61] = 0x002a, /* LEFT_SHIFT */
+    [0x62] = 0x001d, /* LEFT_CONTROL */
+    [0x63] = 0x0038, /* LEFT_ALT */
+    [0x64] = 0xe05b, /* LEFT_SUPER (Win) */
+    [0x65] = 0xe05b, /* LEFT_HYPER (Win) */
+    [0x66] = 0xe05b, /* LEFT_META (Win) */
+    [0x67] = 0x0036, /* RIGHT_SHIFT */
+    [0x68] = 0xe01d, /* RIGHT_CONTROL */
+    [0x69] = 0xe038, /* RIGHT_ALT */
+    [0x6a] = 0xe05c, /* RIGHT_SUPER (Win) */
+    [0x6b] = 0xe05c, /* RIGHT_HYPER (Win) */
+    [0x6c] = 0xe05c  /* RIGHT_META (Win) */
 };
 static const uint8_t mouse_button_values[] = {
     [0] = 1, /* left */
@@ -276,9 +349,9 @@ cli_input_log_key(const char *func, int c)
 #endif
 
 void
-cli_input_send(uint16_t code, int modifier)
+cli_input_send(uint16_t code, uint16_t modifier)
 {
-    cli_input_log("CLI Input: send(%04X, %02X)\n", code, modifier);
+    cli_input_log("CLI Input: send(%04X, %03X)", code, modifier);
 
     /* Add modifiers set by the keycode definition. */
     switch (code >> 8) {
@@ -295,7 +368,7 @@ cli_input_send(uint16_t code, int modifier)
             break;
 
         case 0x5b:
-            modifier |= VT_META;
+            modifier |= VT_SUPER;
             break;
 
         default:
@@ -326,35 +399,41 @@ cli_input_send(uint16_t code, int modifier)
             break;
     }
 
-    /* Press modifier keys. */
-    if (modifier & VT_META)
-        keyboard_input(1, 0xe05b);
-    if (modifier & VT_CTRL)
-        keyboard_input(1, 0x001d);
-    if (modifier & VT_ALT)
-        keyboard_input(1, 0x0038);
-    if (modifier & VT_SHIFT)
-        keyboard_input(1, 0x002a);
-    if (modifier & VT_SHIFT_FAKE)
-        keyboard_input(1, 0xe02a);
-
-    /* Press and release key. */
-    if (code) {
-        keyboard_input(1, code);
-        keyboard_input(0, code);
+    /* Press key with modifiers unless an explicit key up with no explicit key down is requested. */
+    if ((modifier & (VT_KEY_UP | VT_KEY_DOWN)) != VT_KEY_UP) {
+        cli_input_log(" press");
+        if (modifier & (VT_SUPER | VT_HYPER | VT_META))
+            keyboard_input(1, 0xe05b);
+        if (modifier & VT_CTRL)
+            keyboard_input(1, 0x001d);
+        if (modifier & VT_ALT)
+            keyboard_input(1, 0x0038);
+        if (modifier & VT_SHIFT)
+            keyboard_input(1, 0x002a);
+        if (modifier & VT_SHIFT_FAKE)
+            keyboard_input(1, 0xe02a);
+        if (code)
+            keyboard_input(1, code);
     }
 
-    /* Release modifier keys. */
-    if (modifier & VT_SHIFT_FAKE)
-        keyboard_input(0, 0xe02a);
-    if (modifier & VT_SHIFT)
-        keyboard_input(0, 0x002a);
-    if (modifier & VT_ALT)
-        keyboard_input(0, 0x0038);
-    if (modifier & VT_CTRL)
-        keyboard_input(0, 0x001d);
-    if (modifier & VT_META)
-        keyboard_input(0, 0xe05b);
+    /* Release key with modifiers if kitty event types are disabled or an explicit key up is requested. */
+    if (!(cli_term.kitty_input & 2) || (modifier & VT_KEY_UP)) {
+        cli_input_log(" release");
+        if (code)
+            keyboard_input(0, code);
+        if (modifier & VT_SHIFT_FAKE)
+            keyboard_input(0, 0xe02a);
+        if (modifier & VT_SHIFT)
+            keyboard_input(0, 0x002a);
+        if (modifier & VT_ALT)
+            keyboard_input(0, 0x0038);
+        if (modifier & VT_CTRL)
+            keyboard_input(0, 0x001d);
+        if (modifier & (VT_SUPER | VT_HYPER | VT_META))
+            keyboard_input(0, 0xe05b);
+    }
+
+    cli_input_log("\n");
 }
 
 #ifdef USE_CLI
@@ -507,20 +586,28 @@ cli_input_csi_dispatch(int c)
 
     /* Read numeric code and modifier parameters if applicable. */
     unsigned int code, modifier, third;
-    char         delimiter;
-    switch (sscanf(param_buf, "%u%c%u%c%u", &code, &delimiter, &modifier, &delimiter, &third)) {
+    char         delimiter1, delimiter2;
+    switch (sscanf(param_buf, "%u%c%u%c%u", &code, &delimiter1, &modifier, &delimiter2, &third)) {
         case EOF:
         case 0:
             code = 0;
             fallthrough;
 
-        case 1 ... 2:
+        case 1:
+            delimiter1 = 0;
+            fallthrough;
+
+        case 2:
             modifier = 0;
             fallthrough;
 
-        case 3 ... 4:
+        case 3:
+            delimiter2 = 0;
+            fallthrough;
+
+        case 4:
             third = 0;
-            break;
+            fallthrough;
 
         default:
             break;
@@ -582,6 +669,18 @@ cli_input_csi_dispatch(int c)
         return;
     }
 
+    /* Determine if this is a kitty keyboard protocol query response. */
+    if ((c == 'u') && (collect_buf[0] == '?')) {
+        cli_input_log("CLI Input: kitty keyboard protocol reports flags %d\n", code);
+        cli_term.kitty_input = code;
+
+        return;
+    }
+
+    /* Decode modifier. */
+    if (modifier)
+        modifier = (modifier - 1) & VT_MODS_ONLY; /* modifiers are received with +1 offset */
+
     /* Determine keycode. */
 #define SAFE_INDEX(a, i) ((((i) >= 0) && ((i) < (sizeof((a)) / sizeof((a)[0])))) ? (a)[(i)] : 0)
     switch (c) {
@@ -592,21 +691,40 @@ cli_input_csi_dispatch(int c)
                 code = SAFE_INDEX(csi_num_seqs, code);
             break;
 
-        case 'u': /* CSI ascii ; modifier u (xterm modifyOtherKeys>0 && formatOtherKeys=1) */
-            code = SAFE_INDEX(ascii_seqs, code);
+        case 'u': /* CSI ascii ; modifier [: kittyevent] u (xterm modifyOtherKeys>0 && formatOtherKeys=1 or kitty) */
+            if ((code >= 0xe000) && (code < 0xf900)) /* Unicode PUA (kitty) */
+                code = SAFE_INDEX(csi_pua_seqs, code & 0xfff);
+            else
+                code = SAFE_INDEX(ascii_seqs, code);
+            if (delimiter1 == ':') { /* just in case we get kitty alternate codes without asking for it */
+                cli_input_log("CLI Input: Ignoring unsupported kitty keypress\n");
+                return;
+            }
+kitty_event:
+            if (delimiter2 == ':') { /* kitty event types */
+                if (third == 3) /* release */
+                    modifier |= VT_KEY_UP;
+                else if ((third != 1) && (third != 2)) /* other events outside of press and repeat */
+                    return;
+            }
             break;
 
         default: /* CSI [[1 ;] modifier] letter */
             if ((code > 1) && !modifier)
-                modifier = code; /* account for missing 1 ; (xterm modify*Keys=1) */
+                modifier = (code - 1) & VT_MODS_ONLY; /* shift modifier to account for missing 1 ; (xterm modify*Keys=1) */
             code = SAFE_INDEX(csi_letter_seqs, c);
-            break;
+            goto kitty_event;
     }
 
     /* Press key with any modifiers. */
-    if (modifier)
-        modifier = (modifier - 1) & (VT_SHIFT | VT_ALT | VT_CTRL | VT_META); /* modifiers are received with +1 offset */
     cli_input_send(code, modifier);
+
+    /* Update lock states based on kitty modifiers. */
+    if (cli_term.kitty_input & 1) {
+        uint8_t *cl, *nl, *sl, *kl;
+        keyboard_get_states(&cl, &nl, &sl, &kl);
+        keyboard_update_states(modifier & VT_CAPSLOCK, modifier & VT_NUMLOCK, sl, kl);
+    }
 }
 
 static void
@@ -867,10 +985,12 @@ cli_input_process(void *priv)
                 keyboard_input(ir.Event.KeyEvent.bKeyDown, c);
 
                 /* Update lock states. */
+                uint8_t *cl, *nl, *sl, *kl;
+                keyboard_get_states(&cl, &nl, &sl, &kl);
                 keyboard_update_states(!!(ir.Event.KeyEvent.dwControlKeyState & CAPSLOCK_ON),
                                        !!(ir.Event.KeyEvent.dwControlKeyState & NUMLOCK_ON),
                                        !!(ir.Event.KeyEvent.dwControlKeyState & SCROLLLOCK_ON),
-                                       0);
+                                       kl);
 
                 /* Don't process as ANSI. */
                 continue;
@@ -1111,12 +1231,10 @@ monitor:
                         state = VT_CSI_INTERMEDIATE;
                         break;
 
-                    case 0x30 ... 0x39:
-                    case 0x3b:
+                    case 0x30 ... 0x3b:
                         cli_input_param(c);
                         break;
 
-                    case 0x3a:
                     case 0x3c ... 0x3f:
                         state = VT_CSI_IGNORE;
                         break;
