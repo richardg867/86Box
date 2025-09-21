@@ -43,11 +43,11 @@
 #include <86box/device.h>
 #include <86box/thread.h>
 #include <86box/network.h>
-#include <86box/net_eeprom_nmc93cxx.h>
-#include <86box/bswap.h>
+#include <86box/nmc93cxx.h>
 #include <86box/nvr.h>
 #include "cpu.h"
 #include <86box/plat_unused.h>
+#include <86box/bswap.h>
 
 #define PCI_PERIOD 30 /* 30 ns period = 33.333333 Mhz frequency */
 
@@ -1210,7 +1210,7 @@ rtl8139_CpCmd_read(RTL8139State *s)
 }
 
 static void
-rtl8139_IntrMitigate_write(UNUSED(RTL8139State *s), uint32_t val)
+rtl8139_IntrMitigate_write(UNUSED(RTL8139State *s), UNUSED(uint32_t val))
 {
     rtl8139_log("C+ IntrMitigate register write(w) val=0x%04x\n", val);
 }
@@ -2549,6 +2549,12 @@ rtl8139_io_writeb(uint32_t addr, uint8_t val, void *priv)
 
             break;
 
+        case RxConfig:
+            rtl8139_log("RxConfig write(b) val=0x%02x\n", val);
+            rtl8139_RxConfig_write(s,
+                (rtl8139_RxConfig_read(s) & 0xFFFFFF00) | val);
+            break;
+
         default:
             rtl8139_log("not implemented write(b) addr=0x%x val=0x%02x\n", addr, val);
             break;
@@ -3151,7 +3157,7 @@ rtl8139_pci_read(UNUSED(int func), int addr, void *priv)
 }
 
 static void
-rtl8139_pci_write(int func, int addr, uint8_t val, void *priv)
+rtl8139_pci_write(UNUSED(int func), int addr, uint8_t val, void *priv)
 {
     RTL8139State *s = (RTL8139State *) priv;
 
@@ -3288,8 +3294,8 @@ nic_init(const device_t *info)
     params.nwords          = 64;
     params.default_content = (uint16_t *) s->eeprom_data;
     params.filename        = filename;
-    snprintf(filename, sizeof(filename), "nmc93cxx_eeprom_%s_%d.nvr", info->internal_name, device_get_instance());
-    s->eeprom = device_add_params(&nmc93cxx_device, &params);
+    snprintf(filename, sizeof(filename), "nmc93cxx_eeprom_%s_%d.nvr", info->internal_name, s->inst);
+    s->eeprom = device_add_inst_params(&nmc93cxx_device, s->inst, &params);
     if (s->eeprom == NULL) {
         free(s);
         return NULL;
@@ -3315,11 +3321,15 @@ nic_close(void *priv)
 // clang-format off
 static const device_config_t rtl8139c_config[] = {
     {
-        .name = "mac",
-        .description = "MAC Address",
-        .type = CONFIG_MAC,
-        .default_string = "",
-        .default_int = -1
+        .name           = "mac",
+        .description    = "MAC Address",
+        .type           = CONFIG_MAC,
+        .default_string = NULL,
+        .default_int    = -1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
 };
@@ -3333,7 +3343,7 @@ const device_t rtl8139c_plus_device = {
     .init          = nic_init,
     .close         = nic_close,
     .reset         = rtl8139_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = rtl8139c_config

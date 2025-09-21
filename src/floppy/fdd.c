@@ -8,8 +8,6 @@
  *
  *          Implementation of the floppy drive emulation.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
@@ -100,44 +98,44 @@ d86f_handler_t d86f_handler[FDD_NUM];
 
 static const struct
 {
-    char *ext;
-    void (*load)(int drive, char *fn);
-    void (*close)(int drive);
-    int size;
+    const char *ext;
+    void        (*load)(int drive, char *fn);
+    void        (*close)(int drive);
+    int         size;
 } loaders[] = {
-    { "001",  img_load,  img_close,  -1},
-    { "002",  img_load,  img_close,  -1},
-    { "003",  img_load,  img_close,  -1},
-    { "004",  img_load,  img_close,  -1},
-    { "005",  img_load,  img_close,  -1},
-    { "006",  img_load,  img_close,  -1},
-    { "007",  img_load,  img_close,  -1},
-    { "008",  img_load,  img_close,  -1},
-    { "009",  img_load,  img_close,  -1},
-    { "010",  img_load,  img_close,  -1},
-    { "12",   img_load,  img_close,  -1},
-    { "144",  img_load,  img_close,  -1},
-    { "360",  img_load,  img_close,  -1},
-    { "720",  img_load,  img_close,  -1},
-    { "86F",  d86f_load, d86f_close, -1},
-    { "BIN",  img_load,  img_close,  -1},
-    { "CQ",   img_load,  img_close,  -1},
-    { "CQM",  img_load,  img_close,  -1},
-    { "DDI",  img_load,  img_close,  -1},
-    { "DSK",  img_load,  img_close,  -1},
-    { "FDI",  fdi_load,  fdi_close,  -1},
-    { "FDF",  img_load,  img_close,  -1},
-    { "FLP",  img_load,  img_close,  -1},
-    { "HDM",  img_load,  img_close,  -1},
-    { "IMA",  img_load,  img_close,  -1},
-    { "IMD",  imd_load,  imd_close,  -1},
-    { "IMG",  img_load,  img_close,  -1},
-    { "JSON", pcjs_load, pcjs_close, -1},
-    { "MFM",  mfm_load,  mfm_close,  -1},
-    { "TD0",  td0_load,  td0_close,  -1},
-    { "VFD",  img_load,  img_close,  -1},
-    { "XDF",  img_load,  img_close,  -1},
-    { 0,      0,         0,          0 }
+    { "001",  img_load,  img_close,  -1 },
+    { "002",  img_load,  img_close,  -1 },
+    { "003",  img_load,  img_close,  -1 },
+    { "004",  img_load,  img_close,  -1 },
+    { "005",  img_load,  img_close,  -1 },
+    { "006",  img_load,  img_close,  -1 },
+    { "007",  img_load,  img_close,  -1 },
+    { "008",  img_load,  img_close,  -1 },
+    { "009",  img_load,  img_close,  -1 },
+    { "010",  img_load,  img_close,  -1 },
+    { "12",   img_load,  img_close,  -1 },
+    { "144",  img_load,  img_close,  -1 },
+    { "360",  img_load,  img_close,  -1 },
+    { "720",  img_load,  img_close,  -1 },
+    { "86F",  d86f_load, d86f_close, -1 },
+    { "BIN",  img_load,  img_close,  -1 },
+    { "CQ",   img_load,  img_close,  -1 },
+    { "CQM",  img_load,  img_close,  -1 },
+    { "DDI",  img_load,  img_close,  -1 },
+    { "DSK",  img_load,  img_close,  -1 },
+    { "FDI",  fdi_load,  fdi_close,  -1 },
+    { "FDF",  img_load,  img_close,  -1 },
+    { "FLP",  img_load,  img_close,  -1 },
+    { "HDM",  img_load,  img_close,  -1 },
+    { "IMA",  img_load,  img_close,  -1 },
+    { "IMD",  imd_load,  imd_close,  -1 },
+    { "IMG",  img_load,  img_close,  -1 },
+    { "JSON", pcjs_load, pcjs_close, -1 },
+    { "MFM",  mfm_load,  mfm_close,  -1 },
+    { "TD0",  td0_load,  td0_close,  -1 },
+    { "VFD",  img_load,  img_close,  -1 },
+    { "XDF",  img_load,  img_close,  -1 },
+    { 0,      0,         0,          0  }
 };
 
 static const struct {
@@ -211,19 +209,10 @@ fdd_get_internal_name(int type)
 int
 fdd_get_from_internal_name(char *s)
 {
-    int   c = 0;
-    char *n;
-
-    /* TODO: Remove this once the migration period is over. */
-    if (!strcmp(s, "525_2hd_ps2"))
-        n = "525_2hd";
-    else if (!strcmp(s, "35_2hd_ps2"))
-        n = "35_2hd";
-    else
-        n = s;
+    int c = 0;
 
     while (strlen(drive_types[c].internal_name)) {
-        if (!strcmp((char *) drive_types[c].internal_name, n))
+        if (!strcmp((char *) drive_types[c].internal_name, s))
             return c;
         c++;
     }
@@ -294,7 +283,7 @@ fdd_type_invert_densel(int type)
     int ret;
 
     if (drive_types[type].flags & FLAG_PS2)
-        ret = (!!strstr(machine_getname(), "PS/1")) || (!!strstr(machine_getname(), "PS/2"));
+        ret = (!!strstr(machine_getname(), "PS/1")) || (!!strstr(machine_getname(), "PS/2")) || (!!strstr(machine_getname(), "PS/55"));
     else
         ret = drive_types[type].flags & FLAG_INVERT_DENSEL;
 
@@ -467,12 +456,18 @@ fdd_load(int drive, char *fn)
     int         c = 0;
     int         size;
     const char *p;
-    FILE *      fp;
+    FILE       *fp;
+    int         offs = 0;
 
     fdd_log("FDD: loading drive %d with '%s'\n", drive, fn);
 
     if (!fn)
         return;
+    if (strstr(fn, "wp://") == fn) {
+        offs                = 5;
+        ui_writeprot[drive] = 1;
+    }
+    fn += offs;
     p = path_get_extension(fn);
     if (!p)
         return;
@@ -485,13 +480,14 @@ fdd_load(int drive, char *fn)
         while (loaders[c].ext) {
             if (!strcasecmp(p, (char *) loaders[c].ext) && (size == loaders[c].size || loaders[c].size == -1)) {
                 driveloaders[drive] = c;
-                if (floppyfns[drive] != fn)
-                    strcpy(floppyfns[drive], fn);
+                if (floppyfns[drive] != (fn - offs))
+                    strcpy(floppyfns[drive], fn - offs);
                 d86f_setup(drive);
-                loaders[c].load(drive, floppyfns[drive]);
+                loaders[c].load(drive, floppyfns[drive] + offs);
                 drive_empty[drive] = 0;
                 fdd_forced_seek(drive, 0);
                 fdd_changed[drive] = 1;
+                ui_sb_update_icon_wp(SB_FLOPPY | drive, ui_writeprot[drive]);
                 return;
             }
             c++;
@@ -541,7 +537,7 @@ fdd_hole(int drive)
 static __inline uint64_t
 fdd_byteperiod(int drive)
 {
-    if (!fdd_get_turbo(drive) && drives[drive].byteperiod)
+    if (drives[drive].byteperiod)
         return drives[drive].byteperiod(drive);
     else
         return 32ULL * TIMER_USEC;

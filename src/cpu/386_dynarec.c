@@ -30,6 +30,7 @@
 #include <86box/fdc.h>
 #include <86box/machine.h>
 #include <86box/plat_fallthrough.h>
+#include <86box/plat_unused.h>
 #include <86box/gdbstub.h>
 #ifdef USE_DYNAREC
 #    include "codegen.h"
@@ -275,11 +276,7 @@ exec386_dynarec_int(void)
     cpu_block_end = 0;
     x86_was_reset = 0;
 
-#    ifdef USE_DEBUG_REGS_486
-    if (trap & 2) {
-#    else
     if (trap == 2) {
-#    endif
         /* Handle the T bit in the new TSS first. */
         CPU_BLOCK_END();
         goto block_ended;
@@ -295,13 +292,6 @@ exec386_dynarec_int(void)
 
         cpu_state.ea_seg = &cpu_state.seg_ds;
         cpu_state.ssegs  = 0;
-
-#    ifdef USE_DEBUG_REGS_486
-        if (UNLIKELY(cpu_386_check_instruction_fault())) {
-            x86gen();
-            goto block_ended;
-        }
-#    endif
 
         fetchdat = fastreadl_fetch(cs + cpu_state.pc);
 #    ifdef ENABLE_386_DYNAREC_LOG
@@ -357,6 +347,8 @@ exec386_dynarec_int(void)
             CPU_BLOCK_END();
         if (smi_line)
             CPU_BLOCK_END();
+        else if (new_ne)
+            CPU_BLOCK_END();
         else if (trap)
             CPU_BLOCK_END();
         else if (nmi && nmi_enable && nmi_mask)
@@ -366,14 +358,8 @@ exec386_dynarec_int(void)
     }
 
 block_ended:
-    if (!cpu_state.abrt && trap) {
-#    ifdef USE_DEBUG_REGS_486
-        //pclog("Debug trap 0x%X\n", trap);
-        if (trap & 2) dr[6] |= 0x8000;
-        if (trap & 1) dr[6] |= 0x4000;
-#    else
+    if (!cpu_state.abrt && !new_ne && trap) {
         dr[6] |= (trap == 2) ? 0x8000 : 0x4000;
-#    endif
 
         trap = 0;
 #    ifndef USE_NEW_DYNAREC
@@ -602,6 +588,8 @@ exec386_dynarec_dyn(void)
             if (cpu_init)
                 CPU_BLOCK_END();
 
+            if (new_ne)
+                CPU_BLOCK_END();
             if ((cpu_state.flags & T_FLAG) || (trap == 2))
                 CPU_BLOCK_END();
             if (smi_line)
@@ -626,7 +614,7 @@ exec386_dynarec_dyn(void)
 
         cpu_end_block_after_ins = 0;
 
-        if ((!cpu_state.abrt || (cpu_state.abrt & ABRT_EXPECTED)) && !x86_was_reset)
+        if ((!cpu_state.abrt || (cpu_state.abrt & ABRT_EXPECTED)) && !new_ne && !x86_was_reset)
             codegen_block_end_recompile(block);
 
         if (x86_was_reset)
@@ -702,6 +690,8 @@ exec386_dynarec_dyn(void)
             if (cpu_init)
                 CPU_BLOCK_END();
 
+            if (new_ne)
+                CPU_BLOCK_END();
             if (cpu_state.flags & T_FLAG)
                 CPU_BLOCK_END();
             if (smi_line)
@@ -726,7 +716,7 @@ exec386_dynarec_dyn(void)
 
         cpu_end_block_after_ins = 0;
 
-        if ((!cpu_state.abrt || (cpu_state.abrt & ABRT_EXPECTED)) && !x86_was_reset)
+        if ((!cpu_state.abrt || (cpu_state.abrt & ABRT_EXPECTED)) && !new_ne && !x86_was_reset)
             codegen_block_end();
 
         if (x86_was_reset)
@@ -749,7 +739,7 @@ exec386_dynarec(int32_t cycs)
     uint64_t oldtsc;
     uint64_t delta;
 
-    int32_t cyc_period = cycs / 2000; /*5us*/
+    int32_t cyc_period = cycs / (force_10ms ? 2000 : 200); /*5us*/
 
 #    ifdef USE_ACYCS
     acycs = 0;
@@ -807,6 +797,15 @@ exec386_dynarec(int32_t cycs)
 #    endif
                     }
                 }
+            }
+
+            if (new_ne) {
+#    ifndef USE_NEW_DYNAREC
+                oldcs = CS;
+#    endif
+                cpu_state.oldpc = cpu_state.pc;
+                new_ne = 0;
+                x86_int(16);
             }
 
             if (smi_line)
@@ -886,6 +885,9 @@ exec386(int32_t cycs)
         cycdiff       = 0;
         oldcyc        = cycles;
         while (cycdiff < cycle_period) {
+#ifdef USE_DEBUG_REGS_486
+            int ins_fetch_fault = 0;
+#endif
             ins_cycles = cycles;
 
 #ifndef USE_NEW_DYNAREC
@@ -903,8 +905,14 @@ exec386(int32_t cycs)
             cpu_state.ssegs  = 0;
 
 #ifdef USE_DEBUG_REGS_486
-            if (UNLIKELY(cpu_386_check_instruction_fault())) {
+            if (is386)
+                ins_fetch_fault = cpu_386_check_instruction_fault();
+
+            /* Breakpoint fault has priority over other faults. */
+            if ((cpu_state.abrt == 0) & ins_fetch_fault) {
                 x86gen();
+                ins_fetch_fault = 0;
+                /* No instructions executed at this point. */
                 goto block_ended;
             }
 #endif
@@ -956,11 +964,13 @@ exec386(int32_t cycs)
 block_ended:
 #endif
             if (cpu_state.abrt) {
+                uint8_t oop    = opcode;
                 flags_rebuild();
                 tempi          = cpu_state.abrt & ABRT_MASK;
                 cpu_state.abrt = 0;
                 x86_doabrt(tempi);
                 if (cpu_state.abrt) {
+                    pclog("Double fault - %02X\n", oop);
                     cpu_state.abrt = 0;
 #ifndef USE_NEW_DYNAREC
                     CS = oldcs;
@@ -977,23 +987,31 @@ block_ended:
 #endif
                     }
                 }
+
+#ifdef USE_DEBUG_REGS_486
+                if (is386 && !x86_was_reset  && ins_fetch_fault)
+                    x86gen();
+#endif
+            } else if (new_ne) {
+                flags_rebuild();
+
+                new_ne = 0;
+#ifndef USE_NEW_DYNAREC
+                oldcs = CS;
+#endif
+                cpu_state.oldpc = cpu_state.pc;
+                x86_int(16);
             } else if (trap) {
                 flags_rebuild();
 #ifdef USE_DEBUG_REGS_486
-                if (trap & 1)
-                    dr[6] |= 0x4000;
-                if (trap & 2)
-                    dr[6] |= 0x8000;
+                if (trap & 2) dr[6] |= 0x8000;
+                if (trap & 1) dr[6] |= 0x4000;
 #endif
-
                 trap = 0;
 #ifndef USE_NEW_DYNAREC
                 oldcs = CS;
 #endif
                 cpu_state.oldpc = cpu_state.pc;
-#ifndef USE_DEBUG_REGS_486
-                dr[6] |= 0x4000;
-#endif
                 x86_int(1);
             }
 

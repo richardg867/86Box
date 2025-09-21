@@ -26,8 +26,6 @@
  * NOTE:    The IRQ functionalities have been implemented, but not yet
  *          tested, as I need to write test software for them first :)
  *
- *
- *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *
  *          Copyright 2018 Fred N. van Kempen.
@@ -89,10 +87,11 @@
 #define ISARTC_P5PAK   2
 #define ISARTC_A6PAK   3
 #define ISARTC_VENDEX  4
+#define ISARTC_MPLUS2  5
 #define ISARTC_MM58167 10
 
-#define ISARTC_ROM_MM58167_1 "roms/rtc/glatick/GLaTICK_0.8.5_NS_RP.ROM"
-#define ISARTC_ROM_MM58167_2 "roms/rtc/glatick/GLaTICK_0.8.5_86B.ROM"
+#define ISARTC_ROM_MM58167_1 "roms/rtc/glatick/GLaTICK_0.8.8_NS_86B.ROM"  /* Generic 58167, AST or EV-170 */
+#define ISARTC_ROM_MM58167_2 "roms/rtc/glatick/GLaTICK_0.8.8_NS_86B2.ROM" /* PII-147 */
 
 #define ISARTC_DEBUG  0
 
@@ -409,11 +408,16 @@ mm67_read(uint16_t port, void *priv)
             break;
 
         case MM67_AL_MSEC:
+        case MM67_MSEC:
             ret                = dev->nvr.regs[reg] & 0xf0;
             break;
 
         case MM67_AL_DOW:
             ret                = dev->nvr.regs[reg] & 0x0f;
+            break;
+
+        case MM67_DOW:
+            ret                = dev->nvr.regs[reg] & 0x07;
             break;
 
         default:
@@ -517,11 +521,10 @@ isartc_init(const device_t *info)
 {
     rtcdev_t *dev;
     int       is_at = IS_AT(machine);
-    is_at           = is_at || !strcmp(machine_get_internal_name(), "xi8088");
+    is_at           = is_at || (machines[machine].init == machine_xt_xi8088_init);
 
     /* Create a device instance. */
-    dev = (rtcdev_t *) malloc(sizeof(rtcdev_t));
-    memset(dev, 0x00, sizeof(rtcdev_t));
+    dev = (rtcdev_t *) calloc(1, sizeof(rtcdev_t));
     dev->name     = info->name;
     dev->board    = info->local;
     dev->irq      = -1;
@@ -533,8 +536,8 @@ isartc_init(const device_t *info)
     switch (dev->board) {
         case ISARTC_MM58167: /* Generic MM58167 RTC */
             {
-                int rom_addr = device_get_config_hex20("bios_addr");
-                if (rom_addr != -1)
+                uint32_t rom_addr = device_get_config_hex20("bios_addr");
+                if (rom_addr != 0)
                     rom_init(&dev->rom, ISARTC_ROM_MM58167_1,
                              rom_addr, 0x0800, 0x7ff, 0, MEM_MAPPING_EXTERNAL);
 
@@ -564,8 +567,9 @@ isartc_init(const device_t *info)
             dev->year        = MM67_AL_HUNTEN; /* year, NON STANDARD */
             break;
 
-        case ISARTC_P5PAK: /* Paradise Systems 5PAK */
-        case ISARTC_A6PAK: /* AST SixPakPlus */
+        case ISARTC_P5PAK:  /* Paradise Systems 5PAK */
+        case ISARTC_A6PAK:  /* AST SixPakPlus */
+        case ISARTC_MPLUS2: /* AST MegaPlus II */
             dev->flags |= FLAG_YEAR80;
             dev->base_addr   = 0x02c0;
             dev->base_addrsz = 32;
@@ -632,23 +636,24 @@ static const device_config_t ev170_config[] = {
         .name           = "base",
 		.description    = "Address",
 		.type           = CONFIG_HEX16,
-		.default_string = "",
+		.default_string = NULL,
 		.default_int    = 0x02C0,
-		.file_filter    = "",
+		.file_filter    = NULL,
 		.spinner        = { 0 },
         .selection      = {
             { .description = "240H", .value = 0x0240 },
             { .description = "2C0H", .value = 0x02c0 },
             { .description = ""                      }
         },
+        .bios           = { { 0 } }
     },
     {
         .name           = "irq",
 		.description    = "IRQ",
 		.type           = CONFIG_SELECTION,
-		.default_string = "",
+		.default_string = NULL,
 		.default_int    = -1,
-		.file_filter    = "",
+		.file_filter    = NULL,
 		.spinner        = { 0 },
         .selection      = {
             { .description = "Disabled", .value = -1 },
@@ -657,6 +662,7 @@ static const device_config_t ev170_config[] = {
             { .description = "IRQ7",     .value =  7 },
             { .description = ""                      }
         },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -682,15 +688,16 @@ static const device_config_t pii147_config[] = {
         .name           = "base",
 		.description    = "Address",
 		.type           = CONFIG_HEX16,
-		.default_string = "",
+		.default_string = NULL,
 		.default_int    = 0x0240,
-		.file_filter    = "",
+		.file_filter    = NULL,
 		.spinner        = { 0 },
         .selection      = {
             { .description = "Clock 1", .value = 0x0240 },
             { .description = "Clock 2", .value = 0x0340 },
             { .description = ""                         }
         },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -716,9 +723,9 @@ static const device_config_t p5pak_config[] = {
         .name           = "irq",
 		.description    = "IRQ",
 		.type           = CONFIG_SELECTION,
-		.default_string = "",
+		.default_string = NULL,
 		.default_int    = -1,
-		.file_filter    = "",
+		.file_filter    = NULL,
 		.spinner        = { 0 },
         .selection      = {
             { .description = "Disabled", -1 },
@@ -727,6 +734,7 @@ static const device_config_t p5pak_config[] = {
             { .description = "IRQ5",      5 },
             { .description = ""             }
         },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -752,9 +760,9 @@ static const device_config_t a6pak_config[] = {
         .name           = "irq",
         .description    = "IRQ",
         .type           = CONFIG_SELECTION,
-        .default_string = "",
+        .default_string = NULL,
         .default_int    = -1,
-        .file_filter    = "",
+        .file_filter    = NULL,
         .spinner        = { 0 },
         .selection      = {
             { .description = "Disabled", .value = -1 },
@@ -763,6 +771,7 @@ static const device_config_t a6pak_config[] = {
             { .description = "IRQ5",     .value =  5 },
             { .description = ""                      }
         },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -782,23 +791,8 @@ static const device_t a6pak_device = {
     .config        = a6pak_config
 };
 
-static const device_config_t mm58167_config[] = {
+static const device_config_t mplus2_config[] = {
   // clang-format off
-    {
-        .name           = "base",
-        .description    = "Address",
-        .type           = CONFIG_HEX16,
-        .default_string = "",
-        .default_int    = 0x02C0,
-        .file_filter    = "",
-        .spinner        = { 0 },
-        .selection      = {
-            { "240H", 0x0240 },
-            { "2C0H", 0x02c0 },
-            { "340H", 0x0340 },
-            { ""             }
-        },
-    },
     {
         .name           = "irq",
         .description    = "IRQ",
@@ -810,21 +804,74 @@ static const device_config_t mm58167_config[] = {
         .selection      = {
             { "Disabled", -1 },
             { "IRQ2",      2 },
+            { "IRQ3",      3 },
             { "IRQ5",      5 },
-            { "IRQ7",      7 },
             { ""             }
         },
     },
+    { .name = "", .description = "", .type = CONFIG_END }
+  // clang-format on
+};
+
+static const device_t mplus2_device = {
+    .name          = "AST MegaPlus II",
+    .internal_name = "mplus2",
+    .flags         = DEVICE_ISA,
+    .local         = ISARTC_MPLUS2,
+    .init          = isartc_init,
+    .close         = isartc_close,
+    .reset         = NULL,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = mplus2_config
+};
+
+static const device_config_t mm58167_config[] = {
+  // clang-format off
     {
-        .name = "bios_addr",
-        .description = "BIOS Address",
-        .type = CONFIG_HEX20,
-        .default_string = "",
-        .default_int = 0xcc000,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
-            { .description = "Disabled", .value = -1      },
+        .name           = "base",
+        .description    = "Address",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0x02C0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "240H", .value = 0x0240 },
+            { .description = "2C0H", .value = 0x02c0 },
+            { .description = "340H", .value = 0x0340 },
+            { .description = ""                      }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "irq",
+        .description    = "IRQ",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = -1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "Disabled", .value = -1 },
+            { .description = "IRQ2",     .value =  2 },
+            { .description = "IRQ5",     .value =  5 },
+            { .description = "IRQ7",     .value =  7 },
+            { .description = ""                      }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "bios_addr",
+        .description    = "BIOS address",
+        .type           = CONFIG_HEX20,
+        .default_string = NULL,
+        .default_int    = 0xcc000,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "Disabled", .value = 0x00000 },
             { .description = "C800H",    .value = 0xc8000 },
             { .description = "CA00H",    .value = 0xca000 },
             { .description = "CC00H",    .value = 0xcc000 },
@@ -847,6 +894,7 @@ static const device_config_t mm58167_config[] = {
             { .description = "EE00H",    .value = 0xee000 },
             { .description = ""                           }
         },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -855,7 +903,7 @@ static const device_config_t mm58167_config[] = {
 static const device_t mm58167_device = {
     .name          = "Generic MM58167 RTC",
     .internal_name = "rtc_mm58167",
-    .flags         = DEVICE_ISA,
+    .flags         = DEVICE_ISA | DEVICE_SIDECAR,
     .local         = ISARTC_MM58167,
     .init          = isartc_init,
     .close         = isartc_close,
@@ -890,6 +938,7 @@ static const struct {
     { &pii147_device  },
     { &p5pak_device   },
     { &a6pak_device   },
+    { &mplus2_device  },
     { &mm58167_device },
     { NULL            }
     // clang-format on
@@ -912,12 +961,12 @@ isartc_get_internal_name(int board)
 }
 
 int
-isartc_get_from_internal_name(char *s)
+isartc_get_from_internal_name(const char *str)
 {
     int c = 0;
 
     while (boards[c].dev != NULL) {
-        if (!strcmp(boards[c].dev->internal_name, s))
+        if (!strcmp(boards[c].dev->internal_name, str))
             return c;
         c++;
     }

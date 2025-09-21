@@ -8,8 +8,6 @@
  *
  *          Implementation of the Phoenix 486 Jumper Readout.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          Tiseno100,
  *
@@ -110,8 +108,7 @@ phoenix_486_jumper_close(void *priv)
 static void *
 phoenix_486_jumper_init(const device_t *info)
 {
-    phoenix_486_jumper_t *dev = (phoenix_486_jumper_t *) malloc(sizeof(phoenix_486_jumper_t));
-    memset(dev, 0, sizeof(phoenix_486_jumper_t));
+    phoenix_486_jumper_t *dev = (phoenix_486_jumper_t *) calloc(1, sizeof(phoenix_486_jumper_t));
 
     dev->type = info->local;
 
@@ -130,7 +127,7 @@ const device_t phoenix_486_jumper_device = {
     .init          = phoenix_486_jumper_init,
     .close         = phoenix_486_jumper_close,
     .reset         = phoenix_486_jumper_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -144,7 +141,7 @@ const device_t phoenix_486_jumper_pci_device = {
     .init          = phoenix_486_jumper_init,
     .close         = phoenix_486_jumper_close,
     .reset         = phoenix_486_jumper_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

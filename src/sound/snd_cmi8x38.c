@@ -8,8 +8,6 @@
  *
  *          C-Media CMI8x38 PCI audio controller emulation.
  *
- *
- *
  * Authors: RichardG, <richardg867@gmail.com>
  *
  *          Copyright 2022 RichardG.
@@ -1142,7 +1140,7 @@ cmi8x38_poll(sound_buffer_t buffer, void *priv)
 
         case 0x02: /* Mono, 16-bit PCM */
             if ((dma->fifo_end - dma->fifo_pos) >= 2) {
-                buffer.s16[swap | 0] = buffer.s16[swap | 1] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                buffer.s16[swap | 0] = buffer.s16[swap | 1] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                 dma->fifo_pos += 2;
                 dma->sample_count_out -= 2;
                 if (dev->io_regs[0x1b] & 0x04) /* N4SPK3D copy to rear */
@@ -1157,9 +1155,9 @@ cmi8x38_poll(sound_buffer_t buffer, void *priv)
                 case 2:
                     if ((dma->fifo_end - dma->fifo_pos) >= 4) {
                         pclog("were sampling\n");
-                        buffer.s16[swap | 0] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[swap | 0] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        buffer.s16[swap | 1] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[swap | 1] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
                         dma->sample_count_out -= 4;
                         if (dev->io_regs[0x1b] & 0x04) /* N4SPK3D copy to rear */
@@ -1172,13 +1170,13 @@ cmi8x38_poll(sound_buffer_t buffer, void *priv)
 
                 case 4:
                     if ((dma->fifo_end - dma->fifo_pos) >= 8) {
-                        buffer.s16[0] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[0] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        buffer.s16[1] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[1] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        buffer.s16[2] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[2] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        buffer.s16[3] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[3] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
                         dma->sample_count_out -= 8;
                     } else {
@@ -1188,15 +1186,15 @@ cmi8x38_poll(sound_buffer_t buffer, void *priv)
 
                 case 5: /* not supported by WDM and Linux drivers; channel layout assumed */
                     if ((dma->fifo_end - dma->fifo_pos) >= 10) {
-                        buffer.s16[0] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[0] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        buffer.s16[1] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[1] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        buffer.s16[4] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[4] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        buffer.s16[5] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[5] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        buffer.s16[2] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[2] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
                         dma->sample_count_out -= 10;
                     } else {
@@ -1208,17 +1206,17 @@ cmi8x38_poll(sound_buffer_t buffer, void *priv)
                 case 6:
                     if ((dma->fifo_end - dma->fifo_pos) >= 12) {
                         pclog("6c sampling\n");
-                        buffer.s16[0] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[0] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        buffer.s16[1] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[1] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        buffer.s16[4] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[4] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        buffer.s16[5] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[5] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        buffer.s16[2] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[2] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        buffer.s16[3] = AS_S16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[3] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
                         dma->sample_count_out -= 12;
                     } else {
@@ -1388,8 +1386,7 @@ cmi8x38_reset(void *priv)
 static void *
 cmi8x38_init(const device_t *info)
 {
-    cmi8x38_t *dev = malloc(sizeof(cmi8x38_t));
-    memset(dev, 0, sizeof(cmi8x38_t));
+    cmi8x38_t *dev = calloc(1, sizeof(cmi8x38_t));
 
     /* Set the chip type. */
     if ((info->local == CMEDIA_CMI8738_6CH) && !device_get_config_int("six_channel"))
@@ -1464,11 +1461,15 @@ cmi8x38_close(void *priv)
 static const device_config_t cmi8x38_config[] = {
   // clang-format off
     {
-        .name = "receive_input",
-        .description = "Receive MIDI input",
-        .type = CONFIG_BINARY,
-        .default_string = "",
-        .default_int = 1
+        .name           = "receive_input",
+        .description    = "Receive MIDI input",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -1477,18 +1478,26 @@ static const device_config_t cmi8x38_config[] = {
 static const device_config_t cmi8738_config[] = {
   // clang-format off
     {
-        .name = "six_channel",
-        .description = "6CH variant (6-channel)",
-        .type = CONFIG_BINARY,
-        .default_string = "",
-        .default_int = 1
+        .name           = "six_channel",
+        .description    = "6CH variant (6-channel)",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "receive_input",
-        .description = "Receive MIDI input",
-        .type = CONFIG_BINARY,
-        .default_string = "",
-        .default_int = 1
+        .name           = "receive_input",
+        .description    = "Receive MIDI input",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on

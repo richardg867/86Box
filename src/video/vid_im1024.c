@@ -38,8 +38,6 @@
  *            This is implemented by holding a FIFO of unlimited depth in
  *            the IM1024 to receive the data.
  *
- *
- *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *          John Elliott, <jce@seasip.info>
  *
@@ -1090,7 +1088,7 @@ const device_t im1024_device = {
     .init          = im1024_init,
     .close         = im1024_close,
     .reset         = NULL,
-    { .available = im1024_available },
+    .available     = im1024_available,
     .speed_changed = im1024_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL

@@ -8,8 +8,6 @@
  *
  *          3DFX Voodoo emulation.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *
  *          Copyright 2008-2020 Sarah Walker.
@@ -43,8 +41,7 @@
 typedef struct voodoo_state_t {
     int      xstart, xend, xdir;
     uint32_t base_r, base_g, base_b, base_a, base_z;
-    struct
-    {
+    struct {
         int64_t base_s, base_t, base_w;
         int     lod;
     } tmu[2];
@@ -656,9 +653,7 @@ voodoo_tmu_fetch_and_blend(voodoo_t *voodoo, voodoo_params_t *params, voodoo_sta
         state->tex_a[0] ^= 0xff;
 }
 
-#if (defined i386 || defined __i386 || defined __i386__ || defined _X86_ || defined _M_IX86) && !(defined __amd64__ || defined _M_X64)
-#    include <86box/vid_voodoo_codegen_x86.h>
-#elif (defined __amd64__ || defined _M_X64)
+#if (defined __amd64__ || defined _M_X64)
 #    include <86box/vid_voodoo_codegen_x86-64.h>
 #else
 int voodoo_recomp = 0;
@@ -1424,11 +1419,14 @@ voodoo_triangle(voodoo_t *voodoo, voodoo_params_t *params, int odd_even)
     if ((params->vertexAy & 0xf) > 8)
         dy += 16;
 
-    /*        voodoo_render_log("voodoo_triangle %i %i %i : vA %f, %f  vB %f, %f  vC %f, %f f %i,%i %08x %08x %08x,%08x tex=%i,%i fogMode=%08x\n", odd_even, voodoo->params_read_idx[odd_even], voodoo->params_read_idx[odd_even] & PARAM_MASK, (float)params->vertexAx / 16.0, (float)params->vertexAy / 16.0,
-                                                                         (float)params->vertexBx / 16.0, (float)params->vertexBy / 16.0,
-                                                                         (float)params->vertexCx / 16.0, (float)params->vertexCy / 16.0,
-                                                                         (params->fbzColorPath & FBZCP_TEXTURE_ENABLED) ? params->tformat[0] : 0,
-                                                                         (params->fbzColorPath & FBZCP_TEXTURE_ENABLED) ? params->tformat[1] : 0, params->fbzColorPath, params->alphaMode, params->textureMode[0],params->textureMode[1], params->tex_entry[0],params->tex_entry[1], params->fogMode);*/
+#if 0
+voodoo_render_log("voodoo_triangle %i %i %i : vA %f, %f  vB %f, %f  vC %f, %f f %i,%i %08x %08x %08x,%08x tex=%i,%i fogMode=%08x\n",
+                  odd_even, voodoo->params_read_idx[odd_even], voodoo->params_read_idx[odd_even] & PARAM_MASK, (float)params->vertexAx / 16.0, (float)params->vertexAy / 16.0,
+                  (float)params->vertexBx / 16.0, (float)params->vertexBy / 16.0,
+                  (float)params->vertexCx / 16.0, (float)params->vertexCy / 16.0,
+                  (params->fbzColorPath & FBZCP_TEXTURE_ENABLED) ? params->tformat[0] : 0,
+                  (params->fbzColorPath & FBZCP_TEXTURE_ENABLED) ? params->tformat[1] : 0, params->fbzColorPath, params->alphaMode, params->textureMode[0],params->textureMode[1], params->tex_entry[0],params->tex_entry[1], params->fogMode);
+#endif
 
     state.base_r        = params->startR;
     state.base_g        = params->startG;

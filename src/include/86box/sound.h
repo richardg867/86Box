@@ -12,9 +12,11 @@
  *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
+ *          Jasmine Iwanek, <jriwanek@gmail.com>
  *
  *          Copyright 2008-2018 Sarah Walker.
- *          Copyright 2016-2018 Miran Grca.
+ *          Copyright 2016-2025 Miran Grca.
+ *          Copyright 2024-2025 Jasmine Iwanek.
  */
 
 #ifndef EMU_SOUND_H
@@ -151,6 +153,12 @@ extern const device_t cmi8738_device;
 extern const device_t cmi8738_onboard_device;
 extern const device_t cmi8738_6ch_onboard_device;
 
+/* Covox ISA */
+extern const device_t voicemasterkey_device;
+extern const device_t soundmasterplus_device;
+extern const device_t isadacr0_device;
+extern const device_t isadacr1_device;
+
 /* Creative Labs Game Blaster */
 extern const device_t cms_device;
 
@@ -189,7 +197,9 @@ extern const device_t sb_awe64_gold_device;
 /* Crystal CS423x */
 extern const device_t cs4235_device;
 extern const device_t cs4235_onboard_device;
+extern const device_t cs4236_onboard_device;
 extern const device_t cs4236b_device;
+extern const device_t cs4236b_onboard_device;
 extern const device_t cs4237b_device;
 extern const device_t cs4238b_device;
 
@@ -212,8 +222,11 @@ extern const device_t es1373_onboard_device;
 extern const device_t ct5880_device;
 extern const device_t ct5880_onboard_device;
 
-/* Gravis UltraSound and UltraSound Max */
+/* Gravis UltraSound family */
 extern const device_t gus_device;
+extern const device_t gus_v37_device;
+extern const device_t gus_max_device;
+extern const device_t gus_ace_device;
 
 /* IBM PS/1 Audio Card */
 extern const device_t ps1snd_device;
@@ -222,10 +235,16 @@ extern const device_t ps1snd_device;
 extern const device_t ssi2001_device;
 extern const device_t entertainer_device;
 
+/* Mindscape Music Board */
+extern const device_t mmb_device;
+
 /* Pro Audio Spectrum Plus, 16, and 16D */
 extern const device_t pasplus_device;
 extern const device_t pas16_device;
 extern const device_t pas16d_device;
+
+/* Rainbow Arts PC-Soundman */
+extern const device_t soundman_device;
 
 /* Tandy PSSJ */
 extern const device_t pssj_device;
@@ -237,6 +256,12 @@ extern const device_t tndy_device;
 /* Windows Sound System */
 extern const device_t wss_device;
 extern const device_t ncr_business_audio_device;
+
+/* Yamaha YMF-7xx */
+extern const device_t ymf701_device;
+extern const device_t ymf715_onboard_device;
+extern const device_t ymf718_device;
+extern const device_t ymf719_device;
 
 #ifdef USE_LIBSERIALPORT
 /* External Audio device OPL2Board (Host Connected hardware)*/

@@ -13,8 +13,6 @@
  *          8MB of DRAM chips', because it works fine with bus-based
  *          memory expansion.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *
  *          Copyright 2020 Sarah Walker.
@@ -840,7 +838,7 @@ recalc_sltptr(scamp_t *dev)
             recalc_ems(dev);
         }
     } else {
-        for (uint8_t i = 0; i < (sltptr / EMS_PGSIZE); i++)
+        for (uint32_t i = 0; i < (sltptr / EMS_PGSIZE); i++)
             scamp_mem_update_state(dev, i * EMS_PGSIZE, EMS_PGSIZE, 0x00, MEM_FMASK_SLOTBUS);
 
         for (uint8_t i = (sltptr / EMS_PGSIZE); i < 40; i++)
@@ -1046,8 +1044,7 @@ static void *
 scamp_init(UNUSED(const device_t *info))
 {
     uint32_t addr;
-    scamp_t *dev = (scamp_t *) malloc(sizeof(scamp_t));
-    memset(dev, 0x00, sizeof(scamp_t));
+    scamp_t *dev = (scamp_t *) calloc(1, sizeof(scamp_t));
 
     dev->cfg_regs[CFG_ID] = ID_VL82C311;
     dev->cfg_enable       = 1;
@@ -1178,7 +1175,7 @@ scamp_init(UNUSED(const device_t *info))
             dev->mem_flags[i] = MEM_FLAG_READ | MEM_FLAG_WRITE;
             scamp_mem_update_state(dev, i * EMS_PGSIZE, EMS_PGSIZE, 0x00, MEM_FMASK_RW);
 
-            if (i >= 60)
+            if (i >= 56)
                 scamp_mem_update_state(dev, i * EMS_PGSIZE, EMS_PGSIZE, MEM_FLAG_ROMCS, MEM_FMASK_ROMCS);
         }
     }
@@ -1204,7 +1201,7 @@ const device_t vlsi_scamp_device = {
     .init          = scamp_init,
     .close         = scamp_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

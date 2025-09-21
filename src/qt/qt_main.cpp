@@ -31,6 +31,8 @@
 #include <QDialog>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QFile>
+#include <QTextStream>
 
 #ifdef QT_STATIC
 /* Static builds need plugin imports */
@@ -40,15 +42,6 @@ Q_IMPORT_PLUGIN(QICOPlugin)
 Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin)
 Q_IMPORT_PLUGIN(QWindowsVistaStylePlugin)
 #    endif
-#endif
-
-#ifdef Q_OS_WINDOWS
-#    include "qt_rendererstack.hpp"
-#    include "qt_winrawinputfilter.hpp"
-#    include "qt_winmanagerfilter.hpp"
-#    include <86box/win.h>
-#    include <shobjidl.h>
-#    include <windows.h>
 #endif
 
 extern "C" {
@@ -62,7 +55,22 @@ extern "C" {
 #endif
 #include <86box/gdbstub.h>
 #include <86box/version.h>
+#include <86box/renderdefs.h>
+#ifdef Q_OS_LINUX
+#define GAMEMODE_AUTO
+#include "../unix/gamemode/gamemode_client.h"
+#endif
 }
+
+#ifdef Q_OS_WINDOWS
+#    include "qt_rendererstack.hpp"
+#    include "qt_winrawinputfilter.hpp"
+#    include "qt_winmanagerfilter.hpp"
+#    include "qt_vmmanager_windarkmodefilter.hpp"
+#    include <86box/win.h>
+#    include <shobjidl.h>
+#    include <windows.h>
+#endif
 
 #include <thread>
 #include <iostream>
@@ -75,6 +83,8 @@ extern "C" {
 #include "qt_styleoverride.hpp"
 #include "qt_unixmanagerfilter.hpp"
 #include "qt_util.hpp"
+#include "qt_vmmanager_clientsocket.hpp"
+#include "qt_vmmanager_mainwindow.hpp"
 
 // Void Cast
 #define VC(x) const_cast<wchar_t *>(x)
@@ -84,14 +94,21 @@ extern MainWindow   *main_window;
 
 extern "C" {
 #include <86box/keyboard.h>
+#include "cpu.h"
 #include <86box/timer.h>
 #include <86box/nvr.h>
 extern int qt_nvr_save(void);
+
+bool cpu_thread_running = false;
 }
+
+#include <locale.h>
 
 void qt_set_sequence_auto_mnemonic(bool b);
 
 #ifdef Q_OS_WINDOWS
+bool acp_utf8 = false;
+
 static void
 keyboard_getkeymap()
 {
@@ -187,8 +204,6 @@ win_keyboard_handle(uint32_t scancode, int up, int e0, int e1)
            it's not an invalid scan code. */
         if (scancode != 0xFFFF)
             keyboard_input(!up, scancode);
-
-        main_window->checkFullscreenHotkey();
     }
 }
 
@@ -209,8 +224,144 @@ emu_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
                          (GetForegroundWindow() == ((HWND) secondaryRenderer->winId())));
     }
 
-    if ((nCode < 0) || (nCode != HC_ACTION) || !is_over_window)
+    bool skip = ((nCode < 0) || (nCode != HC_ACTION) || !is_over_window || (kbd_req_capture && !mouse_capture));
+
+    if (skip)
         return CallNextHookEx(NULL, nCode, wParam, lParam);
+
+    /* USB keyboards send a scancode of 0x00 for multimedia keys. */
+    if (lpKdhs->scanCode == 0x00) {
+        /* Handle USB keyboard multimedia keys where possible.
+           Only a handful of keys can be handled via Virtual Key
+           detection; rest can't be reliably detected. */
+        DWORD vkCode = lpKdhs->vkCode;
+        bool up = !!(lpKdhs->flags & LLKHF_UP);
+
+        if (inhibit_multimedia_keys
+            && (lpKdhs->vkCode == VK_MEDIA_PLAY_PAUSE
+            || lpKdhs->vkCode == VK_MEDIA_NEXT_TRACK
+            || lpKdhs->vkCode == VK_MEDIA_PREV_TRACK
+            || lpKdhs->vkCode == VK_VOLUME_DOWN
+            || lpKdhs->vkCode == VK_VOLUME_UP
+            || lpKdhs->vkCode == VK_VOLUME_MUTE
+            || lpKdhs->vkCode == VK_MEDIA_STOP
+            || lpKdhs->vkCode == VK_LAUNCH_MEDIA_SELECT
+            || lpKdhs->vkCode == VK_LAUNCH_MAIL
+            || lpKdhs->vkCode == VK_LAUNCH_APP1
+            || lpKdhs->vkCode == VK_LAUNCH_APP2
+            || lpKdhs->vkCode == VK_HELP
+            || lpKdhs->vkCode == VK_BROWSER_BACK
+            || lpKdhs->vkCode == VK_BROWSER_FORWARD
+            || lpKdhs->vkCode == VK_BROWSER_FAVORITES
+            || lpKdhs->vkCode == VK_BROWSER_HOME
+            || lpKdhs->vkCode == VK_BROWSER_REFRESH
+            || lpKdhs->vkCode == VK_BROWSER_SEARCH
+            || lpKdhs->vkCode == VK_BROWSER_STOP))
+            ret = TRUE;
+        else
+            ret = CallNextHookEx(NULL, nCode, wParam, lParam);
+
+        switch (vkCode)
+        {
+            case VK_MEDIA_PLAY_PAUSE:
+            {
+                win_keyboard_handle(0x22, up, 1, 0);
+                break;
+            }
+            case VK_MEDIA_STOP:
+            {
+                win_keyboard_handle(0x24, up, 1, 0);
+                break;
+            }
+            case VK_VOLUME_UP:
+            {
+                win_keyboard_handle(0x30, up, 1, 0);
+                break;
+            }
+            case VK_VOLUME_DOWN:
+            {
+                win_keyboard_handle(0x2E, up, 1, 0);
+                break;
+            }
+            case VK_VOLUME_MUTE:
+            {
+                win_keyboard_handle(0x20, up, 1, 0);
+                break;
+            }
+            case VK_MEDIA_NEXT_TRACK:
+            {
+                win_keyboard_handle(0x19, up, 1, 0);
+                break;
+            }
+            case VK_MEDIA_PREV_TRACK:
+            {
+                win_keyboard_handle(0x10, up, 1, 0);
+                break;
+            }
+            case VK_LAUNCH_MEDIA_SELECT:
+            {
+                win_keyboard_handle(0x6D, up, 1, 0);
+                break;
+            }
+            case VK_LAUNCH_MAIL:
+            {
+                win_keyboard_handle(0x6C, up, 1, 0);
+                break;
+            }
+            case VK_LAUNCH_APP1:
+            {
+                win_keyboard_handle(0x6B, up, 1, 0);
+                break;
+            }
+            case VK_LAUNCH_APP2:
+            {
+                win_keyboard_handle(0x21, up, 1, 0);
+                break;
+            }
+            case VK_BROWSER_BACK:
+            {
+                win_keyboard_handle(0x6A, up, 1, 0);
+                break;
+            }
+            case VK_BROWSER_FORWARD:
+            {
+                win_keyboard_handle(0x69, up, 1, 0);
+                break;
+            }
+            case VK_BROWSER_STOP:
+            {
+                win_keyboard_handle(0x68, up, 1, 0);
+                break;
+            }
+            case VK_BROWSER_HOME:
+            {
+                win_keyboard_handle(0x32, up, 1, 0);
+                break;
+            }
+            case VK_BROWSER_SEARCH:
+            {
+                win_keyboard_handle(0x65, up, 1, 0);
+                break;
+            }
+            case VK_BROWSER_REFRESH:
+            {
+                win_keyboard_handle(0x67, up, 1, 0);
+                break;
+            }
+            case VK_BROWSER_FAVORITES:
+            {
+                win_keyboard_handle(0x66, up, 1, 0);
+                break;
+            }
+            case VK_HELP:
+            {
+                win_keyboard_handle(0x3b, up, 1, 0);
+                break;
+            }
+        }
+
+        return ret;
+    }
     else if ((lpKdhs->scanCode == 0x01) && (lpKdhs->flags & LLKHF_ALTDOWN) &&
         !(lpKdhs->flags & (LLKHF_UP | LLKHF_EXTENDED)))
         ret = TRUE;
@@ -227,9 +378,28 @@ emu_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
     else if ((lpKdhs->scanCode == 0x3e) && (lpKdhs->flags & LLKHF_ALTDOWN) &&
              !(lpKdhs->flags & (LLKHF_UP | LLKHF_EXTENDED)))
         ret = TRUE;
-    else if ((lpKdhs->scanCode == 0x49) && bCtrlDown && !(lpKdhs->flags & LLKHF_UP))
-        ret = TRUE;
     else if ((lpKdhs->scanCode >= 0x5b) && (lpKdhs->scanCode <= 0x5d) && (lpKdhs->flags & LLKHF_EXTENDED))
+        ret = TRUE;
+    else if (inhibit_multimedia_keys
+        && (lpKdhs->vkCode == VK_MEDIA_PLAY_PAUSE
+        || lpKdhs->vkCode == VK_MEDIA_NEXT_TRACK
+        || lpKdhs->vkCode == VK_MEDIA_PREV_TRACK
+        || lpKdhs->vkCode == VK_VOLUME_DOWN
+        || lpKdhs->vkCode == VK_VOLUME_UP
+        || lpKdhs->vkCode == VK_VOLUME_MUTE
+        || lpKdhs->vkCode == VK_MEDIA_STOP
+        || lpKdhs->vkCode == VK_LAUNCH_MEDIA_SELECT
+        || lpKdhs->vkCode == VK_LAUNCH_MAIL
+        || lpKdhs->vkCode == VK_LAUNCH_APP1
+        || lpKdhs->vkCode == VK_LAUNCH_APP2
+        || lpKdhs->vkCode == VK_HELP
+        || lpKdhs->vkCode == VK_BROWSER_BACK
+        || lpKdhs->vkCode == VK_BROWSER_FORWARD
+        || lpKdhs->vkCode == VK_BROWSER_FAVORITES
+        || lpKdhs->vkCode == VK_BROWSER_HOME
+        || lpKdhs->vkCode == VK_BROWSER_REFRESH
+        || lpKdhs->vkCode == VK_BROWSER_SEARCH
+        || lpKdhs->vkCode == VK_BROWSER_STOP))
         ret = TRUE;
     else
         ret = CallNextHookEx(NULL, nCode, wParam, lParam);
@@ -241,7 +411,7 @@ emu_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
         } else if (!(lpKdhs->flags & LLKHF_EXTENDED) && (lpKdhs->vkCode == 0x00000013)) {
             /* Pause - send E1 1D. */
             win_keyboard_handle(0xe1, 0, 0, 0);
-            win_keyboard_handle(0x1d, LLKHF_UP, 0, 0);
+            win_keyboard_handle(0x1d, lpKdhs->flags & LLKHF_UP, 0, 0);
         }
     } else if (!last && (lpKdhs->scanCode == 0x00000036))
         /* Non-fake right shift. */
@@ -252,7 +422,11 @@ emu_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
     else if (last && (lpKdhs->scanCode == 0x00000036))
         last = 0;
 
-    win_keyboard_handle(lpKdhs->scanCode, lpKdhs->flags & LLKHF_UP, lpKdhs->flags & LLKHF_EXTENDED, 0);
+    if ((lpKdhs->scanCode == 0xf1) || (lpKdhs->scanCode == 0xf2))
+        /* Hanja and Han/Eng keys, suppress the extended flag. */
+        win_keyboard_handle(lpKdhs->scanCode, lpKdhs->flags & LLKHF_UP, 0, 0);
+    else
+        win_keyboard_handle(lpKdhs->scanCode, lpKdhs->flags & LLKHF_UP, lpKdhs->flags & LLKHF_EXTENDED, 0);
 
     return ret;
 }
@@ -273,19 +447,20 @@ main_thread_fn()
     // title_update = 1;
     uint64_t old_time = elapsed_timer.elapsed();
     int drawits = frames = 0;
+    is_cpu_thread = 1;
     while (!is_quit && cpu_thread_run) {
         /* See if it is time to run a frame of code. */
         const uint64_t new_time = elapsed_timer.elapsed();
 #ifdef USE_GDBSTUB
         if (gdbstub_next_asap && (drawits <= 0))
-            drawits = 10;
+            drawits = force_10ms ? 10 : 1;
         else
 #endif
             drawits += static_cast<int>(new_time - old_time);
         old_time = new_time;
         if (drawits > 0 && !dopause) {
             /* Yes, so do one frame now. */
-            drawits -= 10;
+            drawits -= force_10ms ? 10 : 1;
             if (drawits > 50)
                 drawits = 0;
 
@@ -304,8 +479,8 @@ main_thread_fn()
                     break;
             }
 #endif
-            /* Every 200 frames we save the machine status. */
-            if (++frames >= 200 && nvr_dosave) {
+            /* Every 2 emulated seconds we save the machine status. */
+            if (++frames >= (force_10ms ? 200 : 2000) && nvr_dosave) {
                 qt_nvr_save();
                 nvr_dosave = 0;
                 frames     = 0;
@@ -327,6 +502,7 @@ main_thread_fn()
         }
     }
 
+    cpu_thread_running = false;
     is_quit = 1;
     for (uint8_t i = 1; i < GFXCARD_MAX; i ++) {
         if (gfxcard[i]) {
@@ -339,9 +515,23 @@ main_thread_fn()
 
 static std::thread *main_thread;
 
+QTimer discordupdate;
+
+#ifdef Q_OS_WINDOWS
+WindowsDarkModeFilter* vmm_dark_mode_filter = nullptr;
+#endif
+
 int
 main(int argc, char *argv[])
 {
+#ifdef Q_OS_WINDOWS
+    bool wasDarkTheme = false;
+    /* Check if Windows supports UTF-8 */
+    if (GetACP() == CP_UTF8)
+	    acp_utf8 = 1;
+    else
+	    acp_utf8 = 0;
+#endif
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     QApplication::setAttribute(Qt::AA_DisableHighDpiScaling, false);
     QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
@@ -350,17 +540,42 @@ main(int argc, char *argv[])
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
     QApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
 #endif
+    QApplication::setAttribute(Qt::AA_UseDesktopOpenGL);
 
     QApplication app(argc, argv);
     QLocale::setDefault(QLocale::C);
+    setlocale(LC_NUMERIC, "C");
 
-    qt_set_sequence_auto_mnemonic(false);
+#ifdef Q_OS_WINDOWS
+    Q_INIT_RESOURCE(darkstyle);
+    if (QFile(QApplication::applicationDirPath() + "/opengl32.dll").exists()) {
+        qputenv("QT_OPENGL_DLL", QFileInfo(QApplication::applicationDirPath() + "/opengl32.dll").absoluteFilePath().toUtf8());
+    }
+    QApplication::setAttribute(Qt::AA_NativeWindows);
+
+    if (!util::isWindowsLightTheme()) {
+        QFile f(":qdarkstyle/dark/darkstyle.qss");
+
+        if (!f.exists())   {
+            printf("Unable to set stylesheet, file not found\n");
+        } else   {
+            f.open(QFile::ReadOnly | QFile::Text);
+            QTextStream ts(&f);
+            qApp->setStyleSheet(ts.readAll());
+            wasDarkTheme = true;
+        }
+        QPalette palette(qApp->palette());
+        palette.setColor(QPalette::Link, Qt::white);
+        palette.setColor(QPalette::LinkVisited, Qt::lightGray);
+        qApp->setPalette(palette);
+    }
+#endif
+
     Q_INIT_RESOURCE(qt_resources);
     Q_INIT_RESOURCE(qt_translations);
     QSurfaceFormat fmt = QSurfaceFormat::defaultFormat();
     fmt.setSwapInterval(0);
     QSurfaceFormat::setDefaultFormat(fmt);
-    app.setStyle(new StyleOverride());
 
 #ifdef __APPLE__
     CocoaEventFilter cocoafilter;
@@ -378,6 +593,24 @@ main(int argc, char *argv[])
     if (!pc_init(argc, argv)) {
         return 0;
     }
+
+#ifdef Q_OS_WINDOWS
+    if (util::isWindowsLightTheme() && wasDarkTheme) {
+        qApp->setStyleSheet("");
+        QPalette palette(qApp->palette());
+        palette.setColor(QPalette::Link, Qt::blue);
+        palette.setColor(QPalette::LinkVisited, Qt::magenta);
+        qApp->setPalette(palette);
+    }
+#endif
+
+    if (!start_vmm)
+#ifdef Q_OS_MACOS
+        qt_set_sequence_auto_mnemonic(false);
+#else
+        qt_set_sequence_auto_mnemonic(!!kbd_req_capture);
+#endif
+    app.setStyle(new StyleOverride());
 
     bool startMaximized = window_remember && monitor_settings[0].mon_window_maximized;
     fprintf(stderr, "Qt: version %s, platform \"%s\"\n", qVersion(), QApplication::platformName().toUtf8().data());
@@ -403,7 +636,7 @@ main(int argc, char *argv[])
 #    endif
 #endif
 
-    if (!pc_init_modules()) {
+    if (!pc_init_roms()) {
         QMessageBox fatalbox(QMessageBox::Icon::Critical, QObject::tr("No ROMs found"),
                              QObject::tr("86Box could not find any usable ROM images.\n\nPlease <a href=\"https://github.com/86Box/roms/releases/latest\">download</a> a ROM set and extract it into the \"roms\" directory."),
                              QMessageBox::Ok);
@@ -411,6 +644,36 @@ main(int argc, char *argv[])
         fatalbox.exec();
         return 6;
     }
+
+    if (start_vmm) {
+        // VMManagerMain vmm;
+        // // Hackish until there is a proper solution
+        // QApplication::setApplicationName("86Box VM Manager");
+        // QApplication::setApplicationDisplayName("86Box VM Manager");
+        // vmm.show();
+        // vmm.exec();
+#ifdef Q_OS_WINDOWS
+        auto darkModeFilter = std::unique_ptr<WindowsDarkModeFilter>(new WindowsDarkModeFilter());
+        if (darkModeFilter) {
+            qApp->installNativeEventFilter(darkModeFilter.get());
+        }
+        QTimer::singleShot(0, [&darkModeFilter] {
+#else
+        QTimer::singleShot(0, [] {
+#endif
+            const auto vmm_main_window = new VMManagerMainWindow();
+#ifdef Q_OS_WINDOWS
+            darkModeFilter.get()->setWindow(vmm_main_window);
+            // HACK
+            vmm_dark_mode_filter = darkModeFilter.get();
+#endif
+            vmm_main_window->show();
+        });
+        QApplication::exec();
+        return 0;
+    }
+
+    pc_init_modules();
 
     // UUID / copy / move detection
     if(!util::compareUuid()) {
@@ -454,6 +717,11 @@ main(int argc, char *argv[])
 #endif
 
     if (settings_only) {
+        VMManagerClientSocket manager_socket;
+        if (qgetenv("VMM_86BOX_SOCKET").size()) {
+            manager_socket.IPCConnect(qgetenv("VMM_86BOX_SOCKET"));
+            manager_socket.clientRunningStateChanged(VMManagerProtocol::RunningState::PausedWaiting);
+        }
         Settings settings;
         if (settings.exec() == QDialog::Accepted) {
             settings.save();
@@ -484,6 +752,16 @@ main(int argc, char *argv[])
     } else {
         main_window->show();
     }
+#ifdef WAYLAND
+    if (QApplication::platformName().contains("wayland")) {
+        /* Force a sync. */
+        (void)main_window->winId();
+        QApplication::sync();
+        extern void wl_keyboard_grab(QWindow *window);
+        wl_keyboard_grab(main_window->windowHandle());
+    }
+#endif
+    
 
     app.installEventFilter(main_window);
 
@@ -524,7 +802,7 @@ main(int argc, char *argv[])
 
     /* Force raw input if a debugger is present. */
     if (IsDebuggerPresent()) {
-        pclog("WARNING: Debugged detected, forcing raw input\n");
+        pclog("WARNING: Debugger detected, forcing raw input\n");
         hook_enabled = 0;
     }
 
@@ -560,6 +838,26 @@ main(int argc, char *argv[])
         socket.connectToServer(qgetenv("86BOX_MANAGER_SOCKET"));
     }
 
+    VMManagerClientSocket manager_socket;
+    if (qgetenv("VMM_86BOX_SOCKET").size()) {
+        manager_socket.IPCConnect(qgetenv("VMM_86BOX_SOCKET"));
+        QObject::connect(&manager_socket, &VMManagerClientSocket::pause, main_window, &MainWindow::togglePause);
+        QObject::connect(&manager_socket, &VMManagerClientSocket::resetVM, main_window, &MainWindow::hardReset);
+        QObject::connect(&manager_socket, &VMManagerClientSocket::showsettings, main_window, &MainWindow::showSettings);
+        QObject::connect(&manager_socket, &VMManagerClientSocket::ctrlaltdel, []() { pc_send_cad(); });
+        QObject::connect(&manager_socket, &VMManagerClientSocket::request_shutdown, main_window, &MainWindow::close);
+        QObject::connect(&manager_socket, &VMManagerClientSocket::force_shutdown, []() {
+            do_stop();
+            emit main_window->close();
+        });
+        QObject::connect(main_window, &MainWindow::vmmRunningStateChanged, &manager_socket, &VMManagerClientSocket::clientRunningStateChanged);
+        QObject::connect(main_window, &MainWindow::vmmConfigurationChanged, &manager_socket, &VMManagerClientSocket::configurationChanged);
+        QObject::connect(main_window, &MainWindow::vmmGlobalConfigurationChanged, &manager_socket, &VMManagerClientSocket::globalConfigurationChanged);
+        main_window->installEventFilter(&manager_socket);
+
+        manager_socket.sendWinIdMessage(main_window->winId());
+    }
+
     // pc_reset_hard_init();
 
     QTimer onesec;
@@ -570,7 +868,6 @@ main(int argc, char *argv[])
     onesec.start(1000);
 
 #ifdef DISCORD
-    QTimer discordupdate;
     if (discord_loaded) {
         QTimer::singleShot(1000, &app, [] {
             if (enable_discord) {
@@ -582,22 +879,28 @@ main(int argc, char *argv[])
         QObject::connect(&discordupdate, &QTimer::timeout, &app, [] {
             discord_run_callbacks();
         });
-        discordupdate.start(1000);
+        if (enable_discord)
+            discordupdate.start(1000);
     }
 #endif
 
     /* Initialize the rendering window, or fullscreen. */
     QTimer::singleShot(0, &app, [] {
+#ifdef Q_OS_WINDOWS
+        extern bool NewDarkMode;
+        NewDarkMode = util::isWindowsLightTheme();
+#endif
         pc_reset_hard_init();
 
         /* Set the PAUSE mode depending on the renderer. */
 #ifdef USE_VNC
-        if (vid_api == 5)
+        if (vid_api == RENDERER_VNC)
             plat_pause(1);
         else
 #endif
             plat_pause(0);
 
+        cpu_thread_running = true;
         main_thread = new std::thread(main_thread_fn);
     });
 

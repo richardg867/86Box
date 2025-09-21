@@ -8,15 +8,12 @@
  *
  *          OPTi MediaCHIPS 82C929A (also known as OPTi MAD16 Pro) audio controller emulation.
  *
- *
- *
  * Authors: Cacodemon345
  *          Eluan Costa Miranda <eluancm@gmail.com>
  *
  *          Copyright 2022 Cacodemon345.
  *          Copyright 2020 Eluan Costa Miranda.
  */
-
 #include <math.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -85,7 +82,7 @@ optimc_filter_opl(void *priv, double *out_l, double *out_r)
     if (optimc->cur_wss_enabled) {
         *out_l /= optimc->sb->mixer_sbpro.fm_l;
         *out_r /= optimc->sb->mixer_sbpro.fm_r;
-        ad1848_filter_aux2((void *) &optimc->ad1848, out_l, out_r);
+        ad1848_filter_channel((void *) &optimc->ad1848, AD1848_AUX2, out_l, out_r);
     }
 }
 
@@ -380,6 +377,7 @@ optimc_init(const device_t *info)
     else
         ad1848_init(&optimc->ad1848, AD1848_TYPE_DEFAULT);
 
+    ad1848_set_cd_audio_channel(&optimc->ad1848, (info->local & 0x100) ? AD1848_LINE_IN : AD1848_AUX1);
     ad1848_setirq(&optimc->ad1848, optimc->cur_wss_irq);
     ad1848_setdma(&optimc->ad1848, optimc->cur_wss_dma);
 
@@ -419,8 +417,7 @@ optimc_init(const device_t *info)
         music_add_handler(sb_get_music_buffer_sbpro, optimc->sb);
     sound_set_cd_audio_filter(sbpro_filter_cd_audio, optimc->sb); /* CD audio filter for the default context */
 
-    optimc->mpu = (mpu_t *) malloc(sizeof(mpu_t));
-    memset(optimc->mpu, 0, sizeof(mpu_t));
+    optimc->mpu = (mpu_t *) calloc(1, sizeof(mpu_t));
     mpu401_init(optimc->mpu, optimc->cur_mpu401_addr, optimc->cur_mpu401_irq, M_UART, device_get_config_int("receive_input401"));
 
     if (device_get_config_int("receive_input"))
@@ -457,18 +454,26 @@ mirosound_pcm10_available(void)
 static const device_config_t optimc_config[] = {
   // clang-format off
     {
-        .name = "receive_input",
-        .description = "Receive MIDI input",
-        .type = CONFIG_BINARY,
-        .default_string = "",
-        .default_int = 1
+        .name           = "receive_input",
+        .description    = "Receive MIDI input",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "receive_input401",
-        .description = "Receive MIDI input (MPU-401)",
-        .type = CONFIG_BINARY,
-        .default_string = "",
-        .default_int = 0
+        .name           = "receive_input401",
+        .description    = "Receive MIDI input (MPU-401)",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -477,7 +482,7 @@ static const device_config_t optimc_config[] = {
 const device_t acermagic_s20_device = {
     .name          = "AcerMagic S20",
     .internal_name = "acermagic_s20",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = 0xE3 | OPTIMC_CS4231,
     .init          = optimc_init,
     .close         = optimc_close,
@@ -491,7 +496,7 @@ const device_t acermagic_s20_device = {
 const device_t mirosound_pcm10_device = {
     .name          = "miroSOUND PCM10",
     .internal_name = "mirosound_pcm10",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = 0xE3 | OPTIMC_OPL4,
     .init          = optimc_init,
     .close         = optimc_close,

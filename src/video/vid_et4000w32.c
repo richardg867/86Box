@@ -10,8 +10,6 @@
  *
  * Known bugs: Accelerator doesn't work in planar modes
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *
@@ -238,7 +236,7 @@ et4000w32p_out(uint16_t addr, uint8_t val, void *priv)
                 if (svga->crtcreg < 0xe || svga->crtcreg > 0x10) {
                     if ((svga->crtcreg == 0xc) || (svga->crtcreg == 0xd)) {
                         svga->fullchange = 3;
-                        svga->ma_latch   = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) + ((svga->crtc[8] & 0x60) >> 5);
+                        svga->memaddr_latch   = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) + ((svga->crtc[8] & 0x60) >> 5);
                     } else {
                         svga->fullchange = changeframecount;
                         svga_recalctimings(svga);
@@ -366,7 +364,8 @@ et4000w32p_in(uint16_t addr, void *priv)
             }
             return svga->crtc[svga->crtcreg];
 
-        case 0x3da:
+        case 0x3da: {
+            uint8_t ret = 0xff;
             svga->attrff = 0;
 
             /*Bit 1 of the Input Status Register is required by the OS/2 and NT ET4000W32/I drivers to be set otherwise
@@ -375,7 +374,18 @@ et4000w32p_in(uint16_t addr, void *priv)
                 svga->cgastat &= ~0x32;
             else
                 svga->cgastat ^= 0x32;
-            return svga->cgastat;
+
+            ret = svga->cgastat;
+
+            if ((svga->fcr & 0x08) && svga->dispon)
+                ret |= 0x08;
+
+            if (ret & 0x08)
+                ret &= 0x7f;
+            else
+                ret |= 0x80;
+            return ret;
+        }
 
         case 0x210a:
         case 0x211a:
@@ -430,7 +440,7 @@ et4000w32p_recalctimings(svga_t *svga)
 {
     et4000w32p_t *et4000 = (et4000w32p_t *) svga->priv;
 
-    svga->ma_latch |= (svga->crtc[0x33] & 0x7) << 16;
+    svga->memaddr_latch |= (svga->crtc[0x33] & 0x7) << 16;
 
     svga->hblankstart    = (((svga->crtc[0x3f] & 0x4) >> 2) << 8) + svga->crtc[2];
 
@@ -455,19 +465,19 @@ et4000w32p_recalctimings(svga_t *svga)
 
     svga->clock = (cpuclock * (double) (1ULL << 32)) / svga->getclock((svga->miscout >> 2) & 3, svga->clock_gen);
 
-    if (et4000->type != ET4000W32P_DIAMOND) {
+    if (et4000->type != ET4000W32P_DIAMOND && et4000->type != ET4000W32P_VIDEOMAGIC_REVB && et4000->type != ET4000W32P_CARDEX && et4000->type != ET4000W32P) {
         if ((svga->gdcreg[6] & 1) || (svga->attrregs[0x10] & 1)) {
             if (svga->gdcreg[5] & 0x40) {
                 switch (svga->bpp) {
                     case 8:
-                        svga->clock /= 2;
+                        svga->clock *= 2;
                         break;
                     case 15:
                     case 16:
-                        svga->clock /= 3;
+                        svga->clock *= 3;
                         break;
                     case 24:
-                        svga->clock /= 4;
+                        svga->clock *= 4;
                         break;
 
                     default:
@@ -600,6 +610,9 @@ et4000w32p_recalctimings(svga_t *svga)
             }
         }
     }
+
+    if (svga->render == svga_render_4bpp_highres)
+        svga->render = svga_render_4bpp_tseng_highres;
 }
 
 void
@@ -2639,9 +2652,9 @@ et4000w32p_pci_read(UNUSED(int func), int addr, void *priv)
         case 0x31:
             return 0x00;
         case 0x32:
-            return 0x00;
+            return et4000->pci_regs[0x32];
         case 0x33:
-            return et4000->pci_regs[0x33] & 0xf0;
+            return et4000->pci_regs[0x33];
 
         default:
             break;
@@ -2680,20 +2693,13 @@ et4000w32p_pci_write(UNUSED(int func), int addr, uint8_t val, void *priv)
             break;
 
         case 0x30:
-        case 0x31:
         case 0x32:
         case 0x33:
             et4000->pci_regs[addr] = val;
-            et4000->pci_regs[0x30] = 1;
-            et4000->pci_regs[0x31] = 0;
-            et4000->pci_regs[0x32] = 0;
-            et4000->pci_regs[0x33] &= 0xf0;
             if (et4000->pci_regs[0x30] & 0x01) {
-                uint32_t biosaddr = (et4000->pci_regs[0x33] << 24);
-                if (!biosaddr)
-                    biosaddr = 0xc0000;
-                et4000w32_log("ET4000 bios_rom enabled at %08x\n", biosaddr);
-                mem_mapping_set_addr(&et4000->bios_rom.mapping, biosaddr, 0x8000);
+                uint32_t addr = (et4000->pci_regs[0x32] << 16) | (et4000->pci_regs[0x33] << 24);
+                et4000w32_log("ET4000 bios_rom enabled at %08x\n", addr);
+                mem_mapping_set_addr(&et4000->bios_rom.mapping, addr, 0x8000);
             } else {
                 et4000w32_log("ET4000 bios_rom disabled\n");
                 mem_mapping_disable(&et4000->bios_rom.mapping);
@@ -2830,6 +2836,8 @@ et4000w32p_init(const device_t *info)
             et4000->svga.ramdac    = device_add(&stg_ramdac_device);
             et4000->svga.clock_gen = device_add(&icd2061_device);
             et4000->svga.getclock  = icd2061_getclock;
+            icd2061_set_ref_clock(et4000->svga.ramdac, 14318184.0f);
+            svga_recalctimings(&et4000->svga);
             break;
 
         default:
@@ -2943,39 +2951,33 @@ et4000w32p_force_redraw(void *priv)
 static const device_config_t et4000w32p_config[] = {
   // clang-format off
     {
-        .name = "memory",
-        .description = "Memory size",
-        .type = CONFIG_SELECTION,
-        .default_int = 2,
-        .selection = {
-            {
-                .description = "1 MB",
-                .value = 1
-            },
-            {
-                .description = "2 MB",
-                .value = 2
-            },
-            {
-                .description = ""
-            }
-        }
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 2,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "1 MB", .value = 1 },
+            { .description = "2 MB", .value = 2 },
+            { .description = ""                 }
+        },
+        .bios           = { { 0 } }
     },
-    {
-        .type = CONFIG_END
-    }
+    { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
 };
 
 const device_t et4000w32_device = {
     .name          = "Tseng Labs ET4000/w32 ISA",
     .internal_name = "et4000w32",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = ET4000W32,
     .init          = et4000w32p_init,
     .close         = et4000w32p_close,
     .reset         = NULL,
-    { .available = et4000w32_available },
+    .available     = et4000w32_available,
     .speed_changed = et4000w32p_speed_changed,
     .force_redraw  = et4000w32p_force_redraw,
     .config        = NULL
@@ -2984,12 +2986,12 @@ const device_t et4000w32_device = {
 const device_t et4000w32_onboard_device = {
     .name          = "Tseng Labs ET4000/w32 (ISA) (On-Board)",
     .internal_name = "et4000w32_onboard",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = ET4000W32,
     .init          = et4000w32p_init,
     .close         = et4000w32p_close,
     .reset         = NULL,
-    { .available = et4000w32_available },
+    .available     = et4000w32_available,
     .speed_changed = et4000w32p_speed_changed,
     .force_redraw  = et4000w32p_force_redraw,
     .config        = NULL
@@ -2998,12 +3000,12 @@ const device_t et4000w32_onboard_device = {
 const device_t et4000w32i_isa_device = {
     .name          = "Tseng Labs ET4000/w32i Rev. B ISA",
     .internal_name = "et4000w32i",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = ET4000W32I,
     .init          = et4000w32p_init,
     .close         = et4000w32p_close,
     .reset         = NULL,
-    { .available = et4000w32i_isa_available },
+    .available     = et4000w32i_isa_available,
     .speed_changed = et4000w32p_speed_changed,
     .force_redraw  = et4000w32p_force_redraw,
     .config        = NULL
@@ -3017,7 +3019,7 @@ const device_t et4000w32i_vlb_device = {
     .init          = et4000w32p_init,
     .close         = et4000w32p_close,
     .reset         = NULL,
-    { .available = et4000w32i_vlb_available },
+    .available     = et4000w32i_vlb_available,
     .speed_changed = et4000w32p_speed_changed,
     .force_redraw  = et4000w32p_force_redraw,
     .config        = et4000w32p_config
@@ -3031,7 +3033,7 @@ const device_t et4000w32p_videomagic_revb_vlb_device = {
     .init          = et4000w32p_init,
     .close         = et4000w32p_close,
     .reset         = NULL,
-    { .available = et4000w32p_videomagic_revb_vlb_available },
+    .available     = et4000w32p_videomagic_revb_vlb_available,
     .speed_changed = et4000w32p_speed_changed,
     .force_redraw  = et4000w32p_force_redraw,
     .config        = et4000w32p_config
@@ -3045,7 +3047,7 @@ const device_t et4000w32p_videomagic_revb_pci_device = {
     .init          = et4000w32p_init,
     .close         = et4000w32p_close,
     .reset         = NULL,
-    { .available = et4000w32p_videomagic_revb_vlb_available },
+    .available     = et4000w32p_videomagic_revb_vlb_available,
     .speed_changed = et4000w32p_speed_changed,
     .force_redraw  = et4000w32p_force_redraw,
     .config        = et4000w32p_config
@@ -3059,7 +3061,7 @@ const device_t et4000w32p_revc_vlb_device = {
     .init          = et4000w32p_init,
     .close         = et4000w32p_close,
     .reset         = NULL,
-    { .available = et4000w32p_revc_available },
+    .available     = et4000w32p_revc_available,
     .speed_changed = et4000w32p_speed_changed,
     .force_redraw  = et4000w32p_force_redraw,
     .config        = et4000w32p_config
@@ -3073,7 +3075,7 @@ const device_t et4000w32p_revc_pci_device = {
     .init          = et4000w32p_init,
     .close         = et4000w32p_close,
     .reset         = NULL,
-    { .available = et4000w32p_revc_available },
+    .available     = et4000w32p_revc_available,
     .speed_changed = et4000w32p_speed_changed,
     .force_redraw  = et4000w32p_force_redraw,
     .config        = et4000w32p_config
@@ -3087,7 +3089,7 @@ const device_t et4000w32p_noncardex_vlb_device = {
     .init          = et4000w32p_init,
     .close         = et4000w32p_close,
     .reset         = NULL,
-    { .available = et4000w32p_noncardex_available },
+    .available     = et4000w32p_noncardex_available,
     .speed_changed = et4000w32p_speed_changed,
     .force_redraw  = et4000w32p_force_redraw,
     .config        = et4000w32p_config
@@ -3101,7 +3103,7 @@ const device_t et4000w32p_noncardex_pci_device = {
     .init          = et4000w32p_init,
     .close         = et4000w32p_close,
     .reset         = NULL,
-    { .available = et4000w32p_noncardex_available },
+    .available     = et4000w32p_noncardex_available,
     .speed_changed = et4000w32p_speed_changed,
     .force_redraw  = et4000w32p_force_redraw,
     .config        = et4000w32p_config
@@ -3115,7 +3117,7 @@ const device_t et4000w32p_cardex_vlb_device = {
     .init          = et4000w32p_init,
     .close         = et4000w32p_close,
     .reset         = NULL,
-    { .available = et4000w32p_cardex_available },
+    .available     = et4000w32p_cardex_available,
     .speed_changed = et4000w32p_speed_changed,
     .force_redraw  = et4000w32p_force_redraw,
     .config        = et4000w32p_config
@@ -3129,7 +3131,7 @@ const device_t et4000w32p_cardex_pci_device = {
     .init          = et4000w32p_init,
     .close         = et4000w32p_close,
     .reset         = NULL,
-    { .available = et4000w32p_cardex_available },
+    .available     = et4000w32p_cardex_available,
     .speed_changed = et4000w32p_speed_changed,
     .force_redraw  = et4000w32p_force_redraw,
     .config        = et4000w32p_config
@@ -3143,7 +3145,7 @@ const device_t et4000w32p_vlb_device = {
     .init          = et4000w32p_init,
     .close         = et4000w32p_close,
     .reset         = NULL,
-    { .available = et4000w32p_available },
+    .available     = et4000w32p_available,
     .speed_changed = et4000w32p_speed_changed,
     .force_redraw  = et4000w32p_force_redraw,
     .config        = et4000w32p_config
@@ -3157,7 +3159,7 @@ const device_t et4000w32p_pci_device = {
     .init          = et4000w32p_init,
     .close         = et4000w32p_close,
     .reset         = NULL,
-    { .available = et4000w32p_available },
+    .available     = et4000w32p_available,
     .speed_changed = et4000w32p_speed_changed,
     .force_redraw  = et4000w32p_force_redraw,
     .config        = et4000w32p_config
