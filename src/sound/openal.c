@@ -195,7 +195,7 @@ sound_backend_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t 
     }
 
     /* Checks passed, change the format. */
-    openal_log("OpenAL: Setting source %d to fmt=%d ch=%d freq=%d\n", (int) source->source, (int) format, (int) channels, (int) freq);
+    openal_log("OpenAL: Setting source %d to fmt=%d(%04X) ch=%d freq=%d\n", (int) source->source, (int) format, (int) new_format, (int) channels, (int) freq);
     source->freq = freq;
     source->format = new_format;
 
