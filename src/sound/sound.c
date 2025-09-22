@@ -492,8 +492,16 @@ static inline void
 sound_flush_source(void *priv)
 {
     sound_source_t *source = (sound_source_t *) priv;
-    if (source->buffer && source->pos)
+    if (source->buffer && source->pos) {
         sound_backend_buffer(source->backend_source->priv, source->buffer, MIN(source->pos, source->buf_len));
+#ifdef SOUND_DEBUG
+        static FILE *f = NULL;
+        if (source->priv && (source->freq == 48000)) {
+            if (!f) f = fopen("sampledump.pcm", "wb");
+            fwrite(source->buffer, MIN(source->pos, source->buf_len), 1, f);
+        }
+#endif
+    }
     source->pos = 0;
 }
 
