@@ -6,11 +6,11 @@
  *
  *          This file is part of the 86Box distribution.
  *
- *          C-Media CMI8x38 PCI audio controller emulation.
+ *          C-Media CMI8338/CMI8738 PCI audio controller emulation.
  *
  * Authors: RichardG, <richardg867@gmail.com>
  *
- *          Copyright 2022 RichardG.
+ *          Copyright 2022-2025 RichardG.
  */
 #include <stdarg.h>
 #include <stdio.h>
@@ -138,7 +138,7 @@ static void
 cmi8x38_update_irqs(cmi8x38_t *dev)
 {
     /* Calculate and use the INTR flag. */
-    if (*((uint32_t *) &dev->io_regs[0x10]) & 0x0401c003) {
+    if (AS_U32(dev->io_regs[0x10]) & 0x0401c003) {
         dev->io_regs[0x13] |= 0x80;
         pci_set_irq(dev->pci_slot, PCI_INTA, &dev->irq_state);
         cmi8x38_log("CMI8x38: Raising IRQ\n");
@@ -402,11 +402,10 @@ cmi8338_io_trap(UNUSED(int size), uint16_t addr, uint8_t write, uint8_t val, voi
 #endif
 
     /* Weird offsets, it's best to just treat the register as a big dword. */
-    uint32_t *lcs = (uint32_t *) &dev->io_regs[0x14];
-    *lcs &= ~0x0003dff0;
-    *lcs |= (addr & 0x0f) << 14;
+    uint32_t lcs = (AS_U32(dev->io_regs[0x14]) & ~0x0003dff0) | ((addr & 0x0f) << 14);
     if (write)
-        *lcs |= 0x1000 | (val << 4);
+        lcs |= 0x1000 | (val << 4);
+    AS_U32(dev->io_regs[0x14]) = lcs;
 
     /* Raise NMI. */
     nmi = 1;
@@ -900,19 +899,19 @@ cmi8x38_write(uint16_t addr, uint8_t val, void *priv)
         case 0x80 ... 0x83:
         case 0x88 ... 0x8b:
             dev->io_regs[addr]                      = val;
-            dev->dma[(addr & 0x78) >> 3].sample_ptr = *((uint32_t *) &dev->io_regs[addr & 0xfc]);
+            dev->dma[(addr & 0x78) >> 3].sample_ptr = AS_U32(dev->io_regs[addr & 0xfc]);
             return;
 
         case 0x84 ... 0x85:
         case 0x8c ... 0x8d:
             dev->io_regs[addr]                           = val;
-            dev->dma[(addr & 0x78) >> 3].frame_count_dma = dev->dma[(addr & 0x78) >> 3].sample_count_out = *((uint16_t *) &dev->io_regs[addr & 0xfe]) + 1;
+            dev->dma[(addr & 0x78) >> 3].frame_count_dma = dev->dma[(addr & 0x78) >> 3].sample_count_out = AS_U16(dev->io_regs[addr & 0xfe]) + 1;
             return;
 
         case 0x86 ... 0x87:
         case 0x8e ... 0x8f:
             dev->io_regs[addr]                                = val;
-            dev->dma[(addr & 0x78) >> 3].frame_count_fragment = *((uint16_t *) &dev->io_regs[addr & 0xfe]) + 1;
+            dev->dma[(addr & 0x78) >> 3].frame_count_fragment = AS_U16(dev->io_regs[addr & 0xfe]) + 1;
             return;
 
         case 0x92:
@@ -1049,19 +1048,19 @@ cmi8x38_dma_process(void *priv)
             /* Set up base address and counters.
                Nothing reads sample_count_out; it's implemented as an assumption. */
             dma->restart         = 0;
-            dma->sample_ptr      = *((uint32_t *) &dev->io_regs[dma->reg]);
-            dma->frame_count_dma = dma->sample_count_out = *((uint16_t *) &dev->io_regs[dma->reg | 0x4]) + 1;
-            dma->frame_count_fragment                    = *((uint16_t *) &dev->io_regs[dma->reg | 0x6]) + 1;
+            dma->sample_ptr      = AS_U32(dev->io_regs[dma->reg]);
+            dma->frame_count_dma = dma->sample_count_out = AS_U16(dev->io_regs[dma->reg | 0x4]) + 1;
+            dma->frame_count_fragment                    = AS_U16(dev->io_regs[dma->reg | 0x6]) + 1;
 
             cmi8x38_log("CMI8x38: Starting DMA %d at %08X (count %04X fragment %04X)\n", dma->id, dma->sample_ptr, dma->frame_count_dma, dma->frame_count_fragment);
         }
 
         if (dma_status & 0x01) {
             /* Write channel: read data from FIFO. */
-            mem_writel_phys(dma->sample_ptr, *((uint32_t *) &dma->fifo[dma->fifo_end & (sizeof(dma->fifo) - 1)]));
+            mem_writel_phys(dma->sample_ptr, AS_U32(dma->fifo[dma->fifo_end & (sizeof(dma->fifo) - 1)]));
         } else {
             /* Read channel: write data to FIFO. */
-            *((uint32_t *) &dma->fifo[dma->fifo_end & (sizeof(dma->fifo) - 1)]) = mem_readl_phys(dma->sample_ptr);
+            AS_U32(dma->fifo[dma->fifo_end & (sizeof(dma->fifo) - 1)]) = mem_readl_phys(dma->sample_ptr);
         }
         dma->fifo_end += 4;
         dma->sample_ptr += 4;
@@ -1069,7 +1068,7 @@ cmi8x38_dma_process(void *priv)
         /* Check if the fragment size was reached. */
         if (--dma->frame_count_fragment <= 0) {
             /* Reset fragment counter. */
-            dma->frame_count_fragment = *((uint16_t *) &dev->io_regs[dma->reg | 0x6]) + 1;
+            dma->frame_count_fragment = AS_U16(dev->io_regs[dma->reg | 0x6]) + 1;
 #ifdef ENABLE_CMI8X38_LOG
             if (dma->frame_count_fragment > 1) /* avoid log spam if fragment counting is unused, like on the newer WDM drivers (cmudax3) */
                 cmi8x38_log("CMI8x38: DMA %d fragment size reached at %04X frames left", dma->id, dma->frame_count_dma - 1);
@@ -1110,7 +1109,7 @@ cmi8x38_poll(sound_buffer_t buffer, void *priv)
     cmi8x38_dma_t *dma = (cmi8x38_dma_t *) priv;
     cmi8x38_t     *dev = dma->dev;
 
-    /* Swap stereo pair if this is the rear DMA channel according to ENDBDAC and XCHGDAC. */
+    /* Swap stereo pairs if this is the rear DMA according to ENDBDAC and XCHGDAC. */
     uint8_t swap = ((dev->io_regs[0x1a] & 0x80) && (!!(dev->io_regs[0x1a] & 0x40) ^ dma->id)) << 1;
 
     /* Feed next sample from the FIFO. */
@@ -1154,7 +1153,6 @@ cmi8x38_poll(sound_buffer_t buffer, void *priv)
             switch (dma->channels) {
                 case 2:
                     if ((dma->fifo_end - dma->fifo_pos) >= 4) {
-                        pclog("were sampling\n");
                         buffer.s16[swap | 0] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
                         buffer.s16[swap | 1] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
@@ -1163,7 +1161,6 @@ cmi8x38_poll(sound_buffer_t buffer, void *priv)
                         if (dev->io_regs[0x1b] & 0x04) /* N4SPK3D copy to rear */
                             AS_U32(buffer.s16[swap ^ 2]) = AS_U32(buffer.s16[swap]);
                     } else {
-                        pclog("not sampling\n");
                         buffer.s64[0] = 0;
                     }
                     break;
@@ -1205,7 +1202,6 @@ cmi8x38_poll(sound_buffer_t buffer, void *priv)
 
                 case 6:
                     if ((dma->fifo_end - dma->fifo_pos) >= 12) {
-                        pclog("6c sampling\n");
                         buffer.s16[0] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
                         buffer.s16[1] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
@@ -1220,7 +1216,6 @@ cmi8x38_poll(sound_buffer_t buffer, void *priv)
                         dma->fifo_pos += 2;
                         dma->sample_count_out -= 12;
                     } else {
-                        pclog("6c not sampling\n");
                         buffer.s64[0] = 0;
                         buffer.s32[2] = 0;
                     }
@@ -1236,7 +1231,7 @@ cmi8x38_poll(sound_buffer_t buffer, void *priv)
     }
 
     /* Stop playback if DMA is disabled. */
-    if ((*((uint32_t *) &dev->io_regs[0x00]) & (0x00010001 << dma->id)) != (0x00010000 << dma->id)) {
+    if ((AS_U32(dev->io_regs[0x00]) & (0x00010001 << dma->id)) != (0x00010000 << dma->id)) {
         cmi8x38_log("CMI8x38: Stopping playback of DMA channel %d\n", dma->id);
         return 0;
     }
@@ -1256,7 +1251,7 @@ cmi8x38_speed_changed(void *priv)
 
 #ifdef ENABLE_CMI8X38_LOG
     char buf[256];
-    sprintf(buf, "%02X-%02X-%02X-%02X", dsr, freqreg, chfmt45, chfmt6);
+    int pos = snprintf(buf, sizeof(buf) - 1, "%02X-%02X-%02X-%02X", dsr, freqreg, chfmt45, chfmt6);
 #endif
 
     /* CMI8338 claims the frequency controls are for DAC (playback) and ADC (recording)
@@ -1302,7 +1297,10 @@ stereo:
             if (!(cfr & 0x02))
                 format = SOUND_U8;
             dev->dma[i].channels = (cfr & 0x01) ? 2 : 1;
-            source_channels = (dev->io_regs[0x1a] & 0x80) ? 4 : 2; /* ENDBDAC - each DMA feeds its own channel pair */
+            /* ENDBDAC leverages both DACs for 4-channel output. We implement this by setting
+               both sources to 4 channels, then each DMA only feeds samples into its respective
+               channel pair, optionally copying them to the other pair if N4SPK3D is enabled. */
+            source_channels = (dev->io_regs[0x1a] & 0x80) ? 4 : 2;
         }
         dev->dma[i].dma_latch = (1000000.0 / freq) / dev->dma[i].channels; /* frequency / approximately(dwords * 2) */
 
@@ -1311,7 +1309,7 @@ stereo:
 
         /* Shift configuration registers. */
 #ifdef ENABLE_CMI8X38_LOG
-        sprintf(&buf[strlen(buf)], " %d:%X-%X-%d-%dC", i, dsr & 0x03, freqreg & 0x07, freq, channels);
+        pos += snprintf(&buf[pos], sizeof(buf) - pos - 1, " %d:%X-%X-%d-%dC", i, dsr & 0x03, freqreg & 0x07, freq, dev->dma[i].channels);
 #endif
         cfr >>= 2;
         dsr >>= 2;
@@ -1415,7 +1413,7 @@ cmi8x38_init(const device_t *info)
         dev->dma[i].reg = 0x80 + (8 * i);
         dev->dma[i].dev = dev;
 
-        snprintf(dev->dma[i].source_name, sizeof(dev->dma[i].source_name), "CMI8x38 DMA %d", i);
+        snprintf(dev->dma[i].source_name, sizeof(dev->dma[i].source_name), "CMI8%c38 DMA %d", (dev->type == CMEDIA_CMI8338) ? '3' : '7', i);
         dev->dma[i].source = sound_add_source(cmi8x38_poll, &dev->dma[i], dev->dma[i].source_name);
 
         timer_add(&dev->dma[i].dma_timer, cmi8x38_dma_process, &dev->dma[i], 0);
