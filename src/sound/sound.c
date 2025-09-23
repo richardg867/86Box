@@ -53,9 +53,13 @@ typedef struct _sound_backend_source_ {
 
     void *priv;
 
+    void     *buffer;
     uint32_t freq;
+    uint32_t buf_len;
+    uint32_t pos;
     uint8_t  format;
     uint8_t  channels;
+    uint8_t  bytes_per_sample;
     uint8_t  active;
 } sound_backend_source_t;
 
@@ -66,13 +70,9 @@ typedef struct _sound_source_ {
     uint8_t (*poll)(sound_buffer_t buffer, void *priv);
     void *priv;
 
-    void     *buffer;
-    uint32_t buf_len;
-    uint32_t pos;
     uint32_t freq;
     uint8_t  format;
     uint8_t  channels;
-    uint8_t  bytes_per_sample;
     uint8_t  active;
     sound_backend_source_t *backend_source;
     pc_timer_t     timer;
@@ -392,8 +392,8 @@ sound_cd_thread(UNUSED(void *param))
                         if (temp_buffer[1] < -32768)
                             temp_buffer[1] = -32768;
 
-                        ((int16_t *) sound_legacy_source->buffer)[c]     = (int16_t) temp_buffer[0];
-                        ((int16_t *) sound_legacy_source->buffer)[c + 1] = (int16_t) temp_buffer[1];
+                        ((int16_t *) sound_legacy_source->backend_source->buffer)[c]     = (int16_t) temp_buffer[0];
+                        ((int16_t *) sound_legacy_source->backend_source->buffer)[c + 1] = (int16_t) temp_buffer[1];
                     }
                 }
             }
@@ -496,17 +496,24 @@ static void
 sound_flush_source(void *priv)
 {
     sound_source_t *source = (sound_source_t *) priv;
-    if (source->buffer && source->pos) {
-        sound_backend_buffer(source->backend_source->priv, source->buffer, MIN(source->pos, source->buf_len));
+    sound_backend_source_t *backend_source = source->backend_source;
+
+    /* Only flush if we have a backend source... */
+    if (!backend_source)
+        return;
+
+    /* ...and if we have something to flush. */
+    if (backend_source->buffer && backend_source->pos) {
+        sound_backend_buffer(backend_source->priv, backend_source->buffer, MIN(backend_source->pos, backend_source->buf_len));
 #ifdef SOUND_DEBUG
         static FILE *f = NULL;
-        if (source->priv && (source->freq == 48000)) {
+        if (backend_source->priv && (backend_source->freq == 48000)) {
             if (!f) f = fopen("sampledump.pcm", "wb");
-            fwrite(source->buffer, MIN(source->pos, source->buf_len), 1, f);
+            fwrite(buf, MIN(backend_source->pos, backend_source->buf_len), 1, f);
         }
 #endif
     }
-    source->pos = 0;
+    backend_source->pos = 0;
 }
 
 static inline void
@@ -519,10 +526,12 @@ sound_recalc_source(sound_source_t *source)
 static uint8_t
 sound_set_backend_source_format(sound_source_t *source, sound_backend_source_t *backend_source)
 {
+    /* Set format on the backend source. */
     uint8_t format = source->format;
     uint8_t channels = source->channels;
     uint32_t freq = source->freq;
     if (sound_backend_set_format(backend_source->priv, &format, &channels, &freq)) {
+        /* Store the effective format provided by the backend source. */
         backend_source->format   = format;
         backend_source->channels = channels;
         backend_source->freq     = freq;
@@ -576,16 +585,16 @@ sound_start_source(void *priv)
     backend_source->active = 1;
 
     /* Grow buffer if required. */
-    source->bytes_per_sample = bytes_per_sample[backend_source->format] * backend_source->channels;
+    backend_source->bytes_per_sample = bytes_per_sample[backend_source->format] * backend_source->channels;
 #define BUFLEN MAX(SOUNDBUFLEN, MAX(MUSICBUFLEN, MAX(CD_BUFLEN, WTBUFLEN)))
-    uint32_t buf_len = (BUFLEN - (BUFLEN % backend_source->channels)) * source->bytes_per_sample; /* avoid going out of bounds with non powers of 2 */
+    uint32_t buf_len = (BUFLEN - (BUFLEN % backend_source->channels)) * backend_source->bytes_per_sample; /* avoid going out of bounds with non powers of 2 */
     buf_len -= buf_len % 4; /* OpenAL requires 4-byte alignment */
-    if (buf_len > source->buf_len) {
-        if (source->buffer)
-            free(source->buffer);
-        source->buffer = calloc(1, buf_len);
+    if (buf_len > backend_source->buf_len) {
+        if (backend_source->buffer)
+            free(backend_source->buffer);
+        backend_source->buffer = calloc(1, buf_len);
     }
-    source->buf_len = buf_len; // TODO: allow to get smaller
+    backend_source->buf_len = buf_len; // TODO: allow to get smaller
 
     /* Start polling timer. */
     timer_set_delay_u64(&source->timer, 0);
@@ -679,10 +688,10 @@ sound_poll_legacy(sound_buffer_t buffer, void *priv)
             if (outbuffer[c] < -32768)
                 outbuffer[c] = -32768;
 
-            ((int16_t *) sound_legacy_source->buffer)[c] = outbuffer[c];
+            ((int16_t *) sound_legacy_source->backend_source->buffer)[c] = outbuffer[c];
         }
 
-        sound_legacy_source->pos = sound_legacy_source->buf_len = SOUNDBUFLEN * sound_legacy_source->bytes_per_sample; /* force flush */
+        sound_legacy_source->backend_source->pos = sound_legacy_source->backend_source->buf_len = SOUNDBUFLEN * sound_legacy_source->backend_source->bytes_per_sample; /* force flush */
 
         if (cd_thread_enable) {
             cd_buf_update--;
@@ -716,10 +725,10 @@ music_poll_legacy(sound_buffer_t buffer, void *priv)
             if (outbuffer_m[c] < -32768)
                 outbuffer_m[c] = -32768;
 
-            ((int16_t *) music_legacy_source->buffer)[c] = outbuffer_m[c];
+            ((int16_t *) music_legacy_source->backend_source->buffer)[c] = outbuffer_m[c];
         }
 
-        music_legacy_source->pos = music_legacy_source->buf_len = MUSICBUFLEN * music_legacy_source->bytes_per_sample; /* force flush */
+        music_legacy_source->backend_source->pos = music_legacy_source->backend_source->buf_len = MUSICBUFLEN * music_legacy_source->backend_source->bytes_per_sample; /* force flush */
 
         music_pos_global = 0;
     }
@@ -745,10 +754,10 @@ wavetable_poll_legacy(sound_buffer_t buffer, void *priv)
             if (outbuffer_w[c] < -32768)
                 outbuffer_w[c] = -32768;
 
-            ((int16_t *) wavetable_legacy_source->buffer)[c] = outbuffer_w[c];
+            ((int16_t *) wavetable_legacy_source->backend_source->buffer)[c] = outbuffer_w[c];
         }
 
-        wavetable_legacy_source->pos = wavetable_legacy_source->buf_len = WTBUFLEN * wavetable_legacy_source->bytes_per_sample; /* force flush */
+        wavetable_legacy_source->backend_source->pos = wavetable_legacy_source->backend_source->buf_len = WTBUFLEN * wavetable_legacy_source->backend_source->bytes_per_sample; /* force flush */
 
         wavetable_pos_global = 0;
     }
@@ -763,7 +772,7 @@ sound_poll(void *priv)
     sound_backend_source_t *backend_source = source->backend_source;
 
     /* Fetch samples and convert them if required. */
-    sound_buffer_t buffer = (sound_buffer_t) &((uint8_t *) source->buffer)[source->pos];
+    sound_buffer_t buffer = (sound_buffer_t) &((uint8_t *) backend_source->buffer)[backend_source->pos];
     uint8_t ret;
     if ((source->format != backend_source->format) || (source->channels != backend_source->channels)) {
         /* Fetch samples into a temporary buffer. */
@@ -840,10 +849,10 @@ sound_poll(void *priv)
         ret = source->poll(buffer, source->priv);
     }
 
-    source->pos += source->bytes_per_sample;
+    backend_source->pos += backend_source->bytes_per_sample;
     if (UNLIKELY(!ret))
         sound_stop_source(source);
-    else if (UNLIKELY(source->pos >= source->buf_len))
+    else if (UNLIKELY(backend_source->pos >= backend_source->buf_len))
         sound_flush_source(source);
 
     /* Don't re-run timer if the source is inactive. */
