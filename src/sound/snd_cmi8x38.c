@@ -842,6 +842,9 @@ cmi8x38_write(uint16_t addr, uint8_t val, void *priv)
             /* Enable or disable the OPL. */
             dev->io_regs[addr] = val;
             cmi8x38_remap_opl(dev);
+
+            /* Update ENDBDAC/XCHGDAC. */
+            cmi8x38_speed_changed(dev);
             break;
 
         case 0x1b:
@@ -849,6 +852,10 @@ cmi8x38_write(uint16_t addr, uint8_t val, void *priv)
                 val &= 0xf4; /* bit 2 reserved, mpxplay driver expects writable */
             else
                 val &= 0xd7;
+
+            /* Update N4SPK3D. */
+            dev->io_regs[addr] = val;
+            cmi8x38_speed_changed(dev);
             break;
 
         case 0x20:
@@ -1108,8 +1115,9 @@ cmi8x38_poll(sound_buffer_t buffer, void *priv)
     cmi8x38_dma_t *dma = (cmi8x38_dma_t *) priv;
     cmi8x38_t     *dev = dma->dev;
 
-    /* Swap stereo pairs if this is the rear DMA according to ENDBDAC and XCHGDAC. */
-    uint8_t swap = ((dev->io_regs[0x1a] & 0x80) && (!!(dev->io_regs[0x1a] & 0x40) ^ dma->id)) << 1;
+    /* Swap stereo pairs if this is the rear DMA.
+       Condition = ENDBDAC && !N4SPK3D && (XCHGDAC ^ id) */
+    uint8_t swap = ((dev->io_regs[0x1a] & 0x80) && !(dev->io_regs[0x1b] & 0x04) && (!!(dev->io_regs[0x1a] & 0x40) ^ dma->id)) << 1;
 
     /* Feed next sample from the FIFO. */
     switch (dma->cfr) {
@@ -1117,8 +1125,6 @@ cmi8x38_poll(sound_buffer_t buffer, void *priv)
             if ((dma->fifo_end - dma->fifo_pos) >= 1) {
                 buffer.u8[swap | 0] = buffer.u8[swap | 1] = dma->fifo[dma->fifo_pos++ & (sizeof(dma->fifo) - 1)];
                 dma->sample_count_out--;
-                if (dev->io_regs[0x1b] & 0x04) /* N4SPK3D copy to rear */
-                    AS_U16(buffer.u8[swap ^ 2]) = AS_U16(buffer.u8[swap]);
             } else {
                 buffer.s32[0] = 0;
             }
@@ -1129,8 +1135,6 @@ cmi8x38_poll(sound_buffer_t buffer, void *priv)
                 buffer.u8[swap | 0] = dma->fifo[dma->fifo_pos++ & (sizeof(dma->fifo) - 1)];
                 buffer.u8[swap | 1] = dma->fifo[dma->fifo_pos++ & (sizeof(dma->fifo) - 1)];
                 dma->sample_count_out -= 2;
-                if (dev->io_regs[0x1b] & 0x04) /* N4SPK3D copy to rear */
-                    AS_U16(buffer.u8[swap ^ 2]) = AS_U16(buffer.u8[swap]);
             } else {
                 buffer.s32[0] = 0;
             }
@@ -1141,8 +1145,6 @@ cmi8x38_poll(sound_buffer_t buffer, void *priv)
                 buffer.s16[swap | 0] = buffer.s16[swap | 1] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                 dma->fifo_pos += 2;
                 dma->sample_count_out -= 2;
-                if (dev->io_regs[0x1b] & 0x04) /* N4SPK3D copy to rear */
-                    AS_U32(buffer.s16[swap ^ 2]) = AS_U32(buffer.s16[swap]);
             } else {
                 buffer.s64[0] = 0;
             }
@@ -1157,8 +1159,6 @@ cmi8x38_poll(sound_buffer_t buffer, void *priv)
                         buffer.s16[swap | 1] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
                         dma->sample_count_out -= 4;
-                        if (dev->io_regs[0x1b] & 0x04) /* N4SPK3D copy to rear */
-                            AS_U32(buffer.s16[swap ^ 2]) = AS_U32(buffer.s16[swap]);
                     } else {
                         buffer.s64[0] = 0;
                     }
@@ -1298,8 +1298,8 @@ stereo:
             dev->dma[i].channels = (cfr & 0x01) ? 2 : 1;
             /* ENDBDAC leverages both DACs for 4-channel output. We implement this by setting
                both sources to 4 channels, then each DMA only feeds samples into its respective
-               channel pair, optionally copying them to the other pair if N4SPK3D is enabled. */
-            source_channels = (dev->io_regs[0x1a] & 0x80) ? 4 : 2;
+               channel pair. N4SPK3D (copy front->rear) however presumably nullifies all this. */
+            source_channels = ((dev->io_regs[0x1a] & 0x80) && !(dev->io_regs[0x1b] & 0x04)) ? 4 : 2;
         }
         dev->dma[i].dma_latch = (1000000.0 / freq) / dev->dma[i].channels; /* frequency / approximately(dwords * 2) */
 
@@ -1308,7 +1308,7 @@ stereo:
 
         /* Shift configuration registers. */
 #ifdef ENABLE_CMI8X38_LOG
-        pos += snprintf(&buf[pos], sizeof(buf) - pos - 1, " %d:%X-%X-%d-%dC", i, dsr & 0x03, freqreg & 0x07, freq, dev->dma[i].channels);
+        pos += snprintf(&buf[pos], sizeof(buf) - pos - 1, " %d:%X-%X-%d-%d(%d)C", i, dsr & 0x03, freqreg & 0x07, freq, dev->dma[i].channels, source_channels);
 #endif
         cfr >>= 2;
         dsr >>= 2;
