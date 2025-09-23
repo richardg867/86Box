@@ -589,6 +589,7 @@ sound_start_source(void *priv)
 #define BUFLEN MAX(SOUNDBUFLEN, MAX(MUSICBUFLEN, MAX(CD_BUFLEN, WTBUFLEN)))
     uint32_t buf_len = (BUFLEN - (BUFLEN % backend_source->channels)) * backend_source->bytes_per_sample; /* avoid going out of bounds with non powers of 2 */
     buf_len -= buf_len % 4; /* OpenAL requires 4-byte alignment */
+    buf_len += 8; /* margin for format conversion operations */
     if (buf_len > backend_source->buf_len) {
         if (backend_source->buffer)
             free(backend_source->buffer);
@@ -784,17 +785,17 @@ sound_poll(void *priv)
         int16_t intermediate[8] = {0};
         switch (source->format) {
             case SOUND_U8:
-                for (int i = 0; i < source->channels; i++)
+                for (int i = 0; i < (sizeof(intermediate) / sizeof(intermediate[0])); i++)
                     intermediate[i] = (temp.u8[i] ^ 0x80) << 8;
                 break;
 
             case SOUND_S16:
-                for (int i = 0; i < source->channels; i++)
+                for (int i = 0; i < (sizeof(intermediate) / sizeof(intermediate[0])); i++)
                     intermediate[i] = temp.s16[i];
                 break;
 
             case SOUND_FLOAT32:
-                for (int i = 0; i < source->channels; i++) {
+                for (int i = 0; i < (sizeof(intermediate) / sizeof(intermediate[0])); i++) {
                     temp.f[i] *= 32768.0f;
                     if (temp.f[i] > 32767.0f)
                         intermediate[i] = 32767;
@@ -826,17 +827,17 @@ sound_poll(void *priv)
         /* Convert intermediate to the final format. */
         switch (backend_source->format) {
             case SOUND_U8:
-                for (int i = 0; i < backend_source->channels; i++)
+                for (int i = 0; i < (sizeof(intermediate) / sizeof(intermediate[0])); i++)
                     buffer.u8[i] = (intermediate[i] >> 8) ^ 0x80;
                 break;
 
             case SOUND_S16:
-                for (int i = 0; i < backend_source->channels; i++)
+                for (int i = 0; i < (sizeof(intermediate) / sizeof(intermediate[0])); i++)
                     buffer.s16[i] = intermediate[i];
                 break;
 
             case SOUND_FLOAT32:
-                for (int i = 0; i < backend_source->channels; i++)
+                for (int i = 0; i < (sizeof(intermediate) / sizeof(intermediate[0])); i++)
                     buffer.f[i] = intermediate[i] / 32768.0f;
                 break;
 
