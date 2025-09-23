@@ -583,7 +583,6 @@ cmi8x38_remap_traps(cmi8x38_t *dev)
 static void
 cmi8x38_start_playback(cmi8x38_t *dev)
 {
-    uint8_t i;
     uint8_t val = dev->io_regs[0x00];
 
     if (!(val & 0x01))

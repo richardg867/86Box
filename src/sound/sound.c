@@ -51,8 +51,12 @@ typedef struct {
 typedef struct _sound_backend_source_ {
     struct _sound_backend_source_ *next;
 
-    uint8_t active;
-    void    *priv;
+    void *priv;
+
+    uint32_t freq;
+    uint8_t  format;
+    uint8_t  channels;
+    uint8_t  active;
 } sound_backend_source_t;
 
 typedef struct _sound_source_ {
@@ -488,7 +492,7 @@ sound_add_source(uint8_t (*poll)(sound_buffer_t buffer, void *priv), void *priv,
     return source;
 }
 
-static inline void
+static void
 sound_flush_source(void *priv)
 {
     sound_source_t *source = (sound_source_t *) priv;
@@ -512,6 +516,29 @@ sound_recalc_source(sound_source_t *source)
         source->latch = (uint64_t) ((double) TIMER_USEC * (1000000.0 / (double) source->freq));
 }
 
+static uint8_t
+sound_set_backend_source_format(sound_source_t *source, sound_backend_source_t *backend_source)
+{
+    uint8_t format = source->format;
+    uint8_t channels = source->channels;
+    uint32_t freq = source->freq;
+    if (sound_backend_set_format(backend_source->priv, &format, &channels, &freq)) {
+        backend_source->format   = format;
+        backend_source->channels = channels;
+        backend_source->freq     = freq;
+        return 1;
+    }
+    return 0;
+}
+
+static const int8_t bytes_per_sample[SOUND_MAX] = {
+    [SOUND_U8] = 1,
+    [SOUND_S16] = 2,
+    [SOUND_MULAW] = 1,
+    [SOUND_ALAW] = 1,
+    [SOUND_IMA_ADPCM] = 1
+};
+
 void
 sound_start_source(void *priv)
 {
@@ -525,11 +552,11 @@ sound_start_source(void *priv)
 
     /* Try using the existing backend source. */
     sound_backend_source_t *backend_source = source->backend_source;
-    if (!backend_source || !sound_backend_set_format(backend_source->priv, source->format, source->channels, source->freq)) {
+    if (!backend_source || !sound_set_backend_source_format(source, backend_source)) {
         /* Find another backend source. */
         backend_source = backend_sources;
         while (backend_source) {
-            if (!backend_source->active && sound_backend_set_format(backend_source->priv, source->format, source->channels, source->freq))
+            if (!backend_source->active && sound_set_backend_source_format(source, backend_source))
                 break;
             backend_source = backend_source->next;
         }
@@ -540,13 +567,25 @@ sound_start_source(void *priv)
             backend_source->priv = sound_backend_add_source();
             backend_source->next = backend_sources;
             backend_sources = backend_source;
-            sound_backend_set_format(backend_source->priv, source->format, source->channels, source->freq);
+            sound_set_backend_source_format(source, backend_source);
         }
         if (source->backend_source)
             source->backend_source->active = 0;
         source->backend_source = backend_source;
     }
     backend_source->active = 1;
+
+    /* Grow buffer if required. */
+    source->bytes_per_sample = bytes_per_sample[backend_source->format] * backend_source->channels;
+#define BUFLEN MAX(SOUNDBUFLEN, MAX(MUSICBUFLEN, MAX(CD_BUFLEN, WTBUFLEN)))
+    uint32_t buf_len = (BUFLEN - (BUFLEN % backend_source->channels)) * source->bytes_per_sample; /* avoid going out of bounds with non powers of 2 */
+    buf_len -= buf_len % 4; /* OpenAL requires 4-byte alignment */
+    if (buf_len > source->buf_len) {
+        if (source->buffer)
+            free(source->buffer);
+        source->buffer = calloc(1, buf_len);
+    }
+    source->buf_len = buf_len; // TODO: allow to get smaller
 
     /* Start polling timer. */
     timer_set_delay_u64(&source->timer, 0);
@@ -570,14 +609,6 @@ sound_stop_source(void *priv)
         source->backend_source->active = 0;
 }
 
-static const int8_t bytes_per_sample[SOUND_MAX] = {
-    [SOUND_U8] = 1,
-    [SOUND_S16] = 2,
-    [SOUND_MULAW] = 1,
-    [SOUND_ALAW] = 1,
-    [SOUND_IMA_ADPCM] = 1,
-};
-
 void
 sound_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t freq)
 {
@@ -587,28 +618,14 @@ sound_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t freq)
     if ((format == source->format) && (channels == source->channels) && (freq == source->freq))
         return;
 
-    /* Flush existing samples in the previous format. */
-    sound_flush_source(source);
-
-    /* Recalculate bytes per sample. */
-    source->bytes_per_sample = bytes_per_sample[format] * channels;
-    sound_log("Sound [%s]: Setting to fmt=%d ch=%d bps=%d freq=%d\n", source->name, format, channels, source->bytes_per_sample, freq);
-
-    /* Grow buffer if required. */
-#define BUFLEN MAX(SOUNDBUFLEN, MAX(MUSICBUFLEN, MAX(CD_BUFLEN, WTBUFLEN)))
-    uint32_t buf_len = (BUFLEN - (BUFLEN % channels)) * source->bytes_per_sample; /* avoid going out of bounds with non powers of 2 */
-    buf_len -= buf_len % 4; /* OpenAL requires 4-byte alignment */
-    if (buf_len > source->buf_len) {
-        if (source->buffer)
-            free(source->buffer);
-        source->buffer = calloc(1, buf_len);
-    }
-    source->buf_len = buf_len; // TODO: allow to get smaller
+    sound_log("Sound [%s]: Setting to fmt=%d ch=%d freq=%d\n", source->name, format, channels, freq);
 
     /* Restart source if it's already running. */
     uint8_t was_active = source->active;
     if (was_active)
         sound_stop_source(source);
+    else
+        sound_flush_source(source); /* just in case? */
     source->freq = freq;
     source->channels = channels;
     source->format = format;
@@ -743,8 +760,86 @@ static void
 sound_poll(void *priv)
 {
     sound_source_t *source = (sound_source_t *) priv;
+    sound_backend_source_t *backend_source = source->backend_source;
 
-    uint8_t ret = source->poll((sound_buffer_t) &((uint8_t *) source->buffer)[source->pos], source->priv);
+    /* Fetch samples and convert them if required. */
+    sound_buffer_t buffer = (sound_buffer_t) &((uint8_t *) source->buffer)[source->pos];
+    uint8_t ret;
+    if ((source->format != backend_source->format) || (source->channels != backend_source->channels)) {
+        /* Fetch samples into a temporary buffer. */
+        float temp_backing[8]; /* largest data type */
+        sound_buffer_t temp = (sound_buffer_t) temp_backing;
+        ret = source->poll(temp, source->priv);
+
+        /* Convert samples to a 16-bit intermediate. */
+        int16_t intermediate[8] = {0};
+        switch (source->format) {
+            case SOUND_U8:
+                for (int i = 0; i < source->channels; i++)
+                    intermediate[i] = (temp.u8[i] ^ 0x80) << 8;
+                break;
+
+            case SOUND_S16:
+                for (int i = 0; i < source->channels; i++)
+                    intermediate[i] = temp.s16[i];
+                break;
+
+            case SOUND_FLOAT32:
+                for (int i = 0; i < source->channels; i++) {
+                    temp.f[i] *= 32768.0f;
+                    if (temp.f[i] > 32767.0f)
+                        intermediate[i] = 32767;
+                    else if (temp.f[i] < -32768.0f)
+                        intermediate[i] = -32768;
+                    else
+                        intermediate[i] = temp.f[i];
+                }
+                break;
+
+            /*case SOUND_MULAW:
+                break;
+
+            case SOUND_ALAW:
+                break;
+
+            case SOUND_IMA_ADPCM:
+                break;*/
+
+            default:
+                fatal("Sound [%s]: Conversion from source format %d not implemented\n", source->name, backend_source->format);
+                break;
+        }
+
+        /* Reposition rear channels when going from >=5.1 to quad. */
+        if ((backend_source->channels == 4) && (source->channels >= 6))
+            AS_U32(intermediate[2]) = AS_U32(intermediate[4]);
+
+        /* Convert intermediate to the final format. */
+        switch (backend_source->format) {
+            case SOUND_U8:
+                for (int i = 0; i < backend_source->channels; i++)
+                    buffer.u8[i] = (intermediate[i] >> 8) ^ 0x80;
+                break;
+
+            case SOUND_S16:
+                for (int i = 0; i < backend_source->channels; i++)
+                    buffer.s16[i] = intermediate[i];
+                break;
+
+            case SOUND_FLOAT32:
+                for (int i = 0; i < backend_source->channels; i++)
+                    buffer.f[i] = intermediate[i] / 32768.0f;
+                break;
+
+            default:
+                fatal("Sound [%s]: Conversion to backend format %d not implemented\n", source->name, backend_source->format);
+                break;
+        }
+    } else {
+        /* Just fetch samples directly into the buffer. */
+        ret = source->poll(buffer, source->priv);
+    }
+
     source->pos += source->bytes_per_sample;
     if (UNLIKELY(!ret))
         sound_stop_source(source);
@@ -799,7 +894,10 @@ sound_reset(void)
     sound_set_format(wavetable_legacy_source, SOUND_S16, 2, WT_FREQ);
     sound_start_source(wavetable_legacy_source);
     cd_source = sound_backend_add_source();
-    sound_backend_set_format(cd_source, SOUND_S16, 2, CD_FREQ);
+    uint8_t format = SOUND_S16;
+    uint8_t channels = 2;
+    uint32_t freq = CD_FREQ;
+    sound_backend_set_format(cd_source, &format, &channels, &freq);
 
     sound_handlers_num = 0;
     memset(sound_handlers, 0x00, 8 * sizeof(sound_handler_t));

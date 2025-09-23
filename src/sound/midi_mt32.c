@@ -264,18 +264,19 @@ mt32emu_init(char *control_rom, char *pcm_rom)
         return 0;
 
     samplerate = mt32emu_get_actual_stereo_output_samplerate(context);
+    source     = sound_backend_add_source();
+    uint8_t format = SOUND_S16;
+    uint8_t channels = 2;
+    sound_backend_set_format(source, &format, &channels, &samplerate);
     /* buf_size = samplerate/RENDER_RATE*2; */
-    buf_size   = (samplerate / RENDER_RATE) * 2 * BUFFER_SEGMENTS * sizeof(int16_t);
-    buffer     = malloc(buf_size);
+    buf_size = (samplerate / RENDER_RATE) * 2 * BUFFER_SEGMENTS * sizeof(int16_t);
+    buffer   = malloc(buf_size);
 
     mt32emu_set_output_gain(context, device_get_config_int("output_gain") / 100.0f);
     mt32emu_set_reverb_enabled(context, device_get_config_int("reverb"));
     mt32emu_set_reverb_output_gain(context, device_get_config_int("reverb_output_gain") / 100.0f);
     mt32emu_set_reversed_stereo_enabled(context, device_get_config_int("reversed_stereo"));
     mt32emu_set_nice_amp_ramp_enabled(context, device_get_config_int("nice_ramp"));
-
-    source = sound_backend_add_source();
-    sound_backend_set_format(source, SOUND_S16, 2, samplerate);
 
     dev = calloc(1, sizeof(midi_device_t));
 

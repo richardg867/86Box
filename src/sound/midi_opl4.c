@@ -655,7 +655,10 @@ opl4_init(UNUSED(const device_t *info))
     opl4_midi_cur = calloc(1, sizeof(opl4_midi_t));
 
     opl4_midi_cur->source = sound_backend_add_source();
-    sound_backend_set_format(opl4_midi_cur->source, SOUND_S16, 2, 48000);
+    uint8_t format = SOUND_S16;
+    uint8_t channels = 2;
+    uint32_t samplerate = 48000;
+    sound_backend_set_format(opl4_midi_cur->source, &format, &channels, &samplerate);
 
     fm_driver_get(FM_YMF278B, &opl4_midi_cur->opl4);
 

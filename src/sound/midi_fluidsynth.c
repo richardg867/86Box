@@ -29,7 +29,7 @@
 typedef struct fluidsynth {
     fluid_settings_t *settings;
     fluid_synth_t    *synth;
-    int               samplerate;
+    uint32_t          samplerate;
     int               sound_font;
 
     thread_t *thread_h;
@@ -235,12 +235,15 @@ fluidsynth_init(UNUSED(const device_t *info))
 
     double samplerate;
     fluid_settings_getnum(data->settings, "synth.sample-rate", &samplerate);
-    data->samplerate = (int) samplerate;
+    data->samplerate = (uint32_t) samplerate;
+    data->source = sound_backend_add_source();
+    uint8_t format = SOUND_S16;
+    uint8_t channels = 2;
+    sound_backend_set_format(data->source, &format, &channels, &data->samplerate);
+    fluid_settings_setnum(data->settings, "synth.sample-rate", data->samplerate);
+
     data->buf_size   = (data->samplerate / RENDER_RATE) * 2 * sizeof(int16_t) * BUFFER_SEGMENTS;
     data->buffer     = malloc(data->buf_size);
-
-    data->source = sound_backend_add_source();
-    sound_backend_set_format(data->source, SOUND_S16, 2, data->samplerate);
 
     dev = calloc(1, sizeof(midi_device_t));
 

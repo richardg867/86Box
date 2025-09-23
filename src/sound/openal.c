@@ -160,29 +160,107 @@ sound_backend_add_source(void)
     return source;
 }
 
+#ifndef AL_QUAD8_SOFT
+#    define AL_QUAD8_SOFT AL_NONE
+#endif
+#ifndef AL_FORMAT_51CHN8
+#    define AL_FORMAT_51CHN8 AL_NONE
+#endif
+#ifndef AL_FORMAT_61CHN8
+#    define AL_FORMAT_61CHN8 AL_NONE
+#endif
+#ifndef AL_FORMAT_71CHN8
+#    define AL_FORMAT_71CHN8 AL_NONE
+#endif
+#ifndef AL_FORMAT_QUAD16
+#    define AL_FORMAT_QUAD16 AL_NONE
+#endif
+#ifndef AL_FORMAT_51CHN16
+#    define AL_FORMAT_51CHN16 AL_NONE
+#endif
+#ifndef AL_FORMAT_61CHN16
+#    define AL_FORMAT_61CHN16 AL_NONE
+#endif
+#ifndef AL_FORMAT_71CHN16
+#    define AL_FORMAT_71CHN16 AL_NONE
+#endif
+#ifndef AL_FORMAT_MONO_FLOAT32
+#    define AL_FORMAT_MONO_FLOAT32 AL_NONE
+#endif
+#ifndef AL_FORMAT_STEREO_FLOAT32
+#    define AL_FORMAT_STEREO_FLOAT32 AL_NONE
+#endif
+#ifndef AL_FORMAT_MONO_MULAW_EXT
+#    define AL_FORMAT_MONO_MULAW_EXT AL_NONE
+#endif
+#ifndef AL_FORMAT_STEREO_MULAW_EXT
+#    define AL_FORMAT_STEREO_MULAW_EXT AL_NONE
+#endif
+#ifndef AL_FORMAT_QUAD_MULAW
+#    define AL_FORMAT_QUAD_MULAW AL_NONE
+#endif
+#ifndef AL_FORMAT_51CHN_MULAW
+#    define AL_FORMAT_51CHN_MULAW AL_NONE
+#endif
+#ifndef AL_FORMAT_61CHN_MULAW
+#    define AL_FORMAT_61CHN_MULAW AL_NONE
+#endif
+#ifndef AL_FORMAT_71CHN_MULAW
+#    define AL_FORMAT_71CHN_MULAW AL_NONE
+#endif
+#ifndef AL_FORMAT_MONO_ALAW_EXT
+#    define AL_FORMAT_MONO_ALAW_EXT AL_NONE
+#endif
+#ifndef AL_FORMAT_STEREO_ALAW_EXT
+#    define AL_FORMAT_STEREO_ALAW_EXT AL_NONE
+#endif
+#ifndef AL_FORMAT_MONO_IMA4
+#    define AL_FORMAT_MONO_IMA4 AL_NONE
+#endif
+#ifndef AL_FORMAT_STEREO_IMA4
+#    define AL_FORMAT_STEREO_IMA4 AL_NONE
+#endif
+
 static const ALenum formats[SOUND_MAX][8] = {
     [SOUND_U8] = {AL_FORMAT_MONO8, AL_FORMAT_STEREO8, AL_NONE, AL_FORMAT_QUAD8, AL_NONE, AL_FORMAT_51CHN8, AL_FORMAT_61CHN8, AL_FORMAT_71CHN8},
     [SOUND_S16] = {AL_FORMAT_MONO16, AL_FORMAT_STEREO16, AL_NONE, AL_FORMAT_QUAD16, AL_NONE, AL_FORMAT_51CHN16, AL_FORMAT_61CHN16, AL_FORMAT_71CHN16},
+    [SOUND_FLOAT32] = {AL_FORMAT_MONO_FLOAT32, AL_FORMAT_STEREO_FLOAT32, AL_NONE, AL_NONE, AL_NONE, AL_NONE, AL_NONE, AL_NONE},
     [SOUND_MULAW] = {AL_FORMAT_MONO_MULAW_EXT, AL_FORMAT_STEREO_MULAW_EXT, AL_NONE, AL_FORMAT_QUAD_MULAW, AL_NONE, AL_FORMAT_51CHN_MULAW, AL_FORMAT_61CHN_MULAW, AL_FORMAT_71CHN_MULAW},
     [SOUND_ALAW] = {AL_FORMAT_MONO_ALAW_EXT, AL_FORMAT_STEREO_ALAW_EXT, AL_NONE, AL_NONE, AL_NONE, AL_NONE, AL_NONE, AL_NONE},
-    [SOUND_IMA_ADPCM] = {AL_FORMAT_MONO_IMA4, AL_FORMAT_STEREO_IMA4, AL_NONE, AL_NONE, AL_NONE, AL_NONE, AL_NONE, AL_NONE},
+    [SOUND_IMA_ADPCM] = {AL_FORMAT_MONO_IMA4, AL_FORMAT_STEREO_IMA4, AL_NONE, AL_NONE, AL_NONE, AL_NONE, AL_NONE, AL_NONE}
 };
 
 int
-sound_backend_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t freq)
+sound_backend_set_format(void *priv, uint8_t *format, uint8_t *channels, uint32_t *freq)
 {
     al_source_t *source = (al_source_t *) priv;
 
     /* Block invalid formats. */
-    if ((format >= (sizeof(formats) / sizeof(formats[0]))) || (channels < 1) || (channels > 8)) {
-        openal_log("OpenAL: Invalid source %d fmt=%d ch=%d freq=%d\n", (int) source->source, (int) format, (int) channels, (int) freq);
+    if (((*format) >= (sizeof(formats) / sizeof(formats[0]))) || ((*channels) < 1) || ((*channels) > 8)) {
+        openal_log("OpenAL: Invalid source %d fmt=%d ch=%d freq=%d\n", (int) source->source, (int) *format, (int) *channels, (int) *freq);
         return 0;
     }
 
     /* Allow this source to be reused if it's already set to the requested format. */
-    ALenum new_format = formats[format][channels - 1];
-    if ((source->format == new_format) && (source->freq == freq)) {
-        openal_log("OpenAL: Reusing source %d as fmt=%d ch=%d freq=%d\n", (int) source->source, (int) format, (int) channels, (int) freq);
+    ALenum new_format = AL_NONE;
+    for (int i = 0; i <= 1; i++) {
+        // TODO: change this to fall back format first!!!
+        /* Transcode unsupported formats by reducing channel count... */
+        for (int j = *channels; j; j++) {
+            new_format = formats[*format][j - 1];
+            if (new_format != AL_NONE) {
+                *channels = j;
+                break;
+            }
+        }
+        /* ...or falling back to 16-bit, repeating the process. */
+        if (new_format == AL_NONE)
+            *format = SOUND_S16;
+        else
+            break;
+    }
+    if ((source->format == new_format) && (source->freq == (*freq))) {
+        openal_log("OpenAL: Reusing source %d as fmt=%d ch=%d freq=%d\n", (int) source->source, (int) *format, (int) *channels, (int) *freq);
         return 1;
     }
 
@@ -195,8 +273,8 @@ sound_backend_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t 
     }
 
     /* Checks passed, change the format. */
-    openal_log("OpenAL: Setting source %d to fmt=%d(%04X) ch=%d freq=%d\n", (int) source->source, (int) format, (int) new_format, (int) channels, (int) freq);
-    source->freq = freq;
+    openal_log("OpenAL: Setting source %d to fmt=%d(%04X) ch=%d freq=%d\n", (int) source->source, (int) *format, (int) new_format, (int) *channels, (int) *freq);
+    source->freq = *freq;
     source->format = new_format;
 
     /* Requeue all buffers. */
@@ -209,7 +287,7 @@ sound_backend_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t 
         alBufferData(source->buffers[i], source->format, &empty, sizeof(empty), source->freq);
     alSourceQueueBuffers(source->source, sizeof(source->buffers) / sizeof(source->buffers[0]), source->buffers);
 
-    return source->format != AL_NONE;
+    return 1;
 }
 
 void

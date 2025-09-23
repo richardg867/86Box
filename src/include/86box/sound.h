@@ -52,6 +52,7 @@ enum {
 enum {
     SOUND_U8 = 0,
     SOUND_S16,
+    SOUND_FLOAT32,
     SOUND_MULAW,
     SOUND_ALAW,
     SOUND_IMA_ADPCM,
@@ -126,7 +127,7 @@ extern void sound_cd_thread_reset(void);
 extern void  sound_backend_close(void);
 extern void  sound_backend_reset(void);
 extern void *sound_backend_add_source(void);
-extern int   sound_backend_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t freq);
+extern int   sound_backend_set_format(void *priv, uint8_t *format, uint8_t *channels, uint32_t *freq);
 extern void  sound_backend_buffer(void *priv, void *buf, uint32_t bytes);
 
 #define sb_vibra16c_onboard_relocate_base sb_vibra16s_onboard_relocate_base
