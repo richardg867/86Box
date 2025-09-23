@@ -561,7 +561,7 @@ sound_start_source(void *priv)
 
     /* Try using the existing backend source. */
     sound_backend_source_t *backend_source = source->backend_source;
-    if (!backend_source || !sound_set_backend_source_format(source, backend_source)) {
+    if (!backend_source || backend_source->active || !sound_set_backend_source_format(source, backend_source)) {
         /* Find another backend source. */
         backend_source = backend_sources;
         while (backend_source) {
@@ -578,8 +578,6 @@ sound_start_source(void *priv)
             backend_sources = backend_source;
             sound_set_backend_source_format(source, backend_source);
         }
-        if (source->backend_source)
-            source->backend_source->active = 0;
         source->backend_source = backend_source;
     }
     backend_source->active = 1;
