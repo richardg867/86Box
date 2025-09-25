@@ -507,9 +507,14 @@ sound_flush_source(void *priv)
         sound_backend_buffer(backend_source->priv, backend_source->buffer, MIN(backend_source->pos, backend_source->buf_len));
 #ifdef SOUND_DEBUG
         static FILE *f = NULL;
-        if (backend_source->priv && (backend_source->freq == 48000)) {
+        if (backend_source->priv && (backend_source->channels == 6)) {
             if (!f) f = fopen("sampledump.pcm", "wb");
-            fwrite(buf, MIN(backend_source->pos, backend_source->buf_len), 1, f);
+            static int16_t mark[] = {-32768, 32767};
+            for (int i = 0; i < backend_source->channels; i++)
+                fwrite(&mark[0], sizeof(mark[0]), 1, f);
+            for (int i = 0; i < backend_source->channels; i++)
+                fwrite(&mark[1], sizeof(mark[1]), 1, f);
+            fwrite(backend_source->buffer, MIN(backend_source->pos, backend_source->buf_len), 1, f);
         }
 #endif
     }
@@ -584,14 +589,11 @@ sound_start_source(void *priv)
 
     /* Grow buffer if required. */
     backend_source->bytes_per_sample = bytes_per_sample[backend_source->format] * backend_source->channels;
-#define BUFLEN MAX(SOUNDBUFLEN, MAX(MUSICBUFLEN, MAX(CD_BUFLEN, WTBUFLEN)))
-    uint32_t buf_len = (BUFLEN - (BUFLEN % backend_source->channels)) * backend_source->bytes_per_sample; /* avoid going out of bounds with non powers of 2 */
-    buf_len -= buf_len % 4; /* OpenAL requires 4-byte alignment */
-    buf_len += 8; /* margin for format conversion operations */
+    uint32_t buf_len = (backend_source->freq / 10) * backend_source->bytes_per_sample;
     if (buf_len > backend_source->buf_len) {
         if (backend_source->buffer)
             free(backend_source->buffer);
-        backend_source->buffer = calloc(1, buf_len);
+        backend_source->buffer = calloc(1, buf_len + 8); /* add margin for format conversion operations */
     }
     backend_source->buf_len = buf_len; // TODO: allow to get smaller
 
@@ -640,13 +642,6 @@ sound_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t freq)
     sound_recalc_source(source);
     if (was_active)
         sound_start_source(source);
-}
-
-void
-sound_buffer(void *priv, void *buffer, uint32_t bytes)
-{
-    sound_source_t *source = (sound_source_t *) priv;
-    sound_backend_buffer(source->backend_source->priv, buffer, bytes);
 }
 
 void

@@ -282,9 +282,9 @@ sound_backend_set_format(void *priv, uint8_t *format, uint8_t *channels, uint32_
     alGetSourcei(source->source, AL_BUFFERS_PROCESSED, &processed);
     ALuint buffers[processed];
     alSourceUnqueueBuffers(source->source, processed, buffers);
-    static const uint8_t empty[16] = {0};
+    static const uint8_t empty[32] = {0};
     for (int i = 0; i < (sizeof(source->buffers) / sizeof(source->buffers[0])); i++)
-        alBufferData(source->buffers[i], source->format, &empty, sizeof(empty), source->freq);
+        alBufferData(source->buffers[i], source->format, &empty, (*channels) * 4, source->freq);
     alSourceQueueBuffers(source->source, sizeof(source->buffers) / sizeof(source->buffers[0]), source->buffers);
 
     return 1;

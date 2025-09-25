@@ -39,7 +39,7 @@ extern int sound_gain;
 #define MUSICBUFLEN (MUSIC_FREQ / 36)
 
 #define CD_FREQ     FREQ_44100
-#define CD_BUFLEN   (CD_FREQ / 10)
+#define CD_BUFLEN   (CD_FREQ / 9)
 
 #define WT_FREQ     FREQ_44100
 #define WTBUFLEN    (MUSIC_FREQ / 45)
