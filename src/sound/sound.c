@@ -883,10 +883,10 @@ sound_reset(void)
     memset(outbuffer_m, 0x00, MUSICBUFLEN * 2 * sizeof(int32_t));
     memset(outbuffer_w, 0x00, WTBUFLEN * 2 * sizeof(int32_t));
 
+    sound_backend_reset();
+
     midi_out_device_init();
     midi_in_device_init();
-
-    sound_backend_reset();
 
     sound_legacy_source = sound_add_source(sound_poll_legacy, NULL, "Legacy 48K");
     sound_set_format(sound_legacy_source, SOUND_S16, 2, SOUND_FREQ);
