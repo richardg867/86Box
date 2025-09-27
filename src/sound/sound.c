@@ -814,9 +814,9 @@ sound_poll(void *priv)
                 break;
         }
 
-        /* Reposition rear channels when going from >=5.1 to quad. */
-        if ((backend_source->channels == 4) && (source->channels >= 6))
-            AS_U32(intermediate[2]) = AS_U32(intermediate[4]);
+        /* Reposition rear channel pair when scaling from >4 to 4 channels. */
+        if ((backend_source->channels == 4) && (source->channels > 4))
+            AS_U32(intermediate[2]) = AS_U32(intermediate[source->channels - 2]);
 
         /* Convert intermediate to the final format. */
         switch (backend_source->format) {

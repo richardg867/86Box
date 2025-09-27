@@ -1186,16 +1186,16 @@ cmi8x38_poll(sound_buffer_t buffer, void *priv)
                         dma->fifo_pos += 2;
                         buffer.s16[1] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        buffer.s16[4] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[3] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
-                        buffer.s16[5] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
+                        buffer.s16[4] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
                         buffer.s16[2] = AS_I16(dma->fifo[dma->fifo_pos & (sizeof(dma->fifo) - 1)]);
                         dma->fifo_pos += 2;
                         dma->sample_count_out -= 10;
                     } else {
                         buffer.s64[0] = 0;
-                        buffer.s32[2] = 0;
+                        buffer.s16[4] = 0;
                     }
                     break;
 
@@ -1282,15 +1282,13 @@ cmi8x38_speed_changed(void *priv)
         dev->dma[i].cfr = cfr & 0x03;
         uint8_t format = SOUND_S16;
         uint8_t source_channels;
-        if ((dev->type != CMEDIA_CMI8338) && (i == 1) && ((cfr & 0x03) == 0x03)) { /* multi-channel requires channel 1 at 16-bit stereo */
-            if (chfmt45 & 0x80) {
-                source_channels = 6;
-                dev->dma[i].channels = (chfmt6 & 0x80) ? 6 : 5;
-            } else if (chfmt45 & 0x20) {
+        if ((dev->type != CMEDIA_CMI8338) && (i == 1) && ((cfr & 0x03) == 0x03)) { /* multi-channel requires DMA 1 at 16-bit stereo */
+            if (chfmt45 & 0x80)
+                source_channels = dev->dma[i].channels = (chfmt6 & 0x80) ? 6 : 5;
+            else if (chfmt45 & 0x20)
                 source_channels = dev->dma[i].channels = 4;
-            } else {
+            else
                 goto stereo;
-            }
         } else {
 stereo:
             if (!(cfr & 0x02))
@@ -1299,7 +1297,7 @@ stereo:
             /* ENDBDAC leverages both DACs for 4-channel output. We implement this by setting
                both sources to 4 channels, then each DMA only feeds samples into its respective
                channel pair. N4SPK3D (copy front->rear) however presumably nullifies all this. */
-            source_channels = ((dev->io_regs[0x1a] & 0x80) && !(dev->io_regs[0x1b] & 0x04)) ? 4 : 2;
+            source_channels = ((dev->io_regs[0x1a] & 0x80) && !(dev->io_regs[0x1b] & 0x04)) ? 4 : dev->dma[i].channels;
         }
         dev->dma[i].dma_latch = (1000000.0 / freq) / dev->dma[i].channels; /* frequency / approximately(dwords * 2) */
 
