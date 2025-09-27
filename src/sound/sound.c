@@ -759,6 +759,14 @@ wavetable_poll_legacy(sound_buffer_t buffer, void *priv)
     return 1;
 }
 
+static inline float
+clampf32(float val, float min, float max)
+{
+    /* In my unscientific tests, this optimized into SIMD better. */
+    val = (val < min) ? min : val;
+    return (val > max) ? max : val;
+}
+
 static void
 sound_poll(void *priv)
 {
@@ -788,15 +796,8 @@ sound_poll(void *priv)
                 break;
 
             case SOUND_FLOAT32:
-                for (int i = 0; i < (sizeof(intermediate) / sizeof(intermediate[0])); i++) {
-                    temp.f[i] *= 32768.0f;
-                    if (temp.f[i] > 32767.0f)
-                        intermediate[i] = 32767;
-                    else if (temp.f[i] < -32768.0f)
-                        intermediate[i] = -32768;
-                    else
-                        intermediate[i] = temp.f[i];
-                }
+                for (int i = 0; i < (sizeof(intermediate) / sizeof(intermediate[0])); i++)
+                    intermediate[i] = clampf32(temp.f[i], -32768.0f, 32767.0f);
                 break;
 
             /*case SOUND_MULAW:
