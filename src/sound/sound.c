@@ -393,25 +393,20 @@ sound_cd_thread(UNUSED(void *param))
                                         filter_cd_audio_p);
                     }
 
-                    if (sound_is_float) {
-                        cd_out_buffer[c] += (float) (cd_buffer_temp[0] / 32768.0);
-                        cd_out_buffer[c + 1] += (float) (cd_buffer_temp[1] / 32768.0);
-                    } else {
-                        temp_buffer[0] = (int) trunc(cd_buffer_temp[0]);
-                        temp_buffer[1] = (int) trunc(cd_buffer_temp[1]);
+                    temp_buffer[0] = (int) trunc(cd_buffer_temp[0]);
+                    temp_buffer[1] = (int) trunc(cd_buffer_temp[1]);
 
-                        if (temp_buffer[0] > 32767)
-                            temp_buffer[0] = 32767;
-                        if (temp_buffer[0] < -32768)
-                            temp_buffer[0] = -32768;
-                        if (temp_buffer[1] > 32767)
-                            temp_buffer[1] = 32767;
-                        if (temp_buffer[1] < -32768)
-                            temp_buffer[1] = -32768;
+                    if (temp_buffer[0] > 32767)
+                        temp_buffer[0] = 32767;
+                    if (temp_buffer[0] < -32768)
+                        temp_buffer[0] = -32768;
+                    if (temp_buffer[1] > 32767)
+                        temp_buffer[1] = 32767;
+                    if (temp_buffer[1] < -32768)
+                        temp_buffer[1] = -32768;
 
-                        ((int16_t *) sound_legacy_source->backend_source->buffer)[c]     = (int16_t) temp_buffer[0];
-                        ((int16_t *) sound_legacy_source->backend_source->buffer)[c + 1] = (int16_t) temp_buffer[1];
-                    }
+                    ((int16_t *) sound_legacy_source->backend_source->buffer)[c]     = (int16_t) temp_buffer[0];
+                    ((int16_t *) sound_legacy_source->backend_source->buffer)[c + 1] = (int16_t) temp_buffer[1];
                 }
             }
         }

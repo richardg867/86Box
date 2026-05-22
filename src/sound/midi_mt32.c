@@ -199,7 +199,7 @@ void
 mt32_poll(void)
 {
     midi_pos++;
-    if (midi_pos == sound_sample_rate / RENDER_RATE) {
+    if (midi_pos == SOUND_FREQ / RENDER_RATE) {
         midi_pos = 0;
         thread_set_event(event);
     }
