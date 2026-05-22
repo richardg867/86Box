@@ -803,8 +803,7 @@ sound_poll(void *priv)
                 break;
 
             case SOUND_S16:
-                for (int i = 0; i < (sizeof(intermediate) / sizeof(intermediate[0])); i++)
-                    intermediate[i] = temp.s16[i];
+                memcpy(intermediate, temp.s16, sizeof(intermediate));
                 break;
 
             case SOUND_FLOAT32:
@@ -812,13 +811,45 @@ sound_poll(void *priv)
                     intermediate[i] = clampf32(temp.f[i], -32768.0f, 32767.0f);
                 break;
 
-            /*case SOUND_MULAW:
+            case SOUND_MULAW:
+                for (int i = 0; i < (sizeof(intermediate) / sizeof(intermediate[0])); i++) {
+                    uint8_t byte = ~temp.u8[i];
+                    int temp     = ((byte & 0x0f) << 3) + 0x84;
+                    temp <<= ((byte & 0x70) >> 4);
+                    temp = (byte & 0x80) ? (0x84 - temp) : (temp - 0x84);
+                    if (temp > 32767)
+                        intermediate[i] = 32767;
+                    else if (temp < -32768)
+                        intermediate[i] = -32768;
+                    else
+                        intermediate[i] = temp;
+                }
                 break;
 
             case SOUND_ALAW:
+                for (int i = 0; i < (sizeof(intermediate) / sizeof(intermediate[0])); i++) {
+                    uint8_t   byte = temp.u8[i] ^ 0x55;
+                    int       dec = ((byte & 0x0f) << 4);;
+                    const int seg = (int) ((byte & 0x70) >> 4);
+                    switch (seg) {
+                        default:
+                            dec |= 0x108;
+                            dec <<= seg - 1;
+                            break;
+
+                        case 0:
+                            dec |= 0x8;
+                            break;
+
+                        case 1:
+                            dec |= 0x108;
+                            break;
+                    }
+                    intermediate[i] = (byte & 0x80) ? dec : -dec;
+                }
                 break;
 
-            case SOUND_IMA_ADPCM:
+            /*case SOUND_IMA_ADPCM:
                 break;*/
 
             default:
@@ -838,8 +869,7 @@ sound_poll(void *priv)
                 break;
 
             case SOUND_S16:
-                for (int i = 0; i < (sizeof(intermediate) / sizeof(intermediate[0])); i++)
-                    buffer.s16[i] = intermediate[i];
+                memcpy(buffer.s16, intermediate, sizeof(intermediate));
                 break;
 
             case SOUND_FLOAT32:
