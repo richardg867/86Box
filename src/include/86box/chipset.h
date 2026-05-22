@@ -8,8 +8,6 @@
  *
  *          Handling of the emulated chipsets.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2019-2020 Miran Grca.
@@ -106,6 +104,9 @@ extern const device_t i450kx_device;
 
 extern const device_t sio_device;
 extern const device_t sio_zb_device;
+
+#define PIIX4_NVR_AMI_1995  0x0000000100000000
+#define PIIX4_NVR_AMI_1995J 0x0000000200000000
 
 extern const device_t piix_device;
 extern const device_t piix_no_mirq_device;
@@ -214,6 +215,10 @@ extern const device_t via_vt8231_device;
 /* VLSI */
 extern const device_t vl82c480_device;
 extern const device_t vl82c486_device;
+extern const device_t vl82c59x_device;
+extern const device_t vl82c59x_compaq_device;
+extern const device_t vl82c59x_wildcat_device;
+extern const device_t vl82c59x_wildcat_compaq_device;
 extern const device_t vlsi_scamp_device;
 
 /* WD */
@@ -228,6 +233,11 @@ extern const device_t nec_mate_unk_device;
 
 extern const device_t phoenix_486_jumper_device;
 extern const device_t phoenix_486_jumper_pci_device;
+extern const device_t phoenix_486_jumper_pci_pb600_device;
+extern const device_t phoenix_486_jumper_monsoon_device;
+
+extern const device_t ast_readout_device;
+extern const device_t ast_nvr_device;
 
 extern const device_t radisys_config_device;
 

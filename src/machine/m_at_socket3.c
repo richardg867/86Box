@@ -105,15 +105,14 @@ machine_at_ap4100aa_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    machine_at_common_init_ex(model, 2);
+    machine_at_common_init(model);
 
-    device_add(&ami_1994_nvr_device);
     device_add(&ali1429g_device);
 
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
 
     device_add(&ide_vlb_device);
-    device_add_params(&um866x_device, (void *) UM8663BF);
+    device_add_params(&um866x_device, (void *) (uintptr_t) UM8663BF);
 
     return ret;
 }
@@ -166,26 +165,97 @@ machine_at_greenb_init(const machine_t *model)
     return ret;
 }
 
+/* OPTi 499 */
+int
+machine_at_xenon_init(const machine_t *model)
+{
+    int ret;
+
+    ret = bios_load_linear("roms/machines/xenon/addx-bios-7-71-i28f001.bin",
+                           0x000e0000, 131072, 0);
+
+    if (bios_only || !ret)
+        return ret;
+
+    machine_at_common_init(model);
+
+    device_add(&opti499_device);
+    device_add(&ide_vlb_device);
+    device_add_params(&fdc37c6xx_device, (void *) (FDC37C661 | FDC37C6XX_IDE_PRI));
+    device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
+    device_add(&intel_flash_bxt_device);
+
+    return ret;
+}
+
+int
+machine_at_cobalt_init(const machine_t *model)
+{
+    int ret;
+
+    ret = bios_load_linear("roms/machines/cobalt/Cobalt_2.3.BIN",
+                           0x000e0000, 131072, 0);
+
+    if (bios_only || !ret)
+        return ret;
+
+    machine_at_common_init(model);
+
+    device_add(&opti499_device);
+    device_add(&ide_opti611_vlb_device);
+    device_add(&ide_isa_sec_device);
+    device_add_params(&fdc37c6xx_device, (void *) FDC37C665);
+
+    device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
+
+    if (gfxcard[0] == VID_INTERNAL)
+        device_add(machine_get_vid_device(machine));
+
+    return ret;
+}
+
 /* OPTi 895 */
 static const device_config_t j403tg_config[] = {
     // clang-format off
     {
-        .name = "bios",
-        .description = "BIOS Version",
-        .type = CONFIG_BIOS,
+        .name           = "bios",
+        .description    = "BIOS Version",
+        .type           = CONFIG_BIOS,
         .default_string = "403tg",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .bios = {
-            { .name = "AMI WinBIOS (121593)", .internal_name = "403tg", .bios_type = BIOS_NORMAL, 
-              .files_no = 1, .local = 0, .size = 65536, .files = { "roms/machines/403tg/J403TGRevD.BIN", "" } },
-            { .name = "Award Modular BIOS v4.50G", .internal_name = "403tg_award", .bios_type = BIOS_NORMAL, 
-              .files_no = 1, .local = 0, .size = 65536, .files = { "roms/machines/403tg/403TG.BIN", "" } },
-            { .name = "MR BIOS V2.02", .internal_name = "403tg_mr", .bios_type = BIOS_NORMAL, 
-              .files_no = 1, .local = 0, .size = 65536, .files = { "roms/machines/403tg/MRBiosOPT895.bin", "" } },
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = {
+            {
+                .name          = "AMI WinBIOS (121593)",
+                .internal_name = "403tg",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 65536,
+                .files         = { "roms/machines/403tg/J403TGRevD.BIN", "" }
+            },
+            {
+                .name          = "Award Modular BIOS v4.50G",
+                .internal_name = "403tg_award",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 65536,
+                .files         = { "roms/machines/403tg/403TG.BIN", "" }
+            },
+            {
+                .name          = "MR BIOS V2.02",
+                .internal_name = "403tg_mr",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 65536,
+                .files         = { "roms/machines/403tg/MRBiosOPT895.bin", "" }
+            },
             { .files_no = 0 }
-        },
+        }
     },
     { .name = "", .description = "", .type = CONFIG_END }
     // clang-format on
@@ -193,7 +263,7 @@ static const device_config_t j403tg_config[] = {
 
 const device_t j403tg_device = {
     .name          = "Jetway J-403TG",
-    .internal_name = "403tg_device",
+    .internal_name = "403tg",
     .flags         = 0,
     .local         = 0,
     .init          = NULL,
@@ -208,23 +278,20 @@ const device_t j403tg_device = {
 int
 machine_at_403tg_init(const machine_t *model)
 {
-    int ret = 0;
-    const char* fn;
+    int         ret = 0;
+    const char *fn;
 
     /* No ROMs available */
     if (!device_available(model->device))
         return ret;
 
     device_context(model->device);
-    int nvr_hack = !strcmp(device_get_config_bios("bios"), "403tg_d");
-    fn = device_get_bios_file(machine_get_device(machine), device_get_config_bios("bios"), 0);
-    ret = bios_load_linear(fn, 0x000f0000, 65536, 0);
+    int nvr_hack = !strcmp(device_get_config_bios("bios"), "403tg");
+    fn           = device_get_bios_file(machine_get_device(machine), device_get_config_bios("bios"), 0);
+    ret          = bios_load_linear(fn, 0x000f0000, 65536, 0);
 
-    if (nvr_hack) {
-        machine_at_common_init_ex(model, 2);
-        device_add(&ami_1994_nvr_device);
-    } else
-        machine_at_common_init(model);
+    machine_at_common_init(model);
+    device_add_params(&nvr_at_device, (void *) (uintptr_t) (nvr_hack ? (NVR_AMI_1994) : (NVR_AT)));
 
     device_add(&opti895_device);
 
@@ -280,6 +347,24 @@ machine_at_win471_init(const machine_t *model)
     int ret;
 
     ret = bios_load_linear("roms/machines/win471/486-SiS_AC0360136.BIN",
+                           0x000f0000, 65536, 0);
+
+    if (bios_only || !ret)
+        return ret;
+
+    machine_at_sis_85c471_common_init(model);
+
+    device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
+
+    return ret;
+}
+
+int
+machine_at_win471t_init(const machine_t *model)
+{
+    int ret;
+
+    ret = bios_load_linear("roms/machines/win471t/486-SiS_AB6680759.BIN",
                            0x000f0000, 65536, 0);
 
     if (bios_only || !ret)
@@ -419,13 +504,14 @@ machine_at_tg486g_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    machine_at_common_init_ex(model, 2);
-    device_add(&amstrad_megapc_nvr_device);
+    machine_at_common_init(model);
     device_add(&sis_85c471_device);
     device_add(&ide_isa_device);
     device_add_params(&fdc37c6xx_device, (void *) (FDC37C651 | FDC37C6XX_IDE_PRI));
 
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
+
+    video_reset(gfxcard[0]);
 
     if (gfxcard[0] != VID_INTERNAL) {
         for (uint16_t i = 0; i < 32768; i++)

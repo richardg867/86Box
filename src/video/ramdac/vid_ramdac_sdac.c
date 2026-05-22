@@ -49,6 +49,7 @@ typedef struct sdac_ramdac_t {
     int      rs2;
     uint8_t  type;
     uint8_t  command;
+    float    ref_clock;
 } sdac_ramdac_t;
 
 static void
@@ -275,19 +276,29 @@ sdac_getclock(int clock, void *priv)
     n1 = ((ramdac->regs[clock] >> 8) & 0x1f) + 2;
     n2 = ((ramdac->regs[clock] >> 13) & 0x07);
     n2 = (1 << n2);
-    t  = (14318184.0f * (float) m) / (float) (n1 * n2);
+    t  = (ramdac->ref_clock * (float) m) / (float) (n1 * n2);
 
+    //pclog("SDACClock=%d, regs val=%04x.\n", clock, ramdac->regs[clock]);
     return t;
+}
+
+void
+sdac_set_ref_clock(void *priv, float ref_clock)
+{
+    sdac_ramdac_t *ramdac = (sdac_ramdac_t *) priv;
+
+    if (ramdac != NULL)
+        ramdac->ref_clock = ref_clock;
 }
 
 void *
 sdac_ramdac_init(const device_t *info)
 {
-    sdac_ramdac_t *ramdac = (sdac_ramdac_t *) malloc(sizeof(sdac_ramdac_t));
-    memset(ramdac, 0, sizeof(sdac_ramdac_t));
+    sdac_ramdac_t *ramdac = (sdac_ramdac_t *) calloc(1, sizeof(sdac_ramdac_t));
 
     ramdac->type = info->local;
 
+    ramdac->ref_clock = 14318184.0f;
     ramdac->regs[0] = 0x6128;
     ramdac->regs[1] = 0x623d;
 

@@ -8,8 +8,6 @@
  *
  *          Definitions for the keyboard interface.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
@@ -18,7 +16,6 @@
  *          Copyright 2016-2025 Miran Grca.
  *          Copyright 2017-2019 Fred N. van Kempen.
  */
-
 #ifndef EMU_KEYBOARD_H
 #define EMU_KEYBOARD_H
 
@@ -168,9 +165,12 @@ extern uint16_t scancode_map[768];
 extern uint16_t scancode_config_map[768];
 
 extern void (*keyboard_send)(uint16_t val);
+extern void kbd_adddata_xt_common(uint16_t val);
 extern void kbd_adddata_process(uint16_t val, void (*adddata)(uint16_t val));
+extern void kbd_adddata_process_10x(uint16_t val, void (*adddata)(uint16_t val));
 
 extern const scancode scancode_xt[512];
+extern const scancode scancode_set8a[512];
 
 extern uint8_t keyboard_set3_flags[512];
 extern uint8_t keyboard_set3_all_repeat;
@@ -209,11 +209,13 @@ extern const device_t keyboard_ps55_device;
 extern const device_t keyboard_at_generic_device;
 #endif /*EMU_DEVICE_H*/
 
+extern void     keyboard_toggle_override(void);
 extern void     keyboard_init(void);
 extern void     keyboard_close(void);
 extern void     keyboard_set_table(const scancode *ptr);
 extern void     keyboard_poll_host(void);
 extern void     keyboard_process(void);
+extern void     keyboard_process_10x(void);
 extern uint16_t keyboard_convert(int ch);
 extern void     keyboard_input(int down, uint16_t scan);
 extern void     keyboard_all_up(void);

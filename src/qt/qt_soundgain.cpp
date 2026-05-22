@@ -8,8 +8,6 @@
  *
  *          Sound gain dialog UI module.
  *
- *
- *
  * Authors: Cacodemon345
  *
  *          Copyright 2021-2022 Cacodemon345
@@ -19,6 +17,7 @@
 
 extern "C" {
 #include <86box/86box.h>
+#include <86box/config.h>
 #include <86box/plat.h>
 #include <86box/sound.h>
 }
@@ -41,6 +40,12 @@ void
 SoundGain::on_verticalSlider_valueChanged(int value)
 {
     sound_gain = value;
+}
+
+void
+SoundGain::on_SoundGain_accepted()
+{
+    config_save();
 }
 
 void

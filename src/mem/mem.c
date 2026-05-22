@@ -106,9 +106,10 @@ int cachesize = 256;
 uint32_t get_phys_virt;
 uint32_t get_phys_phys;
 
-int mem_a20_key   = 0;
-int mem_a20_alt   = 0;
-int mem_a20_state = 0;
+int mem_a20_key     = 0;
+int mem_a20_alt     = 0;
+int mem_a20_chipset = 0;
+int mem_a20_state   = 0;
 
 int mmuflush = 0;
 
@@ -570,6 +571,7 @@ mem_addr_translate(uint32_t addr, uint32_t chunk_start, uint32_t len)
 void
 addreadlookup(uint32_t virt, uint32_t phys)
 {
+#ifndef USE_DEBUG_REGS_486
     if (virt == 0xffffffff)
         return;
 
@@ -586,6 +588,7 @@ addreadlookup(uint32_t virt, uint32_t phys)
 
     readlookup[readlnext++] = virt >> 12;
     readlnext &= (cachesize - 1);
+#endif
 
     cycles -= 9;
 }
@@ -593,6 +596,7 @@ addreadlookup(uint32_t virt, uint32_t phys)
 void
 addwritelookup(uint32_t virt, uint32_t phys)
 {
+#ifndef USE_DEBUG_REGS_486
     if (virt == 0xffffffff)
         return;
 
@@ -625,6 +629,7 @@ addwritelookup(uint32_t virt, uint32_t phys)
 
     writelookup[writelnext++] = virt >> 12;
     writelnext &= (cachesize - 1);
+#endif
 
     cycles -= 9;
 }
@@ -668,7 +673,6 @@ read_mem_b(uint32_t addr)
 {
     mem_mapping_t *map;
     uint8_t        ret        = 0xff;
-    int            old_cycles = cycles;
 
     mem_logical_addr = addr;
     addr &= rammask;
@@ -676,8 +680,6 @@ read_mem_b(uint32_t addr)
     map = read_mapping[addr >> MEM_GRANULARITY_BITS];
     if (map && map->read_b)
         ret = map->read_b(addr, map->priv);
-
-    resub_cycles(old_cycles);
 
     return ret;
 }
@@ -687,7 +689,6 @@ read_mem_w(uint32_t addr)
 {
     mem_mapping_t *map;
     uint16_t       ret        = 0xffff;
-    int            old_cycles = cycles;
 
     mem_logical_addr = addr;
     addr &= rammask;
@@ -703,8 +704,6 @@ read_mem_w(uint32_t addr)
             ret = map->read_b(addr, map->priv) | (map->read_b(addr + 1, map->priv) << 8);
     }
 
-    resub_cycles(old_cycles);
-
     return ret;
 }
 
@@ -712,7 +711,6 @@ void
 write_mem_b(uint32_t addr, uint8_t val)
 {
     mem_mapping_t *map;
-    int            old_cycles = cycles;
 
     mem_logical_addr = addr;
     addr &= rammask;
@@ -720,15 +718,12 @@ write_mem_b(uint32_t addr, uint8_t val)
     map = write_mapping[addr >> MEM_GRANULARITY_BITS];
     if (map && map->write_b)
         map->write_b(addr, val, map->priv);
-
-    resub_cycles(old_cycles);
 }
 
 void
 write_mem_w(uint32_t addr, uint16_t val)
 {
     mem_mapping_t *map;
-    int            old_cycles = cycles;
 
     mem_logical_addr = addr;
     addr &= rammask;
@@ -747,8 +742,6 @@ write_mem_w(uint32_t addr, uint16_t val)
             }
         }
     }
-
-    resub_cycles(old_cycles);
 }
 
 uint8_t
@@ -2280,12 +2273,15 @@ mem_mapping_access_allowed(uint32_t flags, uint16_t access)
 }
 
 void
-mem_mapping_recalc(uint64_t base, uint64_t size)
+mem_mapping_recalc(uint64_t base, uint64_t size, uint32_t base_ignore)
 {
     mem_mapping_t *map;
     int            n;
     uint64_t       c;
     uint8_t        wp;
+    uint64_t       mask = (cpu_16bitbus ?
+                           (is6117 ? 0x03ffffffULL : 0x00ffffffULL) :
+                           0xffffffffULL);
 
     if (!size || (base_mapping == NULL))
         return;
@@ -2293,12 +2289,27 @@ mem_mapping_recalc(uint64_t base, uint64_t size)
     map = base_mapping;
 
     /* Clear out old mappings. */
-    for (c = base; c < base + size; c += MEM_GRANULARITY_SIZE) {
-        _mem_exec[c >> MEM_GRANULARITY_BITS]         = NULL;
-        write_mapping[c >> MEM_GRANULARITY_BITS]     = NULL;
-        read_mapping[c >> MEM_GRANULARITY_BITS]      = NULL;
-        write_mapping_bus[c >> MEM_GRANULARITY_BITS] = NULL;
-        read_mapping_bus[c >> MEM_GRANULARITY_BITS]  = NULL;
+    uint64_t o_a   = ((~base_ignore) & 0xffffffffULL) + 0x00000001ULL;
+    uint64_t o_s   = 0x00000000ULL;
+    uint64_t o_e   = base_ignore & mask;
+    uint64_t o_c   = 0x00000000ULL;
+
+    if (o_e == 0x00000000ULL) {
+        for (c = base; c < base + size; c += MEM_GRANULARITY_SIZE) {
+            _mem_exec[c >> MEM_GRANULARITY_BITS]         = NULL;
+            write_mapping[c >> MEM_GRANULARITY_BITS]     = NULL;
+            read_mapping[c >> MEM_GRANULARITY_BITS]      = NULL;
+            write_mapping_bus[c >> MEM_GRANULARITY_BITS] = NULL;
+            read_mapping_bus[c >> MEM_GRANULARITY_BITS]  = NULL;
+        }
+    } else  for (o_c = o_s; o_c <= o_e; o_c += o_a) {
+        for (c = (base + o_c); c < (base + size + o_c); c += MEM_GRANULARITY_SIZE) {
+            _mem_exec[c >> MEM_GRANULARITY_BITS]         = NULL;
+            write_mapping[c >> MEM_GRANULARITY_BITS]     = NULL;
+            read_mapping[c >> MEM_GRANULARITY_BITS]      = NULL;
+            write_mapping_bus[c >> MEM_GRANULARITY_BITS] = NULL;
+            read_mapping_bus[c >> MEM_GRANULARITY_BITS]  = NULL;
+        }
     }
 
     /* Walk mapping list. */
@@ -2306,9 +2317,10 @@ mem_mapping_recalc(uint64_t base, uint64_t size)
         /* In range? */
         if (map->enable && (uint64_t) map->base < ((uint64_t) base + (uint64_t) size) &&
             ((uint64_t) map->base + (uint64_t) map->size) > (uint64_t) base) {
-            uint64_t i_a   = ((~map->base_ignore) & 0xffffffffULL) + 0x00000001ULL;
+            uint32_t b_i   = base_ignore & map->base_ignore;
+            uint64_t i_a   = ((~b_i) & 0xffffffffULL) + 0x00000001ULL;
             uint64_t i_s   = 0x00000000ULL;
-            uint64_t i_e   = map->base_ignore;
+            uint64_t i_e   = b_i & mask;
             uint64_t i_c   = 0x00000000ULL;
             uint64_t start = (map->base < base) ? map->base : base;
             uint64_t end   = (((uint64_t) map->base + (uint64_t) map->size) < (base + size)) ?
@@ -2316,7 +2328,38 @@ mem_mapping_recalc(uint64_t base, uint64_t size)
             if (start < map->base)
                 start = map->base;
 
-            for (i_c = i_s; i_c <= i_e; i_c += i_a) {
+            if (i_e == 0x00000000ULL) {
+                for (c = start; c < end; c += MEM_GRANULARITY_SIZE) {
+                    /* CPU */
+                    n = !!in_smm;
+                    wp = _mem_wp[c >> MEM_GRANULARITY_BITS];
+
+                    if (map->exec && mem_mapping_access_allowed(map->flags,
+                                     _mem_state[c >> MEM_GRANULARITY_BITS].states[n].x))
+                        _mem_exec[c >> MEM_GRANULARITY_BITS] = map->exec + (c - map->base);
+                    if (!wp && (map->write_b || map->write_w || map->write_l) &&
+                        mem_mapping_access_allowed(map->flags,
+                                                   _mem_state[c >> MEM_GRANULARITY_BITS].states[n].w))
+                        write_mapping[c >> MEM_GRANULARITY_BITS] = map;
+                    if ((map->read_b || map->read_w || map->read_l) &&
+                        mem_mapping_access_allowed(map->flags,
+                                                   _mem_state[c >> MEM_GRANULARITY_BITS].states[n].r))
+                        read_mapping[c >> MEM_GRANULARITY_BITS] = map;
+
+                    /* Bus */
+                    n |= STATE_BUS;
+                    wp = _mem_wp_bus[c >> MEM_GRANULARITY_BITS];
+
+                    if (!wp && (map->write_b || map->write_w || map->write_l) &&
+                        mem_mapping_access_allowed(map->flags,
+                                                   _mem_state[c >> MEM_GRANULARITY_BITS].states[n].w))
+                        write_mapping_bus[c >> MEM_GRANULARITY_BITS] = map;
+                    if ((map->read_b || map->read_w || map->read_l) &&
+                        mem_mapping_access_allowed(map->flags,
+                                                   _mem_state[c >> MEM_GRANULARITY_BITS].states[n].r))
+                        read_mapping_bus[c >> MEM_GRANULARITY_BITS] = map;
+                }
+            } else  for (i_c = i_s; i_c <= i_e; i_c += i_a) {
                 for (c = (start + i_c); c < (end + i_c); c += MEM_GRANULARITY_SIZE) {
                     /* CPU */
                     n = (!!in_smm) || (is_cxsmm && (ccr1 & CCR1_SMAC));
@@ -2418,7 +2461,7 @@ mem_set_wp(uint64_t base, uint64_t size, uint8_t flags, uint8_t wp)
             _mem_wp[c >> MEM_GRANULARITY_BITS] = wp;
     }
 
-    mem_mapping_recalc(base, size);
+    mem_mapping_recalc(base, size, 0x00000000);
 }
 
 void
@@ -2452,11 +2495,19 @@ mem_mapping_set(mem_mapping_t *map,
     map->flags   = fl;
     map->priv    = priv;
     map->next    = NULL;
+
+    /*
+       The ALi M6117 puts the RAM directly onto the internal 32-bit
+       address bus but the external address bus is still 24-bit.
+     */
+    if (is6117 && (fl & MEM_MAPPING_ROMCS))
+        map->base_ignore = 0xff000000;
+
     mem_log("mem_mapping_add(): Linked list structure: %08X -> %08X -> %08X\n", map->prev, map, map->next);
 
     /* If the mapping is disabled, there is no need to recalc anything. */
     if (size != 0x00000000)
-        mem_mapping_recalc(map->base, map->size);
+        mem_mapping_recalc(map->base, map->size, map->base_ignore);
 }
 
 void
@@ -2508,7 +2559,7 @@ mem_mapping_add(mem_mapping_t *map,
 void
 mem_mapping_do_recalc(mem_mapping_t *map)
 {
-    mem_mapping_recalc(map->base, map->size);
+    mem_mapping_recalc(map->base, map->size, map->base_ignore);
 }
 
 void
@@ -2527,7 +2578,7 @@ mem_mapping_set_handler(mem_mapping_t *map,
     map->write_w = write_w;
     map->write_l = write_l;
 
-    mem_mapping_recalc(map->base, map->size);
+    mem_mapping_recalc(map->base, map->size, map->base_ignore);
 }
 
 void
@@ -2540,7 +2591,7 @@ mem_mapping_set_write_handler(mem_mapping_t *map,
     map->write_w = write_w;
     map->write_l = write_l;
 
-    mem_mapping_recalc(map->base, map->size);
+    mem_mapping_recalc(map->base, map->size, map->base_ignore);
 }
 
 void
@@ -2548,14 +2599,14 @@ mem_mapping_set_addr(mem_mapping_t *map, uint32_t base, uint32_t size)
 {
     /* Remove old mapping. */
     map->enable = 0;
-    mem_mapping_recalc(map->base, map->size);
+    mem_mapping_recalc(map->base, map->size, map->base_ignore);
 
     /* Set new mapping. */
     map->enable = 1;
     map->base   = base;
     map->size   = size;
 
-    mem_mapping_recalc(map->base, map->size);
+    mem_mapping_recalc(map->base, map->size, map->base_ignore);
 }
 
 void
@@ -2563,13 +2614,13 @@ mem_mapping_set_base_ignore(mem_mapping_t *map, uint32_t base_ignore)
 {
     /* Remove old mapping. */
     map->enable      = 0;
-    mem_mapping_recalc(map->base, map->size);
+    mem_mapping_recalc(map->base, map->size, map->base_ignore);
 
     /* Set new mapping. */
     map->enable      = 1;
     map->base_ignore = base_ignore;
 
-    mem_mapping_recalc(map->base, map->size);
+    mem_mapping_recalc(map->base, map->size, map->base_ignore);
 }
 
 void
@@ -2577,7 +2628,7 @@ mem_mapping_set_exec(mem_mapping_t *map, uint8_t *exec)
 {
     map->exec = exec;
 
-    mem_mapping_recalc(map->base, map->size);
+    mem_mapping_recalc(map->base, map->size, map->base_ignore);
 }
 
 void
@@ -2585,7 +2636,7 @@ mem_mapping_set_mask(mem_mapping_t *map, uint32_t mask)
 {
     map->mask = mask;
 
-    mem_mapping_recalc(map->base, map->size);
+    mem_mapping_recalc(map->base, map->size, map->base_ignore);
 }
 
 void
@@ -2599,7 +2650,7 @@ mem_mapping_disable(mem_mapping_t *map)
 {
     map->enable = 0;
 
-    mem_mapping_recalc(map->base, map->size);
+    mem_mapping_recalc(map->base, map->size, map->base_ignore);
 }
 
 void
@@ -2607,7 +2658,7 @@ mem_mapping_enable(mem_mapping_t *map)
 {
     map->enable = 1;
 
-    mem_mapping_recalc(map->base, map->size);
+    mem_mapping_recalc(map->base, map->size, map->base_ignore);
 }
 
 void
@@ -2654,7 +2705,7 @@ mem_set_access(uint8_t bitmap, int mode, uint32_t base, uint32_t size, uint16_t 
 #endif
     }
 
-    mem_mapping_recalc(base, size);
+    mem_mapping_recalc(base, size, 0x00000000);
 }
 
 void
@@ -2664,7 +2715,7 @@ mem_a20_init(void)
         mem_a20_key = mem_a20_alt = mem_a20_state = 0;
         rammask = cpu_16bitbus ? 0xffffff : 0xffffffff;
         if (is6117)
-            rammask |= 0x03000000;
+            rammask |= 0x3000000;
         flushmmucache();
 #if 0
         mem_a20_state = mem_a20_key | mem_a20_alt;
@@ -2766,7 +2817,7 @@ mem_reset(void)
         if (cpu_16bitbus) {
             /* 80286/386SX; maximum address space is 16MB + 16 MB for EMS. */
             m = 8192;
-            /* ALi M6117; maximum address space is 64MB. */
+            /* ALi M6117; maximum address space is 4GB. */
             if (is6117)
                 m <<= 2;
         } else {
@@ -2784,18 +2835,14 @@ mem_reset(void)
      * Allocate and initialize the (new) page table.
      */
     pages_sz = m;
-    pages    = (page_t *) malloc(m * sizeof(page_t));
+    pages    = (page_t *) calloc(m, sizeof(page_t));
 
     memset(page_lookup, 0x00, (1 << 20) * sizeof(page_t *));
 
-    memset(pages, 0x00, pages_sz * sizeof(page_t));
-
 #ifdef USE_NEW_DYNAREC
-    byte_dirty_mask = malloc((mem_size * 1024) / 8);
-    memset(byte_dirty_mask, 0, (mem_size * 1024) / 8);
+    byte_dirty_mask = calloc(1, (mem_size * 1024) / 8);
 
-    byte_code_present_mask = malloc((mem_size * 1024) / 8);
-    memset(byte_code_present_mask, 0, (mem_size * 1024) / 8);
+    byte_code_present_mask = calloc(1, (mem_size * 1024) / 8);
 #endif
 
     for (uint32_t c = 0; c < pages_sz; c++) {
@@ -2834,13 +2881,12 @@ mem_reset(void)
     mem_init_ram_mapping(&ram_low_mapping, 0x000000, (mem_size > 640) ? 0xa0000 : mem_size * 1024);
 
     if (mem_size > 1024) {
-        if (cpu_16bitbus && !is6117 && mem_size > 16256)
+        if (cpu_16bitbus && !is6117 && (mem_size > 16256))
             mem_init_ram_mapping(&ram_high_mapping, 0x100000, (16256 - 1024) * 1024);
-        else if (cpu_16bitbus && is6117 && mem_size > 65408)
+        else if (cpu_16bitbus && is6117 && (mem_size > 65408))
             mem_init_ram_mapping(&ram_high_mapping, 0x100000, (65408 - 1024) * 1024);
-        else {
+        else
            mem_init_ram_mapping(&ram_high_mapping, 0x100000, (mem_size - 1024) * 1024);
-        }
     }
 
     if (mem_size > 768) {
@@ -2878,37 +2924,6 @@ mem_init(void)
     ram = rom = NULL;
     ram2      = NULL;
     pages     = NULL;
-}
-
-static void
-umc_page_recalc(uint32_t c, uint32_t phys, int set)
-{
-    uint32_t target = set ? phys : c;
-
-    if (set) {
-        pages[c].mem = &ram[(target & 0xff) << 12];
-        pages[c].write_b = mem_write_ramb_page;
-        pages[c].write_w = mem_write_ramw_page;
-        pages[c].write_l = mem_write_raml_page;
-    } else {
-        pages[c].mem = page_ff;
-        pages[c].write_b = NULL;
-        pages[c].write_w = NULL;
-        pages[c].write_l = NULL;
-    }
-
-#ifdef USE_NEW_DYNAREC
-    pages[c].evict_prev             = EVICT_NOT_IN_LIST;
-    pages[c].byte_dirty_mask        = &byte_dirty_mask[(target & 0xff) * 64];
-    pages[c].byte_code_present_mask = &byte_code_present_mask[(target & 0xff) * 64];
-#endif
-}
-
-void
-umc_smram_recalc(uint32_t start, int set)
-{
-    for (uint32_t c = start; c < (start + 0x0020); c++)
-        umc_page_recalc(c, c - start + 0x000a0000, set);
 }
 
 static void
@@ -3090,21 +3105,21 @@ mem_a20_recalc(void)
     if (!is286) {
         rammask = 0xfffff;
         flushmmucache();
-        mem_a20_key = mem_a20_alt = mem_a20_state = 0;
+        mem_a20_key = mem_a20_alt = mem_a20_state = mem_a20_chipset = 0;
 
         return;
     }
 
-    state = mem_a20_key | mem_a20_alt;
+    state = mem_a20_key | mem_a20_alt | mem_a20_chipset;
     if (state && !mem_a20_state) {
         rammask = cpu_16bitbus ? 0xffffff : 0xffffffff;
         if (is6117)
-            rammask |= 0x03000000;
+            rammask |= 0x3000000;
         flushmmucache();
     } else if (!state && mem_a20_state) {
         rammask = cpu_16bitbus ? 0xefffff : 0xffefffff;
         if (is6117)
-            rammask |= 0x03000000;
+            rammask |= 0x3000000;
         flushmmucache();
     }
 

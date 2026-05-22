@@ -8,13 +8,10 @@
  *
  *          Definitions for the VNC renderer.
  *
- *
- *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *
  *          Copyright 2017 Fred N. van Kempen.
  */
-
 #ifndef EMU_VNC_H
 #define EMU_VNC_H
 
@@ -29,7 +26,7 @@ extern int  vnc_pause(void);
 
 extern void vnc_kbinput(int, int);
 
-extern void vnc_take_screenshot(wchar_t *fn);
+extern void vnc_take_screenshot(char *fn);
 
 #ifdef __cplusplus
 }

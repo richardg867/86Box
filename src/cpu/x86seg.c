@@ -143,7 +143,7 @@ x86_doabrt(int x86_abrt)
     }
 }
 
-static void
+static inline void
 set_stack32(int s)
 {
     stack32 = s;
@@ -154,7 +154,7 @@ set_stack32(int s)
         cpu_cur_status &= ~CPU_STATUS_STACK32;
 }
 
-static void
+static inline void
 set_use32(int u)
 {
     use32 = u ? 0x300 : 0;
@@ -202,7 +202,7 @@ do_seg_load(x86seg *s, uint16_t *segdat)
 }
 #endif
 
-static void
+static inline void
 do_seg_v86_init(x86seg *s)
 {
     s->access     = 0xe2;
@@ -761,7 +761,7 @@ loadcsjmp(uint16_t seg, uint32_t old_pc)
     }
 }
 
-static void
+static inline void
 PUSHW(uint16_t v)
 {
     if (stack32) {
@@ -777,7 +777,7 @@ PUSHW(uint16_t v)
     }
 }
 
-static void
+static inline void
 PUSHL(uint32_t v)
 {
     if (cpu_16bitbus) {
@@ -798,7 +798,7 @@ PUSHL(uint32_t v)
     }
 }
 
-static void
+static inline void
 PUSHL_SEL(uint32_t v)
 {
     if (cpu_16bitbus) {
@@ -819,7 +819,7 @@ PUSHL_SEL(uint32_t v)
     }
 }
 
-static uint16_t
+static inline uint16_t
 POPW(void)
 {
     uint16_t tempw;
@@ -837,7 +837,7 @@ POPW(void)
     return tempw;
 }
 
-static uint32_t
+static inline uint32_t
 POPL(void)
 {
     uint32_t templ;
@@ -2373,14 +2373,22 @@ taskswitch286(uint16_t seg, uint16_t *segdat, int is32)
         op_loadseg(new_fs, &cpu_state.seg_fs);
         op_loadseg(new_gs, &cpu_state.seg_gs);
 
+#ifdef USE_DEBUG_REGS_486
+        rf_flag_no_clear = 1;
+#else
         if (!cpu_use_exec)
             rf_flag_no_clear = 1;
+#endif
 
         if (t_bit) {
+#ifdef USE_DEBUG_REGS_486
+            trap |= 2;
+#else
             if (cpu_use_exec)
                 trap = 2;
             else
                 trap |= 2;
+#endif
 #ifdef USE_DYNAREC
             cpu_block_end = 1;
 #endif
@@ -2560,8 +2568,12 @@ taskswitch286(uint16_t seg, uint16_t *segdat, int is32)
     tr.limit   = limit;
     tr.access  = segdat[2] >> 8;
     tr.ar_high = segdat[3] & 0xff;
+#ifdef USE_DEBUG_REGS_486
+    dr[7] &= 0xFFFFFFAA;
+#else
     if (!cpu_use_exec)
         dr[7] &= 0xFFFFFFAA;
+#endif
 }
 
 void
@@ -2575,6 +2587,12 @@ cyrix_write_seg_descriptor(uint32_t addr, x86seg *seg)
 
     if (seg->ar_high & 0x80)
         limit_raw >>= 12;
+
+    if ((limit_raw == 0xffffffff) && !(seg->ar_high & 0x80)) {
+        x86seg_log("4G segment limit without page granularity!\n");
+        seg->ar_high |= 0x80;
+        limit_raw >>= 12;
+    }
 
     writememl(0, addr, (limit_raw & 0xffff) | (seg->base << 16));
     writememl(0, addr + 4, ((seg->base >> 16) & 0xff) | (seg->access << 8) | (limit_raw & 0xf0000) | (seg->ar_high << 16) | (seg->base & 0xff000000));

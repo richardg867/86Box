@@ -8,8 +8,6 @@
  *
  *          Specify dimensions UI module.
  *
- *
- *
  * Authors: Cacodemon345
  *
  *          Copyright 2021-2022 Cacodemon345
@@ -29,6 +27,7 @@
 
 extern "C" {
 #include <86box/86box.h>
+#include <86box/config.h>
 #include <86box/plat.h>
 #include <86box/ui.h>
 #include <86box/video.h>
@@ -88,7 +87,7 @@ SpecifyDimensions::on_SpecifyDimensions_accepted()
     } else {
         main_window->setFixedSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
         main_window->ui->actionResizable_window->setChecked(false);
-        vid_resize = 0;
+        vid_resize = 1;
         main_window->ui->actionResizable_window->trigger();
         window_remember = 1;
         window_w        = ui->spinBoxWidth->value();
@@ -121,4 +120,6 @@ SpecifyDimensions::on_SpecifyDimensions_accepted()
         window_w = ui->spinBoxWidth->value();
         window_h = ui->spinBoxHeight->value();
     }
+
+    config_save();
 }

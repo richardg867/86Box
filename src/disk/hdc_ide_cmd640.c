@@ -30,6 +30,7 @@
 #include <86box/mem.h>
 #include <86box/pci.h>
 #include <86box/pic.h>
+#include <86box/plat_unused.h>
 #include <86box/timer.h>
 #include <86box/hdc.h>
 #include <86box/hdc_ide.h>
@@ -289,7 +290,7 @@ cmd640_vlb_readl(uint16_t addr, void *priv)
 }
 
 static void
-cmd640_pci_write(int func, int addr, uint8_t val, void *priv)
+cmd640_pci_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     cmd640_t *dev = (cmd640_t *) priv;
 
@@ -367,7 +368,7 @@ cmd640_pci_write(int func, int addr, uint8_t val, void *priv)
 }
 
 static uint8_t
-cmd640_pci_read(int func, int addr, void *priv)
+cmd640_pci_read(int func, int addr, UNUSED(int len), void *priv)
 {
     cmd640_t *dev = (cmd640_t *) priv;
     uint8_t   ret = 0xff;
@@ -694,3 +695,18 @@ const device_t ide_cmd640_pci_single_channel_sec_device = {
     .force_redraw  = NULL,
     .config        = NULL
 };
+
+const device_t ide_cmd640_pci_single_channel_legacy_only_device = {
+    .name          = "CMD PCI-0640B PCI (Legacy Mode Only)",
+    .internal_name = "ide_cmd640_pci_single_channel_legacy_only",
+    .flags         = DEVICE_PCI,
+    .local         = 0x20000,
+    .init          = cmd640_init,
+    .close         = cmd640_close,
+    .reset         = cmd640_reset,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+

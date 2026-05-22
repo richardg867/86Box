@@ -9,13 +9,10 @@
  *          Header of the implementation of the Intel 8253/8254
  *          Programmable Interval Timer.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2019-2020 Miran Grca.
  */
-
 #ifndef EMU_PIT_FAST_H
 #define EMU_PIT_FAST_H
 
@@ -55,9 +52,9 @@ typedef struct ctrf_t {
         };
     };
 
-    uint32_t   l;
+    uint32_t l;
 
-    uint64_t   pit_const;
+    uint64_t pit_const;
 
     pc_timer_t timer;
 
@@ -93,6 +90,7 @@ extern const pit_intf_t pit_fast_intf;
 
 #ifdef EMU_DEVICE_H
 extern const device_t i8253_fast_device;
+extern const device_t i8253_ext_io_fast_device;
 extern const device_t i8254_fast_device;
 extern const device_t i8254_sec_fast_device;
 extern const device_t i8254_ext_io_fast_device;

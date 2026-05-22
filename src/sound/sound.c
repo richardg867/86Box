@@ -38,13 +38,15 @@
 #include <86box/timer.h>
 #include <86box/snd_mpu401.h>
 #include <86box/sound.h>
+#include <86box/fdd_audio.h>
+#include <86box/hdd_audio.h>
 
 typedef struct {
     const device_t *device;
 } SOUND_CARD;
 
 typedef struct {
-    void (*get_buffer)(int32_t *buffer, int len, void *priv);
+    void (*get_buffer)(int32_t *buffer, uint16_t len, void *priv);
     void *priv;
 } sound_handler_t;
 
@@ -84,6 +86,7 @@ int sound_pos_global                   = 0;
 int music_pos_global                   = 0;
 int wavetable_pos_global               = 0;
 int sound_gain                         = 0;
+char sound_output_device[512]          = { 0 };
 
 static sound_source_t *sources;
 static sound_backend_source_t *backend_sources = NULL;
@@ -92,6 +95,8 @@ static sound_source_t *sound_legacy_source = NULL;
 static sound_source_t *music_legacy_source = NULL;
 static sound_source_t *wavetable_legacy_source = NULL;
 static void           *cd_source = NULL;
+static void           *fdd_source = NULL;
+static void           *hdd_source = NULL;
 
 static sound_handler_t sound_handlers[8];
 static sound_handler_t music_handlers[8];
@@ -116,6 +121,18 @@ static unsigned int cd_vol_r;
 static int          cd_buf_update    = CD_BUFLEN / SOUNDBUFLEN;
 static volatile int cdaudioon        = 0;
 static int          cd_thread_enable = 0;
+
+static thread_t     *sound_fdd_thread_h;
+static event_t      *sound_fdd_event;
+static event_t      *sound_fdd_start_event;
+static volatile int fddaudioon = 0;
+static int          fdd_thread_enable = 0;
+
+static thread_t     *sound_hdd_thread_h;
+static event_t      *sound_hdd_event;
+static event_t      *sound_hdd_start_event;
+static volatile int hddaudioon = 0;
+static int          hdd_thread_enable = 0;
 
 static void (*filter_cd_audio)(int channel, double *buffer, void *priv) = NULL;
 static void *filter_cd_audio_p                                          = NULL;
@@ -449,7 +466,7 @@ sound_init(void)
 }
 
 void
-sound_add_handler(void (*get_buffer)(int32_t *buffer, int len, void *priv), void *priv)
+sound_add_handler(void (*get_buffer)(int32_t *buffer, uint16_t len, void *priv), void *priv)
 {
     sound_handlers[sound_handlers_num].get_buffer = get_buffer;
     sound_handlers[sound_handlers_num].priv       = priv;
@@ -457,7 +474,7 @@ sound_add_handler(void (*get_buffer)(int32_t *buffer, int len, void *priv), void
 }
 
 void
-music_add_handler(void (*get_buffer)(int32_t *buffer, int len, void *priv), void *priv)
+music_add_handler(void (*get_buffer)(int32_t *buffer, uint16_t len, void *priv), void *priv)
 {
     music_handlers[music_handlers_num].get_buffer = get_buffer;
     music_handlers[music_handlers_num].priv       = priv;
@@ -465,7 +482,7 @@ music_add_handler(void (*get_buffer)(int32_t *buffer, int len, void *priv), void
 }
 
 void
-wavetable_add_handler(void (*get_buffer)(int32_t *buffer, int len, void *priv), void *priv)
+wavetable_add_handler(void (*get_buffer)(int32_t *buffer, uint16_t len, void *priv), void *priv)
 {
     wavetable_handlers[wavetable_handlers_num].get_buffer = get_buffer;
     wavetable_handlers[wavetable_handlers_num].priv       = priv;
@@ -897,10 +914,23 @@ sound_reset(void)
     wavetable_legacy_source = sound_add_source(wavetable_poll_legacy, NULL, "Legacy 44K");
     sound_set_format(wavetable_legacy_source, SOUND_S16, 2, WT_FREQ);
     sound_start_source(wavetable_legacy_source);
+
     cd_source = sound_backend_add_source();
     uint8_t format = SOUND_S16;
     uint8_t channels = 2;
     uint32_t freq = CD_FREQ;
+    sound_backend_set_format(cd_source, &format, &channels, &freq);
+
+    fdd_source = sound_backend_add_source();
+    format = SOUND_S16;
+    channels = 2;
+    freq = SOUND_FREQ;
+    sound_backend_set_format(cd_source, &format, &channels, &freq);
+
+    hdd_source = sound_backend_add_source();
+    format = SOUND_S16;
+    channels = 2;
+    freq = SOUND_FREQ;
     sound_backend_set_format(cd_source, &format, &channels, &freq);
 
     sound_handlers_num = 0;
@@ -986,4 +1016,124 @@ sound_cd_thread_reset(void)
         sound_cd_thread_end();
 
     cd_thread_enable = available_cdrom_drives ? 1 : 0;
+}
+
+static void
+sound_fdd_thread(UNUSED(void *param))
+{
+    thread_set_event(sound_fdd_start_event);
+    while (fddaudioon) {
+        thread_wait_event(sound_fdd_event, -1);
+        thread_reset_event(sound_fdd_event);
+
+        if (!fddaudioon)
+            break;
+
+        static int16_t fdd_buffer[SOUNDBUFLEN * 2];
+        memset(fdd_buffer, 0, sizeof(fdd_buffer));
+        fdd_audio_callback(fdd_buffer, SOUNDBUFLEN * 2);
+        sound_backend_buffer(fdd_source, fdd_buffer, SOUNDBUFLEN);
+    }
+}
+
+void
+sound_fdd_thread_init(void)
+{
+    if (!fddaudioon) {
+        fddaudioon = 1;
+        fdd_thread_enable = 1;
+
+        sound_fdd_start_event = thread_create_event();
+        sound_fdd_event = thread_create_event();
+        sound_fdd_thread_h = thread_create(sound_fdd_thread, NULL);
+
+        thread_wait_event(sound_fdd_start_event, -1);
+        thread_reset_event(sound_fdd_start_event);
+    }
+}
+
+void
+sound_fdd_thread_end(void)
+{
+    if (fddaudioon) {
+        fddaudioon = 0;
+        fdd_thread_enable = 0;
+
+        thread_set_event(sound_fdd_event);
+        thread_wait(sound_fdd_thread_h);
+
+        if (sound_fdd_event) {
+            thread_destroy_event(sound_fdd_event);
+            sound_fdd_event = NULL;
+        }
+
+        sound_fdd_thread_h = NULL;
+
+        if (sound_fdd_start_event) {
+            thread_destroy_event(sound_fdd_start_event);
+            sound_fdd_start_event = NULL;
+        }
+    }
+}
+
+static void
+sound_hdd_thread(UNUSED(void *param))
+{
+    thread_set_event(sound_hdd_start_event);
+    while (hddaudioon) {
+        thread_wait_event(sound_hdd_event, -1);
+        thread_reset_event(sound_hdd_event);
+
+        if (!hddaudioon)
+            break;
+
+        static int16_t hdd_buffer[SOUNDBUFLEN * 2];
+        memset(hdd_buffer, 0, sizeof(hdd_buffer));
+        hdd_audio_callback((int16_t *) hdd_buffer, SOUNDBUFLEN * 2);
+        sound_backend_buffer(hdd_source, hdd_buffer, SOUNDBUFLEN);
+    }
+}
+
+void
+sound_hdd_thread_init(void)
+{
+    if (!hddaudioon) {
+        hddaudioon = 1;
+        hdd_thread_enable = 1;
+        sound_hdd_start_event = thread_create_event();
+        sound_hdd_event = thread_create_event();
+        sound_hdd_thread_h = thread_create(sound_hdd_thread, NULL);
+
+        thread_wait_event(sound_hdd_start_event, -1);
+        thread_reset_event(sound_hdd_start_event);
+    }
+}
+
+void
+sound_hdd_thread_end(void)
+{
+    if (hddaudioon) {
+        hddaudioon = 0;
+        hdd_thread_enable = 0;
+        thread_set_event(sound_hdd_event);
+        thread_wait(sound_hdd_thread_h);
+
+        if (sound_hdd_event) {
+            thread_destroy_event(sound_hdd_event);
+            sound_hdd_event = NULL;
+        }
+
+        sound_hdd_thread_h = NULL;
+        if (sound_hdd_start_event) {
+            thread_destroy_event(sound_hdd_start_event);
+            sound_hdd_start_event = NULL;
+        }
+    }
+}
+
+const char *
+sound_get_output_devices(void)
+{
+    // TODO
+    return NULL;
 }

@@ -7,7 +7,7 @@
  *          This file is part of the 86Box distribution.
  *
  *          Implementation of the common initialization functions for
-  *         the PC/AT and copatible machines.
+ *          the PC/AT and copatible machines.
  *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          Sarah Walker, <https://pcem-emulator.co.uk/>
@@ -61,7 +61,7 @@
 #include <86box/machine.h>
 
 void
-machine_at_common_init_ex(const machine_t *model, int type)
+machine_at_common_init(const machine_t *model)
 {
     machine_common_init(model);
 
@@ -70,22 +70,10 @@ machine_at_common_init_ex(const machine_t *model, int type)
     pic2_init();
     dma16_init();
 
-    if (!(type & 4))
+    if (model->init != machine_at_m290_init)
         device_add(&port_6x_device);
-    type &= 3;
-
-    if (type == 1)
-        device_add(&ibmat_nvr_device);
-    else if (type == 0)
-        device_add(&at_nvr_device);
 
     standalone_gameport_type = &gameport_device;
-}
-
-void
-machine_at_common_init(const machine_t *model)
-{
-    machine_at_common_init_ex(model, 0);
 }
 
 void
@@ -113,14 +101,6 @@ machine_at_common_ide_init(const machine_t *model)
 }
 
 void
-machine_at_ibm_common_ide_init(const machine_t *model)
-{
-    machine_at_common_init_ex(model, 1);
-
-    device_add(&ide_isa_device);
-}
-
-void
 machine_at_ide_init(const machine_t *model)
 {
     machine_at_init(model);
@@ -135,5 +115,3 @@ machine_at_ps2_ide_init(const machine_t *model)
 
     device_add(&ide_isa_device);
 }
-
-

@@ -6,7 +6,7 @@
  *
  *          This file is part of the 86Box distribution.
  *
- *          Yamaha YMF-71x (OPL3-SA2/3) audio controller emulation.
+ *          Yamaha YMF71x (OPL3-SA2/3) audio controller emulation.
  *
  * Authors: Cacodemon345
  *          Eluan Costa Miranda <eluancm@gmail.com>
@@ -74,7 +74,7 @@ static const uint8_t ymf71x_init_key[32] = { 0xB1, 0xD8, 0x6C, 0x36, 0x9B, 0x4D,
                                              0x33, 0x19, 0x8C, 0x46, 0xA3, 0x51, 0xA8, 0x54 };
 
 /* Reversed attenuation values borrowed from snd_sb.c */
-/* YMF-71x master volume attenuation is -30dB when all bits are 1, 0dB when all bits are 0 */
+/* YMF71x master volume attenuation is -30dB when all bits are 1, 0dB when all bits are 0 */
 static const double ymf71x_att_2dbstep_4bits[] = {
       32767.0, 26027.0, 20674.0, 16422.0, 13044.0, 10362.0, 8230.0, 6537.0,
        5192.0,  4125.0,  3276.0,  2602.0,  2067.0,  1641.0, 1304.0,  164.0
@@ -218,7 +218,7 @@ ymf71x_wss_read(uint16_t addr, void *priv)
 }
 
 static void
-ymf71x_wss_write(uint16_t addr, uint8_t val, void *priv)
+ymf71x_wss_write(uint16_t addr, UNUSED(uint8_t val), void *priv)
 {
     ymf71x_t *ymf71x = (ymf71x_t *) priv;
     uint8_t   port   = addr - ymf71x->cur_wss_addr;
@@ -266,6 +266,20 @@ ymf71x_reg_write(uint16_t addr, uint8_t val, void *priv)
                         break;
                     case 0x02: /* System Control */
                         ymf71x->regs[0x02] = val;
+                        switch ((ymf71x->regs[0x02] & 0x06) >> 1) { /* Set SBPro DSP version */
+                            case 0x00: /* DSP ver 3.01 */
+                                ymf71x->sb->dsp.opl3sa_dsp_ver = 3;
+                                break;
+                            case 0x01: /* DSP ver 2.01 */
+                                ymf71x->sb->dsp.opl3sa_dsp_ver = 2;
+                                break;
+                            case 0x02: /* DSP ver 1.05 */
+                                ymf71x->sb->dsp.opl3sa_dsp_ver = 1;
+                                break;
+                            case 0x03: /* DSP ver 0.00 */
+                                ymf71x->sb->dsp.opl3sa_dsp_ver = 0;
+                                break;
+                        }
                         break;
                     case 0x03: /* Interrupt Channel Config */
                         ymf71x->regs[0x03] = val;
@@ -597,7 +611,7 @@ ymf71x_filter_opl(void *priv, double *out_l, double *out_r)
 }
 
 static void
-ymf71x_get_buffer(int32_t *buffer, int len, void *priv)
+ymf71x_get_buffer(int32_t *buffer, uint16_t len, void *priv)
 {
     ymf71x_t *ymf71x = (ymf71x_t *) priv;
 
@@ -606,7 +620,7 @@ ymf71x_get_buffer(int32_t *buffer, int len, void *priv)
     /* Don't play audio if the WSS Playback analog or digital sections are powered down */
     if ( (!(ymf71x->regs[0x01] & 0x23)) && (!(ymf71x->regs[0x12] & 0x04)) && (!(ymf71x->regs[0x13] & 0x04)) ) {
         ad1848_update(&ymf71x->ad1848);
-        for (int c = 0; c < len * 2; c += 2) {
+        for (uint16_t c = 0; c < len * 2; c += 2) {
             double out_l = 0.0;
             double out_r = 0.0;
             double bass_treble;
@@ -675,7 +689,8 @@ ymf71x_init(const device_t *info)
     ymf71x->regs[0x00] = 0xFF;
     ymf71x->regs[0x01] = 0x00;
     ymf71x->regs[0x02] = 0x00;
-    ymf71x->regs[0x03] = 0x69; /* IRQ-A = WSS + OPL3, IRQ-B = SB+MPU401 */
+    ymf71x->regs[0x03] = 0x0f; /* Datasheet specifies 0x69 as default power-on value but this is what the Win9x drivers expect */
+                               /* and the AN430TX BIOS sets this value after writing the PnP resource data */
     ymf71x->regs[0x04] = 0x00;
     ymf71x->regs[0x05] = 0x00;
     ymf71x->regs[0x06] = 0x61; /* DMA-A = WSS Playback, DMA-B = WSS Capture + SBPro */
@@ -712,13 +727,14 @@ ymf71x_init(const device_t *info)
     ymf71x->sb->opl_enabled = 1;
 
     sb_dsp_set_real_opl(&ymf71x->sb->dsp, 1);
-    sb_dsp_init(&ymf71x->sb->dsp, SBPRO2_DSP_302, SB_SUBTYPE_DEFAULT, ymf71x);
+    sb_dsp_init(&ymf71x->sb->dsp, SBPRO_DSP_301, SB_SUBTYPE_YMF7XX, ymf71x);
     sb_ct1345_mixer_reset(ymf71x->sb);
+    ymf71x->sb->dsp.opl3sa_dsp_ver = 3;
 
     ymf71x->sb->opl_mixer = ymf71x;
     ymf71x->sb->opl_mix   = ymf71x_filter_opl;
 
-    fm_driver_get(FM_YMF262, &ymf71x->sb->opl);
+    fm_driver_get(FM_YMF289B, &ymf71x->sb->opl);
 
     sound_add_handler(ymf71x_get_buffer, ymf71x);
     music_add_handler(sb_get_music_buffer_sbpro, ymf71x->sb);
@@ -836,7 +852,7 @@ static const device_config_t ymf71x_config[] = {
 };
 
 const device_t ymf715_onboard_device = {
-    .name          = "Yamaha YMF-715 Onboard (OPL3-SA3)",
+    .name          = "Yamaha YMF715 (OPL3-SA3) (On-Board)",
     .internal_name = "ymf715_onboard",
     .flags         = DEVICE_ISA16,
     .local         = 0x102,
@@ -850,7 +866,7 @@ const device_t ymf715_onboard_device = {
 };
 
 const device_t ymf718_device = {
-    .name          = "Yamaha YMF-718 (OPL3-SA2)",
+    .name          = "Yamaha YMF718 (OPL3-SA2)",
     .internal_name = "ymf718",
     .flags         = DEVICE_ISA16,
     .local         = 0x01,
@@ -864,7 +880,7 @@ const device_t ymf718_device = {
 };
 
 const device_t ymf719_device = {
-    .name          = "Yamaha YMF-719 (OPL3-SA3)",
+    .name          = "Yamaha YMF719 (OPL3-SA3)",
     .internal_name = "ymf719",
     .flags         = DEVICE_ISA16,
     .local         = 0x02,

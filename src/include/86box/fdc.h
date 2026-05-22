@@ -9,15 +9,15 @@
  *          Implementation of the NEC uPD-765 and compatible floppy disk
  *          controller.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
+ *          Toni Riikonen, <riikonen.toni@gmail.com>
  *
  *          Copyright 2008-2020 Sarah Walker.
  *          Copyright 2016-2020 Miran Grca.
  *          Copyright 2018-2020 Fred N. van Kempen.
+ *          Copyright 2025 Toni Riikonen.
  */
 #ifndef EMU_FDC_H
 #define EMU_FDC_H
@@ -59,6 +59,8 @@
 #define FDC_FLAG_TER            0x40000  /* Is Tertiary */
 #define FDC_FLAG_QUA            0x80000  /* Is Quaternary */
 #define FDC_FLAG_SMC661         0x100000 /* SM(s)C FDC37C661 - different TDR enhanced mode */
+#define FDC_FLAG_5550           0x200000 /* IBM Multistation 5550 */
+#define FDC_FLAG_NO_TDR         0x400000 /* Has no tape drive register */
 
 typedef struct fdc_t {
     uint8_t dor;
@@ -251,6 +253,8 @@ extern uint8_t fdc_read(uint16_t addr, void *priv);
 extern void    fdc_reset(void *priv);
 
 extern uint8_t fdc_get_current_drive(void);
+extern void    fdc_seek_complete_interrupt(fdc_t *fdc, int drive);
+extern void    fdc_diskchange_interrupt(fdc_t *fdc, int drive);
 
 #ifdef EMU_DEVICE_H
 extern const device_t fdc_xt_device;
@@ -261,6 +265,7 @@ extern const device_t fdc_xt_t1x00_device;
 extern const device_t fdc_xt_tandy_device;
 extern const device_t fdc_xt_amstrad_device;
 extern const device_t fdc_xt_umc_um8398_device;
+extern const device_t fdc_xt_5550_device;
 extern const device_t fdc_pcjr_device;
 extern const device_t fdc_at_device;
 extern const device_t fdc_at_sec_device;
@@ -272,6 +277,7 @@ extern const device_t fdc_at_smc_device;
 extern const device_t fdc_at_ali_device;
 extern const device_t fdc_at_winbond_device;
 extern const device_t fdc_at_nsc_device;
+extern const device_t fdc_at_nsc_pc87310_device;
 extern const device_t fdc_at_nsc_dp8473_device;
 extern const device_t fdc_ps2_device;
 extern const device_t fdc_ps2_mca_device;

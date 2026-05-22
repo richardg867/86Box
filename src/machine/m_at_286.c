@@ -54,8 +54,9 @@ static const device_config_t ibmat_config[] = {
         .type           = CONFIG_BIOS,
         .default_string = "ibm5170_111585",
         .default_int    = 0,
-        .file_filter    = "",
+        .file_filter    = NULL,
         .spinner        = { 0 },
+        .selection      = { { 0 } },
         .bios           = {
             {
                 .name          = "62X082x (11/15/85)",
@@ -108,10 +109,15 @@ static const device_config_t ibmat_config[] = {
         },
     },
     {
-        .name        = "enable_5161",
-        .description = "IBM 5161 Expansion Unit",
-        .type        = CONFIG_BINARY,
-        .default_int = 0
+        .name           = "enable_5161",
+        .description    = "IBM 5161 Expansion Unit",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
     // clang-format on
@@ -119,7 +125,7 @@ static const device_config_t ibmat_config[] = {
 
 const device_t ibmat_device = {
     .name          = "IBM AT",
-    .internal_name = "ibmat_device",
+    .internal_name = "ibmat",
     .flags         = 0,
     .local         = 0,
     .init          = NULL,
@@ -134,7 +140,7 @@ const device_t ibmat_device = {
 static void
 machine_at_ibm_common_init(const machine_t *model)
 {
-    machine_at_common_init_ex(model, 1);
+    machine_at_common_init(model);
 
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
 
@@ -156,10 +162,10 @@ machine_at_ibmat_init(const machine_t *model)
         return ret;
 
     device_context(model->device);
-    enable_5161  = machine_get_config_int("enable_5161");
-    fn[0]        = device_get_bios_file(model->device, device_get_config_bios("bios"), 0);
-    fn[1]        = device_get_bios_file(model->device, device_get_config_bios("bios"), 1);
-    ret          = bios_load_interleaved(fn[0], fn[1], 0x000f0000, 65536, 0);
+    enable_5161 = machine_get_config_int("enable_5161");
+    fn[0]       = device_get_bios_file(model->device, device_get_config_bios("bios"), 0);
+    fn[1]       = device_get_bios_file(model->device, device_get_config_bios("bios"), 1);
+    ret         = bios_load_interleaved(fn[0], fn[1], 0x000f0000, 65536, 0);
     device_context_restore();
 
     if (bios_only || !ret)
@@ -176,18 +182,23 @@ machine_at_ibmat_init(const machine_t *model)
 static const device_config_t ibmxt286_config[] = {
     // clang-format off
     {
-        .name = "enable_5161",
-        .description = "IBM 5161 Expansion Unit",
-        .type = CONFIG_BINARY,
-        .default_int = 0
+        .name           = "enable_5161",
+        .description    = "IBM 5161 Expansion Unit",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
     // clang-format on
 };
 
 const device_t ibmxt286_device = {
-    .name          = "IBM XT Model 286",
-    .internal_name = "ibmxt286_device",
+    .name          = "IBM XT model 286",
+    .internal_name = "ibmxt286",
     .flags         = 0,
     .local         = 0,
     .init          = NULL,
@@ -206,7 +217,7 @@ machine_at_ibmxt286_init(const machine_t *model)
     uint8_t enable_5161;
 
     device_context(model->device);
-    enable_5161  = machine_get_config_int("enable_5161");
+    enable_5161 = machine_get_config_int("enable_5161");
     device_context_restore();
 
     ret = bios_load_interleaved("roms/machines/ibmxt286/bios_5162_21apr86_u34_78x7460_27256.bin",
@@ -279,8 +290,7 @@ machine_at_portableiii_init(const machine_t *model)
     int ret;
 
     ret = bios_load_linearr("roms/machines/portableiii/K Combined.bin",
-                                0x000f8000, 65536, 0);
-
+                            0x000f8000, 65536, 0);
 
     if (bios_only || !ret)
         return ret;
@@ -292,7 +302,7 @@ machine_at_portableiii_init(const machine_t *model)
 
     if (hdc_current[0] == HDC_INTERNAL)
         device_add(&ide_isa_device);
-  
+
     if (gfxcard[0] == VID_INTERNAL)
         device_add(&compaq_plasma_device);
 
@@ -318,8 +328,8 @@ machine_at_grid1520_init(const machine_t *model)
     mem_remap_top(384);
 
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
-    // for now just select CGA with amber monitor 
-    //device_add(&cga_device);
+    // for now just select CGA with amber monitor
+    // device_add(&cga_device);
 
     if (fdc_current[0] == FDC_INTERNAL)
         device_add(&fdc_at_device);
@@ -329,13 +339,88 @@ machine_at_grid1520_init(const machine_t *model)
     return ret;
 }
 
+static const device_config_t pc900_config[] = {
+    // clang-format off
+    {
+        .name           = "bios",
+        .description    = "BIOS Version",
+        .type           = CONFIG_BIOS,
+        .default_string = "pc900",
+        .default_int    = 0,
+        .file_filter    = "",
+        .spinner        = { 0 },
+        .bios           = {
+            {
+                .name           = "BIOS V2.07A",
+                .internal_name  = "pc900",
+                .bios_type      = BIOS_NORMAL,
+                .files_no       = 1,
+                .local          = 0,
+                .size           = 32768,
+                .files          = { "roms/machines/pc900/mpf_pc900_v207a.bin", "" }
+            },
+            {
+                .name           = "BIOS V2.07A.XC",
+                .internal_name  = "pc900_v207a_xc",
+                .bios_type      = BIOS_NORMAL,
+                .files_no       = 1,
+                .local          = 0,
+                .size           = 32768,
+                .files          = { "roms/machines/pc900/cbm_pc40_v207a_xc.bin", "" }
+            },
+            {
+                .name           = "BIOS V2.07B",
+                .internal_name  = "pc900_v207b",
+                .bios_type      = BIOS_NORMAL,
+                .files_no       = 1,
+                .local          = 0,
+                .size           = 32768,
+                .files          = { "roms/machines/pc900/mpf_pc900_v207b.bin", "" }
+            },
+            {
+                .name           = "BIOS V3.01B",
+                .internal_name  = "pc900_v301b",
+                .bios_type      = BIOS_NORMAL,
+                .files_no       = 1,
+                .local          = 0,
+                .size           = 32768,
+                .files          = { "roms/machines/pc900/cbm_pc40_v301b.bin", "" }
+            },
+            { .files_no = 0 }
+        },
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+    // clang-format on
+};
+
+const device_t pc900_device = {
+    .name           = "Multitech PC-900",
+    .internal_name  = "pc900",
+    .flags          = 0,
+    .local          = 0,
+    .init           = NULL,
+    .close          = NULL,
+    .reset          = NULL,
+    .available      = NULL,
+    .speed_changed  = NULL,
+    .force_redraw   = NULL,
+    .config         = pc900_config
+};
+
 int
 machine_at_pc900_init(const machine_t *model)
 {
-    int ret = 0;
+    int         ret = 0;
+    const char *fn;
 
-    ret = bios_load_linear("roms/machines/pc900/mpf_pc900_v207a.bin",
-                           0x000f8000, 32768, 0);
+    /* No ROMs available. */
+    if (!device_available(model->device))
+        return ret;
+
+    device_context(model->device);
+    fn  = device_get_bios_file(model->device, device_get_config_bios("bios"), 0);
+    ret = bios_load_linear(fn, 0x000f8000, 32768, 0);
+    device_context_restore();
 
     if (bios_only || !ret)
         return ret;
@@ -425,8 +510,7 @@ machine_at_m290_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    machine_at_common_init_ex(model, 6);
-    device_add(&amstrad_megapc_nvr_device);
+    machine_at_common_init(model);
 
     device_add(&olivetti_eva_device);
     device_add(&port_6x_olivetti_device);
@@ -545,7 +629,7 @@ machine_at_siemens_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    machine_at_common_init_ex(model, 1);
+    machine_at_common_init(model);
 
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
 
@@ -838,6 +922,29 @@ machine_at_3302_init(const machine_t *model)
     return ret;
 }
 
+int
+machine_at_n8810m30_init(const machine_t *model) /* Onboard SCSI not yet emulated */
+{
+    int ret;
+
+    ret = bios_load_linear("roms/machines/n8810m30/at286bios_53889.00.0.17jr.BIN",
+                           0x000e0000, 131072, 0);
+
+    if (bios_only || !ret)
+        return ret;
+
+    machine_at_common_init(model);
+
+    device_add(&neat_device);
+
+    if (fdc_current[0] == FDC_INTERNAL)
+        device_add(&fdc_at_device);
+
+    device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
+
+    return ret;
+}
+
 /* SCAMP */
 int
 machine_at_pc7286_init(const machine_t *model)
@@ -850,10 +957,10 @@ machine_at_pc7286_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    machine_at_common_init_ex(model, 2);
+    machine_at_common_init(model);
 
     if (gfxcard[0] == VID_INTERNAL)
-        device_add(&gd5401_onboard_device);
+        device_add(machine_get_vid_device(machine));
 
     device_add_params(&dw90c50_device, (void *) DW90C50_IDE);
     device_add(&vl82c113_device); /* The keyboard controller is part of the VL82c113. */
@@ -992,12 +1099,12 @@ machine_at_drsm35286_init(const machine_t *model)
 
     if (bios_only || !ret)
         return ret;
-	
+
     device_add(&ide_isa_device);
     device_add_params(&fdc37c6xx_device, (void *) (FDC37C651 | FDC37C6XX_IDE_PRI));
-   
+
     machine_at_scat_init(model, 1, 0);
-	
+
     if (gfxcard[0] == VID_INTERNAL)
         device_add(machine_get_vid_device(machine));
 
@@ -1018,7 +1125,7 @@ machine_at_deskmaster286_init(const machine_t *model)
     machine_at_scat_init(model, 0, 1);
 
     device_add(&f82c710_device);
-        
+
     device_add(&ide_isa_device);
 
     return ret;
@@ -1076,7 +1183,7 @@ machine_at_spc4620p_init(const machine_t *model)
         return ret;
 
     if (gfxcard[0] == VID_INTERNAL)
-        device_add(&ati28800k_spc4620p_device);
+        device_add(machine_get_vid_device(machine));
 
     machine_at_scat_init(model, 1, 1);
 

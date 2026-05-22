@@ -13,11 +13,13 @@
 #
 #          Copyright 2020-2021 David Hrdlička.
 #          Copyright 2021      Andreas J. Reichel.
-#          Copyright 2021-2025 Jasmine Iwanek.
+#          Copyright 2021-2026 Jasmine Iwanek.
 #
 
 add_library(dev OBJECT
     access_bus.c
+    ast_nvr.c
+    ast_readout.c
     bugger.c
     cartridge.c
     cassette.c
@@ -56,7 +58,6 @@ add_library(dev OBJECT
     postcard.c
     radisys_config.c
     serial.c
-    serial_passthrough.c
     smbus_ali7101.c
     smbus_piix4.c
     smbus_sis5595.c
@@ -79,6 +80,11 @@ endif()
 
 if(ISAMEM_BRAT)
     target_compile_definitions(dev PRIVATE USE_ISAMEM_BRAT)
+endif()
+
+if(CMAKE_SYSTEM_NAME MATCHES "Linux" AND VFIO AND VFIO_AVAILABLE)
+    add_compile_definitions(USE_VFIO)
+    target_sources(dev PRIVATE vfio.c)
 endif()
 
 if(LASERXT)

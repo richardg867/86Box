@@ -33,9 +33,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <time.h>
+#include <86box/86box.h>
 #include <86box/timer.h>
 #include <86box/fdd.h>
-#include <86box/86box.h>
 #include <86box/device.h>
 #include <86box/fdc.h>
 #include <86box/fdc_ext.h>
@@ -92,8 +92,8 @@ sysstat_out(UNUSED(uint16_t port), uint8_t val, void *priv)
 static uint8_t
 sysstat_in(UNUSED(uint16_t port), void *priv)
 {
-    const cga_t  *cga = priv;
-    uint8_t       ret = 0x0a; /* No idea what these bits are */
+    const cga_t *cga = priv;
+    uint8_t      ret = 0x0a; /* No idea what these bits are */
 
     /* External CRT. We don't emulate the LCD/CRT switching, let's just
      * frivolously use this bit to indicate we're using the LCD if the
@@ -191,7 +191,7 @@ machine_elt_init(const machine_t *model)
      * indicate the correct display type */
     device_add(&kbc_xt_device);
 
-    device_add(&elt_nvr_device);
+    device_add_params(model->nvr_device, (void *) model->nvr_params);
 
     io_sethandler(0x11b8, 1, sysstat_in, NULL, NULL, sysstat_out, NULL, NULL, cga);
 

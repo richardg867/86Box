@@ -1,8 +1,15 @@
 msgid ""
 msgstr ""
+"PO-Revision-Date: 2026-04-25 15:00+0000\n"
+"Last-Translator: nguyen <barnacl437@disroot.org>\n"
+"Language-Team: Vietnamese <https://weblate.86box.net/projects/86box/86box/vi/"
+">\n"
+"Language: vi-VN\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"X-Generator: Weblate 5.12.2\n"
 "X-Language: vi_VN\n"
 "X-Source-Language: en_US\n"
 
@@ -66,8 +73,8 @@ msgstr "Open&GL (3.0 Core)"
 msgid "&VNC"
 msgstr "&VNC"
 
-msgid "Specify &dimensions..."
-msgstr "Tự nhập độ &phân giải..."
+msgid "Specify &dimensions…"
+msgstr "Tự nhập độ &phân giải…"
 
 msgid "Force &4:3 display ratio"
 msgstr "Giữ nguyên khung hình &4:3"
@@ -138,52 +145,43 @@ msgstr "Căn tỷ lệ số nguyên"
 msgid "4:&3 Integer scale"
 msgstr "Căn tỷ lệ 4:3 số nguyên"
 
-msgid "EGA/(S)&VGA settings"
-msgstr "Cài đặt EGA/(S)&VGA"
+msgid "Inverted VGA monitor"
+msgstr "Đảo màu VGA"
 
-msgid "&Inverted VGA monitor"
-msgstr "Đảo mà&u VGA"
+msgid "VGA screen type:"
+msgstr "Loại màn VGA:"
 
-msgid "VGA screen &type"
-msgstr "L&oại màn VGA"
-
-msgid "RGB &Color"
-msgstr "Màu R&GB"
+msgid "RGB Color"
+msgstr "Màu RGB"
 
 msgid "RGB (no brown)"
 msgstr "RGB (không nâu)"
 
-msgid "&RGB Grayscale"
-msgstr "Thang xám RG&B"
+msgid "RGB Grayscale"
+msgstr "Thang xám RGB"
 
 msgid "Generic RGBI color monitor"
 msgstr "Màn hình màu RGBI chung"
 
-msgid "&Amber monitor"
+msgid "Amber monitor"
 msgstr "Màn hình vàng hổ phách (amber)"
 
-msgid "&Green monitor"
+msgid "Green monitor"
 msgstr "Màn hình lục"
 
-msgid "&White monitor"
+msgid "White monitor"
 msgstr "Màn hinh trắng"
 
-msgid "Grayscale &conversion type"
-msgstr "Chuyển đổi thang &màu xám"
+msgid "Grayscale conversion type:"
+msgstr "Chuyển đổi thang màu xám:"
 
-msgid "BT&601 (NTSC/PAL)"
-msgstr "BT&601 (NTSC/PAL)"
+msgid "Average"
+msgstr "Trung bình"
 
-msgid "BT&709 (HDTV)"
-msgstr "BT&709 (HDTV)"
+msgid "Overscan"
+msgstr "Overscan"
 
-msgid "&Average"
-msgstr "&Trung bình"
-
-msgid "CGA/PCjr/Tandy/E&GA/(S)VGA overscan"
-msgstr "&Overscan CGA/PCjr/Tandy/EGA/(S)VGA"
-
-msgid "Change contrast for &monochrome display"
+msgid "Change contrast for monochrome display"
 msgstr "Chỉnh tương phản cho màn hình đơn sắc"
 
 msgid "&Media"
@@ -192,11 +190,11 @@ msgstr "&Phương tiện"
 msgid "&Tools"
 msgstr "&Công cụ"
 
-msgid "&Settings..."
-msgstr "&Cài đặt..."
+msgid "&Settings…"
+msgstr "&Cài đặt…"
 
-msgid "Settings..."
-msgstr "Cài đặt"
+msgid "Settings…"
+msgstr "Cài đặt…"
 
 msgid "&Update status bar icons"
 msgstr "Cậ&p nhật biểu tượng thanh trạng thái"
@@ -204,17 +202,38 @@ msgstr "Cậ&p nhật biểu tượng thanh trạng thái"
 msgid "Take s&creenshot"
 msgstr "Chụp &màn hình"
 
+msgid "Take screenshot"
+msgstr "Chụp màn hình"
+
+msgid "Take &raw screenshot"
+msgstr "Chụp màn hình &thô"
+
+msgid "Take raw screenshot"
+msgstr "Chụp màn hình thô"
+
+msgid "C&opy screenshot"
+msgstr "S&ao chép ảnh chụp màn hình"
+
+msgid "Copy screenshot"
+msgstr "Sao chép ảnh chụp màn hình"
+
+msgid "Copy r&aw screenshot"
+msgstr "Sao chép ảnh chụp màn hình t&hô"
+
+msgid "Copy raw screenshot"
+msgstr "Sao chép ảnh chụp màn hình thô"
+
 msgid "S&ound"
 msgstr "&Âm thanh"
 
-msgid "&Preferences..."
-msgstr "&Tùy biến..."
+msgid "&Preferences…"
+msgstr "&Tùy biến…"
 
 msgid "Enable &Discord integration"
 msgstr "Bật trình trạng thái cho Discord"
 
-msgid "Sound &gain..."
-msgstr "Bộ &tăng âm..."
+msgid "Sound &gain…"
+msgstr "Bộ &tăng âm…"
 
 msgid "Begin trace"
 msgstr "Bắt đầu dò"
@@ -225,20 +244,20 @@ msgstr "Ngưng dò"
 msgid "&Help"
 msgstr "&Trợ giúp"
 
-msgid "&Documentation..."
-msgstr "&Trợ giúp..."
+msgid "&Documentation…"
+msgstr "&Trợ giúp…"
 
-msgid "&About 86Box..."
-msgstr "&Về 86Box..."
+msgid "&About 86Box…"
+msgstr "&Về 86Box…"
 
-msgid "&New image..."
-msgstr "Tạo file ảnh đĩa mới..."
+msgid "&New image…"
+msgstr "Tạo file ảnh đĩa mới…"
 
-msgid "&Existing image..."
-msgstr "Ảnh đĩa có sẵn..."
+msgid "&Existing image…"
+msgstr "Ảnh đĩa có sẵn…"
 
-msgid "Existing image (&Write-protected)..."
-msgstr "Ảnh đĩa có sẵn (chống ghi đè)..."
+msgid "Existing image (&Write-protected)…"
+msgstr "Ảnh đĩa có sẵn (chống ghi đè)…"
 
 msgid "&Record"
 msgstr "&Ghi lại"
@@ -255,11 +274,11 @@ msgstr "T&iến về cuối"
 msgid "E&ject"
 msgstr "Đẩy đĩ&a ra"
 
-msgid "&Image..."
-msgstr "&Ảnh đĩa..."
+msgid "&Image…"
+msgstr "&Ảnh đĩa…"
 
-msgid "E&xport to 86F..."
-msgstr "Xuất ra f&ile 86F..."
+msgid "E&xport to 86F…"
+msgstr "Xuất ra f&ile 86F…"
 
 msgid "&Mute"
 msgstr "Tắt tiến&g"
@@ -270,38 +289,8 @@ msgstr "Làm trố&ng đĩa"
 msgid "Reload previous image"
 msgstr "Load đĩa trước đó"
 
-msgid "&Folder..."
-msgstr "Thư mụ&c"
-
-msgid "Target &framerate"
-msgstr "Số khung hình mục tiêu"
-
-msgid "&Sync with video"
-msgstr "Đồng bộ &với video"
-
-msgid "&25 fps"
-msgstr "&25 fps"
-
-msgid "&30 fps"
-msgstr "&30 fps"
-
-msgid "&50 fps"
-msgstr "&50 fps"
-
-msgid "&60 fps"
-msgstr "&60 fps"
-
-msgid "&75 fps"
-msgstr "&75 fps"
-
-msgid "&VSync"
-msgstr "&VSync"
-
-msgid "&Select shader..."
-msgstr "&Chọn shader..."
-
-msgid "&Remove shader"
-msgstr "&Bỏ shader"
+msgid "&Folder…"
+msgstr "Thư mụ&c…"
 
 msgid "Preferences"
 msgstr "Tùy biến"
@@ -354,8 +343,32 @@ msgstr "Chiều cao:"
 msgid "Lock to this size"
 msgstr "Cố định kích thước hình hiện tại"
 
+msgid "General"
+msgstr "Tổng quát"
+
+msgid "Processor"
+msgstr "Bộ xử lý"
+
+msgid "Performance"
+msgstr "Hiệu suất"
+
 msgid "Machine type:"
 msgstr "Loại máy:"
+
+msgid "[1989] i486 (Socket 168 and 1)"
+msgstr "[1989] i486 (Socket 168 và 1)"
+
+msgid "[1994] i486 (Miscellaneous)"
+msgstr "[1994] i486 (Khác)"
+
+msgid "[1995] Socket 7 (Single Voltage)"
+msgstr "[1995] Socket 7 (hiệu điện thế đơn)"
+
+msgid "[1996] Socket 7 (Dual Voltage)"
+msgstr "[1996] Socket 7 (hiệu điện thế kép)"
+
+msgid "Miscellaneous"
+msgstr "Lặt vặt khác"
 
 msgid "Machine:"
 msgstr "Mẫu máy:"
@@ -375,8 +388,14 @@ msgstr "Tốc độ:"
 msgid "Frequency:"
 msgstr "Tần số xung:"
 
+msgid "%1 MHz"
+msgstr "%1 MHz"
+
 msgid "FPU:"
 msgstr "FPU:"
+
+msgid "Internal"
+msgstr "Tích hợp"
 
 msgid "Wait states:"
 msgstr "Trạng thái chờ:"
@@ -399,6 +418,9 @@ msgstr "Bật (giờ địa phương)"
 msgid "Enabled (UTC)"
 msgstr "Bật (UTC)"
 
+msgid "Use the 486 interpreter for 286 and 386 processors"
+msgstr "Sử dụng trình thông dịch 486 cho các bộ xử lý 286 và 386"
+
 msgid "Dynamic Recompiler"
 msgstr "Bộ tái biên dịch động (Dynamic Recompiler)"
 
@@ -416,6 +438,9 @@ msgstr "Video:"
 
 msgid "Video #2:"
 msgstr "Video 2:"
+
+msgid "Monitor"
+msgstr "Màn hình"
 
 msgid "Voodoo 1 or 2 Graphics"
 msgstr "Đồ họa Voodoo 1 hoặc 2"
@@ -447,17 +472,17 @@ msgstr "Cần điều khiển:"
 msgid "Joystick"
 msgstr "Cần điều khiển"
 
-msgid "Joystick 1..."
-msgstr "Cần điều khiển 1..."
+msgid "Joystick 1…"
+msgstr "Cần điều khiển 1…"
 
-msgid "Joystick 2..."
-msgstr "Cần điều khiển 2..."
+msgid "Joystick 2…"
+msgstr "Cần điều khiển 2…"
 
-msgid "Joystick 3..."
-msgstr "Cần điều khiển 3..."
+msgid "Joystick 3…"
+msgstr "Cần điều khiển 3…"
 
-msgid "Joystick 4..."
-msgstr "Cần điều khiển 4..."
+msgid "Joystick 4…"
+msgstr "Cần điều khiển 4…"
 
 msgid "Sound card #1:"
 msgstr "Card âm thanh 1:"
@@ -486,8 +511,8 @@ msgstr "MPU-401 độc lập"
 msgid "Use FLOAT32 sound"
 msgstr "Dùng âm FLOAT32"
 
-msgid "FM synth driver"
-msgstr "Driver bộ tổng hợp âm FM"
+msgid "FM synth driver:"
+msgstr "Driver bộ tổng hợp âm FM:"
 
 msgid "Nuked (more accurate)"
 msgstr "Nuked (chính xác hơn)"
@@ -495,62 +520,53 @@ msgstr "Nuked (chính xác hơn)"
 msgid "YMFM (faster)"
 msgstr "YMFM (nhanh hơn)"
 
-msgid "COM1 Device:"
-msgstr "Thiết bị COM1:"
-
-msgid "COM2 Device:"
-msgstr "Thiết bị COM2:"
-
-msgid "COM3 Device:"
-msgstr "Thiết bị COM3:"
-
-msgid "COM4 Device:"
-msgstr "Thiết bị COM4:"
-
-msgid "LPT1 Device:"
-msgstr "Thiết bị LPT1:"
-
-msgid "LPT2 Device:"
-msgstr "Thiết bị LPT2:"
-
-msgid "LPT3 Device:"
-msgstr "Thiết bị LPT3:"
-
-msgid "LPT4 Device:"
-msgstr "Thiết bị LPT4:"
-
 msgid "Internal LPT ECP DMA:"
 msgstr "LPT ECP DMA nội bộ:"
 
-msgid "Serial port 1"
-msgstr "Cổng serial 1"
-
-msgid "Serial port 2"
-msgstr "Cổng serial 2"
-
-msgid "Serial port 3"
-msgstr "Cổng serial 3"
-
-msgid "Serial port 4"
-msgstr "Cổng serial 4"
-
-msgid "Parallel port 1"
-msgstr "Cổng parallel 1"
-
-msgid "Parallel port 2"
-msgstr "Cổng parallel 2"
-
-msgid "Parallel port 3"
-msgstr "Cổng parallel 3"
-
-msgid "Parallel port 4"
-msgstr "Cổng parallel 4"
-
-msgid "FD Controller:"
+msgid "Floppy disk controller:"
 msgstr "Bộ điều khiển ổ mềm:"
 
-msgid "CD-ROM Controller:"
+msgid "CD-ROM controller:"
 msgstr "Bộ điều khiển CD-ROM:"
+
+msgid "Mitsumi interface"
+msgstr "Giao diện Mitsumi"
+
+msgid "MKE/Panasonic interface"
+msgstr "Giao diện MKE/Panasonic"
+
+msgid "MKE/Panasonic interface (Creative)"
+msgstr "Giao diện MKE/Panasonic (Creative)"
+
+msgid "IDE Controller"
+msgstr "Bộ điều khiển IDE"
+
+msgid "IDE Controller (Dual-Channel)"
+msgstr "Bộ điều khiển IDE (hai kênh)"
+
+msgid "PC/AT IDE Controller"
+msgstr "Bộ điều khiển IDE PC/AT"
+
+msgid "PC/AT IDE Controller (Dual-Channel)"
+msgstr "Bộ điều khiển IDE PC/AT (hai kênh)"
+
+msgid "PC/AT XTIDE (Primary Only)"
+msgstr "XTIDE PC/AT (chỉ có đầu cắm chính)"
+
+msgid "PS/2 AT XTIDE (1.1.5) (Primary Only)"
+msgstr "XTIDE PS/2 AT (1.1.5) (chỉ có đầu cắm chính)"
+
+msgid "CMD PCI-0646 (Tertiary and Quaternary)"
+msgstr "CMD PCI-0646 (giao diện cắm thứ 3 và 4)"
+
+msgid "CMD PCI-0648 (Tertiary and Quaternary)"
+msgstr "CMD PCI-0648 (giao diện cắm thứ 3 và 4)"
+
+msgid "CMD PCI-0649 (Tertiary and Quaternary)"
+msgstr "CMD PCI-0649 (giao diện cắm thứ 3 và 4)"
+
+msgid "McIDE Controller"
+msgstr "Bộ điều khiển McIDE"
 
 msgid "Tertiary IDE Controller"
 msgstr "Bộ điều khiển IDE thứ ba"
@@ -558,11 +574,11 @@ msgstr "Bộ điều khiển IDE thứ ba"
 msgid "Quaternary IDE Controller"
 msgstr "Bộ điều khiển IDE thứ tư"
 
-msgid "Hard disk"
-msgstr "Ổ cứng"
+msgid "Hard disk controllers"
+msgstr "Bộ điều khiển ổ cứng"
 
-msgid "SCSI"
-msgstr "SCSI"
+msgid "SCSI controllers"
+msgstr "Bộ điều khiển SCSI"
 
 msgid "Controller 1:"
 msgstr "Bộ điều khiển 1:"
@@ -585,11 +601,14 @@ msgstr "Đĩa cứng:"
 msgid "Firmware Version"
 msgstr "Phiên bản firmware"
 
-msgid "&New..."
-msgstr "Tạ&o mới..."
+msgid "DSP Version"
+msgstr "Phiên bản DSP"
 
-msgid "&Existing..."
-msgstr "&Có sẵn..."
+msgid "&New…"
+msgstr "Tạ&o mới…"
+
+msgid "&Existing…"
+msgstr "&Có sẵn…"
 
 msgid "&Remove"
 msgstr "Loạ&i bỏ"
@@ -602,9 +621,6 @@ msgstr "Kênh:"
 
 msgid "ID:"
 msgstr "ID:"
-
-msgid "&Specify..."
-msgstr "Chỉ &rõ..."
 
 msgid "Sectors:"
 msgstr "Sector:"
@@ -627,8 +643,8 @@ msgstr "Định dạng ảnh đĩa:"
 msgid "Block Size:"
 msgstr "Kích thước bloc:"
 
-msgid "Floppy drives:"
-msgstr "Ổ đĩa mềm:"
+msgid "Floppy drives"
+msgstr "Ổ đĩa mềm"
 
 msgid "Turbo timings"
 msgstr "Thời gian turbo"
@@ -636,23 +652,26 @@ msgstr "Thời gian turbo"
 msgid "Check BPB"
 msgstr "Kiểm tra BPB"
 
-msgid "CD-ROM drives:"
-msgstr "Ổ đĩa CD-ROM:"
+msgid "CD-ROM drives"
+msgstr "Ổ đĩa CD-ROM"
 
-msgid "MO drives:"
-msgstr "Ổ đĩa MO:"
+msgid "MO drives"
+msgstr "Ổ đĩa MO"
 
 msgid "MO:"
 msgstr "MO:"
 
+msgid "Removable disk drives"
+msgstr "Ổ đĩa tháo rời được"
+
 msgid "Removable disks:"
 msgstr "Đĩa tháo rời được:"
 
-msgid "Removable disk drives:"
-msgstr "Ổ đĩa tháo rời được:"
+msgid "Tape drives"
+msgstr "Ổ đĩa băng"
 
-msgid "ZIP 250"
-msgstr "ZIP 250"
+msgid "Tape drives:"
+msgstr "Ổ đĩa băng:"
 
 msgid "ISA RTC:"
 msgstr "ISA RTC:"
@@ -690,9 +709,6 @@ msgstr "Thiết bị ISABugger"
 msgid "POST card"
 msgstr "Thẻ POST"
 
-msgid "86Box"
-msgstr "86Box"
-
 msgid "Error"
 msgstr "Lỗi"
 
@@ -713,6 +729,15 @@ msgstr "Đĩa tháo rời được %1 (%2): %3"
 
 msgid "Removable disk images"
 msgstr "Ảnh đĩa tháo rời được"
+
+msgid "Tape %1 (%2): %3"
+msgstr "Băng %1 (%2): %3"
+
+msgid "&Tape %1 (%2): %3"
+msgstr "&Băng %1 (%2): %3"
+
+msgid "Tape images"
+msgstr "Ảnh băng"
 
 msgid "Image %1"
 msgstr "Ảnh %1"
@@ -744,17 +769,17 @@ msgstr "Ảnh sector cơ bản"
 msgid "Surface images"
 msgstr "Ảnh bề mặt"
 
-msgid "Machine \"%hs\" is not available due to missing ROMs in the roms/machines directory. Switching to an available machine."
-msgstr "Mẫu máy \"%hs\" không giả lập được do thiếu file ROM tương ứng trong thư mục roms/machines. Hãy chọn mẫu máy khác."
+msgid "Machine \"%s\" is not available due to missing ROMs in the roms/machines directory. Switching to an available machine."
+msgstr "Mẫu máy \"%s\" không giả lập được do thiếu file ROM tương ứng trong thư mục roms/machines. Hãy chọn mẫu máy khác."
 
-msgid "Video card \"%hs\" is not available due to missing ROMs in the roms/video directory. Switching to an available video card."
-msgstr "Card đồ họa \"%hs\" không giả lập được do thiếu file ROM tương ứng trong thư mục roms/video. Hãy chọn card đồ họa khác."
+msgid "Video card \"%s\" is not available due to missing ROMs in the roms/video directory. Switching to an available video card."
+msgstr "Card đồ họa \"%s\" không giả lập được do thiếu file ROM tương ứng trong thư mục roms/video. Hãy chọn card đồ họa khác."
 
-msgid "Video card #2 \"%hs\" is not available due to missing ROMs in the roms/video directory. Disabling the second video card."
-msgstr "Card đồ họa 2 \"%hs\" không giả lập được do thiếu file ROM tương ứng trong mục roms/video. Vô hiệu hóa card đồ họa thứ hai."
+msgid "Video card #2 \"%s\" is not available due to missing ROMs in the roms/video directory. Disabling the second video card."
+msgstr "Card đồ họa 2 \"%s\" không giả lập được do thiếu file ROM tương ứng trong mục roms/video. Vô hiệu hóa card đồ họa thứ hai."
 
-msgid "Device \"%hs\" is not available due to missing ROMs. Ignoring the device."
-msgstr "Thiết bị \"%hs\" không giả lập được do thiếu file ROM. Bỏ qua thiết bị."
+msgid "Device \"%s\" is not available due to missing ROMs. Ignoring the device."
+msgstr "Thiết bị \"%s\" không giả lập được do thiếu file ROM. Bỏ qua thiết bị."
 
 msgid "Machine"
 msgstr "Mẫu máy"
@@ -777,8 +802,14 @@ msgstr "Cổng (COM và LPT)"
 msgid "Ports"
 msgstr "Cổng"
 
+msgid "Serial ports"
+msgstr "Cổng serial"
+
 msgid "Serial ports:"
 msgstr "Cổng serial:"
+
+msgid "Parallel ports"
+msgstr "Cổng parallel"
 
 msgid "Parallel ports:"
 msgstr "Cổng parallel:"
@@ -825,14 +856,8 @@ msgstr "Bus"
 msgid "File"
 msgstr "File"
 
-msgid "C"
-msgstr "C"
-
-msgid "H"
-msgstr "H"
-
-msgid "S"
-msgstr "S"
+msgid "Geometry"
+msgstr "Hình học"
 
 msgid "KB"
 msgstr "KB"
@@ -852,8 +877,17 @@ msgstr "Không tìm thấy thiết bị PCap"
 msgid "Invalid PCap device"
 msgstr "Thiết bị PCap không hợp quy"
 
+msgid "Generic paddle controller(s)"
+msgstr "Bộ điều khiển dạng mái chèo thông dụng"
+
+msgid "2-axis, 1-button joystick(s)"
+msgstr "Cần điều khiển hai trục, một nút"
+
 msgid "2-axis, 2-button joystick(s)"
 msgstr "Cần điều khiển hai trục, hai nút"
+
+msgid "2-axis, 3-button joystick"
+msgstr "Cần điều khiển hai trục, ba nút"
 
 msgid "2-axis, 4-button joystick"
 msgstr "Cần điều khiển hai trục, bốn nút"
@@ -867,35 +901,38 @@ msgstr "Cần điều khiển hai trục, tám nút"
 msgid "3-axis, 2-button joystick"
 msgstr "Cần điều khiển ba trục, hai nút"
 
+msgid "3-axis, 3-button joystick"
+msgstr "Cần điều khiển ba trục, ba nút"
+
 msgid "3-axis, 4-button joystick"
 msgstr "Cần điều khiển ba trục, bốn nút"
+
+msgid "4-axis, 2-button joystick"
+msgstr "Cần điều khiển bốn trục, hai nút"
+
+msgid "4-axis, 3-button joystick"
+msgstr "Cần điều khiển bốn trục, ba nút"
 
 msgid "4-axis, 4-button joystick"
 msgstr "Cần điều khiển bốn trục, bốn nút"
 
-msgid "CH Flightstick Pro"
-msgstr "CH Flightstick Pro"
-
-msgid "CH Flightstick Pro + CH Pedals"
-msgstr "CH Flightstick Pro + bàn giậm CH"
-
-msgid "Microsoft SideWinder Pad"
-msgstr "Microsoft SideWinder Pad"
-
-msgid "Thrustmaster Flight Control System"
-msgstr "Thrustmaster Flight Control System"
-
-msgid "Thrustmaster FCS + Rudder Control System"
-msgstr "Thrustmaster FCS + Hệ thống bánh lái"
-
 msgid "2-button gamepad(s)"
 msgstr "Tay cầm game hai nút"
+
+msgid "3-button gamepad"
+msgstr "Tay cầm game ba nút"
+
+msgid "4-button gamepad"
+msgstr "Tay cầm game bốn nút"
+
+msgid "6-button gamepad"
+msgstr "Tay cầm game sáu nút"
 
 msgid "2-button flight yoke"
 msgstr "Vô lăng máy bay hai nút"
 
-msgid "4-button gamepad"
-msgstr "Tay cầm game bốn nút"
+msgid "3-button flight yoke"
+msgstr "Vô lăng máy bay ba nút"
 
 msgid "4-button flight yoke"
 msgstr "Vô lăng máy bay bốn nút"
@@ -903,11 +940,26 @@ msgstr "Vô lăng máy bay bốn nút"
 msgid "2-button flight yoke with throttle"
 msgstr "Vô lăng máy bay hai nút có cần ga"
 
+msgid "3-button flight yoke with throttle"
+msgstr "Vô lăng máy bay ba nút có cần ga"
+
 msgid "4-button flight yoke with throttle"
 msgstr "Vô lăng máy bay bốn nút có cần ga"
 
-msgid "Win95 Steering Wheel (3-axis, 4-button)"
-msgstr "Vô lăng Win95 (ba trục, bốn nút)"
+msgid "Steering wheel (3-axis, 2-button)"
+msgstr "Vô lăng (ba trục, hai nút)"
+
+msgid "Steering wheel (3-axis, 3-button)"
+msgstr "Vô lăng (ba trục, ba nút)"
+
+msgid "Steering wheel (3-axis, 4-button)"
+msgstr "Vô lăng (ba trục, bốn nút)"
+
+msgid "Thrustmaster Formula T1/T2 with adapter"
+msgstr "Thrustmaster Formula T1/T2 kèm bộ chuyển đổi"
+
+msgid "Thrustmaster Formula T1/T2 without adapter"
+msgstr "Thrustmaster Formula T1/T2 không kèm bộ chuyển đổi"
 
 msgid "None"
 msgstr "Không có"
@@ -957,11 +1009,17 @@ msgstr "Thiết bị nội bộ"
 msgid "&File"
 msgstr "&Tập tin"
 
-msgid "&New machine..."
-msgstr "Máy &mới"
+msgid "&New machine…"
+msgstr "Máy &mới…"
 
-msgid "&Check for updates..."
-msgstr "Kiểm tra &cập nhật..."
+msgid "New machine…"
+msgstr "Máy mới…"
+
+msgid "New machine"
+msgstr "Máy mới"
+
+msgid "&Check for updates…"
+msgstr "Kiểm tra &cập nhật…"
 
 msgid "Exit"
 msgstr "Thoát"
@@ -978,11 +1036,8 @@ msgstr "Lệnh này sẽ buộc khởi động lại máy ảo."
 msgid "Save"
 msgstr "Lưu"
 
-msgid "About 86Box"
-msgstr "Về 86Box"
-
-msgid "86Box v"
-msgstr "86Box v"
+msgid "About %1"
+msgstr "Về %1"
 
 msgid "An emulator of old computers\n\nAuthors: Miran Grča (OBattler), RichardG867, Jasmine Iwanek, TC1995, coldbrewed, Teemu Korhonen (Manaatti), Joakim L. Gilje, Adrien Moulin (elyosh), Daniel Balsom (gloriouscow), Cacodemon345, Fred N. van Kempen (waltje), Tiseno100, reenigne, and others.\n\nWith previous core contributions from Sarah Walker, leilei, JohnElliott, greatpsycho, and others.\n\nReleased under the GNU General Public License version 2 or later. See LICENSE for more information."
 msgstr "Trình giả lập các dòng máy tính cổ.\n\nTác giả: Miran Grča (OBattler), RichardG867, Jasmine Iwanek, TC1995, coldbrewed, Teemu Korhonen (Manaatti), Joakim L. Gilje, Adrien Moulin (elyosh), Daniel Balsom (gloriouscow), Cacodemon345, Fred N. van Kempen (waltje), Tiseno100, reenigne, cùng những người khác.\n\nCùng với những đóng góp cốt cán từ Sarah Walker, leilei, JohnElliott, greatpsycho, và một số người khác.\n\nPhát hành dưới giấy phép GNU General Public License version 2 trở đi. Đọc LICENSE để biết thêm thông tin."
@@ -1005,15 +1060,6 @@ msgstr "Cần có %1 để tự động chuyển đổi file PCL qua PDF.\n\nM�
 msgid "Don't show this message again"
 msgstr "Không hiện thông báo này nữa"
 
-msgid "Don't exit"
-msgstr "Không thoát"
-
-msgid "Reset"
-msgstr "Khởi động lại"
-
-msgid "Don't reset"
-msgstr "Không khởi động lại"
-
 msgid "CD-ROM images"
 msgstr "Ảnh đĩa CD-ROM"
 
@@ -1027,7 +1073,7 @@ msgid "GLSL shaders"
 msgstr "Shader GLSL"
 
 msgid "You are loading an unsupported configuration"
-msgstr "Bạn đang load tinh chỉnh không được hỗ trợ."
+msgstr "Bạn đang load tinh chỉnh không được hỗ trợ"
 
 msgid "CPU type filtering based on selected machine is disabled for this emulated machine.\n\nThis makes it possible to choose a CPU that is otherwise incompatible with the selected machine. However, you may run into incompatibilities with the machine BIOS or other software.\n\nEnabling this setting is not officially supported and any bug reports filed may be closed as invalid."
 msgstr "Phần chọn loại CPU dựa trên mẫu máy đã chọn bị vô hiệu hóa.\n\nỞ đây bạn có thể chọn loại CPU có thể không tương thích với mẫu máy hiện tại. Tuy nhiên bạn có thể gặp vấn đề tương khắc với BIOS hay phần mềm khác.\n\nViệc bật tùy chọn này lên không được khuyến cáo chính thức và các bản bug report (báo lỗi) với nội dung tương tự sẽ bị coi là phạm quy và đóng."
@@ -1134,8 +1180,8 @@ msgstr "Không thể mở cấu hình đã chọn để đọc: %1"
 msgid "Use regular expressions in search box"
 msgstr "Dùng regex trong hộp tìm kiếm"
 
-msgid "%1 machine(s) are currently active. Are you sure you want to exit the VM manager anyway?"
-msgstr "%1 máy hiện vẫn đang chạy. Bạn có muốn thoát trình quản lý máy ảo không?"
+msgid "%n machine(s) are currently active. Are you sure you want to exit the VM manager anyway?"
+msgstr "%n máy hiện vẫn đang chạy. Bạn có muốn thoát trình quản lý máy ảo không?"
 
 msgid "Add new system wizard"
 msgstr "Thêm trình thuật sĩ hệ thống mới"
@@ -1215,26 +1261,23 @@ msgstr "Đặt tên hiển thị"
 msgid "Enter the new display name (blank to reset)"
 msgstr "Điền tên hiển thị mới (để trống để đặt lại)"
 
-msgid "Change &display name..."
-msgstr "Thay đổi tên hiển thị"
+msgid "Change &display name…"
+msgstr "Thay đổi tên hiển thị…"
 
-msgid "Context Menu"
-msgstr "Menu ngữ cảnh"
+msgid "&Open folder…"
+msgstr "Mở thư mục…"
 
-msgid "&Open folder..."
-msgstr "Mở thư mục"
+msgid "Open p&rinter tray…"
+msgstr "Mở khay máy in…"
 
-msgid "Open p&rinter tray..."
-msgstr "Mở khay máy in"
-
-msgid "Set &icon..."
-msgstr "Đặt biểu trưng"
+msgid "Set &icon…"
+msgstr "Đặt biểu trưng…"
 
 msgid "Select an icon"
 msgstr "Chọn một biểu trưng"
 
-msgid "C&lone..."
-msgstr "Tạo bản sao"
+msgid "C&lone…"
+msgstr "Tạo bản sao…"
 
 msgid "Virtual machine \"%1\" (%2) will be cloned into:"
 msgstr "Máy ảo \"%1\" (%2) sẽ được sao chép vào:"
@@ -1320,8 +1363,8 @@ msgstr "Không có ảnh chụp màn hình"
 msgid "Search"
 msgstr "Tìm"
 
-msgid "Searching for VMs..."
-msgstr "Đang tìm máy ảo..."
+msgid "Searching for VMs…"
+msgstr "Đang tìm máy ảo…"
 
 msgid "Found %1"
 msgstr "Đã thấy %1"
@@ -1332,8 +1375,8 @@ msgstr "Hệ thống"
 msgid "Storage"
 msgstr "Lưu trữ"
 
-msgid "Disk %1: "
-msgstr "Đĩa %1: "
+msgid "Disk %1:"
+msgstr "Đĩa %1:"
 
 msgid "No disks"
 msgstr "Không có đĩa"
@@ -1356,11 +1399,11 @@ msgstr "Ổ cứng (%1)"
 msgid "MFM/RLL or ESDI CD-ROM drives never existed"
 msgstr "Không hề có ổ CD-ROM MFM/RLL hay ESDI nào tồn tại"
 
-msgid "Custom..."
-msgstr "Tùy chỉnh..."
+msgid "Custom…"
+msgstr "Tùy chỉnh…"
 
-msgid "Custom (large)..."
-msgstr "Tùy chỉnh (dung tích lớn)..."
+msgid "Custom (large)…"
+msgstr "Tùy chỉnh (dung tích lớn)…"
 
 msgid "Add New Hard Disk"
 msgstr "Thêm ổ cứng mới"
@@ -1479,21 +1522,6 @@ msgstr "Mốc timestamp của đĩa con (child) và đĩa cha (parent) không tr
 msgid "Could not fix VHD timestamp."
 msgstr "Không thể sửa mốc timestamp cho VHD."
 
-msgid "MFM/RLL"
-msgstr "MFM/RLL"
-
-msgid "XTA"
-msgstr "XTA"
-
-msgid "ESDI"
-msgstr "ESDI"
-
-msgid "IDE"
-msgstr "IDE"
-
-msgid "ATAPI"
-msgstr "ATAPI"
-
 msgid "CD-ROM %1 (%2): %3"
 msgstr "CD-ROM %1 (%2): %3"
 
@@ -1536,9 +1564,6 @@ msgstr "DMF (cluster 2048)"
 msgid "2.88 MB"
 msgstr "2.88 MB"
 
-msgid "ZIP 100"
-msgstr "ZIP 100"
-
 msgid "3.5\" 128 MB (ISO 10090)"
 msgstr "3.5\" 128 MB (ISO 10090)"
 
@@ -1580,6 +1605,9 @@ msgstr "1.5% thấp hơn số RPM hoàn thiện"
 
 msgid "2% below perfect RPM"
 msgstr "2% thấp hơn số RPM hoàn thiện"
+
+msgid "Creating image…"
+msgstr "Đang tạo hình ảnh…"
 
 msgid "(System Default)"
 msgstr "(Mặc định hệ thống)"
@@ -1644,14 +1672,14 @@ msgstr "Công cụ bảng nhập liệu"
 msgid "About &Qt"
 msgstr "Về &qt"
 
-msgid "&MCA devices..."
-msgstr "Thiết bị MCA..."
+msgid "&MCA devices…"
+msgstr "Thiết bị MCA…"
 
 msgid "Show non-&primary monitors"
 msgstr "Hiển thị các màn hình phụ"
 
-msgid "Open screenshots &folder..."
-msgstr "Mở thư mục ảnh chụp màn hình..."
+msgid "Open screenshots &folder…"
+msgstr "Mở thư mục ảnh chụp màn hình…"
 
 msgid "Appl&y fullscreen stretch mode when maximized"
 msgstr "Co giãn toàn màn hình khi cực đại hóa cửa sổ"
@@ -1662,8 +1690,8 @@ msgstr "&Con trỏ/puck"
 msgid "&Pen"
 msgstr "&Bút"
 
-msgid "&Host CD/DVD Drive (%1:)"
-msgstr "&Máy chủ CD/DVD ổ đĩa (%1 :)"
+msgid "&Host CD/DVD Drive (%1)"
+msgstr "&Máy chủ CD/DVD ổ đĩa (%1)"
 
 msgid "&Connected"
 msgstr "&Đã kết nối"
@@ -1671,8 +1699,8 @@ msgstr "&Đã kết nối"
 msgid "Clear image &history"
 msgstr "Xóa lịch sử ảnh đĩa"
 
-msgid "Create..."
-msgstr "Tạo..."
+msgid "Create…"
+msgstr "Tạo…"
 
 msgid "Host CD/DVD Drive (%1)"
 msgstr "Máy chủ CD/DVD Drive (%1)"
@@ -1713,8 +1741,8 @@ msgstr "Shaders"
 msgid "Remove"
 msgstr "Loại bỏ"
 
-msgid "Browse..."
-msgstr "Duyệt..."
+msgid "Browse…"
+msgstr "Duyệt…"
 
 msgid "Couldn't create OpenGL context."
 msgstr "Không thể tạo bối cảnh OpenGL."
@@ -1746,8 +1774,8 @@ msgstr "Tôi đã di chuyển nó"
 msgid "I Copied It"
 msgstr "Tôi đã sao chép nó"
 
-msgid "86Box Monitor #"
-msgstr "Màn hình 86box #"
+msgid "86Box Monitor #%1"
+msgstr "Màn hình 86Box #%1"
 
 msgid "No MCA devices."
 msgstr "Không có thiết bị MCA."
@@ -1758,17 +1786,17 @@ msgstr "MiB"
 msgid "GiB"
 msgstr "GiB"
 
-msgid "Network Card #1"
-msgstr "Thẻ mạng 1"
+msgid "Adapter 1"
+msgstr "Bộ chuyển đổi 1"
 
-msgid "Network Card #2"
-msgstr "Thẻ mạng 2"
+msgid "Adapter 2"
+msgstr "Bộ chuyển đổi 2"
 
-msgid "Network Card #3"
-msgstr "Thẻ mạng 3"
+msgid "Adapter 3"
+msgstr "Bộ chuyển đổi 3"
 
-msgid "Network Card #4"
-msgstr "Thẻ mạng 4"
+msgid "Adapter 4"
+msgstr "Bộ chuyển đổi 4"
 
 msgid "Mode:"
 msgstr "Chế độ:"
@@ -1782,26 +1810,17 @@ msgstr "Bộ chuyển đổi:"
 msgid "VDE Socket:"
 msgstr "Ổ cắm VDE:"
 
+msgid "TAP Bridge Device:"
+msgstr "Thiết bị cầu nối TAP:"
+
 msgid "86Box Unit Tester"
 msgstr "Trình kiểm tra đơn vị 86box"
 
 msgid "Novell NetWare 2.x Key Card"
 msgstr "Thẻ khóa Novell Netware 2.x"
 
-msgid "Serial port passthrough 1"
-msgstr "Thông qua cổng serial 1"
-
-msgid "Serial port passthrough 2"
-msgstr "Thông qua cổng serial 2"
-
-msgid "Serial port passthrough 3"
-msgstr "Thông qua cổng serial 3"
-
-msgid "Serial port passthrough 4"
-msgstr "Thông qua cổng serial 4"
-
-msgid "Renderer &options..."
-msgstr "Tùy chọn kết xuất ..."
+msgid "Renderer &options…"
+msgstr "Tùy chọn kết xuất…"
 
 msgid "PC/XT Keyboard"
 msgstr "Bàn phím PC/XT"
@@ -1854,8 +1873,8 @@ msgstr "3M MicroTouch (Serial)"
 msgid "Default Baud rate"
 msgstr "Tốc độ baud mặc định"
 
-msgid "[COM] Standard Hayes-compliant Modem"
-msgstr "[COM] Modem tuân thủ tiêu chuẩn Hayes"
+msgid "Standard Hayes-compliant Modem"
+msgstr "Modem tuân thủ tiêu chuẩn Hayes"
 
 msgid "Roland MT-32 Emulation"
 msgstr "Mô phỏng Roland MT-32"
@@ -1938,6 +1957,9 @@ msgstr "IRQ cổng serial"
 msgid "Parallel port IRQ"
 msgstr "IRQ cổng parallel"
 
+msgid "Hard disk"
+msgstr "Ổ cứng"
+
 msgid "BIOS Revision"
 msgstr "Sửa đổi BIOS"
 
@@ -1946,6 +1968,9 @@ msgstr "Phiên bản BIOS"
 
 msgid "BIOS Language"
 msgstr "Ngôn ngữ BIOS"
+
+msgid "Variant"
+msgstr ""
 
 msgid "IBM 5161 Expansion Unit"
 msgstr "Bộ mở rộng IBM 5161"
@@ -2012,9 +2037,6 @@ msgstr "Thông qua đầu vào MIDI"
 
 msgid "MIDI Clockout"
 msgstr "MIDI Clockout"
-
-msgid "SoundFont"
-msgstr "Font âm thanh"
 
 msgid "Output Gain"
 msgstr "Tăng đầu ra"
@@ -2157,12 +2179,6 @@ msgstr "Cường độ bộ lọc SID"
 msgid "Surround module"
 msgstr "Mô đun vòm"
 
-msgid "CODEC"
-msgstr "CODEC"
-
-msgid "Raise CODEC interrupt on CODEC setup (needed by some drivers)"
-msgstr "Tăng ngắt CODEC trên thiết lập CODEC (cần bởi một số trình điều khiển)"
-
 msgid "SB Address"
 msgstr "Địa chỉ SB"
 
@@ -2177,6 +2193,18 @@ msgstr "WSS IRQ"
 
 msgid "WSS DMA"
 msgstr "WSS DMA"
+
+msgid "RTC IRQ"
+msgstr "IRQ của RTC"
+
+msgid "RTC Port Address"
+msgstr "Địa chỉ cổng của RTC"
+
+msgid "Onboard RTC"
+msgstr "RTC tích hợp trên bo mạch"
+
+msgid "Not installed"
+msgstr "Chưa được cài đặt"
 
 msgid "Enable OPL"
 msgstr "Bật OPL"
@@ -2207,9 +2235,6 @@ msgstr "Kích thước bộ nhớ"
 
 msgid "EMU8000 Address"
 msgstr "Địa chỉ EMU8000"
-
-msgid "IDE Controller"
-msgstr "Bộ điều khiển IDE"
 
 msgid "Codec"
 msgstr "Codec"
@@ -2448,9 +2473,6 @@ msgstr "24 MB"
 msgid "SigmaTel STAC9721T (stereo)"
 msgstr "Sigmatel Stac9721T (âm thanh nổi)"
 
-msgid "Classic"
-msgstr "Cổ điển"
-
 msgid "256 KB"
 msgstr "256 KB"
 
@@ -2598,6 +2620,9 @@ msgstr "Tiêu chuẩn"
 msgid "High-Speed"
 msgstr "Tốc độ cao"
 
+msgid "LPT DAC / Covox Speech Thing"
+msgstr "LPT DAC / Covox Speech Thing"
+
 msgid "Stereo LPT DAC"
 msgstr "STEREO LPT DAC"
 
@@ -2610,8 +2635,8 @@ msgstr "Máy in generic ESC/P 2 ma trận chấm"
 msgid "Generic PostScript Printer"
 msgstr "Máy in generic PostScript"
 
-msgid "Generic PCL5e Printer"
-msgstr "Máy in generic PCL5E"
+msgid "Generic PCL Printer"
+msgstr "Máy in generic PCL"
 
 msgid "Parallel Line Internet Protocol"
 msgstr "Parallel Line Internet Protocol"
@@ -2619,7 +2644,11 @@ msgstr "Parallel Line Internet Protocol"
 msgid "Protection Dongle for Savage Quest"
 msgstr "Dongle bảo vệ cho Savage Quest"
 
-msgid "Serial Passthrough Device"
+msgid "Loopback Plug"
+msgstr ""
+
+#, fuzzy
+msgid "Serial Passthrough"
 msgstr "Thiết bị thông qua cổng serial"
 
 msgid "Passthrough Mode"
@@ -2664,6 +2693,12 @@ msgstr "Ảnh hưởng lớn đến hiệu suất"
 msgid "[Generic] RAM Disk (max. speed)"
 msgstr "[Generic] Đĩa RAM (tốc độ tối đa)"
 
+msgid "[Generic] 1983 MFM (3600 RPM)"
+msgstr "[Generic] 1983 MFM (3600 RPM)"
+
+msgid "[Generic] 1983 RLL (3600 RPM)"
+msgstr "[Generic] 1983 RLL (3600 RPM)"
+
 msgid "[Generic] 1989 (3500 RPM)"
 msgstr "[Generic] 1989 (3500 RPM)"
 
@@ -2692,16 +2727,22 @@ msgid "Vendor"
 msgstr "Nhà sản xuất"
 
 msgid "30 Hz (JMP2 = 1)"
-msgstr ""
+msgstr "30 Hz (JMP2 = 1)"
 
 msgid "60 Hz (JMP2 = 2)"
-msgstr ""
+msgstr "60 Hz (JMP2 = 2)"
 
 msgid "Generic PC/XT Memory Expansion"
 msgstr "Mở rộng bộ nhớ chung qua PC/XT"
 
 msgid "Generic PC/AT Memory Expansion"
 msgstr "Mở rộng bộ nhớ chung qua PC/AT"
+
+msgid "Generic MM58167 RTC"
+msgstr ""
+
+msgid "OPL2Board (External Device)"
+msgstr ""
 
 msgid "Unable to find Dot-Matrix fonts"
 msgstr "Không tìm thấy phông chữ ma trận chấm"
@@ -2739,9 +2780,6 @@ msgstr "Lỗi GLSL"
 msgid "Could not load shader: %1"
 msgstr "Không thể nạp shader: %1"
 
-msgid "OpenGL version 3.0 or greater is required. Current GLSL version is %1.%2"
-msgstr "Yêu cầu OpenGL bản 3.0 trở lên. Hiện tại bản GLSL là %1.%2"
-
 msgid "Could not load texture: %1"
 msgstr "Không thể nạp texture: %1"
 
@@ -2769,8 +2807,14 @@ msgstr "Chuyển xuống"
 msgid "Could not load file %1"
 msgstr "Không thể nạp tập tin %1"
 
-msgid "Key Bindings:"
-msgstr "Phím nóng:"
+msgid "Emulator"
+msgstr ""
+
+msgid "Input"
+msgstr ""
+
+msgid "Key bindings"
+msgstr "Phím nóng"
 
 msgid "Action"
 msgstr "Thực hiện"
@@ -2788,7 +2832,7 @@ msgid "Bind Key"
 msgstr "Gắn phím"
 
 msgid "Enter key combo:"
-msgstr "Nhập tổ hợp phím"
+msgstr "Nhập tổ hợp phím:"
 
 msgid "Bind conflict"
 msgstr "Gắn phím trùng lặp"
@@ -2805,8 +2849,8 @@ msgstr "Gửi Control+Alt+Escape"
 msgid "Toggle fullscreen"
 msgstr "Bật/tắt toàn màn hình"
 
-msgid "Screenshot"
-msgstr "Chụp màn hình"
+msgid "Toggle UI in fullscreen"
+msgstr "Chuyển đổi giao diện người dùng sang chế độ toàn màn hình"
 
 msgid "Release mouse pointer"
 msgstr "Thả con trỏ chuột"
@@ -2832,8 +2876,8 @@ msgstr "Công tắc cục bộ"
 msgid "Remote Switch"
 msgstr "Công tắc từ xa"
 
-msgid "Switch:"
-msgstr "Công tắc:"
+msgid "Shared secret:"
+msgstr "Bí mật chia sẻ:"
 
 msgid "Hub Mode"
 msgstr "Chế độ hub"
@@ -2902,13 +2946,13 @@ msgid "build"
 msgstr "bản dựng"
 
 msgid "You are currently running version <b>%1</b>."
-msgstr "Bạn đang chạy phiên bản <b>%1</b>"
+msgstr "Bạn đang chạy phiên bản <b>%1</b>."
 
 msgid "<b>Version %1</b> is now available."
 msgstr "<b>Phiên bản %1</b> hiện đã ra mắt."
 
 msgid "You are currently running build <b>%1</b>."
-msgstr "Bạn đang chạy bản dựng <b>%1</b>"
+msgstr "Bạn đang chạy bản dựng <b>%1</b>."
 
 msgid "<b>Build %1</b> is now available."
 msgstr "<b>Bản dựng %1</b> hiện đã ra mắt."
@@ -2922,8 +2966,8 @@ msgstr "Truy cập trang tải xuống"
 msgid "Update check"
 msgstr "Kiểm tra cập nhật"
 
-msgid "Checking for updates..."
-msgstr "Đang kiểm tra cập nhật..."
+msgid "Checking for updates…"
+msgstr "Đang kiểm tra cập nhật…"
 
 msgid "86Box Update"
 msgstr "Cập nhật 86Box"
@@ -2961,8 +3005,8 @@ msgstr "Độ sáng"
 msgid "Sharpness"
 msgstr "Độ sắc nét"
 
-msgid "&CGA composite settings..."
-msgstr "Cài đặt chế độ tổng hợp &CGA..."
+msgid "&CGA composite settings…"
+msgstr "Cài đặt chế độ tổng hợp &CGA…"
 
 msgid "CGA composite settings"
 msgstr "Cài đặt chế độ tổng hợp CGA"
@@ -2970,14 +3014,14 @@ msgstr "Cài đặt chế độ tổng hợp CGA"
 msgid "Monitor EDID"
 msgstr "EDID của màn hình"
 
-msgid "Export..."
-msgstr "Xuất khẩu..."
+msgid "Export…"
+msgstr "Xuất ra file…"
 
 msgid "Export EDID"
-msgstr "Xuất khẩu EDID"
+msgstr "Xuất ra file EDID"
 
-msgid "EDID file \"%ls\" is too large."
-msgstr "Tệp EDID \"%ls\" quá lớn."
+msgid "EDID file \"%s\" is too large."
+msgstr "Tệp EDID \"%s\" quá lớn."
 
 msgid "OpenGL input scale"
 msgstr "Độ phân giải đầu vào của OpenGL"
@@ -2986,10 +3030,43 @@ msgid "OpenGL input stretch mode"
 msgstr "Chế độ kéo giãn đầu vào của OpenGL"
 
 msgid "Color scheme"
-msgstr "Bảng màu"
+msgstr "Kiểu giao diện"
 
 msgid "Light"
-msgstr "Ánh sáng"
+msgstr "Sáng"
 
 msgid "Dark"
 msgstr "Tối"
+
+msgid "Force interpretation"
+msgstr "Buộc thông dịch"
+
+msgid "Allow recompilation"
+msgstr "Cho phép biên dịch lại"
+
+msgid "&Force interpretation"
+msgstr "&Buộc giải thích"
+
+msgid "&Allow recompilation"
+msgstr "&Cho phép biên dịch lại"
+
+msgid "&Fast forward"
+msgstr "&Chuyển nhanh băng"
+
+msgid "Fast forward"
+msgstr "Chuyển nhanh băng"
+
+msgid "To change the system directory, stop all running machines."
+msgstr "Để thay đổi thư mục hệ thống, hãy tắt tất cả các máy đang chạy."
+
+msgid "Raw"
+msgstr "Thô"
+
+msgid "Use EDC/ECC emulation"
+msgstr "Dùng mô phỏng EDC/ECC"
+
+msgid "Audio output device:"
+msgstr "Thiết bị đầu ra âm thanh:"
+
+msgid "System Default"
+msgstr "Mặc định hệ thống"

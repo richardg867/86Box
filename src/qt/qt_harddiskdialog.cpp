@@ -8,8 +8,6 @@
  *
  *          Hard disk dialog code.
  *
- *
- *
  * Authors: Joakim L. Gilje <jgilje@jgilje.net>
  *          Cacodemon345
  *
@@ -21,10 +19,11 @@
 
 extern "C" {
 #ifdef __unix__
-#include <unistd.h>
+#    include <unistd.h>
 #endif
 #include <86box/86box.h>
 #include <86box/hdd.h>
+#include <86box/plat.h>
 #include "../disk/minivhd/minivhd.h"
 }
 
@@ -53,6 +52,8 @@ HarddiskDialog::HarddiskDialog(bool existing, QWidget *parent)
 {
     ui->setupUi(this);
 
+    scSpeed = new SettingsCompleter(ui->comboBoxSpeed, nullptr);
+
     auto *model = ui->comboBoxFormat->model();
     model->insertRows(0, 6);
     model->setData(model->index(0, 0), tr("Raw image (.img)"));
@@ -77,21 +78,21 @@ HarddiskDialog::HarddiskDialog(bool existing, QWidget *parent)
     for (int i = 0; i < 127; i++) {
         uint64_t size    = ((uint64_t) hdd_table[i][0]) * hdd_table[i][1] * hdd_table[i][2];
         uint32_t size_mb = size >> 11LL;
-        QString text = tr("%1 MB (CHS: %2, %3, %4)").arg(size_mb).arg(hdd_table[i][0]).arg(hdd_table[i][1]).arg(hdd_table[i][2]);
+        QString  text    = tr("%1 MB (CHS: %2, %3, %4)").arg(size_mb).arg(hdd_table[i][0]).arg(hdd_table[i][1]).arg(hdd_table[i][2]);
         Models::AddEntry(model, text, i);
     }
-    Models::AddEntry(model, tr("Custom..."), 127);
-    Models::AddEntry(model, tr("Custom (large)..."), 128);
+    Models::AddEntry(model, tr("Custom…"), 127);
+    Models::AddEntry(model, tr("Custom (large)…"), 128);
 
     ui->lineEditSize->setValidator(new QIntValidator());
     ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
 
     filters = QStringList({ tr("Raw image") % util::DlgFilter({ "img" }, true),
-                          tr("HDI image") % util::DlgFilter({ "hdi" }, true),
-                          tr("HDX image") % util::DlgFilter({ "hdx" }, true),
-                          tr("Fixed-size VHD") % util::DlgFilter({ "vhd" }, true),
-                          tr("Dynamic-size VHD") % util::DlgFilter({ "vhd" }, true),
-                          tr("Differencing VHD") % util::DlgFilter({ "vhd" }, true) });
+                            tr("HDI image") % util::DlgFilter({ "hdi" }, true),
+                            tr("HDX image") % util::DlgFilter({ "hdx" }, true),
+                            tr("Fixed-size VHD") % util::DlgFilter({ "vhd" }, true),
+                            tr("Dynamic-size VHD") % util::DlgFilter({ "vhd" }, true),
+                            tr("Differencing VHD") % util::DlgFilter({ "vhd" }, true) });
 
     if (existing) {
         ui->fileField->setFilter(tr("Hard disk images") % util::DlgFilter({ "hd?", "im?", "vhd" }) % tr("All files") % util::DlgFilter({ "*" }, true));
@@ -133,6 +134,8 @@ HarddiskDialog::HarddiskDialog(bool existing, QWidget *parent)
 
 HarddiskDialog::~HarddiskDialog()
 {
+    delete scSpeed;
+
     delete ui;
 }
 
@@ -319,7 +322,6 @@ create_drive_vhd_diff(const QString &fileName, const QString &parentFileName, in
             _86box_geometry.spt   = vhd_geometry.spt;
         }
 
-
         mvhd_close(vhd);
     }
 
@@ -329,6 +331,49 @@ create_drive_vhd_diff(const QString &fileName, const QString &parentFileName, in
 void
 HarddiskDialog::onCreateNewFile()
 {
+    auto fileName = ui->fileField->fileName();
+    QByteArray fileNameUtf8 = fileName.toUtf8();
+
+    /* Check if this is a block device - if so, handle it as "existing" disk */
+    if (plat_is_block_device(fileNameUtf8.data())) {
+        int64_t dev_size = plat_get_block_device_size(fileNameUtf8.data());
+        if (dev_size <= 0) {
+            QMessageBox::critical(this, tr("Unable to read device"), tr("Could not determine block device size. Make sure you have permission to access this device."));
+            return;
+        }
+
+        uint64_t size = static_cast<uint64_t>(dev_size);
+
+        /* Calculate geometry from size */
+        uint32_t sectors = 63;
+        uint32_t heads   = 16;
+        uint32_t cylinders = ((size >> 9) / heads) / sectors;
+
+        if (cylinders > max_cylinders) {
+            QMessageBox::critical(this, tr("Device too large"), tr("Block device is too large to be used as a hard disk."));
+            return;
+        }
+
+        cylinders_ = cylinders;
+        heads_     = heads;
+        sectors_   = sectors;
+
+        ui->lineEditCylinders->setText(QString::number(cylinders));
+        ui->lineEditHeads->setText(QString::number(heads));
+        ui->lineEditSectors->setText(QString::number(sectors));
+        ui->lineEditSize->setText(QString::number(size >> 20));
+
+        QMessageBox::information(this, tr("Block device detected"),
+            tr("Detected block device: %1\nSize: %2 MB\nGeometry: %3 cylinders, %4 heads, %5 sectors")
+            .arg(fileName)
+            .arg(size >> 20)
+            .arg(cylinders)
+            .arg(heads)
+            .arg(sectors));
+
+        setResult(QDialog::Accepted);
+        return;
+    }
 
     for (auto &curObject : children()) {
         if (qobject_cast<QWidget *>(curObject))
@@ -348,7 +393,6 @@ HarddiskDialog::onCreateNewFile()
     uint32_t zero       = 0;
     uint32_t base       = 0x1000;
 
-    auto    fileName = ui->fileField->fileName();
     QString expectedSuffix;
     switch (img_format) {
         case IMG_FMT_HDI:
@@ -416,7 +460,7 @@ HarddiskDialog::onCreateNewFile()
         file.close();
 
         _86BoxGeom _86box_geometry {};
-        int      block_size = ui->comboBoxBlockSize->currentIndex() == 0 ? MVHD_BLOCK_LARGE : MVHD_BLOCK_SMALL;
+        int        block_size = ui->comboBoxBlockSize->currentIndex() == 0 ? MVHD_BLOCK_LARGE : MVHD_BLOCK_SMALL;
         switch (img_format) {
             case IMG_FMT_VHD_FIXED:
                 {
@@ -566,16 +610,57 @@ HarddiskDialog::onExistingFileSelected(const QString &fileName, bool precheck)
     int      vhd_error   = 0;
 
     ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
+    QByteArray fileNameUtf8 = fileName.toUtf8();
+
+    /* Check if this is a block device FIRST - QFile may not handle them properly */
+    if (plat_is_block_device(fileNameUtf8.data())) {
+        int64_t dev_size = plat_get_block_device_size(fileNameUtf8.data());
+        if (dev_size <= 0) {
+            if (!precheck) {
+                QMessageBox::critical(this, tr("Unable to read device"),
+                    tr("Could not determine block device size. Make sure you have permission to access this device."));
+            }
+            return;
+        }
+        size = static_cast<uint64_t>(dev_size);
+
+        /* Use standard geometry for large drives */
+        sectors = 63;
+        heads   = 16;
+        cylinders = ((size >> 9) / heads) / sectors;
+
+        if ((sectors > max_sectors) || (heads > max_heads) || (cylinders > max_cylinders)) {
+            QMessageBox::critical(this, tr("Device too large"), tr("Block device is too large to be used as a hard disk."));
+            return;
+        }
+
+        heads_     = heads;
+        sectors_   = sectors;
+        cylinders_ = cylinders;
+        ui->lineEditCylinders->setText(QString::number(cylinders));
+        ui->lineEditHeads->setText(QString::number(heads));
+        ui->lineEditSectors->setText(QString::number(sectors));
+        ui->lineEditSize->setText(QString::number(size >> 20));
+        recalcSelection();
+
+        ui->lineEditCylinders->setEnabled(true);
+        ui->lineEditHeads->setEnabled(true);
+        ui->lineEditSectors->setEnabled(true);
+        ui->lineEditSize->setEnabled(true);
+        ui->comboBoxType->setEnabled(true);
+        ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(true);
+        return;
+    }
+
     QFile file(fileName);
     if (!file.open(QIODevice::ReadOnly)) {
         // No message box during precheck (performed when the file input loses focus and this function is called)
         // If precheck is false, the file has been chosen from a file dialog and the alert should display.
-        if(!precheck) {
+        if (!precheck) {
             QMessageBox::critical(this, tr("Unable to read file"), tr("Make sure the file exists and is readable."));
         }
         return;
     }
-    QByteArray fileNameUtf8 = fileName.toUtf8();
 
     QFileInfo fi(file);
     if (image_is_hdi(fileNameUtf8.data()) || image_is_hdx(fileNameUtf8.data(), 1)) {
@@ -776,7 +861,7 @@ HarddiskDialog::on_comboBoxBus_currentIndexChanged(int index)
     ui->lineEditSectors->setValidator(new QIntValidator(1, max_sectors, this));
 
     Harddrives::populateBusChannels(ui->comboBoxChannel->model(), ui->comboBoxBus->currentData().toInt(), Harddrives::busTrackClass);
-    Harddrives::populateSpeeds(ui->comboBoxSpeed->model(), ui->comboBoxBus->currentData().toInt());
+    Harddrives::populateSpeeds(ui->comboBoxSpeed->model(), scSpeed, ui->comboBoxBus->currentData().toInt());
 
     switch (ui->comboBoxBus->currentData().toInt()) {
         case HDD_BUS_MFM:

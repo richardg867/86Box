@@ -8,8 +8,6 @@
  *
  *          Software renderer module.
  *
- *
- *
  * Authors: Joakim L. Gilje <jgilje@jgilje.net>
  *          Cacodemon345
  *          Teemu Korhonen
@@ -20,20 +18,21 @@
  */
 #include "qt_softwarerenderer.hpp"
 #include <QApplication>
+#include <QClipboard>
 #include <QPainter>
 #include <QResizeEvent>
+#include <QScreen>
+#include "qt_util.hpp"
 
 extern "C" {
 #include <86box/86box.h>
+#include <86box/path.h>
+#include <86box/plat.h>
 #include <86box/video.h>
 }
 
 SoftwareRenderer::SoftwareRenderer(QWidget *parent)
-#ifdef __HAIKU__
     : QWidget(parent)
-#else
-    : QWindow(parent->windowHandle()), m_backingStore(new QBackingStore(this))
-#endif
 {
     RendererCommon::parentWidget = parent;
 
@@ -43,25 +42,23 @@ SoftwareRenderer::SoftwareRenderer(QWidget *parent)
     buf_usage = std::vector<std::atomic_flag>(2);
     buf_usage[0].clear();
     buf_usage[1].clear();
-#ifdef __HAIKU__
     this->setMouseTracking(true);
-#endif
 }
 
-#ifdef __HAIKU__
 void
 SoftwareRenderer::paintEvent(QPaintEvent *event)
 {
     (void) event;
     onPaint(this);
 }
-#endif
 
 void
 SoftwareRenderer::render()
 {
+#ifdef __HAIKU__
     if (!isExposed())
         return;
+#endif
 
     QRect rect(0, 0, width(), height());
     m_backingStore->beginPaint(rect);
@@ -74,16 +71,18 @@ SoftwareRenderer::render()
 }
 
 void
-SoftwareRenderer::exposeEvent(QExposeEvent* event)
+SoftwareRenderer::exposeEvent(QExposeEvent *event)
 {
     render();
 }
+
+extern void take_screenshot_clipboard_monitor(int sx, int sy, int sw, int sh, int i);
 
 void
 SoftwareRenderer::onBlit(int buf_idx, int x, int y, int w, int h)
 {
     /* TODO: should look into deleteLater() */
-    auto  tval    = this;
+    auto tval = this;
     if ((void *) tval == nullptr)
         return;
     auto origSource = source;
@@ -95,24 +94,66 @@ SoftwareRenderer::onBlit(int buf_idx, int x, int y, int w, int h)
 
     if (source != origSource)
         onResize(this->width(), this->height());
-#ifdef __HAIKU__
+
     update();
-#else
-    render();
-#endif
+
+    if (monitors[r_monitor_index].mon_screenshots) {
+        char path[1024];
+        char fn[256];
+
+        memset(fn, 0, sizeof(fn));
+        memset(path, 0, sizeof(path));
+
+        path_append_filename(path, usr_path, SCREENSHOT_PATH);
+
+        if (!plat_dir_check(path))
+            plat_dir_create(path);
+
+        path_slash(path);
+        strcat(path, "Monitor_");
+        snprintf(&path[strlen(path)], 42, "%d_", r_monitor_index + 1);
+
+        plat_tempfile(fn, NULL, (char *) ".png");
+        strcat(path, fn);
+
+        qreal win_scale = util::screenOfWidget(this)->devicePixelRatio();
+        QSize qs = RendererCommon::parentWidget->size();
+        QPixmap pixmap(RendererCommon::parentWidget->size());
+        RendererCommon::parentWidget->render(&pixmap);
+        QImage image;
+        if (win_scale == 1.0)
+            image = pixmap.toImage();
+        else
+            image = pixmap.toImage().scaled(qs * win_scale, Qt::IgnoreAspectRatio,
+                                            Qt::SmoothTransformation);
+        image.save(path, "png");
+        monitors[r_monitor_index].mon_screenshots--;
+    }
+    if (monitors[r_monitor_index].mon_screenshots_clipboard) {
+        qreal win_scale = util::screenOfWidget(this)->devicePixelRatio();
+        QSize qs = RendererCommon::parentWidget->size();
+        QPixmap pixmap(RendererCommon::parentWidget->size());
+        RendererCommon::parentWidget->render(&pixmap);
+        QImage image;
+        if (win_scale == 1.0)
+            image = pixmap.toImage();
+        else
+            image = pixmap.toImage().scaled(qs * win_scale, Qt::IgnoreAspectRatio,
+                                            Qt::SmoothTransformation);
+        QClipboard *clipboard = QApplication::clipboard();
+        clipboard->setImage(image, QClipboard::Clipboard);
+        monitors[r_monitor_index].mon_screenshots_clipboard--;
+    }
+    if (monitors[r_monitor_index].mon_screenshots_raw_clipboard) {
+        take_screenshot_clipboard_monitor(x, y, w, h, r_monitor_index);
+    }
 }
 
 void
 SoftwareRenderer::resizeEvent(QResizeEvent *event)
 {
     onResize(width(), height());
-#ifdef __HAIKU__
     QWidget::resizeEvent(event);
-#else
-    QWindow::resizeEvent(event);
-    m_backingStore->resize(event->size());
-    render();
-#endif
 }
 
 bool
@@ -120,11 +161,7 @@ SoftwareRenderer::event(QEvent *event)
 {
     bool res = false;
     if (!eventDelegate(event, res))
-#ifdef __HAIKU__
         return QWidget::event(event);
-#else
-        return QWindow::event(event);
-#endif
     return res;
 }
 
@@ -143,9 +180,7 @@ SoftwareRenderer::onPaint(QPaintDevice *device)
 #endif
     painter.setCompositionMode(QPainter::CompositionMode_Plus);
     painter.drawImage(destination, *images[cur_image], source);
-#ifndef __HAIKU__
     painter.end();
-#endif
 }
 
 std::vector<std::tuple<uint8_t *, std::atomic_flag *>>

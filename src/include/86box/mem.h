@@ -8,8 +8,6 @@
  *
  *          Definitions for the memory interface.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
  *          Miran Grca, <mgrca8@gmail.com>
@@ -18,7 +16,6 @@
  *          Copyright 2017-2020 Fred N. van Kempen.
  *          Copyright 2016-2020 Miran Grca.
  */
-
 #ifndef EMU_MEM_H
 #define EMU_MEM_H
 
@@ -310,6 +307,7 @@ extern int      read_type;
 
 extern int mem_a20_state;
 extern int mem_a20_alt;
+extern int mem_a20_chipset;
 extern int mem_a20_key;
 
 extern uint8_t  read_mem_b(uint32_t addr);
@@ -406,7 +404,7 @@ extern void mem_mapping_set_exec(mem_mapping_t *, uint8_t *exec);
 extern void mem_mapping_set_mask(mem_mapping_t *, uint32_t mask);
 extern void mem_mapping_disable(mem_mapping_t *);
 extern void mem_mapping_enable(mem_mapping_t *);
-extern void mem_mapping_recalc(uint64_t base, uint64_t size);
+extern void mem_mapping_recalc(uint64_t base, uint64_t size, uint32_t base_ignore);
 
 extern void mem_set_wp(uint64_t base, uint64_t size, uint8_t flags, uint8_t wp);
 extern void mem_set_access(uint8_t bitmap, int mode, uint32_t base, uint32_t size, uint16_t access);
@@ -465,8 +463,6 @@ extern void mem_remap_top_ex(int kb, uint32_t start);
 extern void mem_remap_top_ex_nomid(int kb, uint32_t start);
 extern void mem_remap_top(int kb);
 extern void mem_remap_top_nomid(int kb);
-
-extern void umc_smram_recalc(uint32_t start, int set);
 
 extern void pcjr_waitstates(void *);
 

@@ -68,12 +68,11 @@ machine_at_ms4134_init(const machine_t *model)
 
     pci_init(FLAG_MECHANISM_1 | FLAG_MECHANISM_2 | PCI_ALWAYS_EXPOSE_DEV0);
     pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
-
-    pci_register_slot(0x0B, PCI_CARD_SCSI, 4, 1, 2, 3);
-    pci_register_slot(0x08, PCI_CARD_NORMAL, 1, 2, 3, 4);
-    pci_register_slot(0x09, PCI_CARD_NORMAL, 2, 3, 4, 1);
-    pci_register_slot(0x0A, PCI_CARD_NORMAL, 3, 4, 1, 2);
-    pci_register_slot(0x10, PCI_CARD_NORMAL, 1, 2, 3, 4);
+    pci_register_slot(0x0B, PCI_CARD_SCSI,        4, 1, 2, 3);
+    pci_register_slot(0x08, PCI_CARD_NORMAL,      1, 2, 3, 4);
+    pci_register_slot(0x09, PCI_CARD_NORMAL,      2, 3, 4, 1);
+    pci_register_slot(0x0A, PCI_CARD_NORMAL,      3, 4, 1, 2);
+    pci_register_slot(0x10, PCI_CARD_NORMAL,      1, 2, 3, 4);
 
     device_add(&ali1435_device);
     device_add(&sst_flash_29ee010_device);
@@ -102,11 +101,10 @@ machine_at_tg486gp_init(const machine_t *model)
 
     pci_init(FLAG_MECHANISM_1 | FLAG_MECHANISM_2 | PCI_ALWAYS_EXPOSE_DEV0);
     pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
-
-    pci_register_slot(0x0F, PCI_CARD_NORMAL, 1, 2, 3, 4);
-    pci_register_slot(0x0D, PCI_CARD_NORMAL, 2, 3, 4, 1);
-    pci_register_slot(0x0B, PCI_CARD_NORMAL, 3, 4, 1, 2);
-    pci_register_slot(0x10, PCI_CARD_NORMAL, 1, 2, 3, 4);
+    pci_register_slot(0x0F, PCI_CARD_NORMAL,      1, 2, 3, 4);
+    pci_register_slot(0x0D, PCI_CARD_NORMAL,      2, 3, 4, 1);
+    pci_register_slot(0x0B, PCI_CARD_NORMAL,      3, 4, 1, 2);
+    pci_register_slot(0x10, PCI_CARD_NORMAL,      1, 2, 3, 4);
 
     device_add(&ali1435_device);
     device_add(&sst_flash_29ee010_device);
@@ -204,32 +202,6 @@ machine_at_arb1476_init(const machine_t *model)
 }
 
 int
-machine_at_win486pci_init(const machine_t *model)
-{
-    int ret;
-
-    ret = bios_load_linear("roms/machines/win486pci/v1hj3.BIN",
-                           0x000e0000, 131072, 0);
-
-    if (bios_only || !ret)
-        return ret;
-
-    machine_at_common_init(model);
-
-    pci_init(PCI_CONFIG_TYPE_1);
-    pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
-    pci_register_slot(0x03, PCI_CARD_NORMAL,      1, 2, 3, 4);
-    pci_register_slot(0x04, PCI_CARD_NORMAL,      2, 3, 4, 1);
-    pci_register_slot(0x05, PCI_CARD_NORMAL,      3, 4, 1, 2);
-
-    device_add(&ali1489_device);
-    device_add_params(&gm82c803ab_device, (void *) GM82C803B);
-    device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
-
-    return ret;
-}
-
-int
 machine_at_tf486_init(const machine_t *model)
 {
     int ret;
@@ -286,24 +258,64 @@ machine_at_ms4145_init(const machine_t *model)
     return ret;
 }
 
+int
+machine_at_win486pci_init(const machine_t *model)
+{
+    int ret;
+
+    ret = bios_load_linear("roms/machines/win486pci/v1hj3.BIN",
+                           0x000e0000, 131072, 0);
+
+    if (bios_only || !ret)
+        return ret;
+
+    machine_at_common_init(model);
+
+    pci_init(PCI_CONFIG_TYPE_1);
+    pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
+    pci_register_slot(0x03, PCI_CARD_NORMAL,      1, 2, 3, 4);
+    pci_register_slot(0x04, PCI_CARD_NORMAL,      2, 3, 4, 1);
+    pci_register_slot(0x05, PCI_CARD_NORMAL,      3, 4, 1, 2);
+
+    device_add(&ali1489_device);
+    device_add_params(&gm82c803ab_device, (void *) GM82C803B);
+    device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
+
+    return ret;
+}
+
 /* OPTi 802G */
 static const device_config_t pc330_6573_config[] = {
     // clang-format off
     {
-        .name = "bios",
-        .description = "BIOS Language",
-        .type = CONFIG_BIOS,
+        .name           = "bios",
+        .description    = "BIOS Language",
+        .type           = CONFIG_BIOS,
         .default_string = "pc330_6573",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .bios = {
-            { .name = "English (PC 330, type 6573)", .internal_name = "pc330_6573", .bios_type = BIOS_NORMAL, 
-              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/pc330_6573/$IMAGES.USF", "" } },
-            { .name = "Japanese (Aptiva 510/710/Vision)", .internal_name = "aptiva510", .bios_type = BIOS_NORMAL, 
-              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/pc330_6573/aptiva510_$IMAGES.USF", "" } },
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = {
+            {
+                .name          = "English (PC 330, type 6573)",
+                .internal_name = "pc330_6573", .bios_type = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/pc330_6573/$IMAGES.USF", "" }
+            },
+            {
+                .name          = "Japanese (Aptiva 510/710/Vision)",
+                .internal_name = "aptiva510",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/pc330_6573/aptiva510_$IMAGES.USF", "" }
+            },
             { .files_no = 0 }
-        },
+        }
     },
     { .name = "", .description = "", .type = CONFIG_END }
     // clang-format on
@@ -311,7 +323,7 @@ static const device_config_t pc330_6573_config[] = {
 
 const device_t pc330_6573_device = {
     .name          = "IBM PC 330 (type 6573)",
-    .internal_name = "pc330_6573_device",
+    .internal_name = "pc330_6573",
     .flags         = 0,
     .local         = 0,
     .init          = NULL,
@@ -326,19 +338,19 @@ const device_t pc330_6573_device = {
 int
 machine_at_pc330_6573_init(const machine_t *model)
 {
-    int ret = 0;
-    const char* fn;
+    int         ret = 0;
+    const char *fn;
 
     /* No ROMs available */
     if (!device_available(model->device))
         return ret;
 
     device_context(model->device);
-    fn = device_get_bios_file(machine_get_device(machine), device_get_config_bios("bios"), 0);
+    fn  = device_get_bios_file(machine_get_device(machine), device_get_config_bios("bios"), 0);
     ret = bios_load_linear(fn, 0x000e0000, 131072, 0);
     device_context_restore();
 
-    machine_at_common_init_ex(model, 2);
+    machine_at_common_init(model);
     device_add(&ide_vlb_2ch_device);
 
     pci_init(PCI_CONFIG_TYPE_1);
@@ -371,22 +383,44 @@ machine_at_pc330_6573_init(const machine_t *model)
 static const device_config_t pb450_config[] = {
     // clang-format off
     {
-        .name = "bios",
-        .description = "BIOS Version",
-        .type = CONFIG_BIOS,
+        .name           = "bios",
+        .description    = "BIOS Version",
+        .type           = CONFIG_BIOS,
         .default_string = "pb450a",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .bios = {
-            { .name = "PhoenixBIOS 4.03 - Revision PCI 1.0A", .internal_name = "pb450a_pci10a" /*"pci10a"*/, .bios_type = BIOS_NORMAL, 
-              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/pb450/OPTI802.bin", "" } },
-            { .name = "PhoenixBIOS 4.03 - Revision PNP 1.1A", .internal_name = "pb450a", .bios_type = BIOS_NORMAL,
-              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/pb450/PNP11A.bin", "" } },
-            { .name = "PhoenixBIOS 4.05 - Revision P4HS20 (by Micro Firmware)", .internal_name = "pb450a_p4hs20", .bios_type = BIOS_NORMAL,
-              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/pb450/p4hs20.bin", "" } },
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = {
+            {
+                .name          = "PhoenixBIOS 4.03 - Revision PCI 1.0A",
+                .internal_name = "pb450a_pci10a" /*"pci10a"*/,
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/pb450/OPTI802.bin", "" }
+            },
+            {
+                .name          = "PhoenixBIOS 4.03 - Revision PNP 1.1A",
+                .internal_name = "pb450a",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/pb450/PNP11A.bin", "" }
+            },
+            {
+                .name          = "PhoenixBIOS 4.05 - Revision P4HS20 (by Micro Firmware)",
+                .internal_name = "pb450a_p4hs20",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/pb450/p4hs20.bin", "" }
+            },
             { .files_no = 0 }
-        },
+        }
     },
     { .name = "", .description = "", .type = CONFIG_END }
     // clang-format on
@@ -394,7 +428,7 @@ static const device_config_t pb450_config[] = {
 
 const device_t pb450_device = {
     .name          = "Packard Bell PB450",
-    .internal_name = "pb450_device",
+    .internal_name = "pb450",
     .flags         = 0,
     .local         = 0,
     .init          = NULL,
@@ -409,22 +443,22 @@ const device_t pb450_device = {
 int
 machine_at_pb450_init(const machine_t *model)
 {
-    int ret = 0;
-    const char* fn;
+    int         ret = 0;
+    const char *fn;
 
     /* No ROMs available */
     if (!device_available(model->device))
         return ret;
 
     device_context(model->device);
-    fn = device_get_bios_file(machine_get_device(machine), device_get_config_bios("bios"), 0);
+    fn  = device_get_bios_file(machine_get_device(machine), device_get_config_bios("bios"), 0);
     ret = bios_load_linear(fn, 0x000e0000, 131072, 0);
     device_context_restore();
-    
+
     if (bios_only || !ret)
         return ret;
 
-    machine_at_common_init_ex(model, 2);
+    machine_at_common_init(model);
     device_add(&ide_vlb_2ch_device);
 
     pci_init(PCI_CONFIG_TYPE_1);
@@ -538,37 +572,6 @@ machine_at_486ap4_init(const machine_t *model)
 }
 
 int
-machine_at_ninja_init(const machine_t *model)
-{
-    int ret;
-
-    ret = bios_load_linear_combined("roms/machines/ninja/1008AY0_.BIO",
-                                    "roms/machines/ninja/1008AY0_.BI1", 0x1c000, 128);
-
-    if (bios_only || !ret)
-        return ret;
-
-    machine_at_common_init_ex(model, 2);
-    device_add(&amstrad_megapc_nvr_device);
-
-    pci_init(PCI_CONFIG_TYPE_1);
-    pci_register_slot(0x05, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
-    pci_register_slot(0x11, PCI_CARD_NORMAL,      1, 2, 1, 2);
-    pci_register_slot(0x13, PCI_CARD_NORMAL,      2, 1, 2, 1);
-    pci_register_slot(0x0B, PCI_CARD_NORMAL,      2, 1, 2, 1);
-
-    machine_force_ps2(1);
-    device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
-
-    device_add(&intel_flash_bxt_ami_device);
-
-    device_add(&i420ex_device);
-    device_add_params(&i82091aa_device, (void *) I82091AA_022);
-
-    return ret;
-}
-
-int
 machine_at_sb486p_init(const machine_t *model)
 {
     int ret;
@@ -590,6 +593,36 @@ machine_at_sb486p_init(const machine_t *model)
 
     device_add_params(&i82091aa_device, (void *) I82091AA_26E);
     device_add(&i420ex_device);
+
+    return ret;
+}
+
+int
+machine_at_ninja_init(const machine_t *model)
+{
+    int ret;
+
+    ret = bios_load_linear_combined("roms/machines/ninja/1008AY0_.BIO",
+                                    "roms/machines/ninja/1008AY0_.BI1", 0x1c000, 128);
+
+    if (bios_only || !ret)
+        return ret;
+
+    machine_at_common_init(model);
+
+    pci_init(PCI_CONFIG_TYPE_1);
+    pci_register_slot(0x05, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
+    pci_register_slot(0x11, PCI_CARD_NORMAL,      1, 2, 1, 2);
+    pci_register_slot(0x13, PCI_CARD_NORMAL,      2, 1, 2, 1);
+    pci_register_slot(0x0B, PCI_CARD_NORMAL,      2, 1, 2, 1);
+
+    machine_force_ps2(1);
+    device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
+
+    device_add(&intel_flash_bxt_ami_device);
+
+    device_add(&i420ex_device);
+    device_add_params(&i82091aa_device, (void *) I82091AA_022);
 
     return ret;
 }
@@ -673,9 +706,8 @@ machine_at_alfredo_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    machine_at_common_init_ex(model, 2);
+    machine_at_common_init(model);
 
-    device_add(&amstrad_megapc_nvr_device);
     device_add(&ide_pci_device);
 
     pci_init(PCI_CONFIG_TYPE_2 | PCI_NO_IRQ_STEERING);
@@ -735,22 +767,44 @@ machine_at_486sp3g_init(const machine_t *model)
 static const device_config_t sb486pv_config[] = {
     // clang-format off
     {
-        .name = "bios",
-        .description = "BIOS Version",
-        .type = CONFIG_BIOS,
+        .name           = "bios",
+        .description    = "BIOS Version",
+        .type           = CONFIG_BIOS,
         .default_string = "sb486pv",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .bios = {
-            { .name = "AMI WinBIOS (062594) - Revision 0108", .internal_name = "sb486pv_0108", .bios_type = BIOS_NORMAL, 
-              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/sb486pv/41-0108-062594-SATURN2.rom", "" } },
-            { .name = "AMI WinBIOS (062594) - Revision 0301", .internal_name = "sb486pv_0301", .bios_type = BIOS_NORMAL, 
-              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/sb486pv/0301-062594-SATURN2.rom", "" } },
-            { .name = "AMIBIOS 6 (071595) - Revision 1301", .internal_name = "sb486pv", .bios_type = BIOS_NORMAL,
-              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/sb486pv/amiboot.rom", "" } },
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = {
+            {
+                .name          = "AMI WinBIOS (062594) - Revision 0108",
+                .internal_name = "sb486pv_0108",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/sb486pv/41-0108-062594-SATURN2.rom", "" }
+            },
+            {
+                .name          = "AMI WinBIOS (062594) - Revision 0301",
+                .internal_name = "sb486pv_0301",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/sb486pv/0301-062594-SATURN2.rom", "" }
+            },
+            {
+                .name          = "AMIBIOS 6 (071595) - Revision 1301",
+                .internal_name = "sb486pv",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/sb486pv/amiboot.rom", "" }
+            },
             { .files_no = 0 }
-        },
+        }
     },
     { .name = "", .description = "", .type = CONFIG_END }
     // clang-format on
@@ -758,7 +812,7 @@ static const device_config_t sb486pv_config[] = {
 
 const device_t sb486pv_device = {
     .name          = "ICS SB486PV",
-    .internal_name = "sb486pv_device",
+    .internal_name = "sb486pv",
     .flags         = 0,
     .local         = 0,
     .init          = NULL,
@@ -773,8 +827,8 @@ const device_t sb486pv_device = {
 int
 machine_at_sb486pv_init(const machine_t *model)
 {
-    int ret = 0;
-    const char* fn;
+    int         ret = 0;
+    const char *fn;
 
     /* No ROMs available */
     if (!device_available(model->device))
@@ -825,8 +879,7 @@ machine_at_pci400cb_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    machine_at_common_init_ex(model, 2);
-    device_add(&ami_1994_nvr_device);
+    machine_at_common_init(model);
 
     pci_init(PCI_CONFIG_TYPE_1);
     pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
@@ -873,15 +926,16 @@ machine_at_acerp3_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    machine_at_common_init_ex(model, 2);
+    machine_at_common_init(model);
 
     machine_at_sis_85c496_common_init(model);
     device_add(&sis_85c496_device);
+
     pci_register_slot(0x09, PCI_CARD_VIDEO,  0, 0, 0, 0);
-    pci_register_slot(0x0A, PCI_CARD_IDE, 	 0, 0, 0, 0);
+    pci_register_slot(0x0A, PCI_CARD_IDE,    0, 0, 0, 0);
     pci_register_slot(0x12, PCI_CARD_NORMAL, 3, 4, 1, 2);
     pci_register_slot(0x13, PCI_CARD_NORMAL, 2, 3, 4, 1);
-	pci_register_slot(0x14, PCI_CARD_NORMAL, 1, 2, 3, 4);
+    pci_register_slot(0x14, PCI_CARD_NORMAL, 1, 2, 3, 4);
 
     device_add_params(&fdc37c6xx_device, (void *) (FDC37C665 | FDC37C6XX_IDE_PRI));
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
@@ -906,10 +960,11 @@ machine_at_486sp3c_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    machine_at_common_init_ex(model, 2);
+    machine_at_common_init(model);
 
     machine_at_sis_85c496_common_init(model);
     device_add(&sis_85c496_device);
+
     pci_register_slot(0x0C, PCI_CARD_NORMAL, 1, 2, 3, 4);
     pci_register_slot(0x0B, PCI_CARD_NORMAL, 2, 3, 4, 1);
     pci_register_slot(0x0A, PCI_CARD_NORMAL, 3, 4, 1, 2);
@@ -933,10 +988,11 @@ machine_at_ls486e_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    machine_at_common_init_ex(model, 2);
+    machine_at_common_init(model);
 
     machine_at_sis_85c496_common_init(model);
     device_add(&sis_85c496_ls486e_device);
+
     pci_register_slot(0x0B, PCI_CARD_NORMAL, 1, 2, 3, 4);
     pci_register_slot(0x0D, PCI_CARD_NORMAL, 2, 3, 4, 1);
     pci_register_slot(0x0F, PCI_CARD_NORMAL, 3, 4, 1, 2);
@@ -959,10 +1015,11 @@ machine_at_m4li_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    machine_at_common_init_ex(model, 2);
+    machine_at_common_init(model);
 
     machine_at_sis_85c496_common_init(model);
     device_add(&sis_85c496_device);
+
     pci_register_slot(0x0B, PCI_CARD_NORMAL, 1, 2, 3, 4);
     pci_register_slot(0x0D, PCI_CARD_NORMAL, 2, 3, 4, 1);
     pci_register_slot(0x07, PCI_CARD_NORMAL, 4, 1, 2, 3);
@@ -985,10 +1042,11 @@ machine_at_ms4144_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    machine_at_common_init_ex(model, 2);
+    machine_at_common_init(model);
 
     machine_at_sis_85c496_common_init(model);
     device_add(&sis_85c496_ls486e_device);
+
     pci_register_slot(0x03, PCI_CARD_NORMAL, 1, 2, 3, 4);
     pci_register_slot(0x0D, PCI_CARD_NORMAL, 2, 3, 4, 1);
     pci_register_slot(0x0F, PCI_CARD_NORMAL, 3, 4, 1, 2);
@@ -1012,10 +1070,11 @@ machine_at_r418_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    machine_at_common_init_ex(model, 2);
+    machine_at_common_init(model);
 
     machine_at_sis_85c496_common_init(model);
     device_add(&sis_85c496_device);
+
     pci_register_slot(0x0B, PCI_CARD_NORMAL, 1, 2, 3, 4);
     pci_register_slot(0x0D, PCI_CARD_NORMAL, 2, 3, 4, 1);
     pci_register_slot(0x0F, PCI_CARD_NORMAL, 3, 4, 1, 2);
@@ -1038,10 +1097,11 @@ machine_at_4saw2_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    machine_at_common_init_ex(model, 2);
+    machine_at_common_init(model);
 
     machine_at_sis_85c496_common_init(model);
     device_add(&sis_85c496_device);
+
     pci_register_slot(0x0B, PCI_CARD_NORMAL, 1, 2, 3, 4);
     pci_register_slot(0x0D, PCI_CARD_NORMAL, 2, 3, 4, 1);
     pci_register_slot(0x0F, PCI_CARD_NORMAL, 3, 4, 1, 2);
@@ -1066,10 +1126,11 @@ machine_at_4dps_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    machine_at_common_init_ex(model, 2);
+    machine_at_common_init(model);
 
     machine_at_sis_85c496_common_init(model);
     device_add(&sis_85c496_device);
+
     pci_register_slot(0x0B, PCI_CARD_NORMAL, 1, 2, 3, 4);
     pci_register_slot(0x0D, PCI_CARD_NORMAL, 2, 3, 4, 1);
     pci_register_slot(0x0E, PCI_CARD_NORMAL, 3, 4, 1, 2);
@@ -1161,8 +1222,7 @@ machine_at_pl4600c_init(const machine_t *model)
     pci_register_slot(0x0D, PCI_CARD_NORMAL,      4, 1, 2, 3); /* Slot 02 */
     pci_register_slot(0x10, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
     pci_register_slot(0x12, PCI_CARD_SOUTHBRIDGE, 0, 0, 0, 0); /* Onboard */
-    pci_register_slot(0x13, PCI_CARD_VIDEO,       0, 0, 0, 0); /* Onboard */ 
-
+    pci_register_slot(0x13, PCI_CARD_VIDEO,       0, 0, 0, 0); /* Onboard */
 
     device_add(&umc_hb4_device);
     device_add(&umc_8886af_device);
@@ -1176,7 +1236,7 @@ machine_at_pl4600c_init(const machine_t *model)
     if (sound_card_current[0] == SOUND_INTERNAL)
         device_add(&ess_1688_device);
 
-    if (fdc_current[0] == FDC_INTERNAL){
+    if (fdc_current[0] == FDC_INTERNAL) {
         fdd_set_turbo(0, 1);
         fdd_set_turbo(1, 1);
     }
@@ -1305,7 +1365,7 @@ machine_at_m919_init(const machine_t *model)
     pci_register_slot(0x0E, PCI_CARD_NORMAL,      3, 4, 1, 2);
 
     device_add(&umc_hb4_device);
-    device_add(&umc_8886af_device);    /* AF is correct - the BIOS does IDE writes to ports 108h and 109h. */
+    device_add(&umc_8886af_device); /* AF is correct - the BIOS does IDE writes to ports 108h and 109h. */
     device_add_params(&um866x_device, (void *) UM8663BF);
     device_add(&sst_flash_29ee010_device);
 
@@ -1344,20 +1404,35 @@ machine_at_spc7700plw_init(const machine_t *model)
 static const device_config_t hot433a_config[] = {
     // clang-format off
     {
-        .name = "bios",
-        .description = "BIOS Version",
-        .type = CONFIG_BIOS,
+        .name           = "bios",
+        .description    = "BIOS Version",
+        .type           = CONFIG_BIOS,
         .default_string = "hot433a",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .bios = {
-            { .name = "AMIBIOS 5 (101094) - Revision 433AUS33", .internal_name = "hot433a", .bios_type = BIOS_NORMAL, 
-              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/hot433/433AUS33.ROM", "" } },
-            { .name = "Award Modular BIOS v4.51PG - Revision 2.5 (by eSupport)", .internal_name = "hot433a_v451pg", .bios_type = BIOS_NORMAL, 
-              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/hot433/2A4X5H21.BIN", "" } },
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = {
+            {
+                .name          = "AMIBIOS 5 (101094) - Revision 433AUS33",
+                .internal_name = "hot433a",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/hot433/433AUS33.ROM", "" }
+            },
+            {
+                .name          = "Award Modular BIOS v4.51PG - Revision 2.5 (by eSupport)",
+                .internal_name = "hot433a_v451pg",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/hot433/2A4X5H21.BIN", "" }
+            },
             { .files_no = 0 }
-        },
+        }
     },
     { .name = "", .description = "", .type = CONFIG_END }
     // clang-format on
@@ -1365,7 +1440,7 @@ static const device_config_t hot433a_config[] = {
 
 const device_t hot433a_device = {
     .name          = "Shuttle HOT-433A",
-    .internal_name = "hot433a_device",
+    .internal_name = "hot433a",
     .flags         = 0,
     .local         = 0,
     .init          = NULL,
@@ -1380,8 +1455,8 @@ const device_t hot433a_device = {
 int
 machine_at_hot433a_init(const machine_t *model)
 {
-    int ret = 0;
-    const char* fn;
+    int         ret = 0;
+    const char *fn;
 
     /* No ROMs available */
     if (!device_available(model->device))
@@ -1389,15 +1464,12 @@ machine_at_hot433a_init(const machine_t *model)
 
     device_context(model->device);
     int is_award = !strcmp(device_get_config_bios("bios"), "hot433a_v451pg");
-    fn = device_get_bios_file(machine_get_device(machine), device_get_config_bios("bios"), 0);
-    ret = bios_load_linear(fn, 0x000e0000, 131072, 0);
+    fn           = device_get_bios_file(machine_get_device(machine), device_get_config_bios("bios"), 0);
+    ret          = bios_load_linear(fn, 0x000e0000, 131072, 0);
     device_context_restore();
 
-    machine_at_common_init_ex(model, 2);
-    if (is_award)
-        device_add(&amstrad_megapc_nvr_device);
-    else
-        device_add(&ami_1994_nvr_device);
+    machine_at_common_init(model);
+    device_add_params(&nvr_at_device, (void *) (uintptr_t) (is_award ? (NVR_AT_ZERO_DEFAULT) : (NVR_AMI_1994)));
 
     pci_init(PCI_CONFIG_TYPE_1);
     pci_register_slot(0x10, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
@@ -1477,7 +1549,7 @@ machine_at_486vipio2_init(const machine_t *model)
 
     device_add(&via_vt82c49x_pci_ide_device);
     device_add(&via_vt82c505_device);
-    device_add_params(&w837x7_device, (void *) (W83787F | W837X7_KEY_89));
+    device_add_params(&w837x7_device, (void *) (W83787F | W837X7_KEY_89 | W83XX7_IDE_SEC));
 
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
 

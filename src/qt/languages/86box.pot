@@ -66,7 +66,7 @@ msgstr ""
 msgid "&VNC"
 msgstr ""
 
-msgid "Specify &dimensions..."
+msgid "Specify &dimensions…"
 msgstr ""
 
 msgid "Force &4:3 display ratio"
@@ -138,52 +138,43 @@ msgstr ""
 msgid "4:&3 Integer scale"
 msgstr ""
 
-msgid "EGA/(S)&VGA settings"
+msgid "Inverted VGA monitor"
 msgstr ""
 
-msgid "&Inverted VGA monitor"
+msgid "VGA screen type:"
 msgstr ""
 
-msgid "VGA screen &type"
-msgstr ""
-
-msgid "RGB &Color"
+msgid "RGB Color"
 msgstr ""
 
 msgid "RGB (no brown)"
 msgstr ""
 
-msgid "&RGB Grayscale"
+msgid "RGB Grayscale"
 msgstr ""
 
 msgid "Generic RGBI color monitor"
 msgstr ""
 
-msgid "&Amber monitor"
+msgid "Amber monitor"
 msgstr ""
 
-msgid "&Green monitor"
+msgid "Green monitor"
 msgstr ""
 
-msgid "&White monitor"
+msgid "White monitor"
 msgstr ""
 
-msgid "Grayscale &conversion type"
+msgid "Grayscale conversion type:"
 msgstr ""
 
-msgid "BT&601 (NTSC/PAL)"
+msgid "Average"
 msgstr ""
 
-msgid "BT&709 (HDTV)"
+msgid "Overscan"
 msgstr ""
 
-msgid "&Average"
-msgstr ""
-
-msgid "CGA/PCjr/Tandy/E&GA/(S)VGA overscan"
-msgstr ""
-
-msgid "Change contrast for &monochrome display"
+msgid "Change contrast for monochrome display"
 msgstr ""
 
 msgid "&Media"
@@ -192,10 +183,10 @@ msgstr ""
 msgid "&Tools"
 msgstr ""
 
-msgid "&Settings..."
+msgid "&Settings…"
 msgstr ""
 
-msgid "Settings..."
+msgid "Settings…"
 msgstr ""
 
 msgid "&Update status bar icons"
@@ -204,16 +195,37 @@ msgstr ""
 msgid "Take s&creenshot"
 msgstr ""
 
+msgid "Take screenshot"
+msgstr ""
+
+msgid "Take &raw screenshot"
+msgstr ""
+
+msgid "Take raw screenshot"
+msgstr ""
+
+msgid "C&opy screenshot"
+msgstr ""
+
+msgid "Copy screenshot"
+msgstr ""
+
+msgid "Copy r&aw screenshot"
+msgstr ""
+
+msgid "Copy raw screenshot"
+msgstr ""
+
 msgid "S&ound"
 msgstr ""
 
-msgid "&Preferences..."
+msgid "&Preferences…"
 msgstr ""
 
 msgid "Enable &Discord integration"
 msgstr ""
 
-msgid "Sound &gain..."
+msgid "Sound &gain…"
 msgstr ""
 
 msgid "Begin trace"
@@ -225,19 +237,19 @@ msgstr ""
 msgid "&Help"
 msgstr ""
 
-msgid "&Documentation..."
+msgid "&Documentation…"
 msgstr ""
 
-msgid "&About 86Box..."
+msgid "&About 86Box…"
 msgstr ""
 
-msgid "&New image..."
+msgid "&New image…"
 msgstr ""
 
-msgid "&Existing image..."
+msgid "&Existing image…"
 msgstr ""
 
-msgid "Existing image (&Write-protected)..."
+msgid "Existing image (&Write-protected)…"
 msgstr ""
 
 msgid "&Record"
@@ -255,10 +267,10 @@ msgstr ""
 msgid "E&ject"
 msgstr ""
 
-msgid "&Image..."
+msgid "&Image…"
 msgstr ""
 
-msgid "E&xport to 86F..."
+msgid "E&xport to 86F…"
 msgstr ""
 
 msgid "&Mute"
@@ -270,37 +282,7 @@ msgstr ""
 msgid "Reload previous image"
 msgstr ""
 
-msgid "&Folder..."
-msgstr ""
-
-msgid "Target &framerate"
-msgstr ""
-
-msgid "&Sync with video"
-msgstr ""
-
-msgid "&25 fps"
-msgstr ""
-
-msgid "&30 fps"
-msgstr ""
-
-msgid "&50 fps"
-msgstr ""
-
-msgid "&60 fps"
-msgstr ""
-
-msgid "&75 fps"
-msgstr ""
-
-msgid "&VSync"
-msgstr ""
-
-msgid "&Select shader..."
-msgstr ""
-
-msgid "&Remove shader"
+msgid "&Folder…"
 msgstr ""
 
 msgid "Preferences"
@@ -354,7 +336,31 @@ msgstr ""
 msgid "Lock to this size"
 msgstr ""
 
+msgid "General"
+msgstr ""
+
+msgid "Processor"
+msgstr ""
+
+msgid "Performance"
+msgstr ""
+
 msgid "Machine type:"
+msgstr ""
+
+msgid "[1989] i486 (Socket 168 and 1)"
+msgstr ""
+
+msgid "[1994] i486 (Miscellaneous)"
+msgstr ""
+
+msgid "[1995] Socket 7 (Single Voltage)"
+msgstr ""
+
+msgid "[1996] Socket 7 (Dual Voltage)"
+msgstr ""
+
+msgid "Miscellaneous"
 msgstr ""
 
 msgid "Machine:"
@@ -375,7 +381,13 @@ msgstr ""
 msgid "Frequency:"
 msgstr ""
 
+msgid "%1 MHz"
+msgstr ""
+
 msgid "FPU:"
+msgstr ""
+
+msgid "Internal"
 msgstr ""
 
 msgid "Wait states:"
@@ -399,6 +411,9 @@ msgstr ""
 msgid "Enabled (UTC)"
 msgstr ""
 
+msgid "Use the 486 interpreter for 286 and 386 processors"
+msgstr ""
+
 msgid "Dynamic Recompiler"
 msgstr ""
 
@@ -415,6 +430,9 @@ msgid "Video:"
 msgstr ""
 
 msgid "Video #2:"
+msgstr ""
+
+msgid "Monitor"
 msgstr ""
 
 msgid "Voodoo 1 or 2 Graphics"
@@ -447,16 +465,16 @@ msgstr ""
 msgid "Joystick"
 msgstr ""
 
-msgid "Joystick 1..."
+msgid "Joystick 1…"
 msgstr ""
 
-msgid "Joystick 2..."
+msgid "Joystick 2…"
 msgstr ""
 
-msgid "Joystick 3..."
+msgid "Joystick 3…"
 msgstr ""
 
-msgid "Joystick 4..."
+msgid "Joystick 4…"
 msgstr ""
 
 msgid "Sound card #1:"
@@ -486,7 +504,13 @@ msgstr ""
 msgid "Use FLOAT32 sound"
 msgstr ""
 
-msgid "FM synth driver"
+msgid "Audio output device:"
+msgstr ""
+
+msgid "System Default"
+msgstr ""
+
+msgid "FM synth driver:"
 msgstr ""
 
 msgid "Nuked (more accurate)"
@@ -495,61 +519,52 @@ msgstr ""
 msgid "YMFM (faster)"
 msgstr ""
 
-msgid "COM1 Device:"
-msgstr ""
-
-msgid "COM2 Device:"
-msgstr ""
-
-msgid "COM3 Device:"
-msgstr ""
-
-msgid "COM4 Device:"
-msgstr ""
-
-msgid "LPT1 Device:"
-msgstr ""
-
-msgid "LPT2 Device:"
-msgstr ""
-
-msgid "LPT3 Device:"
-msgstr ""
-
-msgid "LPT4 Device:"
-msgstr ""
-
 msgid "Internal LPT ECP DMA:"
 msgstr ""
 
-msgid "Serial port 1"
+msgid "Floppy disk controller:"
 msgstr ""
 
-msgid "Serial port 2"
+msgid "CD-ROM controller:"
 msgstr ""
 
-msgid "Serial port 3"
+msgid "Mitsumi interface"
 msgstr ""
 
-msgid "Serial port 4"
+msgid "MKE/Panasonic interface"
 msgstr ""
 
-msgid "Parallel port 1"
+msgid "MKE/Panasonic interface (Creative)"
 msgstr ""
 
-msgid "Parallel port 2"
+msgid "IDE Controller"
 msgstr ""
 
-msgid "Parallel port 3"
+msgid "IDE Controller (Dual-Channel)"
 msgstr ""
 
-msgid "Parallel port 4"
+msgid "PC/AT IDE Controller"
 msgstr ""
 
-msgid "FD Controller:"
+msgid "PC/AT IDE Controller (Dual-Channel)"
 msgstr ""
 
-msgid "CD-ROM Controller:"
+msgid "PC/AT XTIDE (Primary Only)"
+msgstr ""
+
+msgid "PS/2 AT XTIDE (1.1.5) (Primary Only)"
+msgstr ""
+
+msgid "CMD PCI-0646 (Tertiary and Quaternary)"
+msgstr ""
+
+msgid "CMD PCI-0648 (Tertiary and Quaternary)"
+msgstr ""
+
+msgid "CMD PCI-0649 (Tertiary and Quaternary)"
+msgstr ""
+
+msgid "McIDE Controller"
 msgstr ""
 
 msgid "Tertiary IDE Controller"
@@ -558,10 +573,10 @@ msgstr ""
 msgid "Quaternary IDE Controller"
 msgstr ""
 
-msgid "Hard disk"
+msgid "Hard disk controllers"
 msgstr ""
 
-msgid "SCSI"
+msgid "SCSI controllers"
 msgstr ""
 
 msgid "Controller 1:"
@@ -585,10 +600,13 @@ msgstr ""
 msgid "Firmware Version"
 msgstr ""
 
-msgid "&New..."
+msgid "DSP Version"
 msgstr ""
 
-msgid "&Existing..."
+msgid "&New…"
+msgstr ""
+
+msgid "&Existing…"
 msgstr ""
 
 msgid "&Remove"
@@ -601,9 +619,6 @@ msgid "Channel:"
 msgstr ""
 
 msgid "ID:"
-msgstr ""
-
-msgid "&Specify..."
 msgstr ""
 
 msgid "Sectors:"
@@ -627,7 +642,7 @@ msgstr ""
 msgid "Block Size:"
 msgstr ""
 
-msgid "Floppy drives:"
+msgid "Floppy drives"
 msgstr ""
 
 msgid "Turbo timings"
@@ -636,22 +651,25 @@ msgstr ""
 msgid "Check BPB"
 msgstr ""
 
-msgid "CD-ROM drives:"
+msgid "CD-ROM drives"
 msgstr ""
 
-msgid "MO drives:"
+msgid "MO drives"
 msgstr ""
 
 msgid "MO:"
 msgstr ""
 
+msgid "Removable disk drives"
+msgstr ""
+
 msgid "Removable disks:"
 msgstr ""
 
-msgid "Removable disk drives:"
+msgid "Tape drives"
 msgstr ""
 
-msgid "ZIP 250"
+msgid "Tape drives:"
 msgstr ""
 
 msgid "ISA RTC:"
@@ -690,9 +708,6 @@ msgstr ""
 msgid "POST card"
 msgstr ""
 
-msgid "86Box"
-msgstr ""
-
 msgid "Error"
 msgstr ""
 
@@ -712,6 +727,15 @@ msgid "&Removable disk %1 (%2): %3"
 msgstr ""
 
 msgid "Removable disk images"
+msgstr ""
+
+msgid "Tape %1 (%2): %3"
+msgstr ""
+
+msgid "&Tape %1 (%2): %3"
+msgstr ""
+
+msgid "Tape images"
 msgstr ""
 
 msgid "Image %1"
@@ -744,16 +768,16 @@ msgstr ""
 msgid "Surface images"
 msgstr ""
 
-msgid "Machine \"%hs\" is not available due to missing ROMs in the roms/machines directory. Switching to an available machine."
+msgid "Machine \"%s\" is not available due to missing ROMs in the roms/machines directory. Switching to an available machine."
 msgstr ""
 
-msgid "Video card \"%hs\" is not available due to missing ROMs in the roms/video directory. Switching to an available video card."
+msgid "Video card \"%s\" is not available due to missing ROMs in the roms/video directory. Switching to an available video card."
 msgstr ""
 
-msgid "Video card #2 \"%hs\" is not available due to missing ROMs in the roms/video directory. Disabling the second video card."
+msgid "Video card #2 \"%s\" is not available due to missing ROMs in the roms/video directory. Disabling the second video card."
 msgstr ""
 
-msgid "Device \"%hs\" is not available due to missing ROMs. Ignoring the device."
+msgid "Device \"%s\" is not available due to missing ROMs. Ignoring the device."
 msgstr ""
 
 msgid "Machine"
@@ -777,7 +801,13 @@ msgstr ""
 msgid "Ports"
 msgstr ""
 
+msgid "Serial ports"
+msgstr ""
+
 msgid "Serial ports:"
+msgstr ""
+
+msgid "Parallel ports"
 msgstr ""
 
 msgid "Parallel ports:"
@@ -825,13 +855,7 @@ msgstr ""
 msgid "File"
 msgstr ""
 
-msgid "C"
-msgstr ""
-
-msgid "H"
-msgstr ""
-
-msgid "S"
+msgid "Geometry"
 msgstr ""
 
 msgid "KB"
@@ -852,7 +876,16 @@ msgstr ""
 msgid "Invalid PCap device"
 msgstr ""
 
+msgid "Generic paddle controller(s)"
+msgstr ""
+
+msgid "2-axis, 1-button joystick(s)"
+msgstr ""
+
 msgid "2-axis, 2-button joystick(s)"
+msgstr ""
+
+msgid "2-axis, 3-button joystick"
 msgstr ""
 
 msgid "2-axis, 4-button joystick"
@@ -867,34 +900,37 @@ msgstr ""
 msgid "3-axis, 2-button joystick"
 msgstr ""
 
+msgid "3-axis, 3-button joystick"
+msgstr ""
+
 msgid "3-axis, 4-button joystick"
+msgstr ""
+
+msgid "4-axis, 2-button joystick"
+msgstr ""
+
+msgid "4-axis, 3-button joystick"
 msgstr ""
 
 msgid "4-axis, 4-button joystick"
 msgstr ""
 
-msgid "CH Flightstick Pro"
-msgstr ""
-
-msgid "CH Flightstick Pro + CH Pedals"
-msgstr ""
-
-msgid "Microsoft SideWinder Pad"
-msgstr ""
-
-msgid "Thrustmaster Flight Control System"
-msgstr ""
-
-msgid "Thrustmaster FCS + Rudder Control System"
-msgstr ""
-
 msgid "2-button gamepad(s)"
+msgstr ""
+
+msgid "3-button gamepad"
+msgstr ""
+
+msgid "4-button gamepad"
+msgstr ""
+
+msgid "6-button gamepad"
 msgstr ""
 
 msgid "2-button flight yoke"
 msgstr ""
 
-msgid "4-button gamepad"
+msgid "3-button flight yoke"
 msgstr ""
 
 msgid "4-button flight yoke"
@@ -903,10 +939,25 @@ msgstr ""
 msgid "2-button flight yoke with throttle"
 msgstr ""
 
+msgid "3-button flight yoke with throttle"
+msgstr ""
+
 msgid "4-button flight yoke with throttle"
 msgstr ""
 
-msgid "Win95 Steering Wheel (3-axis, 4-button)"
+msgid "Steering wheel (3-axis, 2-button)"
+msgstr ""
+
+msgid "Steering wheel (3-axis, 3-button)"
+msgstr ""
+
+msgid "Steering wheel (3-axis, 4-button)"
+msgstr ""
+
+msgid "Thrustmaster Formula T1/T2 with adapter"
+msgstr ""
+
+msgid "Thrustmaster Formula T1/T2 without adapter"
 msgstr ""
 
 msgid "None"
@@ -957,10 +1008,16 @@ msgstr ""
 msgid "&File"
 msgstr ""
 
-msgid "&New machine..."
+msgid "&New machine…"
 msgstr ""
 
-msgid "&Check for updates..."
+msgid "New machine…"
+msgstr ""
+
+msgid "New machine"
+msgstr ""
+
+msgid "&Check for updates…"
 msgstr ""
 
 msgid "Exit"
@@ -978,10 +1035,7 @@ msgstr ""
 msgid "Save"
 msgstr ""
 
-msgid "About 86Box"
-msgstr ""
-
-msgid "86Box v"
+msgid "About %1"
 msgstr ""
 
 msgid "An emulator of old computers\n\nAuthors: Miran Grča (OBattler), RichardG867, Jasmine Iwanek, TC1995, coldbrewed, Teemu Korhonen (Manaatti), Joakim L. Gilje, Adrien Moulin (elyosh), Daniel Balsom (gloriouscow), Cacodemon345, Fred N. van Kempen (waltje), Tiseno100, reenigne, and others.\n\nWith previous core contributions from Sarah Walker, leilei, JohnElliott, greatpsycho, and others.\n\nReleased under the GNU General Public License version 2 or later. See LICENSE for more information."
@@ -1003,15 +1057,6 @@ msgid "%1 is required for automatic conversion of PCL files to PDF.\n\nAny docum
 msgstr ""
 
 msgid "Don't show this message again"
-msgstr ""
-
-msgid "Don't exit"
-msgstr ""
-
-msgid "Reset"
-msgstr ""
-
-msgid "Don't reset"
 msgstr ""
 
 msgid "CD-ROM images"
@@ -1134,7 +1179,7 @@ msgstr ""
 msgid "Use regular expressions in search box"
 msgstr ""
 
-msgid "%1 machine(s) are currently active. Are you sure you want to exit the VM manager anyway?"
+msgid "%n machine(s) are currently active. Are you sure you want to exit the VM manager anyway?"
 msgstr ""
 
 msgid "Add new system wizard"
@@ -1215,25 +1260,22 @@ msgstr ""
 msgid "Enter the new display name (blank to reset)"
 msgstr ""
 
-msgid "Change &display name..."
+msgid "Change &display name…"
 msgstr ""
 
-msgid "Context Menu"
+msgid "&Open folder…"
 msgstr ""
 
-msgid "&Open folder..."
+msgid "Open p&rinter tray…"
 msgstr ""
 
-msgid "Open p&rinter tray..."
-msgstr ""
-
-msgid "Set &icon..."
+msgid "Set &icon…"
 msgstr ""
 
 msgid "Select an icon"
 msgstr ""
 
-msgid "C&lone..."
+msgid "C&lone…"
 msgstr ""
 
 msgid "Virtual machine \"%1\" (%2) will be cloned into:"
@@ -1320,7 +1362,7 @@ msgstr ""
 msgid "Search"
 msgstr ""
 
-msgid "Searching for VMs..."
+msgid "Searching for VMs…"
 msgstr ""
 
 msgid "Found %1"
@@ -1332,7 +1374,7 @@ msgstr ""
 msgid "Storage"
 msgstr ""
 
-msgid "Disk %1: "
+msgid "Disk %1:"
 msgstr ""
 
 msgid "No disks"
@@ -1356,10 +1398,10 @@ msgstr ""
 msgid "MFM/RLL or ESDI CD-ROM drives never existed"
 msgstr ""
 
-msgid "Custom..."
+msgid "Custom…"
 msgstr ""
 
-msgid "Custom (large)..."
+msgid "Custom (large)…"
 msgstr ""
 
 msgid "Add New Hard Disk"
@@ -1479,21 +1521,6 @@ msgstr ""
 msgid "Could not fix VHD timestamp."
 msgstr ""
 
-msgid "MFM/RLL"
-msgstr ""
-
-msgid "XTA"
-msgstr ""
-
-msgid "ESDI"
-msgstr ""
-
-msgid "IDE"
-msgstr ""
-
-msgid "ATAPI"
-msgstr ""
-
 msgid "CD-ROM %1 (%2): %3"
 msgstr ""
 
@@ -1536,9 +1563,6 @@ msgstr ""
 msgid "2.88 MB"
 msgstr ""
 
-msgid "ZIP 100"
-msgstr ""
-
 msgid "3.5\" 128 MB (ISO 10090)"
 msgstr ""
 
@@ -1579,6 +1603,9 @@ msgid "1.5% below perfect RPM"
 msgstr ""
 
 msgid "2% below perfect RPM"
+msgstr ""
+
+msgid "Creating image…"
 msgstr ""
 
 msgid "(System Default)"
@@ -1644,13 +1671,13 @@ msgstr ""
 msgid "About &Qt"
 msgstr ""
 
-msgid "&MCA devices..."
+msgid "&MCA devices…"
 msgstr ""
 
 msgid "Show non-&primary monitors"
 msgstr ""
 
-msgid "Open screenshots &folder..."
+msgid "Open screenshots &folder…"
 msgstr ""
 
 msgid "Appl&y fullscreen stretch mode when maximized"
@@ -1662,7 +1689,7 @@ msgstr ""
 msgid "&Pen"
 msgstr ""
 
-msgid "&Host CD/DVD Drive (%1:)"
+msgid "&Host CD/DVD Drive (%1)"
 msgstr ""
 
 msgid "&Connected"
@@ -1671,7 +1698,7 @@ msgstr ""
 msgid "Clear image &history"
 msgstr ""
 
-msgid "Create..."
+msgid "Create…"
 msgstr ""
 
 msgid "Host CD/DVD Drive (%1)"
@@ -1713,7 +1740,7 @@ msgstr ""
 msgid "Remove"
 msgstr ""
 
-msgid "Browse..."
+msgid "Browse…"
 msgstr ""
 
 msgid "Couldn't create OpenGL context."
@@ -1746,7 +1773,7 @@ msgstr ""
 msgid "I Copied It"
 msgstr ""
 
-msgid "86Box Monitor #"
+msgid "86Box Monitor #%1"
 msgstr ""
 
 msgid "No MCA devices."
@@ -1758,16 +1785,16 @@ msgstr ""
 msgid "GiB"
 msgstr ""
 
-msgid "Network Card #1"
+msgid "Adapter 1"
 msgstr ""
 
-msgid "Network Card #2"
+msgid "Adapter 2"
 msgstr ""
 
-msgid "Network Card #3"
+msgid "Adapter 3"
 msgstr ""
 
-msgid "Network Card #4"
+msgid "Adapter 4"
 msgstr ""
 
 msgid "Mode:"
@@ -1782,25 +1809,16 @@ msgstr ""
 msgid "VDE Socket:"
 msgstr ""
 
+msgid "TAP Bridge Device:"
+msgstr ""
+
 msgid "86Box Unit Tester"
 msgstr ""
 
 msgid "Novell NetWare 2.x Key Card"
 msgstr ""
 
-msgid "Serial port passthrough 1"
-msgstr ""
-
-msgid "Serial port passthrough 2"
-msgstr ""
-
-msgid "Serial port passthrough 3"
-msgstr ""
-
-msgid "Serial port passthrough 4"
-msgstr ""
-
-msgid "Renderer &options..."
+msgid "Renderer &options…"
 msgstr ""
 
 msgid "PC/XT Keyboard"
@@ -1854,7 +1872,7 @@ msgstr ""
 msgid "Default Baud rate"
 msgstr ""
 
-msgid "[COM] Standard Hayes-compliant Modem"
+msgid "Standard Hayes-compliant Modem"
 msgstr ""
 
 msgid "Roland MT-32 Emulation"
@@ -1938,6 +1956,9 @@ msgstr ""
 msgid "Parallel port IRQ"
 msgstr ""
 
+msgid "Hard disk"
+msgstr ""
+
 msgid "BIOS Revision"
 msgstr ""
 
@@ -1945,6 +1966,9 @@ msgid "BIOS Version"
 msgstr ""
 
 msgid "BIOS Language"
+msgstr ""
+
+msgid "Variant"
 msgstr ""
 
 msgid "IBM 5161 Expansion Unit"
@@ -2011,9 +2035,6 @@ msgid "MIDI Thru"
 msgstr ""
 
 msgid "MIDI Clockout"
-msgstr ""
-
-msgid "SoundFont"
 msgstr ""
 
 msgid "Output Gain"
@@ -2157,12 +2178,6 @@ msgstr ""
 msgid "Surround module"
 msgstr ""
 
-msgid "CODEC"
-msgstr ""
-
-msgid "Raise CODEC interrupt on CODEC setup (needed by some drivers)"
-msgstr ""
-
 msgid "SB Address"
 msgstr ""
 
@@ -2176,6 +2191,18 @@ msgid "WSS IRQ"
 msgstr ""
 
 msgid "WSS DMA"
+msgstr ""
+
+msgid "RTC IRQ"
+msgstr ""
+
+msgid "RTC Port Address"
+msgstr ""
+
+msgid "Onboard RTC"
+msgstr ""
+
+msgid "Not installed"
 msgstr ""
 
 msgid "Enable OPL"
@@ -2206,9 +2233,6 @@ msgid "Memory size"
 msgstr ""
 
 msgid "EMU8000 Address"
-msgstr ""
-
-msgid "IDE Controller"
 msgstr ""
 
 msgid "Codec"
@@ -2448,9 +2472,6 @@ msgstr ""
 msgid "SigmaTel STAC9721T (stereo)"
 msgstr ""
 
-msgid "Classic"
-msgstr ""
-
 msgid "256 KB"
 msgstr ""
 
@@ -2598,6 +2619,9 @@ msgstr ""
 msgid "High-Speed"
 msgstr ""
 
+msgid "LPT DAC / Covox Speech Thing"
+msgstr ""
+
 msgid "Stereo LPT DAC"
 msgstr ""
 
@@ -2610,7 +2634,7 @@ msgstr ""
 msgid "Generic PostScript Printer"
 msgstr ""
 
-msgid "Generic PCL5e Printer"
+msgid "Generic PCL Printer"
 msgstr ""
 
 msgid "Parallel Line Internet Protocol"
@@ -2619,7 +2643,10 @@ msgstr ""
 msgid "Protection Dongle for Savage Quest"
 msgstr ""
 
-msgid "Serial Passthrough Device"
+msgid "Loopback Plug"
+msgstr ""
+
+msgid "Serial Passthrough"
 msgstr ""
 
 msgid "Passthrough Mode"
@@ -2664,6 +2691,12 @@ msgstr ""
 msgid "[Generic] RAM Disk (max. speed)"
 msgstr ""
 
+msgid "[Generic] 1983 MFM (3600 RPM)"
+msgstr ""
+
+msgid "[Generic] 1983 RLL (3600 RPM)"
+msgstr ""
+
 msgid "[Generic] 1989 (3500 RPM)"
 msgstr ""
 
@@ -2703,6 +2736,12 @@ msgstr ""
 msgid "Generic PC/AT Memory Expansion"
 msgstr ""
 
+msgid "Generic MM58167 RTC"
+msgstr ""
+
+msgid "OPL2Board (External Device)"
+msgstr ""
+
 msgid "Unable to find Dot-Matrix fonts"
 msgstr ""
 
@@ -2739,9 +2778,6 @@ msgstr ""
 msgid "Could not load shader: %1"
 msgstr ""
 
-msgid "OpenGL version 3.0 or greater is required. Current GLSL version is %1.%2"
-msgstr ""
-
 msgid "Could not load texture: %1"
 msgstr ""
 
@@ -2769,7 +2805,13 @@ msgstr ""
 msgid "Could not load file %1"
 msgstr ""
 
-msgid "Key Bindings:"
+msgid "Emulator"
+msgstr ""
+
+msgid "Input"
+msgstr ""
+
+msgid "Key bindings"
 msgstr ""
 
 msgid "Action"
@@ -2805,7 +2847,7 @@ msgstr ""
 msgid "Toggle fullscreen"
 msgstr ""
 
-msgid "Screenshot"
+msgid "Toggle UI in fullscreen"
 msgstr ""
 
 msgid "Release mouse pointer"
@@ -2832,7 +2874,7 @@ msgstr ""
 msgid "Remote Switch"
 msgstr ""
 
-msgid "Switch:"
+msgid "Shared secret:"
 msgstr ""
 
 msgid "Hub Mode"
@@ -2922,7 +2964,7 @@ msgstr ""
 msgid "Update check"
 msgstr ""
 
-msgid "Checking for updates..."
+msgid "Checking for updates…"
 msgstr ""
 
 msgid "86Box Update"
@@ -2961,7 +3003,7 @@ msgstr ""
 msgid "Sharpness"
 msgstr ""
 
-msgid "&CGA composite settings..."
+msgid "&CGA composite settings…"
 msgstr ""
 
 msgid "CGA composite settings"
@@ -2970,13 +3012,13 @@ msgstr ""
 msgid "Monitor EDID"
 msgstr ""
 
-msgid "Export..."
+msgid "Export…"
 msgstr ""
 
 msgid "Export EDID"
 msgstr ""
 
-msgid "EDID file \"%ls\" is too large."
+msgid "EDID file \"%s\" is too large."
 msgstr ""
 
 msgid "OpenGL input scale"
@@ -2988,11 +3030,35 @@ msgstr ""
 msgid "Color scheme"
 msgstr ""
 
-msgid "System"
-msgstr ""
-
 msgid "Light"
 msgstr ""
 
 msgid "Dark"
+msgstr ""
+
+msgid "Force interpretation"
+msgstr ""
+
+msgid "Allow recompilation"
+msgstr ""
+
+msgid "&Force interpretation"
+msgstr ""
+
+msgid "&Allow recompilation"
+msgstr ""
+
+msgid "&Fast forward"
+msgstr ""
+
+msgid "Fast forward"
+msgstr ""
+
+msgid "To change the system directory, stop all running machines."
+msgstr ""
+
+msgid "Raw"
+msgstr ""
+
+msgid "Use EDC/ECC emulation"
 msgstr ""

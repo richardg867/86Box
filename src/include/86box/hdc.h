@@ -8,8 +8,6 @@
  *
  *          Definitions for the common disk controller handler.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
  *
@@ -46,6 +44,7 @@ extern const device_t st506_xt_wd1004_27x_device;         /* st506_xt_wd1004_27x
 extern const device_t st506_xt_wd1004a_27x_device;        /* st506_xt_wd1004a_27x */
 extern const device_t st506_xt_victor_v86p_device;        /* st506_xt_victor_v86p */
 extern const device_t st506_xt_toshiba_t1200_device;      /* st506_xt_toshiba_t1200 */
+extern const device_t st506_ps2_device;                   /* st506_mca */
 
 extern const device_t esdi_at_wd1007vse1_device; /* esdi_at */
 extern const device_t esdi_ps2_device;           /* esdi_mca */
@@ -76,6 +75,7 @@ extern const device_t ide_cmd640_pci_device;                    /* CMD PCI-640B 
 extern const device_t ide_cmd640_pci_legacy_only_device;        /* CMD PCI-640B PCI (Legacy Mode Only) */
 extern const device_t ide_cmd640_pci_single_channel_device;     /* CMD PCI-640B PCI (Only primary channel) */
 extern const device_t ide_cmd640_pci_single_channel_sec_device; /* CMD PCI-640B PCI (Only secondary channel) */
+extern const device_t ide_cmd640_pci_single_channel_legacy_only_device; /* CMD PCI-640B PCI (Legacy Mode Only/Only primary channel) */
 extern const device_t ide_cmd646_device;                        /* CMD PCI-646 */
 extern const device_t ide_cmd646_legacy_only_device;            /* CMD PCI-646 (Legacy Mode Only) */
 extern const device_t ide_cmd646_single_channel_device;         /* CMD PCI-646 (Only primary channel) */
@@ -89,6 +89,7 @@ extern const device_t ide_opti611_vlb_sec_device;               /* OPTi 82c611/6
 
 extern const device_t ide_rz1000_pci_device;                    /* PC Technology RZ-1000 PCI */
 extern const device_t ide_rz1000_pci_single_channel_device;     /* PC Technology RZ-1000 PCI (Only primary channel) */
+extern const device_t ide_rz1001_pci_device;                    /* PC Technology RZ-1001 PCI */
 
 extern const device_t ide_um8673f_device;                       /* UMC UM8673F */
 extern const device_t ide_um8886af_device;                      /* UMC UM8886AF */
@@ -113,6 +114,7 @@ extern const device_t xta_st50x_device;           /* ST-50X */
 extern const device_t xta_st50x_pc5086_device;    /* ST-50X (PC5086) */
 
 extern const device_t xtide_device;            /* xtide_xt */
+extern const device_t jride_device;            /* jride_pcjr */
 extern const device_t xtide_at_device;         /* xtide_at */
 extern const device_t xtide_at_2ch_device;     /* xtide_at_2ch */
 extern const device_t xtide_acculogic_device;  /* xtide_ps2 */

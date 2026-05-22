@@ -835,7 +835,7 @@ rtl8139_do_receive(void *priv, uint8_t *buf, int size_)
         uint32_t rx_space = rxdw0 & CP_RX_BUFFER_SIZE_MASK;
 
         /* write VLAN info to descriptor variables. */
-        if (s->CpCmd & CPlusRxVLAN && bswap16(*((uint16_t *) &buf[ETH_ALEN * 2])) == 0x8100) {
+        if (s->CpCmd & CPlusRxVLAN && bswap16(AS_U16(buf[ETH_ALEN * 2])) == 0x8100) {
             dot1q_buf = &buf[ETH_ALEN * 2];
             size -= VLAN_HLEN;
             /* if too small buffer, use the tailroom added duing expansion */
@@ -849,7 +849,7 @@ rtl8139_do_receive(void *priv, uint8_t *buf, int size_)
 
             rtl8139_log("C+ Rx mode : extracted vlan tag with tci: "
                         "%u\n",
-                        bswap16(*((uint16_t *) &dot1q_buf[ETHER_TYPE_LEN])));
+                        bswap16(AS_U16(dot1q_buf[ETHER_TYPE_LEN])));
         } else {
             /* reset VLAN tag flag */
             rxdw1 &= ~CP_RX_TAVA;
@@ -3100,7 +3100,7 @@ rtl8139_timer(void *priv)
 }
 
 static uint8_t
-rtl8139_pci_read(UNUSED(int func), int addr, void *priv)
+rtl8139_pci_read(UNUSED(int func), int addr, UNUSED(int len), void *priv)
 {
     const RTL8139State *s = (RTL8139State *) priv;
 
@@ -3157,7 +3157,7 @@ rtl8139_pci_read(UNUSED(int func), int addr, void *priv)
 }
 
 static void
-rtl8139_pci_write(UNUSED(int func), int addr, uint8_t val, void *priv)
+rtl8139_pci_write(UNUSED(int func), int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     RTL8139State *s = (RTL8139State *) priv;
 
@@ -3257,14 +3257,9 @@ nic_init(const device_t *info)
     eep_data[1] = 0x10EC;
     eep_data[2] = 0x8139;
 
-    /* XXX: Get proper MAC addresses from real EEPROM dumps. OID taken from net_ne2000.c */
-#ifdef USE_REALTEK_OID
+    /* XXX: Get proper MAC addresses from real EEPROM dumps. OID is generic Realtek */
     eep_data[7] = 0xe000;
     eep_data[8] = 0x124c;
-#else
-    eep_data[7] = 0x1400;
-    eep_data[8] = 0x122a;
-#endif
     eep_data[9] = 0x1413;
 
     mac_bytes = (uint8_t *) &(eep_data[7]);
@@ -3291,15 +3286,11 @@ nic_init(const device_t *info)
     for (uint32_t i = 0; i < 6; i++)
         s->phys[MAC0 + i] = mac_bytes[i];
 
-    params.nwords          = 64;
-    params.default_content = (uint16_t *) s->eeprom_data;
+    params.type            = NMC_93C46_x16_64;
+    params.default_content = s->eeprom_data;
     params.filename        = filename;
     snprintf(filename, sizeof(filename), "nmc93cxx_eeprom_%s_%d.nvr", info->internal_name, s->inst);
     s->eeprom = device_add_inst_params(&nmc93cxx_device, s->inst, &params);
-    if (s->eeprom == NULL) {
-        free(s);
-        return NULL;
-    }
 
     s->nic = network_attach(s, (uint8_t *) &s->phys[MAC0], rtl8139_do_receive, rtl8139_set_link_status);
     timer_add(&s->timer, rtl8139_timer, s, 0);

@@ -15,7 +15,7 @@
  *
  *          Copyright 2008-2020 Sarah Walker.
  *          Copyright 2016-2020 Miran Grca.
- *          Copyright 2024-2025 Jasmine Iwanek.
+ *          Copyright 2024-2026 Jasmine Iwanek.
  */
 #include <stdarg.h>
 #include <stdint.h>
@@ -43,17 +43,19 @@
 #include <86box/timer.h>
 #include <86box/snd_sb.h>
 #include <86box/plat_unused.h>
+#include <86box/snd_azt2316a.h>
 
-#define SB_1  0
-#define SB_15 1
-#define SB_2  2
+#define SB_1         0
+#define SB_15        1
+#define SB_2         2
+#define THUNDERBOARD 3
 
 #define SB_16_PNP_NOIDE 0
 #define SB_16_PNP_IDE   1
 
 #define SB_VIBRA16XV 0
 #define SB_VIBRA16C  1
-#define SB_VIBRA16CL  2
+#define SB_VIBRA16CL 2
 
 #define SB_32_PNP      0
 #define SB_AWE32_PNP   1
@@ -147,7 +149,7 @@ sb_log(const char *fmt, ...)
 
 /* SB 1, 1.5, MCV, and 2 do not have a mixer, so signal is hardwired. */
 static void
-sb_get_buffer_sb2(int32_t *buffer, int len, void *priv)
+sb_get_buffer_sb2(int32_t *buffer, uint16_t len, void *priv)
 {
     sb_t                    *sb    = (sb_t *) priv;
     const sb_ct1335_mixer_t *mixer = &sb->mixer_sb2;
@@ -158,7 +160,7 @@ sb_get_buffer_sb2(int32_t *buffer, int len, void *priv)
     if (sb->cms_enabled)
         cms_update(&sb->cms);
 
-    for (int c = 0; c < len * 2; c += 2) {
+    for (uint16_t c = 0; c < len * 2; c += 2) {
         double out_l = 0.0;
         double out_r = 0.0;
 
@@ -198,7 +200,7 @@ sb_get_buffer_sb2(int32_t *buffer, int len, void *priv)
 }
 
 static void
-sb_get_music_buffer_sb2(int32_t *buffer, int len, void *priv)
+sb_get_music_buffer_sb2(int32_t *buffer, uint16_t len, void *priv)
 {
     const sb_t              *sb      = (const sb_t *) priv;
     const sb_ct1335_mixer_t *mixer   = &sb->mixer_sb2;
@@ -206,7 +208,7 @@ sb_get_music_buffer_sb2(int32_t *buffer, int len, void *priv)
 
     opl_buf = sb->opl.update(sb->opl.priv);
 
-    for (int c = 0; c < len * 2; c += 2) {
+    for (uint16_t c = 0; c < len * 2; c += 2) {
         double out_l = 0.0;
         double out_r = 0.0;
 
@@ -249,14 +251,14 @@ sb2_filter_cd_audio(UNUSED(int channel), double *buffer, void *priv)
 }
 
 void
-sb_get_buffer_sbpro(int32_t *buffer, const int len, void *priv)
+sb_get_buffer_sbpro(int32_t *buffer, const uint16_t len, void *priv)
 {
     sb_t                    *sb    = (sb_t *) priv;
     const sb_ct1345_mixer_t *mixer = &sb->mixer_sbpro;
 
     sb_dsp_update(&sb->dsp);
 
-    for (int c = 0; c < len * 2; c += 2) {
+    for (uint16_t c = 0; c < len * 2; c += 2) {
         double out_l = 0.0;
         double out_r = 0.0;
 
@@ -281,7 +283,7 @@ sb_get_buffer_sbpro(int32_t *buffer, const int len, void *priv)
 }
 
 void
-sb_get_music_buffer_sbpro(int32_t *buffer, int len, void *priv)
+sb_get_music_buffer_sbpro(int32_t *buffer, uint16_t len, void *priv)
 {
     sb_t                    *sb       = (sb_t *) priv;
     const sb_ct1345_mixer_t *mixer    = &sb->mixer_sbpro;
@@ -293,19 +295,17 @@ sb_get_music_buffer_sbpro(int32_t *buffer, int len, void *priv)
     if (!sb->opl_enabled)
         return;
 
-    if (sb->dsp.sb_type == SBPRO_DSP_300) {
-        opl_buf  = sb->opl.update(sb->opl.priv);
+    opl_buf = sb->opl.update(sb->opl.priv);
+    if (sb->has_dualopl2)
         opl2_buf = sb->opl2.update(sb->opl2.priv);
-    } else
-        opl_buf = sb->opl.update(sb->opl.priv);
 
     sb_dsp_update(&sb->dsp);
 
-    for (int c = 0; c < len * 2; c += 2) {
+    for (uint16_t c = 0; c < len * 2; c += 2) {
         out_l = 0.0;
         out_r = 0.0;
 
-        if (sb->dsp.sb_type == SBPRO_DSP_300) {
+        if (sb->has_dualopl2) {
             /* Two chips for LEFT and RIGHT channels.
                Each chip stores data into the LEFT channel only (no sample alternating.) */
             out_l = (((double) opl_buf[c]) * mixer->fm_l) * 0.7171630859375;
@@ -344,7 +344,7 @@ sbpro_filter_cd_audio(int channel, double *buffer, void *priv)
 }
 
 static void
-sb_get_buffer_sb16_awe32(int32_t *buffer, int len, void *priv)
+sb_get_buffer_sb16_awe32(int32_t *buffer, uint16_t len, void *priv)
 {
     sb_t                    *sb    = (sb_t *) priv;
     const sb_ct1745_mixer_t *mixer = &sb->mixer_sb16;
@@ -352,7 +352,7 @@ sb_get_buffer_sb16_awe32(int32_t *buffer, int len, void *priv)
 
     sb_dsp_update(&sb->dsp);
 
-    for (int c = 0; c < len * 2; c += 2) {
+    for (uint16_t c = 0; c < len * 2; c += 2) {
         double out_l = 0.0;
         double out_r = 0.0;
 
@@ -414,7 +414,7 @@ sb_get_buffer_sb16_awe32(int32_t *buffer, int len, void *priv)
 }
 
 static void
-sb_get_music_buffer_sb16_awe32(int32_t *buffer, const int len, void *priv)
+sb_get_music_buffer_sb16_awe32(int32_t *buffer, const uint16_t len, void *priv)
 {
     sb_t                    *sb          = (sb_t *) priv;
     const sb_ct1745_mixer_t *mixer       = &sb->mixer_sb16;
@@ -514,13 +514,13 @@ sb_get_music_buffer_sb16_awe32(int32_t *buffer, const int len, void *priv)
 }
 
 static void
-sb_get_wavetable_buffer_goldfinch(int32_t *buffer, const int len, void *priv)
+sb_get_wavetable_buffer_goldfinch(int32_t *buffer, const uint16_t len, void *priv)
 {
     goldfinch_t *goldfinch = (goldfinch_t *) priv;
 
     emu8k_update(&goldfinch->emu8k);
 
-    for (int c = 0; c < len * 2; c += 2) {
+    for (uint16_t c = 0; c < len * 2; c += 2) {
         double out_l = 0.0;
         double out_r = 0.0;
 
@@ -535,7 +535,7 @@ sb_get_wavetable_buffer_goldfinch(int32_t *buffer, const int len, void *priv)
 }
 
 static void
-sb_get_wavetable_buffer_sb16_awe32(int32_t *buffer, const int len, void *priv)
+sb_get_wavetable_buffer_sb16_awe32(int32_t *buffer, const uint16_t len, void *priv)
 {
     sb_t                    *sb    = (sb_t *) priv;
     const sb_ct1745_mixer_t *mixer = &sb->mixer_sb16;
@@ -543,7 +543,7 @@ sb_get_wavetable_buffer_sb16_awe32(int32_t *buffer, const int len, void *priv)
 
     emu8k_update(&sb->emu8k);
 
-    for (int c = 0; c < len * 2; c += 2) {
+    for (uint16_t c = 0; c < len * 2; c += 2) {
         double out_l = 0.0;
         double out_r = 0.0;
 
@@ -677,7 +677,7 @@ sb16_awe32_filter_pc_speaker(int channel, double *buffer, void *priv)
 }
 
 void
-sb_get_buffer_ess(int32_t *buffer, int len, void *priv)
+sb_get_buffer_ess(int32_t *buffer, uint16_t len, void *priv)
 {
     sb_t              *ess   = (sb_t *) priv;
     const ess_mixer_t *mixer = &ess->mixer_ess;
@@ -709,7 +709,7 @@ sb_get_buffer_ess(int32_t *buffer, int len, void *priv)
 }
 
 void
-sb_get_music_buffer_ess(int32_t *buffer, int len, void *priv)
+sb_get_music_buffer_ess(int32_t *buffer, uint16_t len, void *priv)
 {
     sb_t              *ess     = (sb_t *) priv;
     const ess_mixer_t *mixer   = &ess->mixer_ess;
@@ -719,7 +719,7 @@ sb_get_music_buffer_ess(int32_t *buffer, int len, void *priv)
 
     opl_buf = ess->opl.update(ess->opl.priv);
 
-    for (int c = 0; c < len * 2; c += 2) {
+    for (uint16_t c = 0; c < len * 2; c += 2) {
         out_l = 0.0;
         out_r = 0.0;
 
@@ -863,6 +863,76 @@ sb_ct1345_mixer_write(uint16_t addr, uint8_t val, void *priv)
             mixer->regs[0x26] = mixer->regs[0x28] = 0xee;
             mixer->regs[0x2e]                     = 0x00;
             sb_dsp_set_stereo(&sb->dsp, mixer->regs[0x0e] & 2);
+        } else if (sb->dsp.sb_subtype == SB_SUBTYPE_CLONE_AZTPR16_0X09) {
+            mixer->regs[mixer->index] = val;
+            sb_log("sb_ct1345: Register WRITE, AZTPR16: %02X\t%02X\n", mixer->index, mixer->regs[mixer->index]);
+            aztpr16_update_mixer(sb->dsp.parent);
+
+            switch (mixer->index) {
+                /* Compatibility: chain registers 0x02 and 0x22 as well as 0x06 and 0x26 */
+                case 0x02:
+                case 0x06:
+                case 0x08:
+                    mixer->regs[mixer->index + 0x20] = ((val & 0xe) << 4) | (val & 0xe);
+                    break;
+
+                case 0x22:
+                case 0x26:
+                case 0x28:
+                    mixer->regs[mixer->index - 0x20] = (val & 0xe);
+                    break;
+
+                /* More compatibility:
+                   SoundBlaster Pro selects register 020h for 030h, 022h for 032h,
+                   026h for 036h, and 028h for 038h. */
+                case 0x30:
+                case 0x32:
+                case 0x36:
+                case 0x38:
+                    mixer->regs[mixer->index - 0x10] = (val & 0xee);
+                    break;
+
+                case 0x00:
+                case 0x04:
+                case 0x0a:
+                case 0x0c:
+                case 0x0e:
+                case 0x2e:
+                    break;
+
+                /* Aztech AZTPR16 mixer */
+                case 0x84:
+                case 0x86:
+                case 0x88:
+                case 0x8a:
+                case 0x8c:
+                case 0x8e:
+                case 0xa0:
+                case 0xa2:
+                case 0xa4:
+                case 0xa6:
+                case 0xa8:
+                case 0xaa:
+                case 0xac:
+                case 0xae:
+                case 0xc2:
+                case 0xc4:
+                case 0xc6:
+                case 0xc8:
+                case 0xca:
+                case 0xcc:
+                case 0xce:
+                case 0xe0:
+                case 0xe2:
+                case 0xe4:
+                case 0xe6:
+                case 0xe8:
+                    break;
+
+                default:
+                    sb_log("sb_ct1345: Unknown register WRITE: %02X\t%02X\n", mixer->index, mixer->regs[mixer->index]);
+                    break;
+            }
         } else {
             mixer->regs[mixer->index] = val;
 
@@ -915,6 +985,14 @@ sb_ct1345_mixer_write(uint16_t addr, uint8_t val, void *priv)
         mixer->line_l   = sb_att_4dbstep_3bits[(mixer->regs[0x2e] >> 5) & 0x7] / 32768.0;
         mixer->line_r   = sb_att_4dbstep_3bits[(mixer->regs[0x2e] >> 1) & 0x7] / 32768.0;
 
+        if (sb->dsp.sb_subtype == SB_SUBTYPE_CLONE_AZTPR16_0X09) {
+            mixer->master_l = sb_att_2dbstep_5bits[((mixer->regs[0x84] >> 1) & 0x1f)] / 32768.0;
+            mixer->master_r = sb_att_2dbstep_5bits[((mixer->regs[0x86] >> 1) & 0x1f)] / 32768.0;
+        }
+
+        if (sb->dsp.sb_subtype == SB_SUBTYPE_CLONE_AZT1605_0X0C)
+            azt1605_update_mixer(sb->dsp.parent);
+
         mixer->mic = sb_att_7dbstep_2bits[(mixer->regs[0x0a] >> 1) & 0x3] / 32768.0;
 
         mixer->output_filter  = !(mixer->regs[0xe] & 0x20);
@@ -966,6 +1044,42 @@ sb_ct1345_mixer_read(uint16_t addr, void *priv)
         case 0x36:
         case 0x38:
             return mixer->regs[mixer->index];
+
+        case 0x62:
+        /* Aztech AZT2320 */
+            if (sb->dsp.sb_subtype == SB_SUBTYPE_CLONE_AZT2320_0X13)
+                return 0x13;
+            break;
+
+        /* Aztech AZTPR16 mixer */
+        case 0x84:
+        case 0x86:
+        case 0x88:
+        case 0x8a:
+        case 0x8c:
+        case 0x8e:
+        case 0xa0:
+        case 0xa2:
+        case 0xa4:
+        case 0xa6:
+        case 0xa8:
+        case 0xaa:
+        case 0xac:
+        case 0xae:
+        case 0xc2:
+        case 0xc4:
+        case 0xc6:
+        case 0xc8:
+        case 0xca:
+        case 0xcc:
+        case 0xce:
+        case 0xe0:
+        case 0xe2:
+        case 0xe4:
+        case 0xe6:
+        case 0xe8:
+            if (sb->dsp.sb_subtype == SB_SUBTYPE_CLONE_AZTPR16_0X09)
+                return mixer->regs[mixer->index];
 
         default:
             sb_log("sb_ct1345: Unknown register READ: %02X\t%02X\n", mixer->index, mixer->regs[mixer->index]);
@@ -1349,8 +1463,12 @@ sb_ct1745_mixer_read(uint16_t addr, void *priv)
                 /* http://the.earth.li/~tfm/oldpage/sb_mixer.html - 0x10, 0x20, 0x80. */
                 const uint8_t temp = ((sb->dsp.sb_irq8) ? 1 : 0) | ((sb->dsp.sb_irq16) ? 2 : 0) |
                                      ((sb->dsp.sb_irq401) ? 4 : 0);
-                if (sb->dsp.sb_type >= SBAWE32_DSP_412)
+                if (sb->dsp.sb_type >= SB16_DSP_411)
                     ret = temp | 0x80;
+                else if (sb->dsp.sb_type == SB16_DSP_405)
+                    ret = temp | 0x20;
+                else if (sb->dsp.sb_type == SB16_DSP_404)
+                    ret = temp | 0x10;
                 else
                     ret = temp | 0x40;
                 break;
@@ -1806,7 +1924,7 @@ ess_mixer_reset(sb_t *ess)
 }
 
 uint8_t
-sb_mcv_read(int port, void *priv)
+sb_mcv_read(const uint16_t port, void *priv)
 {
     const sb_t *sb = (sb_t *) priv;
 
@@ -1816,7 +1934,7 @@ sb_mcv_read(int port, void *priv)
 }
 
 void
-sb_mcv_write(int port, uint8_t val, void *priv)
+sb_mcv_write(const uint16_t port, uint8_t val, void *priv)
 {
     uint16_t addr = 0;
     sb_t    *sb   = (sb_t *) priv;
@@ -1869,7 +1987,7 @@ sb_mcv_feedb(void *priv)
 }
 
 static uint8_t
-sb_pro_mcv_read(int port, void *priv)
+sb_pro_mcv_read(const uint16_t port, void *priv)
 {
     const sb_t *sb  = (sb_t *) priv;
     uint8_t     ret = sb->pos_regs[port & 7];
@@ -1880,7 +1998,7 @@ sb_pro_mcv_read(int port, void *priv)
 }
 
 static void
-sb_pro_mcv_write(int port, uint8_t val, void *priv)
+sb_pro_mcv_write(const uint16_t port, uint8_t val, void *priv)
 {
     uint16_t addr = 0;
     sb_t    *sb   = (sb_t *) priv;
@@ -1940,7 +2058,7 @@ sb_pro_mcv_write(int port, uint8_t val, void *priv)
 }
 
 static uint8_t
-sb_16_reply_mca_read(int port, void *priv)
+sb_16_reply_mca_read(const uint16_t port, void *priv)
 {
     const sb_t *sb  = (sb_t *) priv;
     uint8_t     ret = sb->pos_regs[port & 7];
@@ -1951,7 +2069,7 @@ sb_16_reply_mca_read(int port, void *priv)
 }
 
 static void
-sb_16_reply_mca_write(const int port, const uint8_t val, void *priv)
+sb_16_reply_mca_write(const uint16_t port, const uint8_t val, void *priv)
 {
     uint16_t addr = 0;
     sb_t    *sb   = (sb_t *) priv;
@@ -2521,7 +2639,7 @@ ess_x688_pnp_config_changed(UNUSED(const uint8_t ld), isapnp_device_config_t *co
 
 /* This function is common to all the ESS MCA cards. */
 static uint8_t
-ess_x688_mca_read(const int port, void *priv)
+ess_x688_mca_read(const uint16_t port, void *priv)
 {
     const sb_t   *ess = (sb_t *) priv;
     const uint8_t ret = ess->pos_regs[port & 7];
@@ -2532,7 +2650,7 @@ ess_x688_mca_read(const int port, void *priv)
 }
 
 static void
-ess_soundpiper_mca_write(const int port, const uint8_t val, void *priv)
+ess_soundpiper_mca_write(const uint16_t port, const uint8_t val, void *priv)
 {
     sb_t *ess = (sb_t *) priv;
 
@@ -2695,7 +2813,7 @@ ess_soundpiper_mca_write(const int port, const uint8_t val, void *priv)
 }
 
 static void
-ess_chipchat_mca_write(int port, uint8_t val, void *priv)
+ess_chipchat_mca_write(const uint16_t port, uint8_t val, void *priv)
 {
     sb_t *ess = (sb_t *) priv;
 
@@ -2838,25 +2956,30 @@ sb_init(UNUSED(const device_t *info))
        for music to play. */
     sb_t          *sb         = calloc(1, sizeof(sb_t));
     const uint16_t addr       = device_get_config_hex16("base");
+    uint8_t        dspver     = SB_DSP_105;
     uint16_t       mixer_addr = 0x0000;
-    uint8_t        model      = 0;
 
     switch (info->local) {
         default:
         case SB_1:
-            model           = SB_DSP_105;
+            dspver          = device_get_config_int("dspver");
             sb->cms_enabled = 1;
             break;
 
         case SB_15:
-            model           = SB_DSP_200;
+            dspver          = device_get_config_int("dspver");
             sb->cms_enabled = device_get_config_int("cms");
             break;
 
         case SB_2:
-            model           = SB_DSP_201;
+            dspver          = device_get_config_int("dspver");
             sb->cms_enabled = device_get_config_int("cms");
             mixer_addr      = device_get_config_int("mixaddr");
+            break;
+
+        case THUNDERBOARD:
+            dspver          = SB_DSP_200;
+            sb->cms_enabled = 0;
             break;
     }
 
@@ -2865,7 +2988,7 @@ sb_init(UNUSED(const device_t *info))
         fm_driver_get(FM_YM3812, &sb->opl);
 
     sb_dsp_set_real_opl(&sb->dsp, 1);
-    sb_dsp_init(&sb->dsp, model, SB_SUBTYPE_DEFAULT, sb);
+    sb_dsp_init(&sb->dsp, dspver, SB_SUBTYPE_DEFAULT, sb);
     sb_dsp_setaddr(&sb->dsp, addr);
     sb_dsp_setirq(&sb->dsp, device_get_config_int("irq"));
     sb_dsp_setdma8(&sb->dsp, 1); // SB 1, SB1.5 and 2 don't support DMA3
@@ -2881,7 +3004,7 @@ sb_init(UNUSED(const device_t *info))
     /* DSP I/O handler is activated in sb_dsp_setaddr */
     if (sb->opl_enabled) {
         // TODO: See if this applies to the SB1.5 as well
-        if ((!sb->cms_enabled) && ((model == SB_DSP_201) || (model == SB_DSP_202))) {
+        if ((!sb->cms_enabled) && ((dspver >= SB_DSP_200) && (dspver <= SB_DSP_202))) {
             io_sethandler(addr, 0x0002,
                           sb->opl.read, NULL, NULL,
                           sb->opl.write, NULL, NULL,
@@ -2905,7 +3028,7 @@ sb_init(UNUSED(const device_t *info))
                       &sb->cms);
     }
 
-    if (mixer_addr > 0x000) {
+    if (mixer_addr > 0x0000) {
         sb->mixer_enabled = 1;
         io_sethandler(mixer_addr + 4, 0x0002,
                       sb_ct1335_mixer_read, NULL, NULL,
@@ -2921,6 +3044,58 @@ sb_init(UNUSED(const device_t *info))
 
     if (device_get_config_int("receive_input"))
         midi_in_handler(1, sb_dsp_input_msg, sb_dsp_input_sysex, &sb->dsp);
+
+    return sb;
+}
+
+void *
+thunderboard_init(UNUSED(const device_t *info))
+{
+    /* ThunderBoard port mappings, 210h to 260h in 10h steps
+       2x6, 2xA, 2xC, 2xE -> DSP chip */
+    sb_t          *sb   = calloc(1, sizeof(sb_t));
+    const uint16_t addr = device_get_config_hex16("base");
+
+    sb->opl_enabled = device_get_config_int("opl");
+    if (sb->opl_enabled)
+        fm_driver_get(FM_YM3812, &sb->opl);
+
+    sb_dsp_set_real_opl(&sb->dsp, 0);
+    sb_dsp_init(&sb->dsp, SB_DSP_200, SB_SUBTYPE_MVD201, sb);
+    /* DSP I/O handler is activated in sb_dsp_setaddr */
+    sb_dsp_setaddr(&sb->dsp, addr);
+    sb_dsp_setirq(&sb->dsp, device_get_config_int("irq"));
+    sb_dsp_setdma8(&sb->dsp, 1);
+
+    if (device_get_config_int("gameport")) {
+        sb->gameport      = gameport_add(&gameport_device);
+        sb->gameport_addr = 0x200;
+        gameport_remap(sb->gameport, sb->gameport_addr);
+    }
+
+    /* DSP I/O handler is activated in sb_dsp_setaddr */
+    if (sb->opl_enabled) {
+        io_sethandler(addr, 0x0002,
+                      sb->opl.read, NULL, NULL,
+                      sb->opl.write, NULL, NULL,
+                      sb->opl.priv);
+        io_sethandler(addr + 8, 0x0002,
+                      sb->opl.read, NULL, NULL,
+                      sb->opl.write, NULL, NULL,
+                      sb->opl.priv);
+        io_sethandler(0x0388, 0x0002,
+                      sb->opl.read, NULL, NULL,
+                      sb->opl.write, NULL, NULL,
+                      sb->opl.priv);
+    }
+
+
+    sb->cms_enabled   = 0;
+    sb->mixer_enabled = 0;
+    sound_add_handler(sb_get_buffer_sb2, sb);
+    if (sb->opl_enabled)
+        music_add_handler(sb_get_music_buffer_sb2, sb);
+    sound_set_cd_audio_filter(sb2_filter_cd_audio, sb);
 
     return sb;
 }
@@ -2994,19 +3169,21 @@ sb_pro_v1_init(UNUSED(const device_t *info))
        2x6, 2xA, 2xC, 2xE -> DSP chip
        2x8, 2x9, 388 and 389 FM chip (9 voices)
        2x0+10 to 2x0+13 CDROM interface. */
-    sb_t    *sb   = calloc(1, sizeof(sb_t));
-    uint16_t addr = device_get_config_hex16("base");
+    sb_t          *sb   = calloc(1, sizeof(sb_t));
+    const uint16_t addr = device_get_config_hex16("base");
+    uint8_t       dspver = device_get_config_int("dspver");
 
     sb->opl_enabled = device_get_config_int("opl");
     if (sb->opl_enabled) {
         fm_driver_get(FM_YM3812, &sb->opl);
         sb->opl.set_do_cycles(sb->opl.priv, 0);
+        sb->has_dualopl2 = 1;
         fm_driver_get(FM_YM3812, &sb->opl2);
         sb->opl2.set_do_cycles(sb->opl2.priv, 0);
     }
 
     sb_dsp_set_real_opl(&sb->dsp, 1);
-    sb_dsp_init(&sb->dsp, SBPRO_DSP_300, SB_SUBTYPE_DEFAULT, sb);
+    sb_dsp_init(&sb->dsp, dspver, SB_SUBTYPE_DEFAULT, sb);
     sb_dsp_setaddr(&sb->dsp, addr);
     sb_dsp_setirq(&sb->dsp, device_get_config_int("irq"));
     sb_dsp_setdma8(&sb->dsp, device_get_config_int("dma"));
@@ -3061,15 +3238,16 @@ sb_pro_v2_init(UNUSED(const device_t *info))
        2x6, 2xA, 2xC, 2xE -> DSP chip
        2x8, 2x9, 388 and 389 FM chip (9 voices)
        2x0+10 to 2x0+13 CDROM interface. */
-    sb_t    *sb   = calloc(1, sizeof(sb_t));
-    uint16_t addr = device_get_config_hex16("base");
+    sb_t          *sb   = calloc(1, sizeof(sb_t));
+    const uint16_t addr = device_get_config_hex16("base");
+    const uint8_t  dspver = sb->opl_enabled = device_get_config_int("dspver");
 
     sb->opl_enabled = device_get_config_int("opl");
     if (sb->opl_enabled)
         fm_driver_get(FM_YMF262, &sb->opl);
 
     sb_dsp_set_real_opl(&sb->dsp, 1);
-    sb_dsp_init(&sb->dsp, SBPRO2_DSP_302, SB_SUBTYPE_DEFAULT, sb);
+    sb_dsp_init(&sb->dsp, dspver, SB_SUBTYPE_DEFAULT, sb);
     sb_dsp_setaddr(&sb->dsp, addr);
     sb_dsp_setirq(&sb->dsp, device_get_config_int("irq"));
     sb_dsp_setdma8(&sb->dsp, device_get_config_int("dma"));
@@ -3125,7 +3303,7 @@ sb_pro_mcv_init(UNUSED(const device_t *info))
     fm_driver_get(FM_YMF262, &sb->opl);
 
     sb_dsp_set_real_opl(&sb->dsp, 1);
-    sb_dsp_init(&sb->dsp, SBPRO2_DSP_302, SB_SUBTYPE_DEFAULT, sb);
+    sb_dsp_init(&sb->dsp, SBPRO_DSP_302, SB_SUBTYPE_DEFAULT, sb);
     sb_ct1345_mixer_reset(sb);
 
     sb->mixer_enabled = 1;
@@ -3157,7 +3335,7 @@ sb_pro_compat_init(UNUSED(const device_t *info))
     fm_driver_get(FM_YMF262, &sb->opl);
 
     sb_dsp_set_real_opl(&sb->dsp, 1);
-    sb_dsp_init(&sb->dsp, SBPRO2_DSP_302, SB_SUBTYPE_DEFAULT, sb);
+    sb_dsp_init(&sb->dsp, SBPRO_DSP_302, SB_SUBTYPE_DEFAULT, sb);
     sb_ct1345_mixer_reset(sb);
 
     sb->mixer_enabled = 1;
@@ -3178,13 +3356,13 @@ sb_16_init(UNUSED(const device_t *info))
     sb_t          *sb       = calloc(1, sizeof(sb_t));
     const uint16_t addr     = device_get_config_hex16("base");
     const uint16_t mpu_addr = device_get_config_hex16("base401");
-
+    const uint8_t  dspver = device_get_config_int("dspver");
     sb->opl_enabled = device_get_config_int("opl");
     if (sb->opl_enabled)
         fm_driver_get((int) (intptr_t) info->local, &sb->opl);
 
     sb_dsp_set_real_opl(&sb->dsp, 1);
-    sb_dsp_init(&sb->dsp, (info->local == FM_YMF289B) ? SBAWE32_DSP_413 : SB16_DSP_405, SB_SUBTYPE_DEFAULT, sb);
+    sb_dsp_init(&sb->dsp, (info->local == FM_YMF289B) ? SBAWE32_DSP_413 : dspver, SB_SUBTYPE_DEFAULT, sb);
     sb_dsp_setaddr(&sb->dsp, addr);
     sb_dsp_setirq(&sb->dsp, device_get_config_int("irq"));
     sb_dsp_setdma8(&sb->dsp, device_get_config_int("dma"));
@@ -3302,12 +3480,14 @@ sb_16_pnp_init(UNUSED(const device_t *info))
 {
     sb_t *sb = calloc(1, sizeof(sb_t));
 
+    const uint8_t dspver = device_get_config_int("dspver");
+
     sb->pnp = 1;
 
     sb->opl_enabled = 1;
     fm_driver_get(FM_YMF262, &sb->opl);
 
-    sb_dsp_init(&sb->dsp, SB16_DSP_405, SB_SUBTYPE_DEFAULT, sb);
+    sb_dsp_init(&sb->dsp, dspver, SB_SUBTYPE_DEFAULT, sb);
     sb_dsp_setdma16_supported(&sb->dsp, 1);
     sb_ct1745_mixer_reset(sb);
 
@@ -3837,7 +4017,7 @@ ess_x688_init(UNUSED(const device_t *info))
     fm_driver_get(info->local ? FM_ESFM : FM_YMF262, &ess->opl);
 
     sb_dsp_set_real_opl(&ess->dsp, 1);
-    sb_dsp_init(&ess->dsp, SBPRO2_DSP_302, info->local ? SB_SUBTYPE_ESS_ES1688 : SB_SUBTYPE_ESS_ES688, ess);
+    sb_dsp_init(&ess->dsp, SBPRO_DSP_301, info->local ? SB_SUBTYPE_ESS_ES1688 : SB_SUBTYPE_ESS_ES688, ess);
     sb_dsp_setaddr(&ess->dsp, addr);
     sb_dsp_setirq(&ess->dsp, device_get_config_int("irq"));
     sb_dsp_setdma8(&ess->dsp, device_get_config_int("dma"));
@@ -3944,12 +4124,15 @@ ess_x688_pnp_init(UNUSED(const device_t *info))
 {
     sb_t *ess = calloc(sizeof(sb_t), 1);
 
-    ess->pnp = 1 + (int) info->local;
+    if (info->local == 3)
+        ess->pnp = 3;
+    else
+        ess->pnp = 1 + (int) info->local;
 
     fm_driver_get(info->local ? FM_ESFM : FM_YMF262, &ess->opl);
 
     sb_dsp_set_real_opl(&ess->dsp, 1);
-    sb_dsp_init(&ess->dsp, SBPRO2_DSP_302, info->local ? SB_SUBTYPE_ESS_ES1688 : SB_SUBTYPE_ESS_ES688, ess);
+    sb_dsp_init(&ess->dsp, SBPRO_DSP_301, (info->local & 1) ? SB_SUBTYPE_ESS_ES1688 : SB_SUBTYPE_ESS_ES688, ess);
     sb_dsp_setdma16_supported(&ess->dsp, 0);
     ess_mixer_reset(ess);
 
@@ -3957,7 +4140,7 @@ ess_x688_pnp_init(UNUSED(const device_t *info))
     sound_add_handler(sb_get_buffer_ess, ess);
     music_add_handler(sb_get_music_buffer_ess, ess);
     sound_set_cd_audio_filter(ess_filter_cd_audio, ess);
-    if (info->local && device_get_config_int("control_pc_speaker"))
+    if ((info->local & 1) && device_get_config_int("control_pc_speaker"))
         sound_set_pc_speaker_filter(ess_filter_pc_speaker, ess);
 
     if (device_get_config_int("receive_input"))
@@ -3990,8 +4173,9 @@ ess_x688_pnp_init(UNUSED(const device_t *info))
             break;
 
         case 2:
+        case 3:
             pnp_rom_file = PNP_ROM_ESS0968;
-            pnp_rom_len  = 135;
+            pnp_rom_len  = 127;
             break;
 
         default:
@@ -4035,7 +4219,7 @@ ess_x688_mca_init(UNUSED(const device_t *info))
     fm_driver_get(info->local ? FM_ESFM : FM_YMF262, &ess->opl);
 
     sb_dsp_set_real_opl(&ess->dsp, 1);
-    sb_dsp_init(&ess->dsp, SBPRO2_DSP_302, info->local ? SB_SUBTYPE_ESS_ES1688 : SB_SUBTYPE_ESS_ES688, ess);
+    sb_dsp_init(&ess->dsp, SBPRO_DSP_301, info->local ? SB_SUBTYPE_ESS_ES1688 : SB_SUBTYPE_ESS_ES688, ess);
     sb_dsp_setdma16_supported(&ess->dsp, 0);
     ess_mixer_reset(ess);
 
@@ -4184,6 +4368,84 @@ static const device_config_t sb_config[] = {
         .selection      = { { 0 } },
         .bios           = { { 0 } }
     },
+    {
+        .name           = "dspver",
+        .description    = "DSP Version",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = SB_DSP_105,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "1.03", .value = SB_DSP_103 },
+            { .description = "1.05", .value = SB_DSP_105 },
+            { .description = "2.00", .value = SB_DSP_200 },
+            { .description = ""                          }
+        },
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+};
+
+static const device_config_t thunderboard_config[] = {
+    {
+        .name           = "base",
+        .description    = "Address",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0x220,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "0x210", .value = 0x210 },
+            { .description = "0x220", .value = 0x220 },
+            { .description = "0x230", .value = 0x230 },
+            { .description = "0x240", .value = 0x240 },
+            { .description = "0x250", .value = 0x250 },
+            { .description = "0x260", .value = 0x260 },
+            { .description = ""                      }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "irq",
+        .description    = "IRQ",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 7,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "IRQ 2", .value = 2 },
+            { .description = "IRQ 3", .value = 3 },
+            { .description = "IRQ 5", .value = 5 },
+            { .description = "IRQ 7", .value = 7 },
+            { .description = ""                  }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "gameport",
+        .description    = "Enable Game port",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "opl",
+        .description    = "Enable OPL",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
     { .name = "", .description = "", .type = CONFIG_END }
 };
 
@@ -4266,6 +4528,21 @@ static const device_config_t sb15_config[] = {
         .file_filter    = NULL,
         .spinner        = { 0 },
         .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "dspver",
+        .description    = "DSP Version",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = SB_DSP_200,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "1.05", .value = SB_DSP_105 },
+            { .description = "2.00", .value = SB_DSP_200 },
+            { .description = ""                          }
+        },
         .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
@@ -4362,6 +4639,21 @@ static const device_config_t sb2_config[] = {
         .file_filter    = NULL,
         .spinner        = { 0 },
         .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "dspver",
+        .description    = "DSP Version",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = SB_DSP_201,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "2.01", .value = SB_DSP_201 },
+            { .description = "2.02", .value = SB_DSP_202 },
+            { .description = ""                          }
+        },
         .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
@@ -4516,6 +4808,121 @@ static const device_config_t sb_pro_config[] = {
         .file_filter    = NULL,
         .spinner        = { 0 },
         .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "dspver",
+        .description    = "DSP Version",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = SBPRO_DSP_300,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "3.00", .value = SBPRO_DSP_300 },
+            { .description = "3.01", .value = SBPRO_DSP_301 },
+            { .description = ""                             }
+        },
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+};
+
+static const device_config_t sb_pro_v2_config[] = {
+    {
+        .name           = "base",
+        .description    = "Address",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0x220,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "0x220", .value = 0x220 },
+            { .description = "0x240", .value = 0x240 },
+            { .description = ""                      }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "irq",
+        .description    = "IRQ",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 7,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description =  "IRQ 2", .value =  2 },
+            { .description =  "IRQ 5", .value =  5 },
+            { .description =  "IRQ 7", .value =  7 },
+            { .description = "IRQ 10", .value = 10 },
+            { .description = ""                    }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "dma",
+        .description    = "DMA",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "DMA 0", .value = 0 },
+            { .description = "DMA 1", .value = 1 },
+            { .description = "DMA 3", .value = 3 },
+            { .description = ""                  }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "gameport",
+        .description    = "Enable Game port",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "opl",
+        .description    = "Enable OPL",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "receive_input",
+        .description    = "Receive MIDI input",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "dspver",
+        .description    = "DSP Version",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = SBPRO_DSP_302,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "3.01", .value = SBPRO_DSP_301 },
+            { .description = "3.02", .value = SBPRO_DSP_302 },
+            { .description = ""                             }
+        },
         .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
@@ -4685,10 +5092,224 @@ static const device_config_t sb_16_config[] = {
         .selection      = { { 0 } },
         .bios           = { { 0 } }
     },
+    {
+        .name           = "dspver",
+        .description    = "DSP Version",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = SB16_DSP_405,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "4.04", .value = SB16_DSP_404    },
+            { .description = "4.05", .value = SB16_DSP_405    },
+            { .description = "4.11", .value = SB16_DSP_411    },
+            { .description = "4.12", .value = SBAWE32_DSP_412 },
+            { .description = "4.13", .value = SBAWE32_DSP_413 },
+            { .description = ""                               }
+        },
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+};
+
+static const device_config_t sb_vibra16_config[] = {
+    {
+        .name           = "base",
+        .description    = "Address",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0x220,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "0x220", .value = 0x220 },
+            { .description = "0x240", .value = 0x240 },
+            { .description = "0x260", .value = 0x260 },
+            { .description = "0x280", .value = 0x280 },
+            { .description = ""                      }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "base401",
+        .description    = "MPU-401 Address",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0x330,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "Disabled", .value =     0 },
+            { .description = "0x300",    .value = 0x300 },
+            { .description = "0x330",    .value = 0x330 },
+            { .description = ""                         }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "irq",
+        .description    = "IRQ",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 5,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description =  "IRQ 2", .value =  2 },
+            { .description =  "IRQ 5", .value =  5 },
+            { .description =  "IRQ 7", .value =  7 },
+            { .description = "IRQ 10", .value = 10 },
+            { .description = ""                    }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "dma",
+        .description    = "Low DMA",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "DMA 0", .value = 0 },
+            { .description = "DMA 1", .value = 1 },
+            { .description = "DMA 3", .value = 3 },
+            { .description = ""                  }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "dma16",
+        .description    = "High DMA",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 5,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "DMA 5", .value = 5 },
+            { .description = "DMA 6", .value = 6 },
+            { .description = "DMA 7", .value = 7 },
+            { .description = ""                  }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "gameport",
+        .description    = "Enable Game port",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "opl",
+        .description    = "Enable OPL",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "control_pc_speaker",
+        .description    = "Control PC speaker",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "receive_input",
+        .description    = "Receive MIDI input",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "receive_input401",
+        .description    = "Receive MIDI input (MPU-401)",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
     { .name = "", .description = "", .type = CONFIG_END }
 };
 
 static const device_config_t sb_16_pnp_config[] = {
+    {
+        .name           = "control_pc_speaker",
+        .description    = "Control PC speaker",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "receive_input",
+        .description    = "Receive MIDI input",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "receive_input401",
+        .description    = "Receive MIDI input (MPU-401)",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "dspver",
+        .description    = "DSP Version",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = SB16_DSP_405,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "4.04", .value = SB16_DSP_404    },
+            { .description = "4.05", .value = SB16_DSP_405    },
+            { .description = "4.11", .value = SB16_DSP_411    },
+            { .description = "4.12", .value = SBAWE32_DSP_412 },
+            { .description = "4.13", .value = SBAWE32_DSP_413 },
+            { .description = ""                               }
+        },
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+};
+
+static const device_config_t sb_vibra16_pnp_config[] = {
     {
         .name           = "control_pc_speaker",
         .description    = "Control PC speaker",
@@ -5437,6 +6058,32 @@ static const device_config_t ess_688_pnp_config[] = {
     { .name = "", .description = "", .type = CONFIG_END }
 };
 
+static const device_config_t ess_688_pnp_es0968_config[] = {
+    {
+        .name           = "receive_input",
+        .description    = "Receive MIDI input",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "receive_input401",
+        .description    = "Receive MIDI input (MPU-401)",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+};
+
 static const device_config_t ess_1688_pnp_config[] = {
     {
         .name           = "control_pc_speaker",
@@ -5474,6 +6121,20 @@ static const device_config_t ess_1688_pnp_config[] = {
     { .name = "", .description = "", .type = CONFIG_END }
 };
 // clang-format on
+
+const device_t thunderboard_device = {
+    .name          = "MediaVision ThunderBoard",
+    .internal_name = "thunderboard",
+    .flags         = DEVICE_ISA,
+    .local         = THUNDERBOARD,
+    .init          = thunderboard_init,
+    .close         = sb_close,
+    .reset         = NULL,
+    .available     = NULL,
+    .speed_changed = sb_speed_changed,
+    .force_redraw  = NULL,
+    .config        = thunderboard_config
+};
 
 const device_t sb_1_device = {
     .name          = "Sound Blaster v1.0",
@@ -5556,7 +6217,7 @@ const device_t sb_pro_v2_device = {
     .available     = NULL,
     .speed_changed = sb_speed_changed,
     .force_redraw  = NULL,
-    .config        = sb_pro_config
+    .config        = sb_pro_v2_config
 };
 
 const device_t sb_pro_mcv_device = {
@@ -5612,7 +6273,7 @@ const device_t sb_vibra16c_onboard_device = {
     .available     = sb_vibra16c_available,
     .speed_changed = sb_speed_changed,
     .force_redraw  = NULL,
-    .config        = sb_16_pnp_config
+    .config        = sb_vibra16_pnp_config
 };
 
 const device_t sb_vibra16c_device = {
@@ -5626,7 +6287,7 @@ const device_t sb_vibra16c_device = {
     .available     = sb_vibra16c_available,
     .speed_changed = sb_speed_changed,
     .force_redraw  = NULL,
-    .config        = sb_16_pnp_config
+    .config        = sb_vibra16_pnp_config
 };
 
 const device_t sb_vibra16cl_onboard_device = {
@@ -5640,7 +6301,7 @@ const device_t sb_vibra16cl_onboard_device = {
     .available     = sb_vibra16cl_available,
     .speed_changed = sb_speed_changed,
     .force_redraw  = NULL,
-    .config        = sb_16_pnp_config
+    .config        = sb_vibra16_pnp_config
 };
 
 const device_t sb_vibra16cl_device = {
@@ -5654,7 +6315,7 @@ const device_t sb_vibra16cl_device = {
     .available     = sb_vibra16cl_available,
     .speed_changed = sb_speed_changed,
     .force_redraw  = NULL,
-    .config        = sb_16_pnp_config
+    .config        = sb_vibra16_pnp_config
 };
 
 const device_t sb_vibra16s_onboard_device = {
@@ -5682,7 +6343,7 @@ const device_t sb_vibra16s_device = {
     .available     = NULL,
     .speed_changed = sb_speed_changed,
     .force_redraw  = NULL,
-    .config        = sb_16_config
+    .config        = sb_vibra16_config
 };
 
 const device_t sb_vibra16xv_onboard_device = {
@@ -5696,7 +6357,7 @@ const device_t sb_vibra16xv_onboard_device = {
     .available     = sb_vibra16xv_available,
     .speed_changed = sb_speed_changed,
     .force_redraw  = NULL,
-    .config        = sb_16_pnp_config
+    .config        = sb_vibra16_pnp_config
 };
 
 const device_t sb_vibra16xv_device = {
@@ -5710,7 +6371,7 @@ const device_t sb_vibra16xv_device = {
     .available     = sb_vibra16xv_available,
     .speed_changed = sb_speed_changed,
     .force_redraw  = NULL,
-    .config        = sb_16_pnp_config
+    .config        = sb_vibra16_pnp_config
 };
 
 const device_t sb_16_reply_mca_device = {
@@ -5724,7 +6385,7 @@ const device_t sb_16_reply_mca_device = {
     .available     = NULL,
     .speed_changed = sb_speed_changed,
     .force_redraw  = NULL,
-    .config        = sb_16_pnp_config
+    .config        = sb_vibra16_pnp_config
 };
 
 const device_t sb_16_pnp_device = {
@@ -5898,7 +6559,7 @@ const device_t sb_awe64_gold_device = {
 const device_t ess_688_device = {
     .name          = "ESS AudioDrive ES688",
     .internal_name = "ess_es688",
-    .flags         = DEVICE_ISA,
+    .flags         = DEVICE_ISA16,
     .local         = 0,
     .init          = ess_x688_init,
     .close         = sb_close,
@@ -5912,7 +6573,7 @@ const device_t ess_688_device = {
 const device_t ess_ess0100_pnp_device = {
     .name          = "ESS AudioDrive ES688 (ESS0100) PnP",
     .internal_name = "ess_ess0100_pnp",
-    .flags         = DEVICE_ISA,
+    .flags         = DEVICE_ISA16,
     .local         = 0,
     .init          = ess_x688_pnp_init,
     .close         = sb_close,
@@ -5926,7 +6587,7 @@ const device_t ess_ess0100_pnp_device = {
 const device_t ess_1688_device = {
     .name          = "ESS AudioDrive ES1688",
     .internal_name = "ess_es1688",
-    .flags         = DEVICE_ISA,
+    .flags         = DEVICE_ISA16,
     .local         = 1,
     .init          = ess_x688_init,
     .close         = sb_close,
@@ -5940,7 +6601,7 @@ const device_t ess_1688_device = {
 const device_t ess_ess0102_pnp_device = {
     .name          = "ESS AudioDrive ES1688 (ESS0102) PnP",
     .internal_name = "ess_ess0102_pnp",
-    .flags         = DEVICE_ISA,
+    .flags         = DEVICE_ISA16,
     .local         = 1,
     .init          = ess_x688_pnp_init,
     .close         = sb_close,
@@ -5951,11 +6612,25 @@ const device_t ess_ess0102_pnp_device = {
     .config        = ess_1688_pnp_config
 };
 
+const device_t ess_ess0968_pnp_688_device = {
+    .name          = "ESS AudioDrive ES688 (ESS0968) PnP",
+    .internal_name = "ess_ess0968_pnp_es688",
+    .flags         = DEVICE_ISA16,
+    .local         = 2,
+    .init          = ess_x688_pnp_init,
+    .close         = sb_close,
+    .reset         = NULL,
+    .available     = ess_1688_968_pnp_available,
+    .speed_changed = sb_speed_changed,
+    .force_redraw  = NULL,
+    .config        = ess_688_pnp_es0968_config
+};
+
 const device_t ess_ess0968_pnp_device = {
     .name          = "ESS AudioDrive ES1688 (ESS0968) PnP",
     .internal_name = "ess_ess0968_pnp",
-    .flags         = DEVICE_ISA,
-    .local         = 2,
+    .flags         = DEVICE_ISA16,
+    .local         = 3,
     .init          = ess_x688_pnp_init,
     .close         = sb_close,
     .reset         = NULL,

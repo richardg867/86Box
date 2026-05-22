@@ -300,7 +300,7 @@ ad1848_write(uint16_t addr, uint8_t val, void *priv)
 
     switch (addr & 3) {
         case 0: /* Index */
-            if ((ad1848->regs[12] & 0x40) && (ad1848->type >= AD1848_TYPE_CS4231))
+            if (((ad1848->regs[12] & 0x40) && (ad1848->type >= AD1848_TYPE_CS4231)) || ((ad1848->type == AD1848_TYPE_OPTI930) && (ad1848->opti930_mode2)))
                 ad1848->index = val & 0x1f; /* cs4231a extended mode enabled */
             else
                 ad1848->index = val & 0x0f; /* ad1848/cs4248 mode TODO: some variants/clones DO NOT mirror, just ignore the writes? */
@@ -344,7 +344,7 @@ ad1848_write(uint16_t addr, uint8_t val, void *priv)
 
                 case 12:
                     if (ad1848->type >= AD1848_TYPE_CS4248) {
-                        ad1848->regs[12] = 0x80 | (val & 0x70) | (ad1848->regs[12] & 0x0f);
+                        ad1848->regs[12] = 0x80 | (val & 0x60) | (ad1848->regs[12] & 0x0f);
                         if ((ad1848->type >= AD1848_TYPE_CS4231) && (ad1848->type < AD1848_TYPE_CS4235)) {
                             if (val & 0x40)
                                 ad1848->fmt_mask |= 0x80;
@@ -411,8 +411,8 @@ ad1848_write(uint16_t addr, uint8_t val, void *priv)
                                 goto readonly_i;
                         }
 
-                        /* HACK: the Windows 9x driver's "Synth" control writes to this
-                           register with no remapping, even if internal FM is enabled. */
+                    }
+                    if ((ad1848->type >= AD1848_TYPE_CS4232) && (ad1848->type <= AD1848_TYPE_CS4236)) {
                         if (ad1848->index == 18) {
                             if (val & 0x80)
                                 ad1848->fm_vol_l = 0;
@@ -508,6 +508,8 @@ readonly_x:
                     }
                     if (ad1848->type == AD1848_TYPE_CS4231) /* I23 is reserved and read-only on CS4231 non-A */
                         goto readonly_i;
+                    if ((ad1848->type >= AD1848_TYPE_CS4232) && (ad1848->type <= AD1848_TYPE_CS4236)) /* I23 bits 7-1 are read-only on CS4231A/4232/4236 non-B, Win2k relies on this for detection */
+                        val = (val & 0x01);
                     break;
 
                 case 24:
@@ -801,7 +803,7 @@ ad1848_set_cd_audio_channel(void *priv, int channel)
 {
     ad1848_t *ad1848 = (ad1848_t *) priv;
 
-    const int max_channel = (ad1848->type >= AD1848_TYPE_CS4231) ? 31 : 15;
+    const int max_channel = (ad1848->type >= AD1848_TYPE_CS4231) ? 31 : (ad1848->type == AD1848_TYPE_OPTI930) ? 19 : 15;
     if (channel > max_channel)
         channel = max_channel;
 
@@ -824,7 +826,7 @@ ad1848_filter_channel(void *priv, int channel, double *out_l, double *out_r)
 {
     const ad1848_t *ad1848 = (ad1848_t *) priv;
 
-    const int max_channel = (ad1848->type >= AD1848_TYPE_CS4231) ? 31 : 15;
+    const int max_channel = (ad1848->type >= AD1848_TYPE_CS4231) ? 31 : (ad1848->type == AD1848_TYPE_OPTI930) ? 19 : 15;
     if (channel > max_channel)
         channel = max_channel;
 
@@ -865,7 +867,13 @@ ad1848_init(ad1848_t *ad1848, uint8_t type)
     ad1848->regs[13] = 0;
     ad1848->regs[14] = ad1848->regs[15] = 0;
 
-    if (type == AD1848_TYPE_CS4231) {
+    if (type == AD1848_TYPE_OPTI930) {
+        ad1848->regs[18] = ad1848->regs[19] = 0x88; /* LINE volume */
+        ad1848->regs[20] = ad1848->regs[21] = 0x84; /* OPTi 930 MIC volume */
+        ad1848->regs[22] = ad1848->regs[23] = 0x84; /* OPTi 930 master volume */
+        ad1848->regs[24]                    = 0;
+        ad1848->regs[25]                    = 0;
+    } else if (type == AD1848_TYPE_CS4231) {
         ad1848->regs[16] = ad1848->regs[17] = 0;
         ad1848->regs[18] = ad1848->regs[19] = 0x88;
         ad1848->regs[22]                    = 0x80;

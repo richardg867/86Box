@@ -8,17 +8,18 @@
  *
  *          Handling of the emulated flash devices.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          Jasmine Iwanek, <jriwanek@gmail.com>
  *
  *          Copyright 2020      Miran Grca.
  *          Copyright 2022-2023 Jasmine Iwanek.
  */
-
 #ifndef EMU_FLASH_H
 #define EMU_FLASH_H
+
+#define AMD_FLAG_LEGACY           0x01
+
+extern const device_t amd_flash_am29f016d_device;
 
 extern const device_t amd_am28f010_flash_device;
 extern const device_t catalyst_flash_device;
@@ -32,6 +33,7 @@ extern const device_t sst_flash_29ee020_device;
 
 extern const device_t winbond_flash_w29c512_device;
 extern const device_t winbond_flash_w29c010_device;
+extern const device_t winbond_flash_w29c011a_device;
 extern const device_t winbond_flash_w29c020_device;
 extern const device_t winbond_flash_w29c040_device;
 
@@ -61,6 +63,7 @@ extern const device_t sst_flash_49lf080_device;
 extern const device_t sst_flash_49lf016_device;
 extern const device_t sst_flash_49lf160_device;
 
+extern const device_t amd_flash_29f010a_device;
 extern const device_t amd_flash_29f020a_device;
 
 #endif /*EMU_FLASH_H*/

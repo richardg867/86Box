@@ -12,7 +12,6 @@
  *
  *          Copyright 2017-2020 Fred N. van Kempen.
  */
-
 #ifndef EMU_SIO_H
 #define EMU_SIO_H
 
@@ -20,6 +19,7 @@
 extern const device_t acc3221_device;
 
 /* Acer / ALi */
+extern const device_t ali5113_device;
 extern const device_t ali5123_device;
 
 /* Chips & Technologies */
@@ -27,6 +27,8 @@ extern const device_t f82c606_device;
 
 extern const device_t f82c710_device;
 extern const device_t f82c710_pc5086_device;
+
+extern const device_t p82c604_device;
 
 /* Commodore */
 extern const device_t cbm_io_device;

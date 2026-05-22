@@ -8,8 +8,6 @@
  *
  *          Common UI functions.
  *
- *
- *
  * Authors: Joakim L. Gilje <jgilje@jgilje.net>
  *          Cacodemon345
  *
@@ -52,6 +50,7 @@ extern "C" {
 #include <86box/cdrom.h>
 #include <86box/rdisk.h>
 #include <86box/mo.h>
+#include <86box/scsi_tape.h>
 #include <86box/hdd.h>
 #include <86box/thread.h>
 #include <86box/network.h>
@@ -65,26 +64,20 @@ void
 plat_delay_ms(uint32_t count)
 {
 #ifdef Q_OS_WINDOWS
-    // On Win32 the accuracy of Sleep() depends on the timer resolution, which can be set by calling timeBeginPeriod
-    // https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod
-    timeBeginPeriod(1);
     Sleep(count);
-    timeEndPeriod(1);
 #else
     QThread::msleep(count);
 #endif
 }
 
-wchar_t *
-ui_window_title(wchar_t *str)
+char *
+ui_window_title(char *str)
 {
     if (str == nullptr) {
-        static wchar_t title[512] = { 0 };
-
-        main_window->getTitle(title);
-        str = title;
+        QString title = main_window->getTitle();
+        str = title.toUtf8().data();
     } else
-        emit main_window->setTitle(QString::fromWCharArray(str));
+        emit main_window->setTitle(QString::fromUtf8(str));
 
     return str;
 }
@@ -157,12 +150,10 @@ plat_mouse_capture(int on)
 }
 
 int
-ui_msgbox_header(int flags, void *header, void *message)
+ui_msgbox_header(int flags, char *header, char *message)
 {
-    const auto hdr = (flags & MBX_ANSI) ? QString(static_cast<char *>(header)) :
-                            QString::fromWCharArray(static_cast<const wchar_t *>(header));
-    const auto msg = (flags & MBX_ANSI) ? QString(static_cast<char *>(message)) :
-                            QString::fromWCharArray(static_cast<const wchar_t *>(message));
+    const auto hdr = QString::fromUtf8(header);
+    const auto msg = QString::fromUtf8(message);
 
     // any error in early init
     if (main_window == nullptr) {
@@ -201,7 +192,7 @@ ui_deinit_monitor(int monitor_index)
 }
 
 int
-ui_msgbox(int flags, void *message)
+ui_msgbox(int flags, char *message)
 {
     return ui_msgbox_header(flags, nullptr, message);
 }
@@ -217,13 +208,6 @@ void
 ui_sb_mt32lcd(char *str)
 {
     sb_mt32lcdtext = QString(str);
-    ui_sb_update_text();
-}
-
-void
-ui_sb_set_text_w(wchar_t *wstr)
-{
-    sb_text = QString::fromWCharArray(wstr);
     ui_sb_update_text();
 }
 
@@ -265,9 +249,9 @@ ui_sb_set_ready(int ready)
 void
 ui_sb_update_icon_wp(int tag, int state)
 {
-    const auto temp    = static_cast<unsigned int>(tag);
-    const int category = static_cast<int>(temp & 0xfffffff0);
-    const int item     = tag & 0xf;
+    const auto temp     = static_cast<unsigned int>(tag);
+    const int  category = static_cast<int>(temp & 0xfffffff0);
+    const int  item     = tag & 0xf;
 
     switch (category) {
         default:
@@ -284,6 +268,9 @@ ui_sb_update_icon_wp(int tag, int state)
         case SB_MO:
             machine_status.mo[item].write_prot = state > 0 ? true : false;
             break;
+        case SB_TAPE:
+            machine_status.tape[item].write_prot = state > 0 ? true : false;
+            break;
     }
 
     if (main_window != nullptr)
@@ -293,9 +280,9 @@ ui_sb_update_icon_wp(int tag, int state)
 void
 ui_sb_update_icon_state(int tag, int state)
 {
-    const auto temp    = static_cast<unsigned int>(tag);
-    const int category = static_cast<int>(temp & 0xfffffff0);
-    const int item     = tag & 0xf;
+    const auto temp     = static_cast<unsigned int>(tag);
+    const int  category = static_cast<int>(temp & 0xfffffff0);
+    const int  item     = tag & 0xf;
 
     switch (category) {
         default:
@@ -318,6 +305,9 @@ ui_sb_update_icon_state(int tag, int state)
         case SB_MO:
             machine_status.mo[item].empty = state > 0 ? true : false;
             break;
+        case SB_TAPE:
+            machine_status.tape[item].empty = state > 0 ? true : false;
+            break;
         case SB_HDD:
             break;
         case SB_NETWORK:
@@ -335,9 +325,9 @@ ui_sb_update_icon_state(int tag, int state)
 void
 ui_sb_update_icon(int tag, int active)
 {
-    const auto temp    = static_cast<unsigned int>(tag);
-    const int category = static_cast<int>(temp & 0xfffffff0);
-    const int item     = tag & 0xf;
+    const auto temp     = static_cast<unsigned int>(tag);
+    const int  category = static_cast<int>(temp & 0xfffffff0);
+    const int  item     = tag & 0xf;
 
     switch (category) {
         default:
@@ -356,6 +346,9 @@ ui_sb_update_icon(int tag, int active)
         case SB_MO:
             machine_status.mo[item].active = active > 0 ? true : false;
             break;
+        case SB_TAPE:
+            machine_status.tape[item].active = active > 0 ? true : false;
+            break;
         case SB_HDD:
             machine_status.hdd[item].active = active > 0 ? true : false;
             break;
@@ -371,9 +364,9 @@ ui_sb_update_icon(int tag, int active)
 void
 ui_sb_update_icon_write(int tag, int write)
 {
-    const auto temp    = static_cast<unsigned int>(tag);
-    const int category = static_cast<int>(temp & 0xfffffff0);
-    const int item     = tag & 0xf;
+    const auto temp     = static_cast<unsigned int>(tag);
+    const int  category = static_cast<int>(temp & 0xfffffff0);
+    const int  item     = tag & 0xf;
 
     switch (category) {
         default:
@@ -392,6 +385,9 @@ ui_sb_update_icon_write(int tag, int write)
         case SB_MO:
             machine_status.mo[item].write_active = write > 0 ? true : false;
             break;
+        case SB_TAPE:
+            machine_status.tape[item].write_active = write > 0 ? true : false;
+            break;
         case SB_HDD:
             machine_status.hdd[item].write_active = write > 0 ? true : false;
             break;
@@ -403,5 +399,4 @@ ui_sb_update_icon_write(int tag, int write)
             break;
     }
 }
-
 }
