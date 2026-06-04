@@ -41,6 +41,7 @@ typedef struct pc_timer_t {
 
     void (*callback)(void *priv);
     void *priv;
+    const char *name;
 
     struct pc_timer_t *prev;
     struct pc_timer_t *next;
@@ -65,20 +66,36 @@ extern void timer_process(void);
 /*Reset timer system*/
 extern void timer_close(void);
 extern void timer_init(void);
+enum {
+    TIMER_MODE_UNINITED = 0,
+    TIMER_MODE_VIRTUAL,
+    TIMER_MODE_REAL
+};
+extern int timer_inited;
 
 /*Add new timer. If start_timer is set, timer will be enabled with a zero
   timestamp - this is useful for permanently enabled timers*/
-extern void timer_add(pc_timer_t *timer, void (*callback)(void *priv), void *priv, int start_timer);
+extern void timer_add_named(pc_timer_t *timer, void (*callback)(void *priv), void *priv, int start_timer, const char *name);
+#ifdef __FILE_NAME__
+#    define timer_add(timer, callback, priv, start_timer) timer_add_named(timer, callback, priv, start_timer, __FILE_NAME__ ":" #timer)
+#else
+#    define timer_add(timer, callback, priv, start_timer) timer_add_named(timer, callback, priv, start_timer, __FILE__ ":" #timer)
+#endif
 
 /*1us in 32:32 format*/
 extern uint64_t TIMER_USEC;
+extern uint64_t TIMER_NSEC;
+
+extern uint64_t timer_clock_last;
+extern uint64_t timer_realtime_target;
+extern uint64_t timer_get_clock_ns(void);
 
 /*True if timer a expires before timer b*/
 #define TIMER_LESS_THAN(a, b) ((int64_t) ((a)->ts_integer - (b)->ts_integer) <= 0)
 /*True if timer a expires before 32 bit integer timestamp b*/
 #define TIMER_LESS_THAN_VAL(a, b) ((int64_t) ((a)->ts_integer - (b)) <= 0)
 /*True if 32 bit integer timestamp a expires before 32 bit integer timestamp b*/
-#define TIMER_VAL_LESS_THAN_VAL(a, b) ((int64_t) ((a) - (b)) <= 0)
+#define TIMER_VAL_LESS_THAN_VAL(a, b) ((timer_inited == TIMER_MODE_REAL) || ((int64_t) ((a) - (b)) <= 0))
 
 #ifndef printf
 #include <stdio.h>
@@ -89,16 +106,22 @@ extern uint64_t TIMER_USEC;
 static __inline void
 timer_advance_u64(pc_timer_t *timer, uint64_t delay)
 {
-    uint64_t int_delay = delay >> 32;
-    uint32_t frac_delay = delay & 0xffffffff;
+    if (timer_inited == TIMER_MODE_REAL) {
+        if (!timer->ts_integer) /* hotfix for timers that don't set_delay */
+            timer->ts_integer = timer_get_clock_ns();
+        timer->ts_integer += (delay / TIMER_NSEC);
+    } else {
+        uint64_t int_delay = delay >> 32;
+        uint32_t frac_delay = delay & 0xffffffff;
 
-    if (int_delay & 0x0000000080000000ULL)
-        int_delay |= 0xffffffff00000000ULL;
+        if (int_delay & 0x0000000080000000ULL)
+            int_delay |= 0xffffffff00000000ULL;
 
-    if ((frac_delay + timer->ts_frac) < frac_delay)
+        if ((frac_delay + timer->ts_frac) < frac_delay)
             timer->ts_integer++;
-    timer->ts_frac += frac_delay;
-    timer->ts_integer += int_delay;
+        timer->ts_frac += frac_delay;
+        timer->ts_integer += int_delay;
+    }
 
     timer_enable(timer);
 }
@@ -108,14 +131,18 @@ timer_advance_u64(pc_timer_t *timer, uint64_t delay)
 static __inline void
 timer_set_delay_u64(pc_timer_t *timer, uint64_t delay)
 {
-    uint64_t int_delay = delay >> 32;
-    uint32_t frac_delay = delay & 0xffffffff;
+    if (timer_inited == TIMER_MODE_REAL) {
+        timer->ts_integer = timer_get_clock_ns() + (delay / TIMER_NSEC);
+    } else {
+        uint64_t int_delay = delay >> 32;
+        uint32_t frac_delay = delay & 0xffffffff;
 
-    if (int_delay & 0x0000000080000000ULL)
-        int_delay |= 0xffffffff00000000ULL;
+        if (int_delay & 0x0000000080000000ULL)
+            int_delay |= 0xffffffff00000000ULL;
 
-    timer->ts_frac = frac_delay;
-    timer->ts_integer = int_delay + (uint64_t)tsc;
+        timer->ts_frac = frac_delay;
+        timer->ts_integer = int_delay + (uint64_t)tsc;
+    }
 
     timer_enable(timer);
 }
@@ -138,7 +165,10 @@ timer_is_on(pc_timer_t *timer)
 static __inline uint64_t
 timer_get_ts_int(pc_timer_t *timer)
 {
-    return timer->ts_integer;
+    if (timer_inited == TIMER_MODE_REAL)
+        return ((uint128_t) timer->ts_integer * TIMER_NSEC) >> 32;
+    else
+        return timer->ts_integer;
 }
 
 /*Return remaining time before timer expires, in us. If the timer has already
@@ -147,6 +177,9 @@ static __inline uint64_t
 timer_get_remaining_us(pc_timer_t *timer)
 {
     if (timer->flags & TIMER_ENABLED) {
+        if (timer_inited == TIMER_MODE_REAL)
+            return (timer->ts_integer - timer_get_clock_ns()) / 1000ULL;
+
         int128_t remaining = (((uint128_t)timer->ts_integer << 32) | timer->ts_frac) - ((uint128_t)tsc << 32);
 
         if (remaining < 0)
@@ -163,6 +196,9 @@ static __inline uint128_t
 timer_get_remaining_u64(pc_timer_t *timer)
 {
     if (timer->flags & TIMER_ENABLED) {
+        if (timer_inited == TIMER_MODE_REAL)
+            return (timer->ts_integer - timer_get_clock_ns()) * TIMER_NSEC;
+
         int128_t remaining = (((uint128_t)timer->ts_integer << 32) | timer->ts_frac) - ((uint128_t)tsc << 32);
 
         if (remaining < 0)

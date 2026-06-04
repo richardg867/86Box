@@ -39,6 +39,7 @@
 #include <86box/rom.h>
 #include <86box/gdbstub.h>
 #include <86box/thread.h>
+#include <86box/hypervisor.h>
 #ifdef USE_DYNAREC
 #    include "codegen_public.h"
 #else
@@ -2915,6 +2916,9 @@ mem_mapping_recalc(uint64_t base, uint64_t size, uint32_t base_ignore)
     }
 
     flushmmucache_nopc();
+#ifdef USE_HYPERVISOR
+    hv_recalc_mappings(base, size);
+#endif
 
 #ifdef ENABLE_MEM_LOG
     pclog("\nMemory map:\n");

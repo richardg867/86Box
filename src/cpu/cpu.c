@@ -44,6 +44,7 @@
 #include <86box/smram.h>
 #include <86box/timer.h>
 #include <86box/gdbstub.h>
+#include <86box/hypervisor.h>
 #include <86box/plat_fallthrough.h>
 #include <86box/plat_unused.h>
 
@@ -2096,6 +2097,12 @@ cpu_set(void)
     cpu_use_exec = 0;
 
     if (is386) {
+#if defined(USE_HYPERVISOR) && !defined(USE_GDBSTUB)
+        if (1) {
+            cpu_exec = hv_exec;
+            cpu_use_exec = 1;
+        } else
+#endif
 #if defined(USE_DYNAREC) && !defined(USE_GDBSTUB)
         if (cpu_use_dynarec) {
             cpu_exec = exec386_dynarec;
@@ -2133,6 +2140,10 @@ cpu_close(void)
     cpu_lapic_reset_all();
     /* Drop callbacks on teardown so LAPIC does not retain stale CPU hooks. */
     lapic_set_index_source(NULL);
+
+#ifdef USE_HYPERVISOR
+    hv_close();
+#endif
 }
 
 void

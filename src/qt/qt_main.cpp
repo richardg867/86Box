@@ -491,7 +491,7 @@ main_thread_fn()
 #endif
         automation_poll();
         const int automation = automation_run_state();
-        if (((debt_ns >= quantum_ns) || fast_forward || (automation == AUTOMATION_RUN)) && !dopause && (automation != AUTOMATION_HOLD)) {
+        if (((debt_ns >= quantum_ns) || fast_forward || (automation == AUTOMATION_RUN) || (timer_inited == TIMER_MODE_REAL)) && !dopause && (automation != AUTOMATION_HOLD)) {
             /*
              * Pace with one pc_run() per scheduler pass.
              * We intentionally avoid burst catch-up (multi-frame loop) because it can
@@ -521,7 +521,7 @@ main_thread_fn()
 
             if (automation == AUTOMATION_RUN)
                 debt_ns = 0; /* unpaced automation steps must not cause catch-up later */
-            else if (!fast_forward && debt_ns >= quantum_ns)
+            else if (!fast_forward && (timer_inited != TIMER_MODE_REAL) && debt_ns >= quantum_ns)
                 debt_ns -= quantum_ns;
             else
                 debt_ns = 0;
