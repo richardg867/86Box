@@ -25,6 +25,7 @@
 #include <86box/fdc.h>
 #include <86box/keyboard.h>
 #include <86box/timer.h>
+#include <86box/hypervisor.h>
 
 #include "x86seg.h"
 #include "386_common.h"
@@ -1288,6 +1289,10 @@ enter_smm(int in_hlt)
     if (!is_am486 && !is_pentium && !is_k5 && !is_k6 && !is_p6 && !is_cxsmm)
         return;
 
+#ifdef USE_HYPERVISOR
+    hv_get_regs();
+#endif
+
     x386_common_log("enter_smm(): smbase = %08X\n", smbase);
     x386_common_log("CS : seg = %04X, base = %08X, limit = %08X, limit_low = %08X, limit_high = %08X, access = %02X, ar_high = %02X\n",
                     cpu_state.seg_cs.seg, cpu_state.seg_cs.base, cpu_state.seg_cs.limit, cpu_state.seg_cs.limit_low,
@@ -1444,6 +1449,10 @@ enter_smm(int in_hlt)
 
     cpu_cur_status &= ~(CPU_STATUS_PMODE | CPU_STATUS_V86);
     CPU_BLOCK_END();
+
+#ifdef USE_HYPERVISOR
+    hv_apply_regs();
+#endif
 }
 
 void
@@ -1504,6 +1513,10 @@ leave_smm(void)
     /* If it's a CPU on which SMM is not supported (or not implemented in 86Box), do nothing. */
     if (!is_am486 && !is_pentium && !is_k5 && !is_k6 && !is_p6 && !is_cxsmm)
         return;
+
+#ifdef USE_HYPERVISOR
+    hv_get_regs();
+#endif
 
     memset(saved_state, 0x00, SMM_SAVE_STATE_MAP_SIZE * sizeof(uint32_t));
 
@@ -1597,6 +1610,10 @@ leave_smm(void)
     x386_common_log("EAX = %08X, EBX = %08X, ECX = %08X, EDX = %08X, ESI = %08X, EDI = %08X, ESP = %08X, EBP = %08X\n",
                     EAX, EBX, ECX, EDX, ESI, EDI, ESP, EBP);
     x386_common_log("leave_smm()\n");
+
+#ifdef USE_HYPERVISOR
+    hv_apply_regs();
+#endif
 }
 
 void

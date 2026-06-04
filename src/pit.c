@@ -1242,6 +1242,7 @@ pit_set_clock(uint32_t clock)
     RTCCONST  = (uint64_t) (cpuclock / 32768.0 * (double) (1ULL << 32));
 
     TIMER_USEC = (uint64_t) ((cpuclock / 1000000.0) * (double) (1ULL << 32));
+    TIMER_NSEC = (uint64_t) ((cpuclock / 1000000000.0) * (double) (1ULL << 32));
 
     PAS16CONSTD = (cpuclock / 441000.0);
     PAS16CONST  = (uint64_t) (PAS16CONSTD * (double) (1ULL << 32));

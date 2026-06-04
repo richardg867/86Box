@@ -8,6 +8,7 @@
 #include <86box/nv/vid_nv_rivatimer.h>
 
 uint64_t TIMER_USEC;
+uint64_t TIMER_NSEC;
 uint64_t timer_target;
 
 /*Enabled timers are stored in a linked list, with the first timer to expire at
@@ -16,6 +17,13 @@ pc_timer_t *timer_head = NULL;
 
 /* Are we initialized? */
 int timer_inited = 0;
+
+uint64_t timer_realtime_target;
+uint64_t timer_clock_last;
+
+#ifdef _WIN32
+static uint64_t timer_realtime_freq;
+#endif
 
 static void timer_advance_ex(pc_timer_t *timer, int start);
 
@@ -36,7 +44,12 @@ timer_enable(pc_timer_t *timer)
     if (!timer_head) {
         timer_head = timer;
         timer->next = timer->prev = NULL;
-        timer_target = timer_head->ts_integer;
+        if (timer_inited == TIMER_MODE_REAL) {
+            timer_target = tsc;
+            timer_realtime_target = timer_head->ts_integer;
+        } else {
+            timer_target = timer_head->ts_integer;
+        }
         return;
     }
 
@@ -55,7 +68,12 @@ timer_enable(pc_timer_t *timer)
                 timer->prev->next = timer;
             else {
                 timer_head = timer;
-                timer_target = timer_head->ts_integer;
+                if (timer_inited == TIMER_MODE_REAL) {
+                    timer_target = tsc;
+                    timer_realtime_target = timer_head->ts_integer;
+                } else {
+                    timer_target = timer_head->ts_integer;
+                }
             }
             return;
         }
@@ -99,6 +117,26 @@ timer_disable(pc_timer_t *timer)
     timer->prev = timer->next = NULL;
 }
 
+static unsigned int in_timer_process = 0;
+static uint64_t timer_process_ts = 0;
+
+uint64_t
+timer_get_clock_ns(void)
+{
+    if (in_timer_process)
+        return timer_process_ts;
+
+#ifdef _WIN32
+    LARGE_INTEGER ticks;
+    QueryPerformanceCounter(&ticks);
+    return (uint128_t) ticks.QuadPart * 1000000000ULL / timer_realtime_freq;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+#endif
+}
+
 static void
 timer_remove_head(void)
 {
@@ -117,10 +155,14 @@ timer_process(void)
     if (!timer_head)
         return;
 
+    if (timer_inited == TIMER_MODE_REAL)
+        timer_process_ts = timer_get_clock_ns();
+
+    //in_timer_process++;
     while (1) {
         pc_timer_t *timer = timer_head;
 
-        if (!TIMER_LESS_THAN_VAL(timer, (uint64_t) tsc))
+        if ((timer_inited == TIMER_MODE_REAL) ? ((int64_t) (timer->ts_integer - timer_process_ts) > 0) : !TIMER_LESS_THAN_VAL(timer, (uint64_t) tsc))
             break;
 
         timer_remove_head();
@@ -139,8 +181,14 @@ timer_process(void)
             timer->in_callback = 0;
         }
     }
+    //in_timer_process--;
 
-    timer_target = timer_head->ts_integer;
+    if (timer_inited == TIMER_MODE_REAL) {
+        timer_target = tsc;
+        timer_realtime_target = timer_head->ts_integer;
+    } else {
+        timer_target = timer_head->ts_integer;
+    }
 }
 
 void
@@ -172,11 +220,24 @@ timer_init(void)
     /* Initialise the CPU-independent timer */
     rivatimer_init();
 
-    timer_inited = 1;
+#ifdef USE_HYPERVISOR
+    timer_inited = TIMER_MODE_REAL;
+#else
+    timer_inited = TIMER_MODE_REAL;
+#endif
+
+    if (timer_inited == TIMER_MODE_REAL) {
+#ifdef _WIN32
+        LARGE_INTEGER freq;
+        QueryPerformanceFrequency(&freq);
+        timer_realtime_freq = freq.QuadPart;
+#endif
+        timer_clock_last = timer_get_clock_ns();
+    }
 }
 
 void
-timer_add(pc_timer_t *timer, void (*callback)(void *priv), void *priv, int start_timer)
+timer_add_named(pc_timer_t *timer, void (*callback)(void *priv), void *priv, int start_timer, const char *name)
 {
     memset(timer, 0, sizeof(pc_timer_t));
 
@@ -185,6 +246,7 @@ timer_add(pc_timer_t *timer, void (*callback)(void *priv), void *priv, int start
     timer->priv        = priv;
     timer->flags       = 0;
     timer->prev        = timer->next = NULL;
+    timer->name        = name;
     if (start_timer)
         timer_set_delay_u64(timer, 0);
 }
@@ -273,7 +335,7 @@ timer_set_new_tsc(uint64_t new_tsc)
         tsc = new_tsc;
         return;
     }
-
+fatal("not supported yet\n");
     timer = timer_head;
     timer_target = new_tsc + (int64_t)(timer_get_ts_int(timer_head) - (uint64_t)tsc);
 

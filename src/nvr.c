@@ -141,7 +141,7 @@ onesec_timer(void *priv)
         is_at = IS_AT(machine);
         if (!is_at)
             rtc_tick();
-
+pclog("RTC_ONESEC %d\n", plat_get_ticks());
         /* Update the RTC device if needed. */
         if (nvr->tick != NULL)
             (*nvr->tick)(nvr);

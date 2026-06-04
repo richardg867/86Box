@@ -104,6 +104,7 @@
     /* Use volatile for performance, as the original code did */
     #define ATOMIC_INT volatile int
     #define ATOMIC_UINT volatile uint32_t
+    #define ATOMIC_UINT64 volatile uint64_t
     #define ATOMIC_DOUBLE volatile double
     #define ATOMIC_LOAD(var) (var)
     #define ATOMIC_STORE(var, val) ((var) = (val))
@@ -130,6 +131,7 @@
     
     #define ATOMIC_INT atomic_int
     #define ATOMIC_UINT atomic_uint
+    #define ATOMIC_UINT64 atomic_ullong
     #define ATOMIC_DOUBLE _Atomic double
     #define ATOMIC_LOAD(var) atomic_load(&(var))
     #define ATOMIC_STORE(var, val) atomic_store(&(var), (val))

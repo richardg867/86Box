@@ -166,6 +166,7 @@ smram_recalc_all(int ret)
     temp_smram = base_smram;
 
     while (temp_smram != NULL) {
+pclog("ret %d smram %p size %d\n", ret, temp_smram, (unsigned int) temp_smram->size);
         if (temp_smram->size != 0x00000000)
             mem_mapping_recalc(temp_smram->host_base, temp_smram->size, 0x00000000);
 

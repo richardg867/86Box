@@ -59,5 +59,12 @@ if(DYNAREC)
     )
 endif()
 
+if(HYPERVISOR)
+    if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+        target_sources(cpu PRIVATE kvm.c)
+        target_link_libraries(86Box rt)
+    endif()
+endif()
+
 add_subdirectory(softfloat3e)
 target_link_libraries(86Box softfloat3e)

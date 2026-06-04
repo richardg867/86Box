@@ -358,7 +358,7 @@ intel_flash_init(const device_t *info)
     mem_mapping_disable(&bios_mapping);
     mem_mapping_disable(&bios_high_mapping);
 
-    dev->array = (uint8_t *) calloc(1, biosmask + 1);
+    dev->array = (uint8_t *) plat_mmap(biosmask + 1, 0);
     memset(dev->array, 0xff, biosmask + 1);
 
     switch (biosmask) {
@@ -546,7 +546,7 @@ intel_flash_close(void *priv)
     fwrite(&(dev->array[dev->block_start[BLOCK_DATA2]]), dev->block_len[BLOCK_DATA2], 1, fp);
     fclose(fp);
 
-    free(dev->array);
+    plat_munmap(dev->array, biosmask + 1);
     dev->array = NULL;
 
     free(dev);

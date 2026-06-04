@@ -614,7 +614,7 @@ rom_reset(uint32_t addr, int sz)
         rom = NULL;
     }
     rom_log("Allocating ROM...\n");
-    rom = (uint8_t *) calloc(1, biosmask + 1);
+    rom = (uint8_t *) plat_mmap(biosmask + 1, 0);
     rom_log("Filling ROM with FF's...\n");
     memset(rom, 0xff, biosmask + 1);
 

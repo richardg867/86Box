@@ -460,7 +460,7 @@ main_thread_fn()
         if (gdbstub_next_asap && (debt_ns < quantum_ns))
             debt_ns = quantum_ns;
 #endif
-        if (((debt_ns >= quantum_ns) || fast_forward) && !dopause) {
+        if (((debt_ns >= quantum_ns) || fast_forward || (timer_inited == TIMER_MODE_REAL)) && !dopause) {
             /*
              * Pace with one pc_run() per scheduler pass.
              * We intentionally avoid burst catch-up (multi-frame loop) because it can
@@ -487,7 +487,7 @@ main_thread_fn()
                 frames     = 0;
             }
 
-            if (!fast_forward && debt_ns >= quantum_ns)
+            if (!fast_forward && (timer_inited != TIMER_MODE_REAL) && debt_ns >= quantum_ns)
                 debt_ns -= quantum_ns;
             else
                 debt_ns = 0;

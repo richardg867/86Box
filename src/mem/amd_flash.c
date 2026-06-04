@@ -37,7 +37,7 @@ typedef struct am29f016d_t {
 
     uint32_t      size;
 
-    uint8_t       array[0x00200000];
+    uint8_t      *array;
 
     char          flash_path[1024];
 
@@ -514,6 +514,7 @@ am29f016d_init(const device_t *info)
     mem_mapping_disable(&bios_mapping);
     mem_mapping_disable(&bios_high_mapping);
 
+    dev->array = (uint8_t *) plat_mmap(0x00200000, 0);
     memset(dev->array, 0xff, 0x00200000);
 
     dev->legacy = (info->local & AMD_FLAG_LEGACY);
@@ -543,6 +544,8 @@ am29f016d_close(void *priv)
             fclose(fp);
         }
     }
+
+    plat_munmap(dev->array, 0x00200000);
 
     free(dev);
 }

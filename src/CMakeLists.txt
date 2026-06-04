@@ -114,6 +114,12 @@ if(CMAKE_SYSTEM_NAME MATCHES "Linux")
     endif()
 endif()
 
+if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+    if(HYPERVISOR)
+        add_compile_definitions(USE_HYPERVISOR)
+    endif()
+endif()
+
 if(INSTRUMENT)
     add_compile_definitions(USE_INSTRUMENT)
 endif()
