@@ -136,6 +136,13 @@ extern void *sound_backend_add_source(void);
 extern int   sound_backend_set_format(void *priv, uint8_t *format, uint8_t *channels, uint32_t *freq);
 extern void  sound_backend_buffer(void *priv, void *buf, uint32_t bytes);
 
+extern const int16_t sound_mulaw_table[256];
+extern const int16_t sound_alaw_table[256];
+#define sound_convert_u8(sample)    (int16_t) (((sample) ^ 0x80) << 8)
+#define sound_convert_f32(sample)   (((sample) >= 1.0f) ? 32767 : (((sample) <= -1.0f) ? -32768 : (int16_t) ((sample) * 32767.0f)))
+#define sound_convert_mulaw(sample) (sound_mulaw_table[(sample) & ((sizeof(sound_mulaw_table) / sizeof(sound_mulaw_table[0])) - 1)])
+#define sound_convert_alaw(sample)  (sound_alaw_table[(sample) & ((sizeof(sound_alaw_table) / sizeof(sound_alaw_table[0])) - 1)])
+
 #define sb_vibra16c_onboard_relocate_base sb_vibra16s_onboard_relocate_base
 #define sb_vibra16cl_onboard_relocate_base sb_vibra16s_onboard_relocate_base
 #define sb_vibra16xv_onboard_relocate_base sb_vibra16s_onboard_relocate_base
