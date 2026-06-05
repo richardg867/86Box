@@ -584,7 +584,7 @@ sound_flush_source(void *priv)
     sound_backend_source_t *backend_source = source->backend_source;
 
     /* Only flush if we have a backend source... */
-    if (!backend_source)
+    if (UNLIKELY(!backend_source))
         return;
 
     /* ...and if we have something to flush. */

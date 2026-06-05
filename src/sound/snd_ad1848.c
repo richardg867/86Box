@@ -718,6 +718,7 @@ ad1848_poll(sound_buffer_t buffer, void *priv)
 
         return 1;
     } else {
+        buffer.s16[0] = buffer.s16[1] = 0;
         return 0;
     }
 }
