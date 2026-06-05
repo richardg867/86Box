@@ -586,6 +586,13 @@ sb_dsp_speed_changed(sb_dsp_t *dsp)
         dsp->sblatchi = ((double) TIMER_USEC * (1000000.0 / (double) (dsp->sb_timei - 256)));
 }
 
+static inline void
+sb_dsp_update_freq(sb_dsp_t *dsp, int freq)
+{
+    dsp->sb_freq = freq;
+    sound_set_format(dsp->source, SOUND_S16, 2, freq);
+}
+
 void
 sb_add_data(sb_dsp_t *dsp, uint8_t v)
 {
@@ -1011,9 +1018,10 @@ sb_ess_update_reg_a2(sb_dsp_t *dsp, const uint8_t val)
     const int    temp  = (int) freq;
     ESSreg(0xA2) = val;
 
-    if (dsp->sb_freq != temp)
+    if (dsp->sb_freq != temp) {
         recalc_sb16_filter(0, temp);
-    dsp->sb_freq = temp;
+        sb_dsp_update_freq(dsp, temp);
+    }
 }
 
 /* TODO: Investigate ESS cards' filtering on real hardware as well.
@@ -1047,6 +1055,7 @@ static void
 sb_ess_write_reg(sb_dsp_t *dsp, const uint8_t reg, uint8_t data)
 {
     uint8_t chg;
+    int tempi;
 
     sb_dsp_log("ESS Write reg=%02x, val=%02x.\n", reg, data);
 
@@ -1055,10 +1064,11 @@ sb_ess_write_reg(sb_dsp_t *dsp, const uint8_t reg, uint8_t data)
             {
                 ESSreg(reg) = data;
                 if (data & 0x80)
-                    dsp->sb_freq = (int) (795500UL / (256ul - data));
+                    tempi = (int) (795500UL / (256ul - data));
                 else
-                    dsp->sb_freq = (int) (397700UL / (128ul - data));
-                const double temp          = 1000000.0 / dsp->sb_freq;
+                    tempi = (int) (397700UL / (128ul - data));
+                sb_dsp_update_freq(dsp, tempi);
+                const double temp          = 1000000.0 / tempi;
                 dsp->sblatchi = dsp->sblatcho = ((double) TIMER_USEC * temp);
 
                 dsp->sb_timei = dsp->sb_timeo;
@@ -1437,7 +1447,7 @@ sb_exec_command(sb_dsp_t *dsp)
                 dsp->sb_timei = 256 - 22;
                 dsp->sblatchi = (double) ((double) TIMER_USEC * 22.0);
                 temp          = 1000000 / 22;
-                dsp->sb_freq  = temp;
+                sb_dsp_update_freq(dsp, temp);
                 timer_set_delay_u64(&dsp->input_timer, (uint64_t) dsp->sblatchi);
             }
             break;
@@ -1493,10 +1503,9 @@ sb_exec_command(sb_dsp_t *dsp)
             sb_dsp_log("Sample rate - %ihz (%f)\n", temp, dsp->sblatcho);
             if ((dsp->sb_freq != temp) && (dsp->sb_type >= SB16_DSP_404))
                 recalc_sb16_filter(0, temp);
-            dsp->sb_freq = temp;
-            if (IS_ESS(dsp)) {
+            sb_dsp_update_freq(dsp, temp);
+            if (IS_ESS(dsp))
                 sb_ess_update_filter_freq(dsp);
-            }
             break;
         case 0x41: /* Set output sampling rate */
         case 0x42: /* Set input sampling rate */
@@ -1504,7 +1513,7 @@ sb_exec_command(sb_dsp_t *dsp)
                 dsp->sblatcho = (double) ((double) TIMER_USEC * (1000000.0 / (double) (dsp->sb_data[1] + (dsp->sb_data[0] << 8))));
                 sb_dsp_log("Sample rate - %ihz (%f)\n", dsp->sb_data[1] + (dsp->sb_data[0] << 8), dsp->sblatcho);
                 temp          = dsp->sb_freq;
-                dsp->sb_freq  = dsp->sb_data[1] + (dsp->sb_data[0] << 8);
+                sb_dsp_update_freq(dsp, dsp->sb_data[1] | (dsp->sb_data[0] << 8));
                 dsp->sb_timeo = 256 + dsp->sb_freq;
                 dsp->sblatchi = dsp->sblatcho;
                 dsp->sb_timei = dsp->sb_timeo;
