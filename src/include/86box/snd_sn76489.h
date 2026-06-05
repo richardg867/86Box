@@ -50,6 +50,7 @@ typedef struct sn76489_s {
 
     int16_t  buffer[SOUNDBUFLEN];
     uint16_t pos;
+    void    *source;
 
     double psgconst;
 } sn76489_t;

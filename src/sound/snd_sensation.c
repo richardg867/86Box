@@ -117,6 +117,7 @@ typedef struct sensation_t {
     int16_t mma_buffer[2][SOUNDBUFLEN];
 
     int pos;
+    void *source;
 
     int finish_dma;
     int mma_irq_status;
@@ -172,7 +173,7 @@ sensation_filter_cd_audio(int channel, double *buffer, void *priv)
 void
 sensation_visdac_update(sensation_t *dev)
 {
-    for (; dev->visdac_pos < sound_pos_global; dev->visdac_pos++) {
+    for (; dev->visdac_pos < sound_get_legacy_pos(dev->source); dev->visdac_pos++) {
         dev->visdac_buffer[dev->visdac_pos * 2]     = dev->visdac_out_l;
         dev->visdac_buffer[dev->visdac_pos * 2 + 1] = dev->visdac_out_r;
     }
@@ -935,7 +936,7 @@ sensation_mma_read(uint16_t addr, void *priv)
 void
 sensation_mma_update(sensation_t *dev)
 {
-    for (; dev->pos < sound_pos_global; dev->pos++) {
+    for (; dev->pos < sound_get_legacy_pos(dev->source); dev->pos++) {
         dev->mma_buffer[0][dev->pos] = dev->mma_buffer[1][dev->pos] = 0;
 
         if (dev->sensation_mma_regs[0][9] & 0x20)
@@ -1165,12 +1166,11 @@ sensation_init(UNUSED(const device_t *info))
     dev->sensation_mma_enable[0] = 0;
     dev->sensation_mma_fifo_start[0] = dev->sensation_mma_fifo_end[0] = 0;
 
-    fm_driver_get_ex(FM_YMF262, &dev->opl, 1);
+    dev->source = sound_add_handler(sensation_get_buffer, dev);
+    fm_driver_get(FM_YMF262, &dev->opl, dev->source);
 
     timer_add(&dev->sensation_mma_timer_count, sensation_mma_timer_poll, dev, 1);
     timer_add(&dev->visdac_timer_count, sensation_visdac_poll, dev, 1);
-
-    sound_add_handler(sensation_get_buffer, dev);
 
     if (device_get_config_int("receive_input"))
         midi_in_handler(1, sensation_input_msg, sensation_input_sysex, dev);

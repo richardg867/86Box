@@ -398,6 +398,7 @@ typedef struct emu8k_t {
 
     int     pos;
     int32_t buffer[WTBUFLEN * 2];
+    void   *source;
 
     uint16_t addr;
 } emu8k_t;

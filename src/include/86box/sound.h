@@ -26,21 +26,29 @@ extern char sound_output_device[512]; /* selected audio output device name, empt
 
 #define FREQ_44100  44100
 #define FREQ_48000  48000
+#define FREQ_48558  48558
 #define FREQ_49716  49716
+#define FREQ_55930  55930
 #define FREQ_88200  88200
 #define FREQ_96000  96000
 
-#define SOUND_FREQ  FREQ_48000
-#define SOUNDBUFLEN (SOUND_FREQ / 50)
+#define SOUND_FREQ   FREQ_48000
+#define SOUNDBUFLEN  SOUND_FREQ
 
-#define MUSIC_FREQ  FREQ_49716
-#define MUSICBUFLEN (MUSIC_FREQ / 36)
+#define MUSIC_FREQ   FREQ_49716
+#define MUSICBUFLEN  MUSIC_FREQ
 
-#define CD_FREQ     FREQ_44100
-#define CD_BUFLEN   (CD_FREQ / 9)
+#define YM2151_FREQ  FREQ_55930
+#define YM2151BUFLEN YM2151_FREQ
 
-#define WT_FREQ     FREQ_44100
-#define WTBUFLEN    (WT_FREQ / 45)
+#define CQM_FREQ     FREQ_48558
+#define CQMBUFLEN    CQM_FREQ
+
+#define CD_FREQ      FREQ_44100
+#define CD_BUFLEN    CD_FREQ
+
+#define WT_FREQ      FREQ_44100
+#define WTBUFLEN     WT_FREQ
 
 enum {
     SOUND_NONE = 0,
@@ -70,24 +78,17 @@ extern int gated;
 extern int speakval;
 extern int speakon;
 
-extern int sound_pos_global;
-
-extern int music_pos_global;
-extern int wavetable_pos_global;
-
 extern int sound_card_current[SOUND_CARD_MAX];
 
-extern void sound_add_handler(void (*get_buffer)(int32_t *buffer,
-                                                 uint16_t len, void *priv),
-                              void *priv);
-
-extern void music_add_handler(void (*get_buffer)(int32_t *buffer,
-                                                 uint16_t len, void *priv),
-                              void *priv);
-
-extern void wavetable_add_handler(void (*get_buffer)(int32_t *buffer,
-                                                     uint16_t len, void *priv),
-                                  void *priv);
+#define sound_add_handler(get_buffer, priv)     sound_add_legacy_source((get_buffer), (priv), FREQ_48000, #get_buffer)
+#define music_add_handler(get_buffer, priv)     sound_add_legacy_source((get_buffer), (priv), FREQ_49716, #get_buffer)
+#define ym2151_add_handler(get_buffer, priv)    sound_add_legacy_source((get_buffer), (priv), FREQ_55930, #get_buffer)
+#define cqm_add_handler(get_buffer, priv)       sound_add_legacy_source((get_buffer), (priv), FREQ_48558, #get_buffer)
+#define wavetable_add_handler(get_buffer, priv) sound_add_legacy_source((get_buffer), (priv), FREQ_44100, #get_buffer)
+extern void *sound_add_legacy_source(void (*get_buffer)(int32_t *buffer,
+                                                        uint16_t len, void *priv),
+                                     void *priv, uint32_t freq, const char *name);
+extern int   sound_get_legacy_pos(void *priv);
 
 extern void sound_set_cd_audio_filter(void (*filter)(int     channel,
                                                      double *buffer, void *priv),
@@ -116,6 +117,7 @@ extern void  sound_reset(void);
 extern void *sound_add_source(uint8_t (*poll)(sound_buffer_t buffer, void *priv), void *priv, const char *name);
 extern void  sound_start_source(void *priv);
 extern void  sound_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t freq);
+extern uint32_t sound_get_freq(void *priv);
 
 extern void sound_card_reset(void);
 

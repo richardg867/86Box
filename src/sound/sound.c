@@ -48,6 +48,7 @@ typedef struct {
 typedef struct {
     void (*get_buffer)(int32_t *buffer, uint16_t len, void *priv);
     void *priv;
+    void *source;
 } sound_handler_t;
 
 typedef struct _sound_backend_source_ {
@@ -82,37 +83,21 @@ typedef struct _sound_source_ {
 } sound_source_t;
 
 int sound_card_current[SOUND_CARD_MAX] = { 0, 0, 0, 0 };
-int sound_pos_global                   = 0;
-int music_pos_global                   = 0;
-int wavetable_pos_global               = 0;
 int sound_gain                         = 0;
 char sound_output_device[512]          = { 0 };
 
-static sound_source_t *sources;
+static sound_source_t *sources = NULL;
 static sound_backend_source_t *backend_sources = NULL;
 
-static sound_source_t *sound_legacy_source = NULL;
-static sound_source_t *music_legacy_source = NULL;
-static sound_source_t *wavetable_legacy_source = NULL;
-static void           *cd_source = NULL;
-static void           *fdd_source = NULL;
-static void           *hdd_source = NULL;
-
-static sound_handler_t sound_handlers[8];
-static sound_handler_t music_handlers[8];
-static sound_handler_t wavetable_handlers[8];
+static void *cd_source = NULL;
+static void *fdd_source = NULL;
+static void *hdd_source = NULL;
 
 static double     cd_audio_volume_lut[256];
 
 static thread_t  *sound_cd_thread_h;
 static event_t   *sound_cd_event;
 static event_t   *sound_cd_start_event;
-static int32_t   *outbuffer;
-static int32_t   *outbuffer_m;
-static int32_t   *outbuffer_w;
-static int        sound_handlers_num;
-static int        music_handlers_num;
-static int        wavetable_handlers_num;
 
 static int16_t      cd_buffer[CDROM_NUM][CD_BUFLEN * 2];
 static int16_t      cd_out_buffer[CD_BUFLEN * 2];
@@ -478,8 +463,8 @@ sound_cd_thread(UNUSED(void *param))
                     if (temp_buffer[1] < -32768)
                         temp_buffer[1] = -32768;
 
-                    ((int16_t *) sound_legacy_source->backend_source->buffer)[c]     = (int16_t) temp_buffer[0];
-                    ((int16_t *) sound_legacy_source->backend_source->buffer)[c + 1] = (int16_t) temp_buffer[1];
+                    cd_out_buffer[c]     += (int16_t) temp_buffer[0];
+                    cd_out_buffer[c + 1] += (int16_t) temp_buffer[1];
                 }
             }
         }
@@ -492,10 +477,6 @@ void
 sound_init(void)
 {
     int available_cdrom_drives = 0;
-
-    outbuffer = calloc(SOUNDBUFLEN * 2, sizeof(int32_t));
-    outbuffer_m = calloc(MUSICBUFLEN * 2, sizeof(int32_t));
-    outbuffer_w = calloc(WTBUFLEN * 2, sizeof(int32_t));
 
     for (uint16_t i = 0; i < 256; i++) {
         double di = (double) i;
@@ -531,30 +512,6 @@ sound_init(void)
         cdaudioon = 0;
 
     cd_thread_enable = available_cdrom_drives ? 1 : 0;
-}
-
-void
-sound_add_handler(void (*get_buffer)(int32_t *buffer, uint16_t len, void *priv), void *priv)
-{
-    sound_handlers[sound_handlers_num].get_buffer = get_buffer;
-    sound_handlers[sound_handlers_num].priv       = priv;
-    sound_handlers_num++;
-}
-
-void
-music_add_handler(void (*get_buffer)(int32_t *buffer, uint16_t len, void *priv), void *priv)
-{
-    music_handlers[music_handlers_num].get_buffer = get_buffer;
-    music_handlers[music_handlers_num].priv       = priv;
-    music_handlers_num++;
-}
-
-void
-wavetable_add_handler(void (*get_buffer)(int32_t *buffer, uint16_t len, void *priv), void *priv)
-{
-    wavetable_handlers[wavetable_handlers_num].get_buffer = get_buffer;
-    wavetable_handlers[wavetable_handlers_num].priv       = priv;
-    wavetable_handlers_num++;
 }
 
 void *
@@ -630,6 +587,63 @@ sound_set_backend_source_format(sound_source_t *source, sound_backend_source_t *
     return 0;
 }
 
+static uint8_t
+sound_poll_legacy(sound_buffer_t buffer, void *priv)
+{
+    sound_handler_t *handler = (sound_handler_t *) priv;
+    sound_source_t  *source  = (sound_source_t *) handler->source;
+    sound_backend_source_t *backend_source = (sound_backend_source_t *) source->backend_source;
+
+    // TODO: midi_poll(); and proper cd stuff
+
+    uint32_t target = backend_source->pos + backend_source->bytes_per_sample; // TODO cache this
+    if (UNLIKELY(target >= backend_source->buf_len)) {
+        memset(backend_source->buffer, 0x00, backend_source->buf_len * sizeof(int16_t));
+
+        sound_buffer_t buffer = (sound_buffer_t) (uint8_t *) backend_source->buffer;
+        unsigned int samples  = backend_source->buf_len / backend_source->bytes_per_sample;
+        handler->get_buffer(buffer.s32, samples, handler->priv);
+
+        for (unsigned int c = 0; c < (samples * 2); c++) {
+            if (buffer.s32[c] > 32767)
+                buffer.s16[c] = 32767;
+            else if (buffer.s32[c] < -32768)
+                buffer.s16[c] = -32768;
+            else
+                buffer.s16[c] = buffer.s32[c];
+        }
+
+        if (cd_thread_enable) {
+            cd_buf_update--;
+            if (!cd_buf_update) {
+                cd_buf_update = (SOUND_FREQ / SOUNDBUFLEN) / (CD_FREQ / CD_BUFLEN);
+                thread_set_event(sound_cd_event);
+            }
+        }
+    }
+
+    return 1;
+}
+
+void *
+sound_add_legacy_source(void (*get_buffer)(int32_t *buffer, uint16_t len, void *priv), void *priv, uint32_t freq, const char *name)
+{
+    sound_handler_t *handler = (sound_handler_t *) calloc(1, sizeof(sound_handler_t));
+    handler->get_buffer      = get_buffer;
+    handler->priv            = priv;
+    handler->source          = sound_add_source(sound_poll_legacy, handler, name);
+    sound_set_format(handler->source, SOUND_S16, 2, freq);
+    sound_start_source(handler->source);
+    return handler->source;
+}
+
+int
+sound_get_legacy_pos(void *priv)
+{
+    sound_source_t *source = (sound_source_t *) priv;
+    return (source->backend_source->pos / source->backend_source->bytes_per_sample) + 1;
+}
+
 static const int8_t bytes_per_sample[SOUND_MAX] = {
     [SOUND_U8] = 1,
     [SOUND_S16] = 2,
@@ -678,7 +692,7 @@ sound_start_source(void *priv)
     if (buf_len > backend_source->buf_len) {
         if (backend_source->buffer)
             free(backend_source->buffer);
-        backend_source->buffer = calloc(1, buf_len + 8); /* add margin for format conversion operations */
+        backend_source->buffer = calloc((source->poll == sound_poll_legacy) ? 2 : 1, buf_len + 8); /* add margin for format conversion operations, and special case for legacy source int32 buffer */
     }
     backend_source->buf_len = buf_len; // TODO: allow to get smaller
 
@@ -729,6 +743,13 @@ sound_set_format(void *priv, uint8_t format, uint8_t channels, uint32_t freq)
         sound_start_source(source);
 }
 
+uint32_t
+sound_get_freq(void *priv)
+{
+    sound_source_t *source = (sound_source_t *) priv;
+    return source->freq;
+}
+
 void
 sound_set_cd_audio_filter(void (*filter)(int channel, double *buffer, void *priv), void *priv)
 {
@@ -745,103 +766,6 @@ sound_set_pc_speaker_filter(void (*filter)(int channel, double *buffer, void *pr
         filter_pc_speaker   = filter;
         filter_pc_speaker_p = priv;
     }
-}
-
-static uint8_t
-sound_poll_legacy(sound_buffer_t buffer, void *priv)
-{
-    midi_poll();
-
-    sound_pos_global++;
-    if (sound_pos_global == SOUNDBUFLEN) {
-        int c;
-
-        memset(outbuffer, 0x00, SOUNDBUFLEN * 2 * sizeof(int32_t));
-
-        for (c = 0; c < sound_handlers_num; c++)
-            sound_handlers[c].get_buffer(outbuffer, SOUNDBUFLEN, sound_handlers[c].priv);
-
-        for (c = 0; c < SOUNDBUFLEN * 2; c++) {
-            if (outbuffer[c] > 32767)
-                outbuffer[c] = 32767;
-            if (outbuffer[c] < -32768)
-                outbuffer[c] = -32768;
-
-            ((int16_t *) sound_legacy_source->backend_source->buffer)[c] = outbuffer[c];
-        }
-
-        sound_legacy_source->backend_source->pos = sound_legacy_source->backend_source->buf_len = SOUNDBUFLEN * sound_legacy_source->backend_source->bytes_per_sample; /* force flush */
-
-        if (cd_thread_enable) {
-            cd_buf_update--;
-            if (!cd_buf_update) {
-                cd_buf_update = (SOUND_FREQ / SOUNDBUFLEN) / (CD_FREQ / CD_BUFLEN);
-                thread_set_event(sound_cd_event);
-            }
-        }
-
-        sound_pos_global = 0;
-    }
-
-    return 1;
-}
-
-static uint8_t
-music_poll_legacy(sound_buffer_t buffer, void *priv)
-{
-    music_pos_global++;
-    if (music_pos_global == MUSICBUFLEN) {
-        int c;
-
-        memset(outbuffer_m, 0x00, MUSICBUFLEN * 2 * sizeof(int32_t));
-
-        for (c = 0; c < music_handlers_num; c++)
-            music_handlers[c].get_buffer(outbuffer_m, MUSICBUFLEN, music_handlers[c].priv);
-
-        for (c = 0; c < MUSICBUFLEN * 2; c++) {
-            if (outbuffer_m[c] > 32767)
-                outbuffer_m[c] = 32767;
-            if (outbuffer_m[c] < -32768)
-                outbuffer_m[c] = -32768;
-
-            ((int16_t *) music_legacy_source->backend_source->buffer)[c] = outbuffer_m[c];
-        }
-
-        music_legacy_source->backend_source->pos = music_legacy_source->backend_source->buf_len = MUSICBUFLEN * music_legacy_source->backend_source->bytes_per_sample; /* force flush */
-
-        music_pos_global = 0;
-    }
-
-    return 1;
-}
-
-static uint8_t
-wavetable_poll_legacy(sound_buffer_t buffer, void *priv)
-{
-    wavetable_pos_global++;
-    if (wavetable_pos_global == WTBUFLEN) {
-        int c;
-
-        memset(outbuffer_w, 0x00, WTBUFLEN * 2 * sizeof(int32_t));
-
-        for (c = 0; c < wavetable_handlers_num; c++)
-            wavetable_handlers[c].get_buffer(outbuffer_w, WTBUFLEN, wavetable_handlers[c].priv);
-
-        for (c = 0; c < WTBUFLEN * 2; c++) {
-            if (outbuffer_w[c] > 32767)
-                outbuffer_w[c] = 32767;
-            if (outbuffer_w[c] < -32768)
-                outbuffer_w[c] = -32768;
-
-            ((int16_t *) wavetable_legacy_source->backend_source->buffer)[c] = outbuffer_w[c];
-        }
-
-        wavetable_legacy_source->backend_source->pos = wavetable_legacy_source->backend_source->buf_len = WTBUFLEN * wavetable_legacy_source->backend_source->bytes_per_sample; /* force flush */
-
-        wavetable_pos_global = 0;
-    }
-
-    return 1;
 }
 
 static void
@@ -952,30 +876,18 @@ sound_reset(void)
     /* Remove all sources. */
     sound_source_t *other;
     while (sources) {
-        sound_stop_source(sources);
-        other = sources->next;
-        free(sources);
+        sound_source_t *snap = sources; // force a local copy
+        printf("%p\n", snap);
+        sound_stop_source(snap);
+        other = snap->next;
+        free(snap);
         sources = other;
     }
-
-    memset(outbuffer, 0x00, SOUNDBUFLEN * 2 * sizeof(int32_t));
-    memset(outbuffer_m, 0x00, MUSICBUFLEN * 2 * sizeof(int32_t));
-    memset(outbuffer_w, 0x00, WTBUFLEN * 2 * sizeof(int32_t));
 
     sound_backend_reset();
 
     midi_out_device_init();
     midi_in_device_init();
-
-    sound_legacy_source = sound_add_source(sound_poll_legacy, NULL, "Legacy 48K");
-    sound_set_format(sound_legacy_source, SOUND_S16, 2, SOUND_FREQ);
-    sound_start_source(sound_legacy_source);
-    music_legacy_source = sound_add_source(music_poll_legacy, NULL, "Legacy 49K");
-    sound_set_format(music_legacy_source, SOUND_S16, 2, MUSIC_FREQ);
-    sound_start_source(music_legacy_source);
-    wavetable_legacy_source = sound_add_source(wavetable_poll_legacy, NULL, "Legacy 44K");
-    sound_set_format(wavetable_legacy_source, SOUND_S16, 2, WT_FREQ);
-    sound_start_source(wavetable_legacy_source);
 
     cd_source = sound_backend_add_source();
     uint8_t format = SOUND_S16;
@@ -994,15 +906,6 @@ sound_reset(void)
     channels = 2;
     freq = SOUND_FREQ;
     sound_backend_set_format(cd_source, &format, &channels, &freq);
-
-    sound_handlers_num = 0;
-    memset(sound_handlers, 0x00, 8 * sizeof(sound_handler_t));
-
-    music_handlers_num = 0;
-    memset(music_handlers, 0x00, 8 * sizeof(sound_handler_t));
-
-    wavetable_handlers_num = 0;
-    memset(wavetable_handlers, 0x00, 8 * sizeof(sound_handler_t));
 
     filter_cd_audio   = NULL;
     filter_cd_audio_p = NULL;

@@ -53,6 +53,7 @@ typedef struct {
 
     int     pos;
     int32_t buffer[MUSICBUFLEN * 2];
+    void   *source;
 } esfm_drv_t;
 
 enum {
@@ -175,10 +176,12 @@ esfm_drv_set_do_cycles(void *priv, int8_t do_cycles)
 }
 
 static void *
-esfm_drv_init(UNUSED(const device_t *info))
+esfm_drv_init(const device_t *info)
 {
     esfm_drv_t *dev = (esfm_drv_t *) calloc(1, sizeof(esfm_drv_t));
+    fm_drv_params_t *params = (fm_drv_params_t *) info->local;
     dev->flags      = FLAG_CYCLES | FLAG_OPL3;
+    dev->source     = params->source;
 
     /* Initialize the ESFMu object. */
     ESFM_init(&dev->opl);
@@ -201,14 +204,15 @@ esfm_drv_update(void *priv)
 {
     esfm_drv_t *dev = (esfm_drv_t *) priv;
 
-    if (dev->pos >= music_pos_global)
+    int source_pos = sound_get_legacy_pos(dev->source);
+    if (dev->pos >= source_pos)
         return dev->buffer;
 
     esfm_drv_generate_stream(dev,
                              &dev->buffer[dev->pos * 2],
-                             music_pos_global - dev->pos);
+                             source_pos - dev->pos);
 
-    for (; dev->pos < music_pos_global; dev->pos++) {
+    for (; dev->pos < source_pos; dev->pos++) {
         dev->buffer[dev->pos * 2] /= 2;
         dev->buffer[(dev->pos * 2) + 1] /= 2;
     }

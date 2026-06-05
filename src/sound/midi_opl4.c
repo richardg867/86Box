@@ -657,7 +657,8 @@ opl4_init(UNUSED(const device_t *info))
     uint32_t samplerate = 48000;
     sound_backend_set_format(opl4_midi_cur->source, &format, &channels, &samplerate);
 
-    fm_driver_get(FM_YMF278B, &opl4_midi_cur->opl4);
+#warning opl4 source type conflict
+    fm_driver_get(FM_YMF278B, &opl4_midi_cur->opl4, opl4_midi_cur->source);
 
     opl4_midi_cur->opl4.write(0x38A, 0x05, opl4_midi_cur->opl4.priv);
     opl4_midi_cur->opl4.write(0x389, 0x3, opl4_midi_cur->opl4.priv);

@@ -138,6 +138,7 @@ typedef struct es137x_t {
 
     int     pos;
     int16_t buffer[WTBUFLEN * 2];
+    void   *source;
 
     uint32_t type;
 
@@ -2399,7 +2400,7 @@ es137x_update(es137x_t *dev)
     else if (r > 32767)
         r = 32767;
 
-    for (; dev->pos < ((dev->type == AUDIOPCI_ES1370) ? wavetable_pos_global : sound_pos_global); dev->pos++) {
+    for (; dev->pos < sound_get_legacy_pos(dev->source); dev->pos++) {
         dev->buffer[dev->pos * 2]     = l;
         dev->buffer[dev->pos * 2 + 1] = r;
     }
@@ -2657,7 +2658,7 @@ es1370_init(const device_t *info)
     if (device_get_config_int("receive_input"))
         midi_in_handler(1, es137x_input_msg, es137x_input_sysex, dev);
 
-    wavetable_add_handler(es137x_get_buffer, dev);
+    dev->source = wavetable_add_handler(es137x_get_buffer, dev);
     sound_set_cd_audio_filter(es1370_filter_cd_audio, dev);
 
     dev->gameport = gameport_add(&gameport_pnp_device);
@@ -2700,7 +2701,7 @@ es1371_init(const device_t *info)
     if (device_get_config_int("receive_input"))
         midi_in_handler(1, es137x_input_msg, es137x_input_sysex, dev);
 
-    sound_add_handler(es137x_get_buffer, dev);
+    dev->source = sound_add_handler(es137x_get_buffer, dev);
     sound_set_cd_audio_filter(es1371_filter_cd_audio, dev);
 
     dev->gameport = gameport_add(&gameport_pnp_device);

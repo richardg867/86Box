@@ -1545,34 +1545,15 @@ nuked_opl3_drv_update(void *priv)
 {
     nuked_opl3_drv_t *dev = (nuked_opl3_drv_t *) priv;
 
-    if (dev->pos >= music_pos_global)
+    int source_pos = sound_get_legacy_pos(dev->source);
+    if (dev->pos >= source_pos)
         return dev->buffer;
 
     OPL3_GenerateStream(&dev->opl,
                         &dev->buffer[dev->pos * 2],
-                        music_pos_global - dev->pos);
+                        source_pos - dev->pos);
 
-    for (; dev->pos < music_pos_global; dev->pos++) {
-        dev->buffer[dev->pos * 2] /= 2;
-        dev->buffer[(dev->pos * 2) + 1] /= 2;
-    }
-
-    return dev->buffer;
-}
-
-static int32_t *
-nuked_opl3_drv_update_48k(void *priv)
-{
-    nuked_opl3_drv_t *dev = (nuked_opl3_drv_t *) priv;
-
-    if (dev->pos >= sound_pos_global)
-        return dev->buffer;
-
-    OPL3_GenerateResampledStream(&dev->opl,
-                                 &dev->buffer[dev->pos * 2],
-                                 sound_pos_global - dev->pos);
-
-    for (; dev->pos < sound_pos_global; dev->pos++) {
+    for (; dev->pos < source_pos; dev->pos++) {
         dev->buffer[dev->pos * 2] /= 2;
         dev->buffer[(dev->pos * 2) + 1] /= 2;
     }
@@ -1671,22 +1652,17 @@ static void *
 nuked_opl3_drv_init(const device_t *info)
 {
     nuked_opl3_drv_t *dev = (nuked_opl3_drv_t *) calloc(1, sizeof(nuked_opl3_drv_t));
+    fm_drv_params_t *params = (fm_drv_params_t *) info->local;
     dev->flags       = FLAG_CYCLES;
-    if (((info->local & FM_TYPE_MASK) == FM_YMF262) || ((info->local & FM_TYPE_MASK) == FM_YMF289B))
+    dev->source      = params->source;
+    if ((params->chip_id == FM_YMF262) || (params->chip_id == FM_YMF289B))
         dev->flags |= FLAG_OPL3;
     else
         dev->status = 0x06;
 
-    dev->is_48k      = !!(info->local & FM_FORCE_48K);
-
     // Initialize the NukedOPL3 object.
-    if (dev->is_48k) {
-        dev->update      = nuked_opl3_drv_update_48k;
-        OPL3_Reset(&dev->opl, FREQ_48000);
-    } else {
-        dev->update      = nuked_opl3_drv_update;
-        OPL3_Reset(&dev->opl, FREQ_49716);
-    }
+    dev->update      = nuked_opl3_drv_update;
+    OPL3_Reset(&dev->opl, sound_get_freq(dev->source));
 
     timer_add(&dev->timers[0], nuked_opl3_timer_1, dev, 0);
     timer_add(&dev->timers[1], nuked_opl3_timer_2, dev, 0);
@@ -1698,7 +1674,7 @@ const device_t ym3812_nuked_opl3_device = {
     .name          = "Yamaha YM3812 OPL2 (NUKED OPL3)",
     .internal_name = "ym3812_nuked_opl3",
     .flags         = 0,
-    .local         = FM_YM3812,
+    .local         = 0,
     .init          = nuked_opl3_drv_init,
     .close         = nuked_opl3_drv_close,
     .reset         = NULL,
@@ -1712,7 +1688,7 @@ const device_t ymf262_nuked_opl3_device = {
     .name          = "Yamaha YMF262 OPL3 (NUKED OPL3)",
     .internal_name = "ymf262_nuked",
     .flags         = 0,
-    .local         = FM_YMF262,
+    .local         = 0,
     .init          = nuked_opl3_drv_init,
     .close         = nuked_opl3_drv_close,
     .reset         = NULL,
@@ -1726,7 +1702,7 @@ const device_t ymf289b_nuked_opl3_device = {
     .name          = "Yamaha YMF262 OPL3 (NUKED OPL3)",
     .internal_name = "ymf289b_nuked",
     .flags         = 0,
-    .local         = FM_YMF289B,
+    .local         = 0,
     .init          = nuked_opl3_drv_init,
     .close         = nuked_opl3_drv_close,
     .reset         = NULL,
@@ -1740,16 +1716,6 @@ const fm_drv_t nuked_opl3_drv = {
     .read          = &nuked_opl3_drv_read,
     .write         = &nuked_opl3_drv_write,
     .update        = &nuked_opl3_drv_update,
-    .reset_buffer  = &nuked_opl3_drv_reset_buffer,
-    .set_do_cycles = &nuked_opl3_drv_set_do_cycles,
-    .priv          = NULL,
-    .generate      = NULL,
-};
-
-const fm_drv_t nuked_opl3_drv_48k = {
-    .read          = &nuked_opl3_drv_read,
-    .write         = &nuked_opl3_drv_write,
-    .update        = &nuked_opl3_drv_update_48k,
     .reset_buffer  = &nuked_opl3_drv_reset_buffer,
     .set_do_cycles = &nuked_opl3_drv_set_do_cycles,
     .priv          = NULL,

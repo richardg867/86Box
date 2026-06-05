@@ -32,6 +32,7 @@ typedef struct pssj_t {
 
     int16_t buffer[SOUNDBUFLEN];
     int     pos;
+    void   *source;
 } pssj_t;
 
 static void
@@ -124,7 +125,7 @@ pssj_read(uint16_t port, void *priv)
 static void
 pssj_update(pssj_t *pssj)
 {
-    for (; pssj->pos < sound_pos_global; pssj->pos++)
+    for (; pssj->pos < sound_get_legacy_pos(pssj->source); pssj->pos++)
         pssj->buffer[pssj->pos] = (((int8_t) (pssj->dac_val ^ 0x80) * 0x20) * pssj->amplitude) / 15;
 }
 
@@ -201,7 +202,7 @@ pssj_init(UNUSED(const device_t *info))
 
     io_sethandler(0x00C4, 0x0004, pssj_read, NULL, NULL, pssj_write, NULL, NULL, pssj);
     timer_add(&pssj->timer_count, pssj_callback, pssj, pssj->enable);
-    sound_add_handler(pssj_get_buffer, pssj);
+    pssj->source = sound_add_handler(pssj_get_buffer, pssj);
 
     return pssj;
 }
@@ -215,7 +216,7 @@ pssj_1e0_init(UNUSED(const device_t *info))
 
     io_sethandler(0x01E4, 0x0004, pssj_read, NULL, NULL, pssj_write, NULL, NULL, pssj);
     timer_add(&pssj->timer_count, pssj_callback, pssj, pssj->enable);
-    sound_add_handler(pssj_get_buffer, pssj);
+    pssj->source = sound_add_handler(pssj_get_buffer, pssj);
 
     return pssj;
 }
@@ -231,7 +232,7 @@ pssj_isa_init(UNUSED(const device_t *info))
 
     io_sethandler(addr + 0x04, 0x0004, pssj_read, NULL, NULL, pssj_write, NULL, NULL, pssj);
     timer_add(&pssj->timer_count, pssj_callback, pssj, pssj->enable);
-    sound_add_handler(pssj_get_buffer, pssj);
+    pssj->source = sound_add_handler(pssj_get_buffer, pssj);
 
     return pssj;
 }

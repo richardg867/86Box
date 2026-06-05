@@ -66,6 +66,7 @@ typedef struct dss_s {
 
     int16_t  buffer[SOUNDBUFLEN];
     uint16_t pos;
+    void    *source;
 
     void *log;
 } dss_t;
@@ -81,7 +82,7 @@ dss_fifo_level(const dss_t *dss)
 static void
 dss_update(dss_t *const dss)
 {
-    for (; dss->pos < sound_pos_global; dss->pos++)
+    for (; dss->pos < sound_get_legacy_pos(dss->source); dss->pos++)
         dss->buffer[dss->pos] = (int8_t) (dss->dac_val ^ 0x80) * 0x40;
 }
 
@@ -192,7 +193,7 @@ dss_init(UNUSED(const device_t *info))
                           NULL,
                           dss);
 
-    sound_add_handler(dss_get_buffer, dss);
+    dss->source = sound_add_handler(dss_get_buffer, dss);
     timer_add(&dss->timer, dss_callback, dss, 1);
     fifo8_create(&dss->dss_fifo, 16);
 

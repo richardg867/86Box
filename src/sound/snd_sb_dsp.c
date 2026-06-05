@@ -3129,7 +3129,7 @@ sb_dsp_update(sb_dsp_t *dsp)
         dsp->sbdatl = 0;
         dsp->sbdatr = 0;
     }
-    for (; dsp->pos < sound_pos_global; dsp->pos++) {
+    for (; dsp->pos < sound_get_legacy_pos(dsp->source); dsp->pos++) {
         dsp->buffer[dsp->pos * 2]     = dsp->sbdatl;
         dsp->buffer[dsp->pos * 2 + 1] = dsp->sbdatr;
     }

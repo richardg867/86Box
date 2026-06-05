@@ -37,6 +37,7 @@ typedef struct mmb_s {
 
     int16_t buffer[SOUNDBUFLEN * 2];
     int     pos;
+    void   *source;
 } mmb_t;
 
 #endif /* _SOUND_SND_MMB_H_ */

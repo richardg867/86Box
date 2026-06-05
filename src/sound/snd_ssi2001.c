@@ -16,6 +16,7 @@
 
 typedef struct ssi2001_t {
     void   *psid;
+    void   *source;
     int16_t buffer[SOUNDBUFLEN * 2];
     int     pos;
     int     gameport_enabled;
@@ -28,11 +29,12 @@ typedef struct entertainer_t {
 static void
 ssi2001_update(ssi2001_t *ssi2001)
 {
-    if (ssi2001->pos >= sound_pos_global)
+    int source_pos = sound_get_legacy_pos(ssi2001->source);
+    if (ssi2001->pos >= source_pos)
         return;
 
-    sid_fillbuf(&ssi2001->buffer[ssi2001->pos], sound_pos_global - ssi2001->pos, ssi2001->psid);
-    ssi2001->pos = sound_pos_global;
+    sid_fillbuf(&ssi2001->buffer[ssi2001->pos], source_pos - ssi2001->pos, ssi2001->psid);
+    ssi2001->pos = source_pos;
 }
 
 static void
@@ -79,7 +81,7 @@ ssi2001_init(UNUSED(const device_t *info))
     io_sethandler(addr, 0x0020, ssi2001_read, NULL, NULL, ssi2001_write, NULL, NULL, ssi2001);
     if (ssi2001->gameport_enabled)
         gameport_remap(gameport_add(&gameport_201_device), 0x201);
-    sound_add_handler(ssi2001_get_buffer, ssi2001);
+    ssi2001->source = sound_add_handler(ssi2001_get_buffer, ssi2001);
     return ssi2001;
 }
 

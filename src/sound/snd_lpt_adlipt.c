@@ -174,13 +174,12 @@ adlipt_init(const device_t *info)
 
     adlipt->adlib = calloc(1, sizeof(adlib_t));
 
-    if (!fm_driver_get(use_opl3 ? FM_YMF262 : FM_YM3812, &adlipt->adlib->opl)) {
+    void *source = music_add_handler(adlib_get_buffer, adlipt->adlib);
+    if (!fm_driver_get(use_opl3 ? FM_YMF262 : FM_YM3812, &adlipt->adlib->opl, source)) {
         /* Fallback to OPL2 if requested driver not available. */
         adlipt_log(adlipt->log, "Requested FM driver unavailable, falling back to YM3812\n");
-        fm_driver_get(FM_YM3812, &adlipt->adlib->opl);
+        fm_driver_get(FM_YM3812, &adlipt->adlib->opl, source);
     }
-
-    music_add_handler(adlib_get_buffer, adlipt->adlib);
 
     /* Initialize OPL chip to clean state */
     adlipt_reset_opl(adlipt);

@@ -96,7 +96,7 @@ saaym_read(uint16_t addr, void *priv)
 }
 
 static void
-saaym_get_music_buffer(int32_t *buffer, uint16_t len, void *priv)
+saaym_get_ym2151_buffer(int32_t *buffer, uint16_t len, void *priv)
 {
     const saaym_t *saaym   = (const saaym_t *) priv;
     const int32_t *opm_buf = NULL;
@@ -131,11 +131,10 @@ saaym_init(UNUSED(const device_t *info))
     io_sethandler(addr + 0x08, 0x02, saaym_read, NULL, NULL, saaym_write, NULL, NULL, saaym);
     io_sethandler(addr + 0x0a, 0x02, cms_read, NULL, NULL, cms_write, NULL, NULL, &saaym->cms);
     io_sethandler(addr + 0x0c, 0x04, saaym_read, NULL, NULL, saaym_write, NULL, NULL, saaym);
-    sound_add_handler(cms_get_buffer, &saaym->cms);
+    saaym->cms.source = sound_add_handler(cms_get_buffer, &saaym->cms);
 
     /* OPM init */
-    fm_driver_get(FM_YM2151, &saaym->opm);
-    music_add_handler(saaym_get_music_buffer, saaym);
+    fm_driver_get(FM_YM2151, &saaym->opm, ym2151_add_handler(saaym_get_ym2151_buffer, saaym));
 
     return saaym;
 }

@@ -2985,7 +2985,7 @@ sb_init(UNUSED(const device_t *info))
 
     sb->opl_enabled = device_get_config_int("opl");
     if (sb->opl_enabled)
-        fm_driver_get(FM_YM3812, &sb->opl);
+        fm_driver_get(FM_YM3812, &sb->opl, music_add_handler(sb_get_music_buffer_sb2, sb));
 
     sb_dsp_set_real_opl(&sb->dsp, 1);
     sb_dsp_init(&sb->dsp, dspver, SB_SUBTYPE_DEFAULT, sb);
@@ -3037,9 +3037,7 @@ sb_init(UNUSED(const device_t *info))
     } else
         sb->mixer_enabled = 0;
 
-    sound_add_handler(sb_get_buffer_sb2, sb);
-    if (sb->opl_enabled)
-        music_add_handler(sb_get_music_buffer_sb2, sb);
+    sb->dsp.source = sound_add_handler(sb_get_buffer_sb2, sb);
     sound_set_cd_audio_filter(sb2_filter_cd_audio, sb);
 
     if (device_get_config_int("receive_input"))
@@ -3058,7 +3056,7 @@ thunderboard_init(UNUSED(const device_t *info))
 
     sb->opl_enabled = device_get_config_int("opl");
     if (sb->opl_enabled)
-        fm_driver_get(FM_YM3812, &sb->opl);
+        fm_driver_get(FM_YM3812, &sb->opl, music_add_handler(sb_get_music_buffer_sb2, sb));
 
     sb_dsp_set_real_opl(&sb->dsp, 0);
     sb_dsp_init(&sb->dsp, SB_DSP_200, SB_SUBTYPE_MVD201, sb);
@@ -3092,9 +3090,7 @@ thunderboard_init(UNUSED(const device_t *info))
 
     sb->cms_enabled   = 0;
     sb->mixer_enabled = 0;
-    sound_add_handler(sb_get_buffer_sb2, sb);
-    if (sb->opl_enabled)
-        music_add_handler(sb_get_music_buffer_sb2, sb);
+    sb->dsp.source = sound_add_handler(sb_get_buffer_sb2, sb);
     sound_set_cd_audio_filter(sb2_filter_cd_audio, sb);
 
     return sb;
@@ -3110,7 +3106,7 @@ sb_mcv_init(UNUSED(const device_t *info))
 
     sb->opl_enabled = device_get_config_int("opl");
     if (sb->opl_enabled)
-        fm_driver_get(FM_YM3812, &sb->opl);
+        fm_driver_get(FM_YM3812, &sb->opl, music_add_handler(sb_get_music_buffer_sb2, sb));
 
     sb_dsp_set_real_opl(&sb->dsp, 1);
     sb_dsp_init(&sb->dsp, SB_DSP_105, SB_SUBTYPE_DEFAULT, sb);
@@ -3119,9 +3115,7 @@ sb_mcv_init(UNUSED(const device_t *info))
     sb_dsp_setdma8(&sb->dsp, device_get_config_int("dma"));
 
     sb->mixer_enabled = 0;
-    sound_add_handler(sb_get_buffer_sb2, sb);
-    if (sb->opl_enabled)
-        music_add_handler(sb_get_music_buffer_sb2, sb);
+    sb->dsp.source = sound_add_handler(sb_get_buffer_sb2, sb);
     sound_set_cd_audio_filter(sb2_filter_cd_audio, sb);
 
     /* I/O handlers activated in sb_mcv_write */
@@ -3175,10 +3169,11 @@ sb_pro_v1_init(UNUSED(const device_t *info))
 
     sb->opl_enabled = device_get_config_int("opl");
     if (sb->opl_enabled) {
-        fm_driver_get(FM_YM3812, &sb->opl);
+        void *source = music_add_handler(sb_get_music_buffer_sbpro, sb);
+        fm_driver_get(FM_YM3812, &sb->opl, source);
         sb->opl.set_do_cycles(sb->opl.priv, 0);
         sb->has_dualopl2 = 1;
-        fm_driver_get(FM_YM3812, &sb->opl2);
+        fm_driver_get(FM_YM3812, &sb->opl2, source);
         sb->opl2.set_do_cycles(sb->opl2.priv, 0);
     }
 
@@ -3213,9 +3208,7 @@ sb_pro_v1_init(UNUSED(const device_t *info))
                   sb_ct1345_mixer_read, NULL, NULL,
                   sb_ct1345_mixer_write, NULL, NULL,
                   sb);
-    sound_add_handler(sb_get_buffer_sbpro, sb);
-    if (sb->opl_enabled)
-        music_add_handler(sb_get_music_buffer_sbpro, sb);
+    sb->dsp.source = sound_add_handler(sb_get_buffer_sbpro, sb);
     sound_set_cd_audio_filter(sbpro_filter_cd_audio, sb);
 
     if (device_get_config_int("receive_input"))
@@ -3244,7 +3237,7 @@ sb_pro_v2_init(UNUSED(const device_t *info))
 
     sb->opl_enabled = device_get_config_int("opl");
     if (sb->opl_enabled)
-        fm_driver_get(FM_YMF262, &sb->opl);
+        fm_driver_get(FM_YMF262, &sb->opl, music_add_handler(sb_get_music_buffer_sbpro, sb));
 
     sb_dsp_set_real_opl(&sb->dsp, 1);
     sb_dsp_init(&sb->dsp, dspver, SB_SUBTYPE_DEFAULT, sb);
@@ -3273,9 +3266,7 @@ sb_pro_v2_init(UNUSED(const device_t *info))
                   sb_ct1345_mixer_read, NULL, NULL,
                   sb_ct1345_mixer_write, NULL, NULL,
                   sb);
-    sound_add_handler(sb_get_buffer_sbpro, sb);
-    if (sb->opl_enabled)
-        music_add_handler(sb_get_music_buffer_sbpro, sb);
+    sb->dsp.source = sound_add_handler(sb_get_buffer_sbpro, sb);
     sound_set_cd_audio_filter(sbpro_filter_cd_audio, sb);
 
     if (device_get_config_int("receive_input"))
@@ -3300,15 +3291,14 @@ sb_pro_mcv_init(UNUSED(const device_t *info))
     sb_t *sb = calloc(1, sizeof(sb_t));
 
     sb->opl_enabled = 1;
-    fm_driver_get(FM_YMF262, &sb->opl);
+    fm_driver_get(FM_YMF262, &sb->opl, music_add_handler(sb_get_music_buffer_sbpro, sb));
 
     sb_dsp_set_real_opl(&sb->dsp, 1);
     sb_dsp_init(&sb->dsp, SBPRO_DSP_302, SB_SUBTYPE_DEFAULT, sb);
     sb_ct1345_mixer_reset(sb);
 
     sb->mixer_enabled = 1;
-    sound_add_handler(sb_get_buffer_sbpro, sb);
-    music_add_handler(sb_get_music_buffer_sbpro, sb);
+    sb->dsp.source = sound_add_handler(sb_get_buffer_sbpro, sb);
     sound_set_cd_audio_filter(sbpro_filter_cd_audio, sb);
 
     /* I/O handlers activated in sb_pro_mcv_write */
@@ -3332,16 +3322,14 @@ sb_pro_compat_init(UNUSED(const device_t *info))
 {
     sb_t *sb = calloc(1, sizeof(sb_t));
 
-    fm_driver_get(FM_YMF262, &sb->opl);
+    fm_driver_get(FM_YMF262, &sb->opl, music_add_handler(sb_get_music_buffer_sbpro, sb));
 
     sb_dsp_set_real_opl(&sb->dsp, 1);
     sb_dsp_init(&sb->dsp, SBPRO_DSP_302, SB_SUBTYPE_DEFAULT, sb);
     sb_ct1345_mixer_reset(sb);
 
     sb->mixer_enabled = 1;
-    sound_add_handler(sb_get_buffer_sbpro, sb);
-    if (sb->opl_enabled)
-        music_add_handler(sb_get_music_buffer_sbpro, sb);
+    sb->dsp.source = sound_add_handler(sb_get_buffer_sbpro, sb);
 
     sb->mpu = (mpu_t *) calloc(1, sizeof(mpu_t));
     mpu401_init(sb->mpu, 0, 0, M_UART, 1);
@@ -3359,7 +3347,7 @@ sb_16_init(UNUSED(const device_t *info))
     const uint8_t  dspver = device_get_config_int("dspver");
     sb->opl_enabled = device_get_config_int("opl");
     if (sb->opl_enabled)
-        fm_driver_get((int) (intptr_t) info->local, &sb->opl);
+        fm_driver_get((int) (intptr_t) info->local, &sb->opl, music_add_handler(sb_get_music_buffer_sb16_awe32, sb));
 
     sb_dsp_set_real_opl(&sb->dsp, 1);
     sb_dsp_init(&sb->dsp, (info->local == FM_YMF289B) ? SBAWE32_DSP_413 : dspver, SB_SUBTYPE_DEFAULT, sb);
@@ -3390,9 +3378,7 @@ sb_16_init(UNUSED(const device_t *info))
     sb->mixer_sb16.output_filter = 1;
     io_sethandler(addr + 4, 0x0002, sb_ct1745_mixer_read, NULL, NULL,
                   sb_ct1745_mixer_write, NULL, NULL, sb);
-    sound_add_handler(sb_get_buffer_sb16_awe32, sb);
-    if (sb->opl_enabled)
-        music_add_handler(sb_get_music_buffer_sb16_awe32, sb);
+    sb->dsp.source = sound_add_handler(sb_get_buffer_sb16_awe32, sb);
     sound_set_cd_audio_filter(sb16_awe32_filter_cd_audio, sb);
     if (device_get_config_int("control_pc_speaker"))
         sound_set_pc_speaker_filter(sb16_awe32_filter_pc_speaker, sb);
@@ -3428,7 +3414,7 @@ sb_16_reply_mca_init(UNUSED(const device_t *info))
     sb_t *sb = calloc(1, sizeof(sb_t));
 
     sb->opl_enabled = 1;
-    fm_driver_get(FM_YMF262, &sb->opl);
+    fm_driver_get(FM_YMF262, &sb->opl, music_add_handler(sb_get_music_buffer_sb16_awe32, sb));
 
     sb_dsp_set_real_opl(&sb->dsp, 1);
     sb_dsp_init(&sb->dsp, SB16_DSP_405, SB_SUBTYPE_DEFAULT, sb);
@@ -3438,8 +3424,7 @@ sb_16_reply_mca_init(UNUSED(const device_t *info))
 
     sb->mixer_enabled            = 1;
     sb->mixer_sb16.output_filter = 1;
-    sound_add_handler(sb_get_buffer_sb16_awe32, sb);
-    music_add_handler(sb_get_music_buffer_sb16_awe32, sb);
+    sb->dsp.source = sound_add_handler(sb_get_buffer_sb16_awe32, sb);
     sound_set_cd_audio_filter(sb16_awe32_filter_cd_audio, sb);
     if (device_get_config_int("control_pc_speaker"))
         sound_set_pc_speaker_filter(sb16_awe32_filter_pc_speaker, sb);
@@ -3485,7 +3470,7 @@ sb_16_pnp_init(UNUSED(const device_t *info))
     sb->pnp = 1;
 
     sb->opl_enabled = 1;
-    fm_driver_get(FM_YMF262, &sb->opl);
+    fm_driver_get(FM_YMF262, &sb->opl, music_add_handler(sb_get_music_buffer_sb16_awe32, sb));
 
     sb_dsp_init(&sb->dsp, dspver, SB_SUBTYPE_DEFAULT, sb);
     sb_dsp_setdma16_supported(&sb->dsp, 1);
@@ -3493,8 +3478,7 @@ sb_16_pnp_init(UNUSED(const device_t *info))
 
     sb->mixer_enabled            = 1;
     sb->mixer_sb16.output_filter = 1;
-    sound_add_handler(sb_get_buffer_sb16_awe32, sb);
-    music_add_handler(sb_get_music_buffer_sb16_awe32, sb);
+    sb->dsp.source = sound_add_handler(sb_get_buffer_sb16_awe32, sb);
     sound_set_cd_audio_filter(sb16_awe32_filter_cd_audio, sb);
     if (device_get_config_int("control_pc_speaker"))
         sound_set_pc_speaker_filter(sb16_awe32_filter_pc_speaker, sb);
@@ -3587,7 +3571,7 @@ sb_vibra16_pnp_init(UNUSED(const device_t *info))
     sb->pnp = 1;
 
     sb->opl_enabled = 1;
-    fm_driver_get(FM_YMF262, &sb->opl);
+    fm_driver_get(FM_YMF262, &sb->opl, music_add_handler(sb_get_music_buffer_sb16_awe32, sb));
 
     sb_dsp_set_real_opl(&sb->dsp, 1);
     sb_dsp_init(&sb->dsp, (info->local == SB_VIBRA16XV) ? SBAWE64_DSP_416 : SBAWE32_DSP_413, SB_SUBTYPE_DEFAULT, sb);
@@ -3597,8 +3581,7 @@ sb_vibra16_pnp_init(UNUSED(const device_t *info))
 
     sb->mixer_enabled            = 1;
     sb->mixer_sb16.output_filter = 1;
-    sound_add_handler(sb_get_buffer_sb16_awe32, sb);
-    music_add_handler(sb_get_music_buffer_sb16_awe32, sb);
+    sb->dsp.source = sound_add_handler(sb_get_buffer_sb16_awe32, sb);
     sound_set_cd_audio_filter(sb16_awe32_filter_cd_audio, sb);
     if (device_get_config_int("control_pc_speaker"))
         sound_set_pc_speaker_filter(sb16_awe32_filter_pc_speaker, sb);
@@ -3683,7 +3666,7 @@ sb_16_compat_init(const device_t *info)
 {
     sb_t *sb = calloc(1, sizeof(sb_t));
 
-    fm_driver_get(FM_YMF262, &sb->opl);
+    fm_driver_get(FM_YMF262, &sb->opl, music_add_handler(sb_get_music_buffer_sb16_awe32, sb));
 
     sb_dsp_set_real_opl(&sb->dsp, 1);
     sb_dsp_init(&sb->dsp, SB16_DSP_405, SB_SUBTYPE_DEFAULT, sb);
@@ -3693,8 +3676,7 @@ sb_16_compat_init(const device_t *info)
 
     sb->opl_enabled   = 1;
     sb->mixer_enabled = 1;
-    sound_add_handler(sb_get_buffer_sb16_awe32, sb);
-    music_add_handler(sb_get_music_buffer_sb16_awe32, sb);
+    sb->dsp.source = sound_add_handler(sb_get_buffer_sb16_awe32, sb);
 
     sb->mpu = (mpu_t *) calloc(1, sizeof(mpu_t));
     mpu401_init(sb->mpu, 0, 0, M_UART, (int) (intptr_t) info->local);
@@ -3766,7 +3748,7 @@ sb_awe32_init(UNUSED(const device_t *info))
 
     sb->opl_enabled = device_get_config_int("opl");
     if (sb->opl_enabled)
-        fm_driver_get(FM_YMF262, &sb->opl);
+        fm_driver_get(FM_YMF262, &sb->opl, music_add_handler(sb_get_music_buffer_sb16_awe32, sb));
 
     sb_dsp_set_real_opl(&sb->dsp, 1);
     sb_dsp_init(&sb->dsp, SBAWE32_DSP_412, SB_SUBTYPE_DEFAULT, sb);
@@ -3797,10 +3779,8 @@ sb_awe32_init(UNUSED(const device_t *info))
     sb->mixer_sb16.output_filter = 1;
     io_sethandler(addr + 4, 0x0002, sb_ct1745_mixer_read, NULL, NULL,
                   sb_ct1745_mixer_write, NULL, NULL, sb);
-    sound_add_handler(sb_get_buffer_sb16_awe32, sb);
-    if (sb->opl_enabled)
-        music_add_handler(sb_get_music_buffer_sb16_awe32, sb);
-    wavetable_add_handler(sb_get_wavetable_buffer_sb16_awe32, sb);
+    sb->dsp.source = sound_add_handler(sb_get_buffer_sb16_awe32, sb);
+    sb->emu8k.source = wavetable_add_handler(sb_get_wavetable_buffer_sb16_awe32, sb);
     sound_set_cd_audio_filter(sb16_awe32_filter_cd_audio, sb);
     if (device_get_config_int("control_pc_speaker"))
         sound_set_pc_speaker_filter(sb16_awe32_filter_pc_speaker, sb);
@@ -3832,7 +3812,7 @@ sb_goldfinch_init(const device_t *info)
     goldfinch_t *goldfinch   = calloc(1, sizeof(goldfinch_t));
     int          onboard_ram = device_get_config_int("onboard_ram");
 
-    wavetable_add_handler(sb_get_wavetable_buffer_goldfinch, goldfinch);
+    goldfinch->emu8k.source = wavetable_add_handler(sb_get_wavetable_buffer_goldfinch, goldfinch);
 
     emu8k_init(&goldfinch->emu8k, 0, onboard_ram);
 
@@ -3881,7 +3861,7 @@ sb_awe32_pnp_init(const device_t *info)
     sb->pnp = 1;
 
     sb->opl_enabled = 1;
-    fm_driver_get(FM_YMF262, &sb->opl);
+    fm_driver_get(FM_YMF262, &sb->opl, music_add_handler(sb_get_music_buffer_sb16_awe32, sb));
 
     sb_dsp_init(&sb->dsp, (info->local >= SB_AWE64_VALUE) ?
                 SBAWE64_DSP_416 : SBAWE32_DSP_413, SB_SUBTYPE_DEFAULT, sb);
@@ -3891,9 +3871,8 @@ sb_awe32_pnp_init(const device_t *info)
     sb_dsp_set_real_opl(&sb->dsp, 1);
     sb->mixer_enabled            = 1;
     sb->mixer_sb16.output_filter = 1;
-    sound_add_handler(sb_get_buffer_sb16_awe32, sb);
-    music_add_handler(sb_get_music_buffer_sb16_awe32, sb);
-    wavetable_add_handler(sb_get_wavetable_buffer_sb16_awe32, sb);
+    sb->dsp.source = sound_add_handler(sb_get_buffer_sb16_awe32, sb);
+    sb->emu8k.source = wavetable_add_handler(sb_get_wavetable_buffer_sb16_awe32, sb);
     sound_set_cd_audio_filter(sb16_awe32_filter_cd_audio, sb);
     if (device_get_config_int("control_pc_speaker"))
         sound_set_pc_speaker_filter(sb16_awe32_filter_pc_speaker, sb);
@@ -4014,7 +3993,7 @@ ess_x688_init(UNUSED(const device_t *info))
     const uint16_t ide_side = ide_base + 0x0206;
     const uint16_t ide_irq  = ide_ctrl >> 12;
 
-    fm_driver_get(info->local ? FM_ESFM : FM_YMF262, &ess->opl);
+    fm_driver_get(info->local ? FM_ESFM : FM_YMF262, &ess->opl, music_add_handler(sb_get_music_buffer_ess, ess));
 
     sb_dsp_set_real_opl(&ess->dsp, 1);
     sb_dsp_init(&ess->dsp, SBPRO_DSP_301, info->local ? SB_SUBTYPE_ESS_ES1688 : SB_SUBTYPE_ESS_ES688, ess);
@@ -4066,8 +4045,7 @@ ess_x688_init(UNUSED(const device_t *info))
                   ess_mixer_read, NULL, NULL,
                   ess_mixer_write, NULL, NULL,
                   ess);
-    sound_add_handler(sb_get_buffer_ess, ess);
-    music_add_handler(sb_get_music_buffer_ess, ess);
+    ess->dsp.source = sound_add_handler(sb_get_buffer_ess, ess);
     sound_set_cd_audio_filter(ess_filter_cd_audio, ess);
     if (info->local && device_get_config_int("control_pc_speaker"))
         sound_set_pc_speaker_filter(ess_filter_pc_speaker, ess);
@@ -4129,7 +4107,7 @@ ess_x688_pnp_init(UNUSED(const device_t *info))
     else
         ess->pnp = 1 + (int) info->local;
 
-    fm_driver_get(info->local ? FM_ESFM : FM_YMF262, &ess->opl);
+    fm_driver_get(info->local ? FM_ESFM : FM_YMF262, &ess->opl, music_add_handler(sb_get_music_buffer_ess, ess));
 
     sb_dsp_set_real_opl(&ess->dsp, 1);
     sb_dsp_init(&ess->dsp, SBPRO_DSP_301, (info->local & 1) ? SB_SUBTYPE_ESS_ES1688 : SB_SUBTYPE_ESS_ES688, ess);
@@ -4137,8 +4115,7 @@ ess_x688_pnp_init(UNUSED(const device_t *info))
     ess_mixer_reset(ess);
 
     ess->mixer_enabled = 1;
-    sound_add_handler(sb_get_buffer_ess, ess);
-    music_add_handler(sb_get_music_buffer_ess, ess);
+    ess->dsp.source = sound_add_handler(sb_get_buffer_ess, ess);
     sound_set_cd_audio_filter(ess_filter_cd_audio, ess);
     if ((info->local & 1) && device_get_config_int("control_pc_speaker"))
         sound_set_pc_speaker_filter(ess_filter_pc_speaker, ess);
@@ -4216,7 +4193,7 @@ ess_x688_mca_init(UNUSED(const device_t *info))
     sb_t *ess = calloc(1, sizeof(sb_t));
 
     ess->opl_enabled = 1;
-    fm_driver_get(info->local ? FM_ESFM : FM_YMF262, &ess->opl);
+    fm_driver_get(info->local ? FM_ESFM : FM_YMF262, &ess->opl, music_add_handler(sb_get_music_buffer_ess, ess));
 
     sb_dsp_set_real_opl(&ess->dsp, 1);
     sb_dsp_init(&ess->dsp, SBPRO_DSP_301, info->local ? SB_SUBTYPE_ESS_ES1688 : SB_SUBTYPE_ESS_ES688, ess);
@@ -4224,8 +4201,7 @@ ess_x688_mca_init(UNUSED(const device_t *info))
     ess_mixer_reset(ess);
 
     ess->mixer_enabled = 1;
-    sound_add_handler(sb_get_buffer_ess, ess);
-    music_add_handler(sb_get_music_buffer_ess, ess);
+    ess->dsp.source = sound_add_handler(sb_get_buffer_ess, ess);
     sound_set_cd_audio_filter(ess_filter_cd_audio, ess);
     if (info->local && device_get_config_int("control_pc_speaker"))
         sound_set_pc_speaker_filter(ess_filter_pc_speaker, ess);

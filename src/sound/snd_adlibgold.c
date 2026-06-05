@@ -83,6 +83,7 @@ typedef struct adgold_t {
     int bass;
 
     int16_t mma_buffer[2][SOUNDBUFLEN];
+    void   *source;
 
     int pos;
 
@@ -644,7 +645,7 @@ adgold_read(uint16_t addr, void *priv)
 void
 adgold_update(adgold_t *adgold)
 {
-    for (; adgold->pos < sound_pos_global; adgold->pos++) {
+    for (; adgold->pos < sound_get_legacy_pos(adgold->source); adgold->pos++) {
         adgold->mma_buffer[0][adgold->pos] = adgold->mma_buffer[1][adgold->pos] = 0;
 
         if (adgold->adgold_mma_regs[0][9] & 0x20)
@@ -955,7 +956,8 @@ adgold_init(UNUSED(const device_t *info))
     adgold->surround_enabled = device_get_config_int("surround");
     adgold->gameport_enabled = device_get_config_int("gameport");
 
-    fm_driver_get_ex(FM_YMF262, &adgold->opl, 1);
+    adgold->source = sound_add_handler(adgold_get_buffer, adgold);
+    fm_driver_get(FM_YMF262, &adgold->opl, adgold->source);
     if (adgold->surround_enabled)
         ym7128_init(&adgold->ym7128);
 
@@ -1044,8 +1046,6 @@ adgold_init(UNUSED(const device_t *info))
         gameport_remap(gameport_add(&gameport_201_device), 0x201);
 
     timer_add(&adgold->adgold_mma_timer_count, adgold_timer_poll, adgold, 1);
-
-    sound_add_handler(adgold_get_buffer, adgold);
 
     sound_set_cd_audio_filter(adgold_filter_cd_audio, adgold);
 

@@ -233,6 +233,7 @@ typedef struct pas16_t {
     uint16_t pcm_dat_r;
 
     int32_t  pcm_buffer[2][SOUNDBUFLEN * 2];
+    void    *source;
 
     int      pos;
     int      midi_r;
@@ -2532,12 +2533,12 @@ static void
 pas16_update(pas16_t *pas16)
 {
     if (!(pas16->audiofilt & PAS16_FILT_MUTE)) {
-        for (; pas16->pos < sound_pos_global; pas16->pos++) {
+        for (; pas16->pos < sound_get_legacy_pos(pas16->source); pas16->pos++) {
             pas16->pcm_buffer[0][pas16->pos] = 0;
             pas16->pcm_buffer[1][pas16->pos] = 0;
         }
     } else {
-        for (; pas16->pos < sound_pos_global; pas16->pos++) {
+        for (; pas16->pos < sound_get_legacy_pos(pas16->source); pas16->pos++) {
             pas16->pcm_buffer[0][pas16->pos] = (int16_t) pas16->pcm_dat_l;
             pas16->pcm_buffer[1][pas16->pos] = (int16_t) pas16->pcm_dat_r;
         }
@@ -3024,8 +3025,9 @@ pas_init(UNUSED(const device_t *info))
     pas16->type = 0;
     pas16->is_old_pas = 1;
     pas16->has_scsi = (!pas16->type) || (pas16->type == 0x0f);
-    fm_driver_get(FM_YM3812, &pas16->opl);
-    fm_driver_get(FM_YM3812, &pas16->opl2);
+    void *source = music_add_handler(pas_get_music_buffer, pas16);
+    fm_driver_get(FM_YM3812, &pas16->opl, source);
+    fm_driver_get(FM_YM3812, &pas16->opl2, source);
     pas16->irq = device_get_config_int("irq");
     pas16->dma = device_get_config_int("dma");
 
@@ -3060,8 +3062,7 @@ pas_init(UNUSED(const device_t *info))
     pitf_ctr_set_using_timer(pas16->pit, 1, 0);
     pitf_ctr_set_using_timer(pas16->pit, 2, 0);
 
-    sound_add_handler(pas_get_buffer, pas16);
-    music_add_handler(pas_get_music_buffer, pas16);
+    pas16->source = sound_add_handler(pas_get_buffer, pas16);
     sound_set_cd_audio_filter(pasplus_filter_cd_audio, pas16);
     if (device_get_config_int("control_pc_speaker"))
         sound_set_pc_speaker_filter(pasplus_filter_pc_speaker, pas16);
@@ -3105,7 +3106,7 @@ pas16_init(const device_t *info)
 
     pas16->type = info->local & 0xff;
     pas16->has_scsi = (!pas16->type) || (pas16->type == 0x0f);
-    fm_driver_get(FM_YMF262, &pas16->opl);
+    fm_driver_get(FM_YMF262, &pas16->opl, music_add_handler(pas16->type ? pas16_get_music_buffer : pasplus_get_music_buffer, pas16));
     sb_dsp_set_real_opl(&pas16->dsp, 1);
     sb_dsp_init(&pas16->dsp, SB_DSP_200, SB_SUBTYPE_MVD201, pas16);
     pas16->mpu = (mpu_t *) calloc(1, sizeof(mpu_t));
@@ -3146,13 +3147,11 @@ pas16_init(const device_t *info)
 
     if (pas16->type) {
         sound_add_handler(pas16_get_buffer, pas16);
-        music_add_handler(pas16_get_music_buffer, pas16);
         sound_set_cd_audio_filter(pas16_filter_cd_audio, pas16);
         if (device_get_config_int("control_pc_speaker"))
             sound_set_pc_speaker_filter(pas16_filter_pc_speaker, pas16);
     } else {
         sound_add_handler(pasplus_get_buffer, pas16);
-        music_add_handler(pasplus_get_music_buffer, pas16);
         sound_set_cd_audio_filter(pasplus_filter_cd_audio, pas16);
         if (device_get_config_int("control_pc_speaker"))
             sound_set_pc_speaker_filter(pasplus_filter_pc_speaker, pas16);

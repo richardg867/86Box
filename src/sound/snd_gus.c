@@ -114,6 +114,7 @@ typedef struct gus_t {
 
     int16_t buffer[2][SOUNDBUFLEN];
     int     pos;
+    void   *source;
 
     pc_timer_t samp_timer;
     uint64_t   samp_latch;
@@ -1108,7 +1109,7 @@ gus_poll_timer_2(void *priv)
 static void
 gus_update(gus_t *gus)
 {
-    for (; gus->pos < sound_pos_global; gus->pos++) {
+    for (; gus->pos < sound_get_legacy_pos(gus->source); gus->pos++) {
         if (gus->out_l < -32768)
             gus->buffer[0][gus->pos] = -32768;
         else if (gus->out_l > 32767)
@@ -1605,7 +1606,7 @@ gus_init(UNUSED(const device_t *info))
     timer_add(&gus->timer_1, gus_poll_timer_1, gus, 1);
     timer_add(&gus->timer_2, gus_poll_timer_2, gus, 1);
 
-    sound_add_handler(gus_get_buffer, gus);
+    gus->source = sound_add_handler(gus_get_buffer, gus);
 
     if ((gus->type != GUS_ACE) && (device_get_config_int("receive_input")))
         midi_in_handler(1, gus_input_msg, gus_input_sysex, gus);

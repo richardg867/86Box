@@ -37,6 +37,7 @@ typedef struct cms_s {
     uint8_t latched_data;
 
     int16_t buffer[SOUNDBUFLEN * 2];
+    void   *source;
 
     uint16_t pos;
 } cms_t;

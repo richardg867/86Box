@@ -161,6 +161,7 @@ typedef struct sb_dsp_t {
     int16_t record_buffer[0xFFFF];
     int16_t buffer[SOUNDBUFLEN * 2];
     int     pos;
+    void   *source;
 
     uint8_t azt_eeprom[AZTECH_EEPROM_SIZE]; /* the eeprom in the Aztech cards is attached to the DSP */
 

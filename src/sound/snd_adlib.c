@@ -119,12 +119,11 @@ adlib_init(UNUSED(const device_t *info))
     adlib_t *const adlib = calloc(1, sizeof(adlib_t));
 
     adlib_log("adlib_init\n");
-    fm_driver_get(FM_YM3812, &adlib->opl);
+    fm_driver_get(FM_YM3812, &adlib->opl, music_add_handler(adlib_get_buffer, adlib));
     io_sethandler(0x0388, 0x0002,
                   adlib->opl.read, NULL, NULL,
                   adlib->opl.write, NULL, NULL,
                   adlib->opl.priv);
-    music_add_handler(adlib_get_buffer, adlib);
     return adlib;
 }
 

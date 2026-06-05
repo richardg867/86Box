@@ -61,13 +61,14 @@ typedef struct covox_s {
 
     int16_t  buffer[2][SOUNDBUFLEN];
     int      pos;
+    void    *source;
 } covox_t;
 
 // TODO: Can this be rolled into covox_get_buffer?
 static void
 covox_update(covox_t *covox)
 {
-    for (; covox->pos < sound_pos_global; covox->pos++) {
+    for (; covox->pos < sound_get_legacy_pos(covox->source); covox->pos++) {
         covox->buffer[0][covox->pos] = (int8_t) (covox->dac_val ^ 0x80) * 0x40;
         covox->buffer[1][covox->pos] = (int8_t) (covox->dac_val ^ 0x80) * 0x40;
     }
@@ -209,10 +210,10 @@ covox_init(UNUSED(const device_t *info))
         if (has_stereo)
             IO_SETHANDLER_COVOX_DAC(device_get_config_hex16("base2"), 0x0002);
     }
-    sound_add_handler(covox_get_buffer, covox);
+    covox->source = sound_add_handler(covox_get_buffer, covox);
 
     if (has_adlib) {
-        fm_driver_get(FM_YM3812, &covox->opl);
+        fm_driver_get(FM_YM3812, &covox->opl, music_add_handler(covox_get_music_buffer, covox));
         if (fixed_address) {
             // Adlib Clone part
             IO_SETHANDLER_COVOX_ADLIB(0x380, 0x0002);
@@ -220,8 +221,6 @@ covox_init(UNUSED(const device_t *info))
             IO_SETHANDLER_COVOX_ADLIB(0x38e, 0x0002);
         } else
             IO_SETHANDLER_COVOX_ADLIB(device_get_config_hex16("adlibbase"), 0x0002);
-
-        music_add_handler(covox_get_music_buffer, covox);
     }
 
     return covox;

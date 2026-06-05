@@ -77,6 +77,7 @@ typedef struct lpt_dac_s {
 
     int16_t  buffer[2][SOUNDBUFLEN];
     uint16_t pos;
+    void    *source;
 
     void *log;
 } lpt_dac_t;
@@ -89,7 +90,7 @@ dac_update(lpt_dac_t *const lpt_dac)
     const int16_t sample_l = (int16_t) ((int8_t) (lpt_dac->dac_val_l ^ 0x80) * 0x40 * vol);
     const int16_t sample_r = (int16_t) ((int8_t) (lpt_dac->dac_val_r ^ 0x80) * 0x40 * vol);
 
-    for (; lpt_dac->pos < sound_pos_global; lpt_dac->pos++) {
+    for (; lpt_dac->pos < sound_get_legacy_pos(lpt_dac->source); lpt_dac->pos++) {
         lpt_dac->buffer[DAC_CHANNEL_LEFT][lpt_dac->pos] = sample_l;
         lpt_dac->buffer[DAC_CHANNEL_RIGHT][lpt_dac->pos] = sample_r;
     }
@@ -220,7 +221,7 @@ dac_init(const device_t *info)
                               NULL,
                               lpt_dac);
 
-    sound_add_handler(dac_get_buffer, lpt_dac);
+    lpt_dac->source = sound_add_handler(dac_get_buffer, lpt_dac);
 
     lpt_dac->log = log_open("LPT DAC");
     lpt_dac_log(lpt_dac->log, "Init device=%s channel=%u\n",

@@ -267,7 +267,7 @@ azt2320_init(UNUSED(const device_t *info))
     azt2320->sb->opl_enabled = device_get_config_int("opl");
 
     if (azt2320->sb->opl_enabled)
-        fm_driver_get(FM_YMF262, &azt2320->sb->opl);
+        fm_driver_get(FM_YMF262, &azt2320->sb->opl, music_add_handler(sb_get_music_buffer_sbpro, azt2320->sb));
 
     sb_dsp_set_real_opl(&azt2320->sb->dsp, 1);
     sb_dsp_init(&azt2320->sb->dsp, SBPRO_DSP_302, SB_SUBTYPE_CLONE_AZT2320_0X13, azt2320);
@@ -285,10 +285,6 @@ azt2320_init(UNUSED(const device_t *info))
     io_sethandler(azt2320->cur_addr + 4, 0x0002, sb_ct1345_mixer_read, NULL, NULL, sb_ct1345_mixer_write, NULL, NULL, azt2320->sb);
 
     sound_add_handler(azt2320_get_buffer, azt2320);
-
-    if (azt2320->sb->opl_enabled) {
-        music_add_handler(sb_get_music_buffer_sbpro, azt2320->sb);
-    }
 
     sound_set_cd_audio_filter(NULL, NULL);
     sound_set_cd_audio_filter(sbpro_filter_cd_audio, azt2320->sb);

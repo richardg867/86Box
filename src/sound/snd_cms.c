@@ -52,7 +52,7 @@ cms_log(const char *fmt, ...)
 void
 cms_update(cms_t *cms)
 {
-    for (; cms->pos < sound_pos_global; cms->pos++) {
+    for (; cms->pos < sound_get_legacy_pos(cms->source); cms->pos++) {
         int16_t out_l = 0;
         int16_t out_r = 0;
 
@@ -236,7 +236,7 @@ cms_init(UNUSED(const device_t *info))
                   cms_write, NULL, NULL,
                   cms);
 
-    sound_add_handler(cms_get_buffer, cms);
+    cms->source = sound_add_handler(cms_get_buffer, cms);
 
     return cms;
 }

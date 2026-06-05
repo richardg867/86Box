@@ -73,7 +73,7 @@ sn76489_update(sn76489_t *const sn76489)
     const double psgconst = sn76489->psgconst;
     const int    type     = sn76489->type;
 
-    for (; sn76489->pos < sound_pos_global; sn76489->pos++) {
+    for (; sn76489->pos < sound_get_legacy_pos(sn76489->source); sn76489->pos++) {
         int16_t result = 0;
 
         /* Tone Channels */
@@ -247,7 +247,7 @@ sn76489_init(sn76489_t *sn76489, uint16_t base, uint16_t size, int type, int fre
 {
     sn76489_log("sn76489_init: base=%04x, type=%d, freq=%d\n", base, type, freq);
 
-    sound_add_handler(sn76489_get_buffer, sn76489);
+    sn76489->source = sound_add_handler(sn76489_get_buffer, sn76489);
 
     if (type == SN76496) {
         sn76489->white_noise_tap_1 = 0;

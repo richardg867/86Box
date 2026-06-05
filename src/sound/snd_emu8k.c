@@ -1758,7 +1758,8 @@ int32_t old_vol[32]   = { 0 };
 void
 emu8k_update(emu8k_t *emu8k)
 {
-    if (emu8k->pos >= wavetable_pos_global)
+    int source_pos = sound_get_legacy_pos(emu8k->source);
+    if (emu8k->pos >= source_pos)
         return;
 
     int32_t       *buf;
@@ -1767,16 +1768,16 @@ emu8k_update(emu8k_t *emu8k)
 
     /* Clean the buffers since we will accumulate into them. */
     buf = &emu8k->buffer[emu8k->pos * 2];
-    memset(buf, 0, 2 * (wavetable_pos_global - emu8k->pos) * sizeof(emu8k->buffer[0]));
-    memset(&emu8k->chorus_in_buffer[emu8k->pos], 0, (wavetable_pos_global - emu8k->pos) * sizeof(emu8k->chorus_in_buffer[0]));
-    memset(&emu8k->reverb_in_buffer[emu8k->pos], 0, (wavetable_pos_global - emu8k->pos) * sizeof(emu8k->reverb_in_buffer[0]));
+    memset(buf, 0, 2 * (source_pos - emu8k->pos) * sizeof(emu8k->buffer[0]));
+    memset(&emu8k->chorus_in_buffer[emu8k->pos], 0, (source_pos - emu8k->pos) * sizeof(emu8k->chorus_in_buffer[0]));
+    memset(&emu8k->reverb_in_buffer[emu8k->pos], 0, (source_pos - emu8k->pos) * sizeof(emu8k->reverb_in_buffer[0]));
 
     /* Voices section  */
     for (uint8_t c = 0; c < 32; c++) {
         emu_voice = &emu8k->voice[c];
         buf       = &emu8k->buffer[emu8k->pos * 2];
 
-        for (pos = emu8k->pos; pos < wavetable_pos_global; pos++) {
+        for (pos = emu8k->pos; pos < source_pos; pos++) {
             int32_t dat;
 
             if (emu_voice->cvcf_curr_volume) {
@@ -2117,14 +2118,14 @@ emu8k_update(emu8k_t *emu8k)
     }
 
     buf = &emu8k->buffer[emu8k->pos * 2];
-    emu8k_work_reverb(&emu8k->reverb_in_buffer[emu8k->pos], buf, &emu8k->reverb_engine, wavetable_pos_global - emu8k->pos);
-    emu8k_work_chorus(&emu8k->chorus_in_buffer[emu8k->pos], buf, &emu8k->chorus_engine, wavetable_pos_global - emu8k->pos);
-    emu8k_work_eq(buf, wavetable_pos_global - emu8k->pos);
+    emu8k_work_reverb(&emu8k->reverb_in_buffer[emu8k->pos], buf, &emu8k->reverb_engine, source_pos - emu8k->pos);
+    emu8k_work_chorus(&emu8k->chorus_in_buffer[emu8k->pos], buf, &emu8k->chorus_engine, source_pos - emu8k->pos);
+    emu8k_work_eq(buf, source_pos - emu8k->pos);
 
     /* Update EMU clock. */
-    emu8k->wc += (wavetable_pos_global - emu8k->pos);
+    emu8k->wc += (source_pos - emu8k->pos);
 
-    emu8k->pos = wavetable_pos_global;
+    emu8k->pos = source_pos;
 }
 
 void

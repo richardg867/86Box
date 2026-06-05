@@ -239,7 +239,6 @@ if(SERIALPORT_FOUND OR DEFINED LIBSERIALPORT_ROOT)
     endif()
     target_sources(snd PRIVATE
     snd_opl2board.c
-    snd_opl_opl2board.cpp
 )
 endif()
 

@@ -77,6 +77,7 @@ typedef struct _ac97_via_ {
     ac97_codec_t  *audio_codec;
     ac97_codec_t  *modem_codec;
     ac97_via_sgd_t sgd[6];
+    void          *source;
 
     int master_vol_l;
     int master_vol_r;
@@ -605,7 +606,7 @@ ac97_via_update_stereo(ac97_via_t *dev, ac97_via_sgd_t *sgd)
     else if (r > 32767)
         r = 32767;
 
-    for (; sgd->pos < sound_pos_global; sgd->pos++) {
+    for (; sgd->pos < sound_get_legacy_pos(sgd->dev->source); sgd->pos++) {
         sgd->buffer[sgd->pos * 2]     = l;
         sgd->buffer[sgd->pos * 2 + 1] = r;
     }
@@ -939,7 +940,7 @@ ac97_via_init(UNUSED(const device_t *info))
     ac97_via_speed_changed(dev);
 
     /* Set up playback handler. */
-    sound_add_handler(ac97_via_get_buffer, dev);
+    dev->source = sound_add_handler(ac97_via_get_buffer, dev);
 
     return dev;
 }
