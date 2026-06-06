@@ -236,32 +236,9 @@ sound_backend_set_format(void *priv, uint8_t *format, uint8_t *channels, uint32_
     al_source_t *source = (al_source_t *) priv;
 
     /* Block invalid formats. */
-    if (((*format) >= (sizeof(formats) / sizeof(formats[0]))) || ((*channels) < 1) || ((*channels) > 8)) {
+    if ((*format >= (sizeof(formats) / sizeof(formats[0]))) || (*channels < 1) || (*channels > (sizeof(formats[0]) / sizeof(formats[0][0])))) {
         openal_log("OpenAL: Invalid source %d fmt=%d ch=%d freq=%d\n", (int) source->source, (int) *format, (int) *channels, (int) *freq);
         return 0;
-    }
-
-    /* Allow this source to be reused if it's already set to the requested format. */
-    ALenum new_format = AL_NONE;
-    for (int i = 0; i <= 1; i++) {
-        // TODO: change this to fall back format first!!!
-        /* Transcode unsupported formats by reducing channel count... */
-        for (int j = *channels; j; j++) {
-            new_format = formats[*format][j - 1];
-            if (new_format != AL_NONE) {
-                *channels = j;
-                break;
-            }
-        }
-        /* ...or falling back to 16-bit, repeating the process. */
-        if (new_format == AL_NONE)
-            *format = SOUND_S16;
-        else
-            break;
-    }
-    if ((source->format == new_format) && (source->freq == (*freq))) {
-        openal_log("OpenAL: Reusing source %d as fmt=%d ch=%d freq=%d\n", (int) source->source, (int) *format, (int) *channels, (int) *freq);
-        return 1;
     }
 
     /* Don't change the format of an active source. */
@@ -270,6 +247,27 @@ sound_backend_set_format(void *priv, uint8_t *format, uint8_t *channels, uint32_
     if (state == AL_PLAYING) {
         openal_log("OpenAL: Skipping source %d as it is playing\n", (int) source->source);
         return 0;
+    }
+
+    /* Transcode unsupported formats to 16-bit... */
+    ALenum new_format = formats[*format][*channels - 1];
+    if (new_format == AL_NONE) {
+        *format = SOUND_S16;
+        new_format = formats[*format][*channels - 1];
+        if (new_format == AL_NONE) {
+            /* ...then by reducing channel count. */
+            for ((*channels)--; *channels > 0; (*channels)--) {
+                new_format = formats[*format][*channels - 1];
+                if (new_format != AL_NONE)
+                    break;
+            }
+        }
+    }
+
+    /* Allow this source to be reused if it's already set to the requested format. */
+    if ((source->format == new_format) && (source->freq == *freq)) {
+        openal_log("OpenAL: Reusing source %d as fmt=%d ch=%d freq=%d\n", (int) source->source, (int) *format, (int) *channels, (int) *freq);
+        return 1;
     }
 
     /* Checks passed, change the format. */
@@ -284,7 +282,7 @@ sound_backend_set_format(void *priv, uint8_t *format, uint8_t *channels, uint32_
     alSourceUnqueueBuffers(source->source, processed, buffers);
     static const uint8_t empty[32] = {0};
     for (int i = 0; i < (sizeof(source->buffers) / sizeof(source->buffers[0])); i++)
-        alBufferData(source->buffers[i], source->format, &empty, (*channels) * 4, source->freq);
+        alBufferData(source->buffers[i], source->format, &empty, *channels * 4, source->freq);
     alSourceQueueBuffers(source->source, sizeof(source->buffers) / sizeof(source->buffers[0]), source->buffers);
 
     return 1;
