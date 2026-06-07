@@ -23,6 +23,6 @@ typedef struct wav_header_t {
 /* Load a WAV file and return stereo 16-bit samples
  * Returns allocated buffer (caller must free) or NULL on error
  * sample_count receives the number of stereo sample pairs */
-int16_t *sound_load_wav(const char *filename, int *sample_count);
+extern int16_t *sound_load_wav(const char *filename, int *sample_count);
 
 #endif /* SOUND_UTIL_H */
