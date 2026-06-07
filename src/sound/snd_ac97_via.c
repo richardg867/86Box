@@ -46,16 +46,11 @@ typedef struct ac97_via_sgd_t {
     uint8_t  fifo[32];
     uint8_t  restart;
 
-    int16_t  out_l;
-    int16_t  out_r;
     int      vol_l;
     int      vol_r;
-    int      pos;
-    int32_t  buffer[SOUNDBUFLEN * 2];
-    uint64_t timer_latch;
 
+    void      *source;
     pc_timer_t dma_timer;
-    pc_timer_t poll_timer;
 } ac97_via_sgd_t;
 
 typedef struct _ac97_via_ {
@@ -105,7 +100,6 @@ ac97_via_log(const char *fmt, ...)
 
 static void ac97_via_sgd_process(void *priv);
 static void ac97_via_update_codec(ac97_via_t *dev);
-static void ac97_via_speed_changed(void *priv);
 static void ac97_via_filter_cd_audio(int channel, double *buffer, void *priv);
 
 void
@@ -153,18 +147,22 @@ ac97_via_write_control(void *priv, uint8_t val)
     }
 
     /* Set the variable sample rate flag. */
-    dev->vsr_enabled = (val & 0xf8) == 0xc8;
+    i = (val & 0xf8) == 0xc8;
+    if (i != dev->vsr_enabled) {
+        dev->vsr_enabled = i;
+        ac97_via_update_codec(dev);
+    }
 
     /* Start or stop PCM playback. */
     i = (val & 0xf4) == 0xc4;
     if (i && !dev->pcm_enabled)
-        timer_advance_u64(&dev->sgd[0].poll_timer, dev->sgd[0].timer_latch);
+        sound_start_source(dev->sgd[0].source);
     dev->pcm_enabled = i;
 
     /* Start or stop FM playback. */
     i = (val & 0xf2) == 0xc2;
     if (i && !dev->fm_enabled)
-        timer_advance_u64(&dev->sgd[2].poll_timer, dev->sgd[2].timer_latch);
+        sound_start_source(dev->sgd[2].source);
     dev->fm_enabled = i;
 
     /* Update audio codec state. */
@@ -200,7 +198,10 @@ ac97_via_update_codec(ac97_via_t *dev)
     }
 
     /* Update sample rate according to codec registers and the variable sample rate flag. */
-    ac97_via_speed_changed(dev);
+    sound_set_format(dev->sgd[0].source, SOUND_S16, 2, (dev->vsr_enabled && dev->audio_codec) ? ac97_codec_getrate(dev->audio_codec, 0x2c) : 48000);
+    uint32_t modem_rate = dev->modem_codec ? ac97_codec_getrate(dev->modem_codec, 0x40) : 8000; /* undocumented format probed */
+    sound_set_format(dev->sgd[4].source, SOUND_S16, 1, modem_rate);
+    sound_set_format(dev->sgd[5].source, SOUND_S16, 1, modem_rate);
 }
 
 static uint8_t
@@ -402,8 +403,8 @@ ac97_via_sgd_write(uint16_t addr, uint8_t val, void *priv)
                         /* Start modem pollers. */
                         if (!dev->modem_enabled) {
                             dev->modem_enabled = 1;
-                            timer_advance_u64(&dev->sgd[4].poll_timer, dev->sgd[4].timer_latch);
-                            timer_advance_u64(&dev->sgd[5].poll_timer, dev->sgd[5].timer_latch);
+                            sound_start_source(dev->sgd[4].source);
+                            sound_start_source(dev->sgd[5].source);
                         }
                     } else if (!dev->audio_codec) {
                         dev->audio_codec = codec;
@@ -587,32 +588,6 @@ ac97_via_remap_modem_codec(void *priv, uint16_t new_io_base, uint8_t enable)
 }
 
 static void
-ac97_via_update_stereo(ac97_via_t *dev, ac97_via_sgd_t *sgd)
-{
-#ifdef OLD_CODE
-    int32_t l = (((sgd->out_l * sgd->vol_l) >> 15) * dev->master_vol_l) >> 15;
-    int32_t r = (((sgd->out_r * sgd->vol_r) >> 15) * dev->master_vol_r) >> 15;
-#else
-    int32_t l = (((sgd->out_l * sgd->vol_l) / 208925) * dev->master_vol_l) >> 15;
-    int32_t r = (((sgd->out_r * sgd->vol_r) / 208925) * dev->master_vol_r) >> 15;
-#endif
-
-    if (l < -32768)
-        l = -32768;
-    else if (l > 32767)
-        l = 32767;
-    if (r < -32768)
-        r = -32768;
-    else if (r > 32767)
-        r = 32767;
-
-    for (; sgd->pos < sound_get_legacy_pos(sgd->dev->source); sgd->pos++) {
-        sgd->buffer[sgd->pos * 2]     = l;
-        sgd->buffer[sgd->pos * 2 + 1] = r;
-    }
-}
-
-static void
 ac97_via_sgd_process(void *priv)
 {
     ac97_via_sgd_t *sgd = (ac97_via_sgd_t *) priv;
@@ -731,147 +706,111 @@ ac97_via_sgd_process(void *priv)
 }
 
 static void
-ac97_via_poll_stereo(void *priv)
+ac97_via_poll(sound_buffer_t buffer, ac97_via_sgd_t *sgd, uint8_t format)
 {
-    ac97_via_sgd_t *sgd = (ac97_via_sgd_t *) priv;
-    ac97_via_t     *dev = sgd->dev;
-
-    /* Schedule next run if PCM playback is enabled. */
-    if (dev->pcm_enabled)
-        timer_advance_u64(&sgd->poll_timer, sgd->timer_latch);
-
-    /* Update stereo audio buffer. */
-    ac97_via_update_stereo(dev, sgd);
-
     /* Feed next sample from the FIFO. */
-    switch (dev->sgd_regs[sgd->id | 0x2] & 0x30) {
+    switch (format & 0x30) {
         case 0x00: /* Mono, 8-bit PCM */
+        default:
             if ((sgd->fifo_end - sgd->fifo_pos) >= 1) {
-                sgd->out_l = sgd->out_r = (sgd->fifo[sgd->fifo_pos++ & (sizeof(sgd->fifo) - 1)] ^ 0x80) << 8;
+                buffer.s16[0] = buffer.s16[1] = sound_convert_u8(sgd->fifo[sgd->fifo_pos++ & (sizeof(sgd->fifo) - 1)]);
+            } else {
+                buffer.s32[0] = 0;
                 return;
             }
             break;
 
         case 0x10: /* Stereo, 8-bit PCM */
             if ((sgd->fifo_end - sgd->fifo_pos) >= 2) {
-                sgd->out_l = (sgd->fifo[sgd->fifo_pos++ & (sizeof(sgd->fifo) - 1)] ^ 0x80) << 8;
-                sgd->out_r = (sgd->fifo[sgd->fifo_pos++ & (sizeof(sgd->fifo) - 1)] ^ 0x80) << 8;
+                buffer.s16[0] = sound_convert_u8(sgd->fifo[sgd->fifo_pos++ & (sizeof(sgd->fifo) - 1)]);
+                buffer.s16[1] = sound_convert_u8(sgd->fifo[sgd->fifo_pos++ & (sizeof(sgd->fifo) - 1)]);
+            } else {
+                buffer.s32[0] = 0;
                 return;
             }
             break;
 
         case 0x20: /* Mono, 16-bit PCM */
             if ((sgd->fifo_end - sgd->fifo_pos) >= 2) {
-                sgd->out_l = sgd->out_r = AS_U16(sgd->fifo[sgd->fifo_pos & (sizeof(sgd->fifo) - 1)]);
+                buffer.s16[0] = buffer.s16[1] = AS_U16(sgd->fifo[sgd->fifo_pos & (sizeof(sgd->fifo) - 1)]);
                 sgd->fifo_pos += 2;
+            } else {
+                buffer.s32[0] = 0;
                 return;
             }
             break;
 
         case 0x30: /* Stereo, 16-bit PCM */
             if ((sgd->fifo_end - sgd->fifo_pos) >= 4) {
-                sgd->out_l = AS_U16(sgd->fifo[sgd->fifo_pos & (sizeof(sgd->fifo) - 1)]);
-                sgd->fifo_pos += 2;
-                sgd->out_r = AS_U16(sgd->fifo[sgd->fifo_pos & (sizeof(sgd->fifo) - 1)]);
-                sgd->fifo_pos += 2;
+                buffer.s32[0] = AS_U32(sgd->fifo[sgd->fifo_pos & (sizeof(sgd->fifo) - 1)]);
+                sgd->fifo_pos += 4;
+            } else {
+                buffer.s32[0] = 0;
                 return;
             }
             break;
-
-        default:
-            break;
     }
 
-    /* Feed silence if the FIFO is empty. */
-    sgd->out_l = sgd->out_r = 0;
+#ifdef OLD_CODE
+    int32_t l = (((buffer.s16[0] * sgd->vol_l) >> 15) * sgd->dev->master_vol_l) >> 15;
+    int32_t r = (((buffer.s16[1] * sgd->vol_r) >> 15) * sgd->dev->master_vol_r) >> 15;
+#else
+    int32_t l = (((buffer.s16[0] * sgd->vol_l) / 208925) * sgd->dev->master_vol_l) >> 15;
+    int32_t r = (((buffer.s16[1] * sgd->vol_r) / 208925) * sgd->dev->master_vol_r) >> 15;
+#endif
+
+    if (l < -32768)
+        buffer.s16[0] = -32768;
+    else if (l > 32767)
+        buffer.s16[0] = 32767;
+    else
+        buffer.s16[0] = l;
+    if (r < -32768)
+        buffer.s16[1] = -32768;
+    else if (r > 32767)
+        buffer.s16[1] = 32767;
+    else
+        buffer.s16[1] = r;
 }
 
-static void
-ac97_via_poll_fm(void *priv)
+static uint8_t
+ac97_via_poll_stereo(sound_buffer_t buffer, void *priv)
 {
     ac97_via_sgd_t *sgd = (ac97_via_sgd_t *) priv;
-    ac97_via_t     *dev = sgd->dev;
-
-    /* Schedule next run if FM playback is enabled. */
-    if (dev->fm_enabled)
-        timer_advance_u64(&sgd->poll_timer, sgd->timer_latch);
-
-    /* Update FM audio buffer. */
-    ac97_via_update_stereo(dev, sgd);
-
-    /* Feed next sample from the FIFO.
-       The data format is not documented, but it probes as 16-bit stereo at 24 KHz. */
-    if ((sgd->fifo_end - sgd->fifo_pos) >= 4) {
-        sgd->out_l = AS_U16(sgd->fifo[sgd->fifo_pos & (sizeof(sgd->fifo) - 1)]);
-        sgd->fifo_pos += 2;
-        sgd->out_r = AS_U16(sgd->fifo[sgd->fifo_pos & (sizeof(sgd->fifo) - 1)]);
-        sgd->fifo_pos += 2;
-        return;
-    }
-
-    /* Feed silence if the FIFO is empty. */
-    sgd->out_l = sgd->out_r = 0;
+    ac97_via_poll(buffer, sgd, sgd->dev->sgd_regs[sgd->id | 0x2]);
+    return !!sgd->dev->pcm_enabled;
 }
 
-static void
-ac97_via_poll_modem(void *priv)
+static uint8_t
+ac97_via_poll_fm(sound_buffer_t buffer, void *priv)
 {
     ac97_via_sgd_t *sgd = (ac97_via_sgd_t *) priv;
-    ac97_via_t     *dev = sgd->dev;
+    ac97_via_poll(buffer, sgd, 0x30);
+    return !!sgd->dev->fm_enabled;
+}
 
-    /* Schedule next run if modem playback/capture is enabled. */
-    if (dev->modem_enabled)
-        timer_advance_u64(&sgd->poll_timer, sgd->timer_latch);
+static uint8_t
+ac97_via_poll_modem(sound_buffer_t buffer, void *priv)
+{
+    ac97_via_sgd_t *sgd = (ac97_via_sgd_t *) priv;
+    ac97_via_poll(buffer, sgd, 0x20);
+    return !!sgd->dev->modem_enabled;
+}
 
-    /* Update modem audio buffer. */
-    ac97_via_update_stereo(dev, sgd);
+static uint8_t
+ac97_via_poll_modem_capture(sound_buffer_t buffer, void *priv)
+{
+    ac97_via_sgd_t *sgd = (ac97_via_sgd_t *) priv;
 
-    /* Feed next sample from the FIFO.
-       The data format is not documented, but it probes as 16-bit mono at the codec sample rate. */
+    buffer.s16[0] = 0; /* dummy until input is handled */
+
+    /* Feed next sample into the FIFO. */
     if ((sgd->fifo_end - sgd->fifo_pos) >= 2) {
-        sgd->out_l = sgd->out_r = AS_I16(sgd->fifo[sgd->fifo_pos & (sizeof(sgd->fifo) - 1)]);
-        sgd->fifo_pos += 2;
-        return;
-    }
-
-    /* Feed silence if the FIFO is empty. */
-    sgd->out_l = sgd->out_r = 0;
-}
-
-static void
-ac97_via_poll_modem_capture(void *priv)
-{
-    ac97_via_sgd_t *sgd = (ac97_via_sgd_t *) priv;
-    ac97_via_t     *dev = sgd->dev;
-
-    /* Schedule next run if modem playback/capture is enabled. */
-    if (dev->modem_enabled)
-        timer_advance_u64(&sgd->poll_timer, sgd->timer_latch);
-
-    /* Feed next sample into the FIFO.
-       The data format is not documented, but it probes as 16-bit mono at the codec sample rate. */
-    if ((sgd->fifo_end - sgd->fifo_pos) >= 2) {
-        AS_I16(sgd->fifo[sgd->fifo_pos & (sizeof(sgd->fifo) - 1)]) = 0;
+        AS_U16(sgd->fifo[sgd->fifo_pos & (sizeof(sgd->fifo) - 1)]) = buffer.s16[0];
         sgd->fifo_pos += 2;
     }
-}
 
-static void
-ac97_via_get_buffer(int32_t *buffer, uint16_t len, void *priv)
-{
-    ac97_via_t *dev = (ac97_via_t *) priv;
-
-    ac97_via_update_stereo(dev, &dev->sgd[0]);
-    ac97_via_update_stereo(dev, &dev->sgd[2]);
-    ac97_via_update_stereo(dev, &dev->sgd[4]);
-
-    for (uint16_t c = 0; c < len * 2; c++) {
-        buffer[c] += dev->sgd[0].buffer[c] / 2;
-        buffer[c] += dev->sgd[2].buffer[c] / 2;
-        buffer[c] += dev->sgd[4].buffer[c] / 2;
-    }
-
-    dev->sgd[0].pos = dev->sgd[2].pos = dev->sgd[4].pos = 0;
+    return 1;
 }
 
 static void
@@ -883,29 +822,6 @@ ac97_via_filter_cd_audio(int channel, double *buffer, void *priv)
 
     c       = ((*buffer) * volume) / 65536.0;
     *buffer = c;
-}
-
-static void
-ac97_via_speed_changed(void *priv)
-{
-    ac97_via_t *dev = (ac97_via_t *) priv;
-    double      freq;
-
-    /* Get variable sample rate if enabled. */
-    if (dev->vsr_enabled && dev->audio_codec)
-        freq = ac97_codec_getrate(dev->audio_codec, 0x2c);
-    else
-        freq = (double) SOUND_FREQ;
-
-    dev->sgd[0].timer_latch = (uint64_t) ((double) TIMER_USEC * (1000000.0 / freq));
-    dev->sgd[2].timer_latch = (uint64_t) ((double) TIMER_USEC * (1000000.0 / 24000.0)); /* FM operates at a fixed 24 KHz */
-
-    if (dev->modem_codec)
-        freq = ac97_codec_getrate(dev->modem_codec, 0x40);
-    else
-        freq = (double) SOUND_FREQ;
-
-    dev->sgd[4].timer_latch = dev->sgd[5].timer_latch = (uint64_t) ((double) TIMER_USEC * (1000000.0 / freq));
 }
 
 static void *
@@ -932,15 +848,13 @@ ac97_via_init(UNUSED(const device_t *info))
         timer_add(&dev->sgd[i].dma_timer, ac97_via_sgd_process, &dev->sgd[i], 0);
     }
 
-    /* Set up playback pollers. */
-    timer_add(&dev->sgd[0].poll_timer, ac97_via_poll_stereo, &dev->sgd[0], 0);
-    timer_add(&dev->sgd[2].poll_timer, ac97_via_poll_fm, &dev->sgd[2], 0);
-    timer_add(&dev->sgd[4].poll_timer, ac97_via_poll_modem, &dev->sgd[4], 0);
-    timer_add(&dev->sgd[5].poll_timer, ac97_via_poll_modem_capture, &dev->sgd[5], 0);
-    ac97_via_speed_changed(dev);
-
-    /* Set up playback handler. */
-    dev->source = sound_add_handler(ac97_via_get_buffer, dev);
+    /* Set up playback sources. */
+    dev->sgd[0].source = sound_add_source(ac97_via_poll_stereo, &dev->sgd[0], "VIA AC'97 PCM");
+    dev->sgd[2].source = sound_add_source(ac97_via_poll_fm, &dev->sgd[2], "VIA AC'97 FM");
+    dev->sgd[4].source = sound_add_source(ac97_via_poll_modem, &dev->sgd[4], "VIA AC'97 Modem");
+    dev->sgd[5].source = sound_add_source(ac97_via_poll_modem_capture, &dev->sgd[5], "VIA AC'97 Modem Input");
+    ac97_via_update_codec(dev);
+    sound_set_format(dev->sgd[2].source, SOUND_S16, 2, 24000); /* undocumented format probed */
 
     return dev;
 }
@@ -964,7 +878,7 @@ const device_t ac97_via_device = {
     .close         = ac97_via_close,
     .reset         = NULL,
     .available     = NULL,
-    .speed_changed = ac97_via_speed_changed,
+    .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
 };
