@@ -809,7 +809,7 @@ pipc_fm_read(uint16_t addr, void *priv)
     uint8_t ret = dev->sb->opl.read(addr, dev->sb->opl.priv);
 #endif
 
-    pipc_log("PIPC: fm_read(%02X) = %02X\n", addr & 0x03, ret);
+    pipc_log("PIPC: fm_read(%02X) = %02X\n", addr, ret);
 
     return ret;
 }
@@ -819,7 +819,7 @@ pipc_fm_write(uint16_t addr, uint8_t val, void *priv)
 {
     pipc_t *dev = (pipc_t *) priv;
 
-    pipc_log("PIPC: fm_write(%02X, %02X)\n", addr & 0x03, val);
+    pipc_log("PIPC: fm_write(%02X, %02X)\n", addr, val);
 
 #ifdef VIA_PIPC_FM_EMULATION
     /* Real 686B only updates the bank ID register when writing to the
@@ -844,7 +844,7 @@ pipc_fm_write(uint16_t addr, uint8_t val, void *priv)
         }
 
         /* Fire NMI/SMI if enabled. */
-        if (dev->ac97_regs[0][0x48] & 0x01) {
+        if (!(dev->ac97_regs[0][0x48] & 0x01)) {
             pipc_log("PIPC: Raising %s\n", (dev->ac97_regs[0][0x48] & 0x04) ? "SMI" : "NMI");
             if (dev->ac97_regs[0][0x48] & 0x04)
                 smi_raise();
@@ -895,7 +895,7 @@ pipc_sb_handlers(pipc_t *dev, uint8_t modem)
     mpu401_change_addr(dev->sb->mpu, 0);
     mpu401_setirq(dev->sb->mpu, 0);
 
-    io_removehandler(0x388, 4, dev->sb->opl.read, NULL, NULL, dev->sb->opl.write, NULL, NULL, dev->sb->opl.priv);
+    io_removehandler(0x388, 4, pipc_fm_read, NULL, NULL, pipc_fm_write, NULL, NULL, dev);
 
     if (dev->ac97_regs[0][0x42] & 0x01) {
         if (!dev->sb->dsp.source)
