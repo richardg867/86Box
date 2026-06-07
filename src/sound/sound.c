@@ -876,11 +876,9 @@ sound_reset(void)
     /* Remove all sources. */
     sound_source_t *other;
     while (sources) {
-        sound_source_t *snap = sources; // force a local copy
-        printf("%p\n", snap);
-        sound_stop_source(snap);
-        other = snap->next;
-        free(snap);
+        sound_stop_source(sources);
+        other = sources->next;
+        free(sources);
         sources = other;
     }
 
