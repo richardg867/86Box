@@ -858,6 +858,28 @@ pipc_fm_write(uint16_t addr, uint8_t val, void *priv)
 }
 
 static void
+pipc_sb_get_buffer(int32_t *buffer, uint16_t len, void *priv)
+{
+    pipc_t *dev = (pipc_t *) priv;
+
+    /* Poll SB DSP only if the legacy block is enabled. */
+    if (dev->ac97_regs[0][0x42] & 0x01)
+        sb_get_buffer_sbpro(buffer, len, dev->sb);
+}
+
+#ifndef VIA_PIPC_FM_EMULATION
+static void
+pipc_sb_opl_get_buffer(int32_t *buffer, uint16_t len, void *priv)
+{
+    pipc_t *dev = (pipc_t *) priv;
+
+    /* Poll SB OPL only if the legacy block is enabled. */
+    if (dev->ac97_regs[0][0x42] & 0x05)
+        sb_get_buffer_sbpro(buffer, len, dev->sb);
+}
+#endif
+
+static void
 pipc_sb_handlers(pipc_t *dev, uint8_t modem)
 {
     if (!dev->ac97 || modem)
@@ -865,8 +887,8 @@ pipc_sb_handlers(pipc_t *dev, uint8_t modem)
 
     sb_dsp_setaddr(&dev->sb->dsp, 0);
     if (dev->sb_base) {
-        io_removehandler(dev->sb_base, 4, dev->sb->opl.read, NULL, NULL, dev->sb->opl.write, NULL, NULL, dev->sb->opl.priv);
-        io_removehandler(dev->sb_base + 8, 2, dev->sb->opl.read, NULL, NULL, dev->sb->opl.write, NULL, NULL, dev->sb->opl.priv);
+        io_removehandler(dev->sb_base, 4, pipc_fm_read, NULL, NULL, pipc_fm_write, NULL, NULL, dev);
+        io_removehandler(dev->sb_base + 8, 2, pipc_fm_read, NULL, NULL, pipc_fm_write, NULL, NULL, dev);
         io_removehandler(dev->sb_base + 4, 2, sb_ct1345_mixer_read, NULL, NULL, sb_ct1345_mixer_write, NULL, NULL, dev->sb);
     }
 
@@ -876,11 +898,14 @@ pipc_sb_handlers(pipc_t *dev, uint8_t modem)
     io_removehandler(0x388, 4, dev->sb->opl.read, NULL, NULL, dev->sb->opl.write, NULL, NULL, dev->sb->opl.priv);
 
     if (dev->ac97_regs[0][0x42] & 0x01) {
+        if (!dev->sb->dsp.source)
+            dev->sb->dsp.source = sound_add_handler(pipc_sb_get_buffer, dev);
+
         dev->sb_base = 0x220 + (0x20 * (dev->ac97_regs[0][0x43] & 0x03));
         sb_dsp_setaddr(&dev->sb->dsp, dev->sb_base);
         if (dev->ac97_regs[0][0x42] & 0x04) {
-            io_sethandler(dev->sb_base, 4, dev->sb->opl.read, NULL, NULL, dev->sb->opl.write, NULL, NULL, dev->sb->opl.priv);
-            io_sethandler(dev->sb_base + 8, 2, dev->sb->opl.read, NULL, NULL, dev->sb->opl.write, NULL, NULL, dev->sb->opl.priv);
+            io_sethandler(dev->sb_base, 4, pipc_fm_read, NULL, NULL, pipc_fm_write, NULL, NULL, dev);
+            io_sethandler(dev->sb_base + 8, 2, pipc_fm_read, NULL, NULL, pipc_fm_write, NULL, NULL, dev);
         }
         io_sethandler(dev->sb_base + 4, 2, sb_ct1345_mixer_read, NULL, NULL, sb_ct1345_mixer_write, NULL, NULL, dev->sb);
 
@@ -908,25 +933,13 @@ pipc_sb_handlers(pipc_t *dev, uint8_t modem)
     if (dev->ac97_regs[0][0x42] & 0x04) {
         io_sethandler(0x388, 4, pipc_fm_read, NULL, NULL, pipc_fm_write, NULL, NULL, dev);
 #ifndef VIA_PIPC_FM_EMULATION
+        if (!dev->sb->opl.write)
+            fm_driver_get(FM_YMF262, &dev->sb->opl, music_add_handler(pipc_sb_opl_get_buffer, dev->sb));
         dev->sb->opl_enabled = 1;
     } else {
         dev->sb->opl_enabled = 0;
 #endif
     }
-}
-
-static void
-pipc_sb_get_buffer(int32_t *buffer, uint16_t len, void *priv)
-{
-    pipc_t *dev = (pipc_t *) priv;
-
-    /* Poll SB audio only if the legacy block is enabled. */
-#ifdef VIA_PIPC_FM_EMULATION
-    if (dev->ac97_regs[0][0x42] & 0x01)
-#else
-    if (dev->ac97_regs[0][0x42] & 0x05)
-#endif
-        sb_get_buffer_sbpro(buffer, len, dev->sb);
 }
 
 static uint8_t
@@ -1739,7 +1752,6 @@ pipc_init(const device_t *info)
         dev->ac97 = device_add(&ac97_via_device);
 
         dev->sb = device_add_inst(&sb_pro_compat_device, 2);
-        sound_add_handler(pipc_sb_get_buffer, dev);
 
         dev->gameport = gameport_add(&gameport_sio_device);
 

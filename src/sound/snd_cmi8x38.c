@@ -520,6 +520,11 @@ cmi8x38_remap_sb(cmi8x38_t *dev)
     cmi8x38_log("CMI8x38: remap_sb(%04X)\n", dev->sb_base);
 
     if (dev->sb_base) {
+        if (!dev->sb->dsp.source)
+            dev->sb->dsp.source = sound_add_handler(sb_get_buffer_sb16_awe32, dev->sb);
+        if (!dev->sb->opl.write)
+            fm_driver_get(FM_YMF262, &dev->sb->opl, music_add_handler(sb_get_music_buffer_sb16_awe32, dev->sb));
+
         io_sethandler(dev->sb_base, 0x0004, dev->sb->opl.read, NULL, NULL,
                       dev->sb->opl.write, NULL, NULL, dev->sb->opl.priv);
         io_sethandler(dev->sb_base + 8, 0x0002, dev->sb->opl.read, NULL, NULL,
@@ -547,6 +552,9 @@ cmi8x38_remap_opl(cmi8x38_t *dev)
     cmi8x38_log("CMI8x38: remap_opl(%04X)\n", dev->opl_base);
 
     if (dev->opl_base) {
+        if (!dev->sb->opl.write)
+            fm_driver_get(FM_YMF262, &dev->sb->opl, music_add_handler(sb_get_music_buffer_sb16_awe32, dev->sb));
+
         io_sethandler(dev->opl_base, 0x0004, dev->sb->opl.read, NULL, NULL,
                       dev->sb->opl.write, NULL, NULL, dev->sb->opl.priv);
     }

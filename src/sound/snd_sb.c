@@ -343,7 +343,7 @@ sbpro_filter_cd_audio(int channel, double *buffer, void *priv)
     *buffer = c;
 }
 
-static void
+void
 sb_get_buffer_sb16_awe32(int32_t *buffer, uint16_t len, void *priv)
 {
     sb_t                    *sb    = (sb_t *) priv;
@@ -413,7 +413,7 @@ sb_get_buffer_sb16_awe32(int32_t *buffer, uint16_t len, void *priv)
     sb->dsp.pos = 0;
 }
 
-static void
+void
 sb_get_music_buffer_sb16_awe32(int32_t *buffer, const uint16_t len, void *priv)
 {
     sb_t                    *sb          = (sb_t *) priv;
@@ -3322,14 +3322,11 @@ sb_pro_compat_init(UNUSED(const device_t *info))
 {
     sb_t *sb = calloc(1, sizeof(sb_t));
 
-    fm_driver_get(FM_YMF262, &sb->opl, music_add_handler(sb_get_music_buffer_sbpro, sb));
-
     sb_dsp_set_real_opl(&sb->dsp, 1);
     sb_dsp_init(&sb->dsp, SBPRO_DSP_302, SB_SUBTYPE_DEFAULT, sb);
     sb_ct1345_mixer_reset(sb);
 
     sb->mixer_enabled = 1;
-    sb->dsp.source = sound_add_handler(sb_get_buffer_sbpro, sb);
 
     sb->mpu = (mpu_t *) calloc(1, sizeof(mpu_t));
     mpu401_init(sb->mpu, 0, 0, M_UART, 1);
@@ -3666,8 +3663,6 @@ sb_16_compat_init(const device_t *info)
 {
     sb_t *sb = calloc(1, sizeof(sb_t));
 
-    fm_driver_get(FM_YMF262, &sb->opl, music_add_handler(sb_get_music_buffer_sb16_awe32, sb));
-
     sb_dsp_set_real_opl(&sb->dsp, 1);
     sb_dsp_init(&sb->dsp, SB16_DSP_405, SB_SUBTYPE_DEFAULT, sb);
     sb_dsp_setdma16_supported(&sb->dsp, 1);
@@ -3676,7 +3671,6 @@ sb_16_compat_init(const device_t *info)
 
     sb->opl_enabled   = 1;
     sb->mixer_enabled = 1;
-    sb->dsp.source = sound_add_handler(sb_get_buffer_sb16_awe32, sb);
 
     sb->mpu = (mpu_t *) calloc(1, sizeof(mpu_t));
     mpu401_init(sb->mpu, 0, 0, M_UART, (int) (intptr_t) info->local);
