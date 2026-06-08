@@ -199,8 +199,8 @@ ac97_via_update_codec(ac97_via_t *dev)
 
     /* Update sample rate according to codec registers and the variable sample rate flag. */
     sound_set_format(dev->sgd[0].source, SOUND_S16, 2, (dev->vsr_enabled && dev->audio_codec) ? ac97_codec_getrate(dev->audio_codec, 0x2c) : 48000);
-    uint32_t modem_rate = dev->modem_codec ? ac97_codec_getrate(dev->modem_codec, 0x40) : 8000; /* undocumented format probed */
-    sound_set_format(dev->sgd[4].source, SOUND_S16, 1, modem_rate);
+    uint32_t modem_rate = dev->modem_codec ? ac97_codec_getrate(dev->modem_codec, 0x40) : 8000;
+    sound_set_format(dev->sgd[4].source, SOUND_S16, 1, modem_rate); /* undocumented format probed */
     sound_set_format(dev->sgd[5].source, SOUND_S16, 1, modem_rate);
 }
 
@@ -751,13 +751,8 @@ ac97_via_poll(sound_buffer_t buffer, ac97_via_sgd_t *sgd, uint8_t format)
             break;
     }
 
-#ifdef OLD_CODE
     int32_t l = (((buffer.s16[0] * sgd->vol_l) >> 15) * sgd->dev->master_vol_l) >> 15;
     int32_t r = (((buffer.s16[1] * sgd->vol_r) >> 15) * sgd->dev->master_vol_r) >> 15;
-#else
-    int32_t l = (((buffer.s16[0] * sgd->vol_l) / 208925) * sgd->dev->master_vol_l) >> 15;
-    int32_t r = (((buffer.s16[1] * sgd->vol_r) / 208925) * sgd->dev->master_vol_r) >> 15;
-#endif
 
     if (l < -32768)
         buffer.s16[0] = -32768;
