@@ -132,9 +132,9 @@ extern void sound_hdd_thread_end(void);
 
 extern const char *sound_get_output_devices(void); /* returns double-null-terminated list, or NULL */
 
-extern void  sound_backend_close(void);
 extern void  sound_backend_reset(void);
 extern void *sound_backend_add_source(void);
+extern void  sound_backend_stop_source(void *priv);
 extern int   sound_backend_set_format(void *priv, uint8_t *format, uint8_t *channels, uint32_t *freq);
 extern void  sound_backend_buffer(void *priv, void *buf, uint32_t bytes);
 

@@ -58,14 +58,17 @@ openal_log(const char *fmt, ...)
 #    define openal_log(fmt, ...)
 #endif
 
-typedef struct {
+typedef struct _al_source_ {
     ALuint source;
     ALuint buffers[4];
     ALenum format;
     int    freq;
+
+    struct _al_source_ *next;
 } al_source_t;
 
-static int         initialized   = 0;
+static int         initialized = 0;
+static al_source_t *sources = NULL;
 static ALCcontext *Context;
 static ALCdevice  *Device;
 
@@ -101,21 +104,19 @@ alutExit(ALvoid)
     }
 }
 
-void
+static void
 sound_backend_close(void)
 {
     if (!initialized)
         return;
 
-    // TODO INDIVIDUAL SOURCE CLOSE
-    /*alSourceStopv(sources, source);
-    alDeleteSources(sources, source);
-
-    if (sources == 4)
-        alDeleteBuffers(4, buffers_midi);
-    alDeleteBuffers(4, buffers_cd);
-    alDeleteBuffers(4, buffers_music);
-    alDeleteBuffers(4, buffers);*/
+    for (al_source_t *source = sources; source; source = sources) {
+        sources = source->next;
+        alSourceStop(source->source);
+        alDeleteSources(1, &source->source);
+        alDeleteBuffers(sizeof(source->buffers) / sizeof(source->buffers[0]), source->buffers);
+        free(source);
+    }
 
     alutExit();
 
@@ -141,6 +142,8 @@ sound_backend_add_source(void)
         fatal("OpenAL: Adding source without initializing first\n");
 
     al_source_t *source = (al_source_t *) calloc(1, sizeof(al_source_t));
+    source->next = sources;
+    sources = source;
 
     ALenum e = alGetError();
     alGenBuffers(sizeof(source->buffers) / sizeof(source->buffers[0]), source->buffers);
@@ -158,6 +161,13 @@ sound_backend_add_source(void)
     alSourcei(source->source, AL_SOURCE_RELATIVE, AL_TRUE);
 
     return source;
+}
+
+void
+sound_backend_stop_source(void *priv)
+{
+    al_source_t *source = (al_source_t *) priv;
+    alSourceStop(source->source);
 }
 
 #ifndef AL_QUAD8_SOFT
@@ -296,9 +306,6 @@ sound_backend_buffer(void *priv, void *buf, uint32_t bytes)
 
     al_source_t *source = (al_source_t *) priv;
 
-    ALint state;
-    alGetSourcei(source->source, AL_SOURCE_STATE, &state);
-
     ALint processed;
     alGetSourcei(source->source, AL_BUFFERS_PROCESSED, &processed);
     if (processed >= 1) {
@@ -311,6 +318,8 @@ sound_backend_buffer(void *priv, void *buf, uint32_t bytes)
         alSourceQueueBuffers(source->source, 1, &buffer);
     }
 
+    ALint state;
+    alGetSourcei(source->source, AL_SOURCE_STATE, &state);
     if (state != AL_PLAYING)
         alSourcePlay(source->source);
 }

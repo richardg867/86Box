@@ -801,12 +801,12 @@ sound_reset(void)
     sound_log("Sound: reset()\n");
 
     /* Remove all sources. */
-    sound_source_t *other;
-    while (sources) {
-        sound_stop_source(sources);
-        other = sources->next;
-        free(sources);
-        sources = other;
+    for (sound_source_t *source = sources; source; source = sources) {
+        sources = source->next;
+        sound_stop_source(source);
+        if (source->backend_source)
+            sound_backend_stop_source(source->backend_source->priv);
+        free(source);
     }
 
     sound_backend_reset();
@@ -814,23 +814,29 @@ sound_reset(void)
     midi_out_device_init();
     midi_in_device_init();
 
-    cd_source = sound_backend_add_source();
-    uint8_t format = SOUND_S16;
-    uint8_t channels = 2;
-    uint32_t freq = CD_FREQ;
-    sound_backend_set_format(cd_source, &format, &channels, &freq);
+    if (!cd_source) {
+        cd_source = sound_backend_add_source();
+        uint8_t format = SOUND_S16;
+        uint8_t channels = 2;
+        uint32_t freq = CD_FREQ;
+        sound_backend_set_format(cd_source, &format, &channels, &freq);
+    }
 
-    fdd_source = sound_backend_add_source();
-    format = SOUND_S16;
-    channels = 2;
-    freq = SOUND_FREQ;
-    sound_backend_set_format(cd_source, &format, &channels, &freq);
+    if (!fdd_source) {
+        fdd_source = sound_backend_add_source();
+        uint8_t format = SOUND_S16;
+        uint8_t channels = 2;
+        uint32_t freq = SOUND_FREQ;
+        sound_backend_set_format(cd_source, &format, &channels, &freq);
+    }
 
-    hdd_source = sound_backend_add_source();
-    format = SOUND_S16;
-    channels = 2;
-    freq = SOUND_FREQ;
-    sound_backend_set_format(cd_source, &format, &channels, &freq);
+    if (!hdd_source) {
+        hdd_source = sound_backend_add_source();
+        uint8_t format = SOUND_S16;
+        uint8_t channels = 2;
+        uint32_t freq = SOUND_FREQ;
+        sound_backend_set_format(cd_source, &format, &channels, &freq);
+    }
 
     filter_cd_audio   = NULL;
     filter_cd_audio_p = NULL;
