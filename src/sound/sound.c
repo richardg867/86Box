@@ -45,12 +45,6 @@ typedef struct {
     const device_t *device;
 } SOUND_CARD;
 
-typedef struct {
-    void (*get_buffer)(int32_t *buffer, uint16_t len, void *priv);
-    void *priv;
-    void *source;
-} sound_handler_t;
-
 typedef struct _sound_backend_source_ {
     struct _sound_backend_source_ *next;
 
@@ -82,6 +76,12 @@ typedef struct _sound_source_ {
     uint64_t       latch;
 } sound_source_t;
 
+typedef struct {
+    void           (*get_buffer)(int32_t *buffer, uint16_t len, void *priv);
+    void           *priv;
+    sound_source_t *source;
+} sound_handler_t;
+
 int sound_card_current[SOUND_CARD_MAX] = { 0, 0, 0, 0 };
 int sound_gain                         = 0;
 char sound_output_device[512]          = { 0 };
@@ -103,7 +103,7 @@ static int16_t      cd_buffer[CDROM_NUM][CD_BUFLEN * 2];
 static int16_t      cd_out_buffer[CD_BUFLEN * 2];
 static unsigned int cd_vol_l;
 static unsigned int cd_vol_r;
-static int          cd_buf_update    = CD_BUFLEN / SOUNDBUFLEN;
+static int          cd_buf_update    = 0;
 static volatile int cdaudioon        = 0;
 static int          cd_thread_enable = 0;
 
@@ -294,7 +294,6 @@ sound_set_cd_volume(unsigned int vol_l, unsigned int vol_r)
 static void
 sound_cd_thread(UNUSED(void *param))
 {
-    int      temp_buffer[2];
     int      channel_select[2];
     double   audio_vol_l;
     double   audio_vol_r;
@@ -309,9 +308,7 @@ sound_cd_thread(UNUSED(void *param))
         if (!cdaudioon)
             return;
 
-        memset(cd_out_buffer, 0, (CD_BUFLEN * 2) * sizeof(int16_t));
-
-        temp_buffer[0] = temp_buffer[1] = 0;
+        memset(cd_out_buffer, 0, sizeof(cd_out_buffer));
 
         for (uint8_t i = 0; i < CDROM_NUM; i++) {
             /* Just in case the thread is in a loop when it gets terminated. */
@@ -322,7 +319,7 @@ sound_cd_thread(UNUSED(void *param))
                 (cdrom[i].cd_status != CD_STATUS_PLAYING))
                 continue;
             const int ret = cdrom_audio_callback(&(cdrom[i]), cd_buffer[i],
-                                                 CD_BUFLEN * 2);
+                                                 sizeof(cd_out_buffer) / sizeof(cd_out_buffer[0]));
 
             if (ret) {
                 if (cdrom[i].get_volume) {
@@ -342,7 +339,7 @@ sound_cd_thread(UNUSED(void *param))
                 }
 
                 // uint16_t *cddab = (uint16_t *) cdrom[i].raw_buffer;
-                for (int c = 0; c < CD_BUFLEN * 2; c += 2) {
+                for (int c = 0; c < sizeof(cd_out_buffer) / sizeof(cd_out_buffer[0]); c += 2) {
                     /* Apply ATAPI channel select */
                     cd_buffer_temp[0] = cd_buffer_temp[1] = 0.0;
 
@@ -378,25 +375,26 @@ sound_cd_thread(UNUSED(void *param))
                                         filter_cd_audio_p);
                     }
 
-                    temp_buffer[0] = (int) trunc(cd_buffer_temp[0]);
-                    temp_buffer[1] = (int) trunc(cd_buffer_temp[1]);
+                    int l = (int) trunc(cd_buffer_temp[0]);
+                    int r = (int) trunc(cd_buffer_temp[1]);
 
-                    if (temp_buffer[0] > 32767)
-                        temp_buffer[0] = 32767;
-                    if (temp_buffer[0] < -32768)
-                        temp_buffer[0] = -32768;
-                    if (temp_buffer[1] > 32767)
-                        temp_buffer[1] = 32767;
-                    if (temp_buffer[1] < -32768)
-                        temp_buffer[1] = -32768;
-
-                    cd_out_buffer[c]     += (int16_t) temp_buffer[0];
-                    cd_out_buffer[c + 1] += (int16_t) temp_buffer[1];
+                    if (l > 32767)
+                        cd_out_buffer[c] += 32767;
+                    else if (l < -32768)
+                        cd_out_buffer[c] += -32768;
+                    else
+                        cd_out_buffer[c] += l;
+                    if (r > 32767)
+                        cd_out_buffer[c + 1] += 32767;
+                    else if (r < -32768)
+                        cd_out_buffer[c + 1] += -32768;
+                    else
+                        cd_out_buffer[c + 1] += r;
                 }
             }
         }
 
-        sound_backend_buffer(cd_source, cd_out_buffer, CD_BUFLEN);
+        sound_backend_buffer(cd_source, cd_out_buffer, sizeof(cd_out_buffer));
     }
 }
 
@@ -518,14 +516,11 @@ static uint8_t
 sound_poll_legacy(sound_buffer_t buffer, void *priv)
 {
     sound_handler_t *handler = (sound_handler_t *) priv;
-    sound_source_t  *source  = (sound_source_t *) handler->source;
-    sound_backend_source_t *backend_source = (sound_backend_source_t *) source->backend_source;
-
-    // TODO: midi_poll(); and proper cd stuff
+    sound_backend_source_t *backend_source = handler->source->backend_source;
 
     uint32_t target = backend_source->pos + backend_source->bytes_per_sample; // TODO cache this
     if (UNLIKELY(target >= backend_source->buf_len)) {
-        memset(backend_source->buffer, 0x00, backend_source->buf_len * sizeof(int16_t));
+        memset(backend_source->buffer, 0x00, backend_source->buf_len * 2);
 
         sound_buffer_t buffer = (sound_buffer_t) (uint8_t *) backend_source->buffer;
         unsigned int samples  = backend_source->buf_len / backend_source->bytes_per_sample;
@@ -539,17 +534,23 @@ sound_poll_legacy(sound_buffer_t buffer, void *priv)
             else
                 buffer.s16[c] = buffer.s32[c];
         }
-
-        if (cd_thread_enable) {
-            cd_buf_update--;
-            if (!cd_buf_update) {
-                cd_buf_update = (SOUND_FREQ / SOUNDBUFLEN) / (CD_FREQ / CD_BUFLEN);
-                thread_set_event(sound_cd_event);
-            }
-        }
     }
 
     return 1;
+}
+
+static uint8_t
+sound_poll_legacy_sync(sound_buffer_t buffer, void *priv)
+{
+    midi_poll();
+
+    if (UNLIKELY(cd_thread_enable && (--cd_buf_update <= 0))) {
+        if (LIKELY(cd_buf_update >= 0))
+            thread_set_event(sound_cd_event);
+        cd_buf_update = CD_BUFLEN * ((sound_handler_t *) priv)->source->freq / CD_FREQ;
+    }
+
+    return sound_poll_legacy(buffer, priv);
 }
 
 void *
@@ -558,7 +559,7 @@ sound_add_legacy_source(void (*get_buffer)(int32_t *buffer, uint16_t len, void *
     sound_handler_t *handler = (sound_handler_t *) calloc(1, sizeof(sound_handler_t));
     handler->get_buffer      = get_buffer;
     handler->priv            = priv;
-    handler->source          = sound_add_source(sound_poll_legacy, handler, name);
+    handler->source          = sound_add_source(!strcmp(name, "speaker_get_buffer") ? sound_poll_legacy_sync : sound_poll_legacy, handler, name);
     sound_set_format(handler->source, SOUND_S16, 2, freq);
     sound_start_source(handler->source);
     return handler->source;
@@ -596,7 +597,7 @@ sound_start_source(void *priv)
         /* Find another backend source. */
         backend_source = backend_sources;
         while (backend_source) {
-            if (!backend_source->active && sound_set_backend_source_format(source, backend_source))
+            if ((backend_source != source->backend_source) && !backend_source->active && sound_set_backend_source_format(source, backend_source))
                 break;
             backend_source = backend_source->next;
         }
@@ -619,7 +620,7 @@ sound_start_source(void *priv)
     if (buf_len > backend_source->buf_len) {
         if (backend_source->buffer)
             free(backend_source->buffer);
-        backend_source->buffer = calloc((source->poll == sound_poll_legacy) ? 2 : 1, buf_len + 8); /* add margin for format conversion operations, and special case for legacy source int32 buffer */
+        backend_source->buffer = calloc(((source->poll == sound_poll_legacy) || (source->poll == sound_poll_legacy_sync)) ? 2 : 1, buf_len + 8); /* add margin for format conversion operations, and special case for legacy source int32 buffer */
     }
     backend_source->buf_len = buf_len; // TODO: allow to get smaller
 
@@ -827,7 +828,7 @@ sound_reset(void)
         uint8_t format = SOUND_S16;
         uint8_t channels = 2;
         uint32_t freq = SOUND_FREQ;
-        sound_backend_set_format(cd_source, &format, &channels, &freq);
+        sound_backend_set_format(fdd_source, &format, &channels, &freq);
     }
 
     if (!hdd_source) {
@@ -835,7 +836,7 @@ sound_reset(void)
         uint8_t format = SOUND_S16;
         uint8_t channels = 2;
         uint32_t freq = SOUND_FREQ;
-        sound_backend_set_format(cd_source, &format, &channels, &freq);
+        sound_backend_set_format(hdd_source, &format, &channels, &freq);
     }
 
     filter_cd_audio   = NULL;
@@ -844,6 +845,7 @@ sound_reset(void)
     filter_pc_speaker   = NULL;
     filter_pc_speaker_p = NULL;
 
+    cd_buf_update = 0;
     sound_set_cd_volume(65535, 65535);
 
     /* Reset the MPU-401 already loaded flag and the chain of input/output handlers. */
@@ -928,7 +930,7 @@ sound_fdd_thread(UNUSED(void *param))
         static int16_t fdd_buffer[SOUNDBUFLEN * 2];
         memset(fdd_buffer, 0, sizeof(fdd_buffer));
         fdd_audio_callback(fdd_buffer, SOUNDBUFLEN * 2);
-        sound_backend_buffer(fdd_source, fdd_buffer, SOUNDBUFLEN);
+        sound_backend_buffer(fdd_source, fdd_buffer, sizeof(fdd_buffer));
     }
 }
 
@@ -986,7 +988,7 @@ sound_hdd_thread(UNUSED(void *param))
         static int16_t hdd_buffer[SOUNDBUFLEN * 2];
         memset(hdd_buffer, 0, sizeof(hdd_buffer));
         hdd_audio_callback((int16_t *) hdd_buffer, SOUNDBUFLEN * 2);
-        sound_backend_buffer(hdd_source, hdd_buffer, SOUNDBUFLEN);
+        sound_backend_buffer(hdd_source, hdd_buffer, sizeof(hdd_buffer));
     }
 }
 

@@ -45,7 +45,7 @@ extern char sound_output_device[512]; /* selected audio output device name, empt
 #define CQMBUFLEN    CQM_FREQ
 
 #define CD_FREQ      FREQ_44100
-#define CD_BUFLEN    CD_FREQ
+#define CD_BUFLEN    (CD_FREQ / 10)
 
 #define WT_FREQ      FREQ_44100
 #define WTBUFLEN     WT_FREQ

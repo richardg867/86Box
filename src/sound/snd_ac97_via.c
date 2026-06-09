@@ -431,8 +431,10 @@ ac97_via_sgd_write(uint16_t addr, uint8_t val, void *priv)
                         /* Set up CD audio filter if CD volume was written to. Setting it
                            up at init prevents CD audio from working on other cards, but
                            this works as the CD channel is muted by default per AC97 spec. */
-                        if (!i && (val == 0x12))
+                        if (!i && (val == 0x12)) {
+                            sound_set_cd_audio_filter(NULL, NULL);
                             sound_set_cd_audio_filter(ac97_via_filter_cd_audio, dev);
+                        }
                     }
                 }
                 break;
