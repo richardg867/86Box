@@ -438,7 +438,7 @@ ymf701_init(const device_t *info)
 
     io_sethandler(ymf701->cur_sb_addr + 4, 0x0002, sb_ct1345_mixer_read, NULL, NULL, sb_ct1345_mixer_write, NULL, NULL, ymf701->sb);
 
-    sound_add_handler(ymf701_get_buffer, ymf701);
+    ymf701->ad1848.source = sound_add_handler(ymf701_get_buffer, ymf701);
     ad1848_set_cd_audio_channel(&ymf701->ad1848, AD1848_AUX1);
     sound_set_cd_audio_filter(ad1848_filter_cd_audio, &ymf701->ad1848);
 

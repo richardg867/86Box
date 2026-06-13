@@ -133,7 +133,7 @@ wss_init(UNUSED(const device_t *info))
                   ad1848_write, NULL, NULL,
                   &wss->ad1848);
 
-    sound_add_handler(wss_get_buffer, wss);
+    wss->ad1848.source = sound_add_handler(wss_get_buffer, wss);
 
     return wss;
 }

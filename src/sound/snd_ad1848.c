@@ -197,7 +197,10 @@ ad1848_updatefreq(ad1848_t *ad1848)
     } else
         freq = ad1848_get_default_freq(ad1848);
 
-    sound_set_format(ad1848->source, SOUND_S16, 2, trunc(freq));
+    ad1848->freq        = (int) trunc(freq);
+    ad1848->timer_latch = (uint64_t) ((double) TIMER_USEC * (1000000.0 / (double) ad1848->freq));
+
+    sound_set_format(ad1848->source, SOUND_S16, 2, ad1848->freq);
 }
 
 uint8_t
@@ -326,9 +329,16 @@ ad1848_write(uint16_t addr, uint8_t val, void *priv)
                         ad1848->adpcm_predictor[0] = ad1848->adpcm_predictor[1] = 0;
                         ad1848->adpcm_step_index[0] = ad1848->adpcm_step_index[1] = 0;
                         ad1848->dma_ff = 0;
-                        sound_start_source(ad1848->source);
+                        if (ad1848->timer_latch)
+                            timer_set_delay_u64(&ad1848->timer_count, ad1848->timer_latch);
+                        else
+                            timer_set_delay_u64(&ad1848->timer_count, TIMER_USEC);
                     }
                     ad1848->enable = ((val & 0x41) == 0x01);
+                    if (!ad1848->enable) {
+                        timer_disable(&ad1848->timer_count);
+                        ad1848->out_l = ad1848->out_r = 0;
+                    }
                     break;
 
                 case 11:
@@ -558,6 +568,21 @@ readonly_i:
     ad1848_log("AD1848: write(%04X, %02X)\n", addr, val);
 }
 
+void
+ad1848_speed_changed(ad1848_t *ad1848)
+{
+    ad1848->timer_latch = (uint64_t) ((double) TIMER_USEC * (1000000.0 / (double) ad1848->freq));
+}
+
+void
+ad1848_update(ad1848_t *ad1848)
+{
+    for (; ad1848->pos < sound_get_legacy_pos(ad1848->source); ad1848->pos++) {
+        ad1848->buffer[ad1848->pos * 2]     = ad1848->out_l;
+        ad1848->buffer[ad1848->pos * 2 + 1] = ad1848->out_r;
+    }
+}
+
 static uint32_t
 ad1848_dma_channel_read(ad1848_t *ad1848, int channel)
 {
@@ -584,7 +609,7 @@ ad1848_dma_channel_read(ad1848_t *ad1848, int channel)
 }
 
 static int16_t
-ad1848_convert_adpcm(ad1848_t *ad1848, int channel)
+ad1848_process_adpcm(ad1848_t *ad1848, int channel)
 {
     int temp;
     if (ad1848->adpcm_pos++ & 1) {
@@ -613,75 +638,82 @@ ad1848_convert_adpcm(ad1848_t *ad1848, int channel)
     return (int16_t) predictor;
 }
 
-static uint8_t
-ad1848_poll(sound_buffer_t buffer, void *priv)
+static void
+ad1848_poll(void *priv)
 {
     ad1848_t *ad1848 = (ad1848_t *) priv;
+
+    if (ad1848->timer_latch)
+        timer_advance_u64(&ad1848->timer_count, ad1848->timer_latch);
+    else
+        timer_advance_u64(&ad1848->timer_count, TIMER_USEC * 1000);
+
+    ad1848_update(ad1848);
 
     if (ad1848->enable) {
         int32_t temp;
 
         switch (ad1848->regs[8] & ad1848->fmt_mask) {
             case 0x00: /* Mono, 8-bit PCM */
-                buffer.s16[0] = buffer.s16[1] = sound_convert_u8(ad1848_dma_channel_read(ad1848, ad1848->dma));
+                ad1848->out_l = ad1848->out_r = sound_convert_u8(ad1848_dma_channel_read(ad1848, ad1848->dma));
                 break;
 
             case 0x10: /* Stereo, 8-bit PCM */
-                buffer.s16[0] = sound_convert_u8(ad1848_dma_channel_read(ad1848, ad1848->dma));
-                buffer.s16[1] = sound_convert_u8(ad1848_dma_channel_read(ad1848, ad1848->dma));
+                ad1848->out_l = sound_convert_u8(ad1848_dma_channel_read(ad1848, ad1848->dma));
+                ad1848->out_r = sound_convert_u8(ad1848_dma_channel_read(ad1848, ad1848->dma));
                 break;
 
             case 0x20: /* Mono, 8-bit Mu-Law */
-                buffer.s16[0] = buffer.s16[1] = sound_convert_mulaw(ad1848_dma_channel_read(ad1848, ad1848->dma));
+                ad1848->out_l = ad1848->out_r = sound_convert_mulaw(ad1848_dma_channel_read(ad1848, ad1848->dma));
                 break;
 
             case 0x30: /* Stereo, 8-bit Mu-Law */
-                buffer.s16[0] = sound_convert_mulaw(ad1848_dma_channel_read(ad1848, ad1848->dma));
-                buffer.s16[1] = sound_convert_mulaw(ad1848_dma_channel_read(ad1848, ad1848->dma));
+                ad1848->out_l = sound_convert_mulaw(ad1848_dma_channel_read(ad1848, ad1848->dma));
+                ad1848->out_r = sound_convert_mulaw(ad1848_dma_channel_read(ad1848, ad1848->dma));
                 break;
 
             case 0x40: /* Mono, 16-bit PCM little endian */
-                buffer.u8[0] = buffer.u8[2] = ad1848_dma_channel_read(ad1848, ad1848->dma);
-                buffer.u8[1] = buffer.u8[3] = ad1848_dma_channel_read(ad1848, ad1848->dma);
+                temp          = (int32_t) ad1848_dma_channel_read(ad1848, ad1848->dma);
+                ad1848->out_l = ad1848->out_r = (int16_t) ((ad1848_dma_channel_read(ad1848, ad1848->dma) << 8) | temp);
                 break;
 
             case 0x50: /* Stereo, 16-bit PCM little endian */
-                buffer.u8[0] = ad1848_dma_channel_read(ad1848, ad1848->dma);
-                buffer.u8[1] = ad1848_dma_channel_read(ad1848, ad1848->dma);
-                buffer.u8[2] = ad1848_dma_channel_read(ad1848, ad1848->dma);
-                buffer.u8[3] = ad1848_dma_channel_read(ad1848, ad1848->dma);
+                temp          = (int32_t) ad1848_dma_channel_read(ad1848, ad1848->dma);
+                ad1848->out_l = (int16_t) ((ad1848_dma_channel_read(ad1848, ad1848->dma) << 8) | temp);
+                temp          = (int32_t) ad1848_dma_channel_read(ad1848, ad1848->dma);
+                ad1848->out_r = (int16_t) ((ad1848_dma_channel_read(ad1848, ad1848->dma) << 8) | temp);
                 break;
 
             case 0x60: /* Mono, 8-bit A-Law */
-                buffer.s16[0] = buffer.s16[1] = sound_convert_alaw(ad1848_dma_channel_read(ad1848, ad1848->dma));
+                ad1848->out_l = ad1848->out_r = sound_convert_alaw(ad1848_dma_channel_read(ad1848, ad1848->dma));
                 break;
 
             case 0x70: /* Stereo, 8-bit A-Law */
-                buffer.s16[0] = sound_convert_alaw(ad1848_dma_channel_read(ad1848, ad1848->dma));
-                buffer.s16[1] = sound_convert_alaw(ad1848_dma_channel_read(ad1848, ad1848->dma));
+                ad1848->out_l = sound_convert_alaw(ad1848_dma_channel_read(ad1848, ad1848->dma));
+                ad1848->out_r = sound_convert_alaw(ad1848_dma_channel_read(ad1848, ad1848->dma));
                 break;
 
                 /* 0x80 and 0x90 reserved */
 
             case 0xa0: /* Mono, 4-bit ADPCM */
-                buffer.s16[0] = buffer.s16[1] = ad1848_convert_adpcm(ad1848, 0);
+                ad1848->out_l = ad1848->out_r = ad1848_process_adpcm(ad1848, 0);
                 break;
 
             case 0xb0: /* Stereo, 4-bit ADPCM */
-                buffer.s16[0] = ad1848_convert_adpcm(ad1848, 0);
-                buffer.s16[1] = ad1848_convert_adpcm(ad1848, 1);
+                ad1848->out_l = ad1848_process_adpcm(ad1848, 0);
+                ad1848->out_r = ad1848_process_adpcm(ad1848, 1);
                 break;
 
             case 0xc0: /* Mono, 16-bit PCM big endian */
-                buffer.u8[1] = buffer.u8[3] = ad1848_dma_channel_read(ad1848, ad1848->dma);
-                buffer.u8[0] = buffer.u8[2] = ad1848_dma_channel_read(ad1848, ad1848->dma);
+                temp          = (int32_t) ad1848_dma_channel_read(ad1848, ad1848->dma);
+                ad1848->out_l = ad1848->out_r = (int16_t) (ad1848_dma_channel_read(ad1848, ad1848->dma) | (temp << 8));
                 break;
 
             case 0xd0: /* Stereo, 16-bit PCM big endian */
-                buffer.u8[1] = ad1848_dma_channel_read(ad1848, ad1848->dma);
-                buffer.u8[0] = ad1848_dma_channel_read(ad1848, ad1848->dma);
-                buffer.u8[3] = ad1848_dma_channel_read(ad1848, ad1848->dma);
-                buffer.u8[2] = ad1848_dma_channel_read(ad1848, ad1848->dma);
+                temp          = (int32_t) ad1848_dma_channel_read(ad1848, ad1848->dma);
+                ad1848->out_l = (int16_t) (ad1848_dma_channel_read(ad1848, ad1848->dma) | (temp << 8));
+                temp          = (int32_t) ad1848_dma_channel_read(ad1848, ad1848->dma);
+                ad1848->out_r = (int16_t) (ad1848_dma_channel_read(ad1848, ad1848->dma) | (temp << 8));
                 break;
 
                 /* 0xe0 and 0xf0 reserved */
@@ -691,14 +723,14 @@ ad1848_poll(sound_buffer_t buffer, void *priv)
         }
 
         if (ad1848->regs[6] & 0x80)
-            buffer.s16[0] = 0;
+            ad1848->out_l = 0;
         else
-            buffer.s16[0] = (int16_t) ((buffer.s16[0] * ad1848_vols_7bits[ad1848->regs[6] & ad1848->wave_vol_mask]) >> 16);
+            ad1848->out_l = (int16_t) ((ad1848->out_l * ad1848_vols_7bits[ad1848->regs[6] & ad1848->wave_vol_mask]) >> 16);
 
         if (ad1848->regs[7] & 0x80)
-            buffer.s16[1] = 0;
+            ad1848->out_r = 0;
         else
-            buffer.s16[1] = (int16_t) ((buffer.s16[1] * ad1848_vols_7bits[ad1848->regs[7] & ad1848->wave_vol_mask]) >> 16);
+            ad1848->out_r = (int16_t) ((ad1848->out_r * ad1848_vols_7bits[ad1848->regs[7] & ad1848->wave_vol_mask]) >> 16);
 
         if (ad1848->count < 0) {
             ad1848->count     = ad1848->regs[15] | (ad1848->regs[14] << 8);
@@ -715,11 +747,9 @@ ad1848_poll(sound_buffer_t buffer, void *priv)
 
         if (!(ad1848->adpcm_pos & 7)) /* ADPCM counts down every 4 bytes */
             ad1848->count--;
-
-        return 1;
     } else {
-        buffer.s16[0] = buffer.s16[1] = 0;
-        return 0;
+        ad1848->out_l = ad1848->out_r = 0;
+        ad1848->cd_vol_l = ad1848->cd_vol_r = 0;
     }
 }
 
@@ -842,6 +872,9 @@ ad1848_init(ad1848_t *ad1848, uint8_t type)
         }
     }
 
+    ad1848_updatefreq(ad1848);
+
+    ad1848->out_l = ad1848->out_r = 0;
     ad1848->fm_vol_l = ad1848->fm_vol_r = 65536;
     ad1848->cd_vol_l = ad1848->cd_vol_r = 65536;
     ad1848->cd_vol_reg = -1;
@@ -896,8 +929,7 @@ ad1848_init(ad1848_t *ad1848, uint8_t type)
 
     ad1848->type = type;
 
-    ad1848->source = sound_add_source(ad1848_poll, ad1848, "Windows Sound System");
-    ad1848_updatefreq(ad1848);
+    timer_add(&ad1848->timer_count, ad1848_poll, ad1848, 0);
 
     if ((ad1848->type != AD1848_TYPE_DEFAULT) && (ad1848->type != AD1848_TYPE_CS4248))
         sound_set_cd_audio_filter(ad1848_filter_cd_audio, ad1848);

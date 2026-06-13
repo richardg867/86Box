@@ -52,7 +52,8 @@ typedef struct ad1848_t {
     uint8_t mce;
     uint8_t wten : 1;
 
-    void   *source;
+    int16_t out_l;
+    int16_t out_r;
     int8_t  cd_vol_reg;
     double  cd_vol_l;
     double  cd_vol_r;
@@ -70,16 +71,17 @@ typedef struct ad1848_t {
     uint8_t adpcm_data;
     int     adpcm_pos;
 
-    /* TEMPORARY FOR AZT */
-    int32_t  buffer[65536];
-    uint16_t pos;
-#define ad1848_speed_changed(...)
-#define ad1848_update(...)
-
     uint8_t  dma_ff;
     uint32_t dma_data;
 
+    pc_timer_t timer_count;
+    uint64_t   timer_latch;
+
     pc_timer_t cs4231a_irq_timer;
+
+    int16_t buffer[SOUNDBUFLEN * 2];
+    int     pos;
+    void   *source;
 
     void   *cram_priv;
     void   (*cram_write)(uint16_t addr, uint8_t val, void *priv);
@@ -93,6 +95,8 @@ extern void ad1848_updatevolmask(ad1848_t *ad1848);
 extern uint8_t ad1848_read(uint16_t addr, void *priv);
 extern void    ad1848_write(uint16_t addr, uint8_t val, void *priv);
 
+extern void ad1848_update(ad1848_t *ad1848);
+extern void ad1848_speed_changed(ad1848_t *ad1848);
 extern void ad1848_set_cd_audio_channel(void *priv, int channel);
 extern void ad1848_filter_cd_audio(int channel, double *buffer, void *priv);
 extern void ad1848_filter_channel(void* priv, int channel, double* out_l, double* out_r);

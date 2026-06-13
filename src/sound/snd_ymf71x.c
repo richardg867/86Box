@@ -736,7 +736,7 @@ ymf71x_init(const device_t *info)
 
     fm_driver_get(FM_YMF289B, &ymf71x->sb->opl, music_add_handler(sb_get_music_buffer_sbpro, ymf71x->sb));
 
-    sound_add_handler(ymf71x_get_buffer, ymf71x);
+    ymf71x->ad1848.source = sound_add_handler(ymf71x_get_buffer, ymf71x);
     ad1848_set_cd_audio_channel(&ymf71x->ad1848, AD1848_AUX1);
     sound_set_cd_audio_filter(NULL, NULL); /* Seems to be necessary for the filter below to apply */
     sound_set_cd_audio_filter(ymf71x_filter_cd_audio, ymf71x);

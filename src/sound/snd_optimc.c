@@ -1119,9 +1119,9 @@ optimc_init(const device_t *info)
     io_sethandler(optimc->cur_addr + 4, 0x0002, sb_ct1345_mixer_read, NULL, NULL, sb_ct1345_mixer_write, NULL, NULL, optimc->sb);
 
     if (optimc->type == OPTI_930)
-        sound_add_handler(opti930_get_buffer, optimc);
+        optimc->ad1848.source = sound_add_handler(opti930_get_buffer, optimc);
     else
-        sound_add_handler(optimc_get_buffer, optimc);
+        optimc->ad1848.source = sound_add_handler(optimc_get_buffer, optimc);
     if (optimc->type == OPTI_930)
         ad1848_set_cd_audio_channel(&optimc->ad1848, AD1848_AUX1);
     sound_set_cd_audio_filter(NULL, NULL); /* Seems to be necessary for the filter below to apply */
