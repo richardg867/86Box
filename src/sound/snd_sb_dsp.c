@@ -1524,7 +1524,7 @@ sb_exec_command(sb_dsp_t *dsp)
                 dsp->sblatchi = dsp->sblatcho;
                 dsp->sb_timei = dsp->sb_timeo;
                 if (dsp->sb_freq != temp)
-                    recalc_sb16_filter(0, dsp->sb_freq, temp);
+                    recalc_sb16_filter(0, dsp->sb_freq, dsp->sb_freq);
                 dsp->sb_8051_ram[0x13] = dsp->sb_freq & 0xff;
                 dsp->sb_8051_ram[0x14] = (dsp->sb_freq >> 8) & 0xff;
             }
