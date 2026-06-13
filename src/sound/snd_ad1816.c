@@ -99,10 +99,10 @@ typedef struct ad1816_t {
     uint32_t dma_data;
     int16_t buffer[SOUNDBUFLEN * 2];
     int pos;
+    void *source;
     uint8_t playback_pos : 2;
     uint8_t enable;
     uint8_t codec_enable;
-    void *source;
 
     double master_l;
     double master_r;
@@ -174,6 +174,43 @@ ad1816_update(ad1816_t *ad1816)
     }
 }
 
+static int16_t
+ad1816_process_mulaw(uint8_t byte)
+{
+    byte        = ~byte;
+    int temp    = (((byte & 0x0f) << 3) + 0x84);
+    temp <<= ((byte & 0x70) >> 4);
+    temp = (byte & 0x80) ? (0x84 - temp) : (temp - 0x84);
+    if (temp > 32767)
+        return 32767;
+    else if (temp < -32768)
+        return -32768;
+    return (int16_t) temp;
+}
+
+static int16_t
+ad1816_process_alaw(uint8_t byte)
+{
+    byte ^= 0x55;
+    int           dec = ((byte & 0x0f) << 4);
+    const int     seg = (int) ((byte & 0x70) >> 4);
+    switch (seg) {
+        default:
+            dec |= 0x108;
+            dec <<= seg - 1;
+            break;
+
+        case 0:
+            dec |= 0x8;
+            break;
+
+        case 1:
+            dec |= 0x108;
+            break;
+    }
+    return (int16_t) ((byte & 0x80) ? dec : -dec);
+}
+
 static uint32_t
 ad1816_dma_channel_read(ad1816_t *ad1816, int channel)
 {
@@ -232,13 +269,13 @@ ad1816_poll(void *priv)
                 break;
 
             case 0x20: /* Mono, 8-bit Mu-Law */
-                ad1816->out_l = ad1816->out_r = sound_convert_mulaw(ad1816_dma_channel_read(ad1816, ad1816->cur_dma));
+                ad1816->out_l = ad1816->out_r = ad1816_process_mulaw(ad1816_dma_channel_read(ad1816, ad1816->cur_dma));
                 ad1816->playback_pos++;
                 break;
 
             case 0x30: /* Stereo, 8-bit Mu-Law */
-                ad1816->out_l = sound_convert_mulaw(ad1816_dma_channel_read(ad1816, ad1816->cur_dma));
-                ad1816->out_r = sound_convert_mulaw(ad1816_dma_channel_read(ad1816, ad1816->cur_dma));
+                ad1816->out_l = ad1816_process_mulaw(ad1816_dma_channel_read(ad1816, ad1816->cur_dma));
+                ad1816->out_r = ad1816_process_mulaw(ad1816_dma_channel_read(ad1816, ad1816->cur_dma));
                 ad1816->playback_pos += 2;
                 break;
 
@@ -257,13 +294,13 @@ ad1816_poll(void *priv)
                 break;
 
             case 0x60: /* Mono, 8-bit A-Law */
-                ad1816->out_l = ad1816->out_r = sound_convert_alaw(ad1816_dma_channel_read(ad1816, ad1816->cur_dma));
+                ad1816->out_l = ad1816->out_r = ad1816_process_alaw(ad1816_dma_channel_read(ad1816, ad1816->cur_dma));
                 ad1816->playback_pos++;
                 break;
 
             case 0x70: /* Stereo, 8-bit A-Law */
-                ad1816->out_l = sound_convert_alaw(ad1816_dma_channel_read(ad1816, ad1816->cur_dma));
-                ad1816->out_r = sound_convert_alaw(ad1816_dma_channel_read(ad1816, ad1816->cur_dma));
+                ad1816->out_l = ad1816_process_alaw(ad1816_dma_channel_read(ad1816, ad1816->cur_dma));
+                ad1816->out_r = ad1816_process_alaw(ad1816_dma_channel_read(ad1816, ad1816->cur_dma));
                 ad1816->playback_pos += 2;
                 break;
 
@@ -341,6 +378,12 @@ ad1816_get_buffer(int32_t *buffer, uint16_t len, void *priv)
     }
 
     ad1816->pos = 0;
+}
+
+static void
+ad1816_get_sbpro_buffer(int32_t *buffer, uint16_t len, void *priv)
+{
+    ad1816_t *ad1816 = (ad1816_t *) priv;
 
     /* sbprov2 part */
     sb_get_buffer_sbpro(buffer, len, ad1816->sb);
@@ -789,7 +832,7 @@ ad1816_init(UNUSED(const device_t *info))
     sb_dsp_setirq(&ad1816->sb->dsp, ad1816->cur_dma);
     sb_ct1345_mixer_reset(ad1816->sb);
 
-    fm_driver_get(FM_YMF262, &ad1816->sb->opl, music_add_handler(sb_get_music_buffer_sbpro, ad1816->sb));
+    fm_driver_get(FM_YMF262 | FM_OPL3TIMER, &ad1816->sb->opl, music_add_handler(sb_get_music_buffer_sbpro, ad1816->sb));
     io_sethandler(ad1816->cur_sb_addr + 0, 0x0004, ad1816->sb->opl.read, NULL, NULL, ad1816->sb->opl.write, NULL, NULL, ad1816->sb->opl.priv);
     io_sethandler(ad1816->cur_sb_addr + 8, 0x0002, ad1816->sb->opl.read, NULL, NULL, ad1816->sb->opl.write, NULL, NULL, ad1816->sb->opl.priv);
     io_sethandler(ad1816->cur_opl_addr, 0x0004, ad1816->sb->opl.read, NULL, NULL, ad1816->sb->opl.write, NULL, NULL, ad1816->sb->opl.priv);
@@ -797,6 +840,7 @@ ad1816_init(UNUSED(const device_t *info))
     io_sethandler(ad1816->cur_sb_addr + 4, 0x0002, sb_ct1345_mixer_read, NULL, NULL, sb_ct1345_mixer_write, NULL, NULL, ad1816->sb);
 
     ad1816->source = sound_add_handler(ad1816_get_buffer, ad1816);
+    ad1816->sb->dsp.source = sound_add_handler(ad1816_get_sbpro_buffer, ad1816);
 
     sound_set_cd_audio_filter(NULL, NULL); /* Seems to be necessary for the filter below to apply */
     sound_set_cd_audio_filter(sbpro_filter_cd_audio, ad1816->sb); /* Default SBPro mode CD audio filter */

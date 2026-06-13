@@ -96,9 +96,15 @@ extern void sound_set_cd_audio_filter(void (*filter)(int     channel,
 extern void sound_set_pc_speaker_filter(void (*filter)(int     channel,
                                                        double *buffer, void *priv),
                                         void *priv);
+extern void sound_set_midi_filter(void (*filter)(int     channel,
+                                                 double *buffer, void *priv),
+                                  void *priv);
 
 extern void (*filter_pc_speaker)(int channel, double *buffer, void *priv);
 extern void *filter_pc_speaker_p;
+
+extern void (*filter_midi)(int channel, double *buffer, void *priv);
+extern void *filter_midi_p;
 
 extern int sound_card_available(int card);
 #ifdef EMU_DEVICE_H
@@ -210,6 +216,7 @@ extern const device_t sb_goldfinch_device;
 extern const device_t sb_32_pnp_device;
 extern const device_t sb_awe32_device;
 extern const device_t sb_awe32_pnp_device;
+extern const device_t sb_awe32_ide_pnp_device;
 extern const device_t sb_awe64_value_device;
 extern const device_t sb_awe64_device;
 extern const device_t sb_awe64_ide_device;
@@ -231,11 +238,16 @@ extern const device_t ess_688_device;
 extern const device_t ess_ess0100_pnp_device;
 extern const device_t ess_ess0968_pnp_688_device;
 extern const device_t ess_1688_device;
+extern const device_t ess_1688_compaq_device;
 extern const device_t ess_ess0102_pnp_device;
 extern const device_t ess_ess0968_pnp_device;
 extern const device_t ess_soundpiper_16_mca_device;
 extern const device_t ess_soundpiper_32_mca_device;
 extern const device_t ess_chipchat_16_mca_device;
+extern const device_t ess_1788_device;
+extern const device_t ess_1888_device;
+extern const device_t ess_1888_compaq_device;
+extern const device_t ess_1887_device;
 
 /* Ensoniq AudioPCI */
 extern const device_t es1370_device;

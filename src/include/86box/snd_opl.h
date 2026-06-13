@@ -45,8 +45,12 @@ enum fm_type {
 #endif
     FM_YM2414    = 23, /* OPZ */
     FM_ESFM      = 24, /* ESFM */
-    FM_MAX       = 25
+    FM_CQM       = 25,
+    FM_MAX       = 26
 };
+
+#define FM_TYPE_MASK 255
+#define FM_OPL3TIMER 256
 
 enum fm_driver {
     FM_DRV_NUKED = 0,
@@ -73,6 +77,7 @@ extern uint8_t fm_driver_get(int chip_id, fm_drv_t *drv, void *source);
 
 extern const fm_drv_t nuked_opl2_drv;
 extern const fm_drv_t nuked_opl3_drv;
+extern const fm_drv_t nuked_cqm_drv;
 extern const fm_drv_t ymfm_drv;
 extern const fm_drv_t esfmu_opl_drv;
 extern const fm_drv_t ymfm_opl2board_drv;
@@ -82,6 +87,7 @@ extern const device_t ym3812_nuked_opl2_device;
 extern const device_t ym3812_nuked_opl3_device;
 extern const device_t ymf262_nuked_opl3_device;
 extern const device_t ymf289b_nuked_opl3_device;
+extern const device_t nuked_cqm_device;
 
 extern const device_t ym2149_ymfm_device;
 

@@ -153,11 +153,21 @@ ymf71x_config_write(uint16_t addr, uint8_t val, void *priv)
     if (addr == 0xA79) {
         if ((ymf71x->configidx == 0x21) && (val & 0x01)) {
             ymf71x_log(ymf71x->log, "Enable internal RAM write\n");
+            if (ymf71x->ramwrite_enable == 0)
+                ymf71x->ram_addr = 0;
             ymf71x->ramwrite_enable = 1;
         }
-        if ((ymf71x->configidx == 0x21) && (val == 0x00)) {
+        if ((ymf71x->configidx == 0x21) && ((val & 0x01) == 0x00) && ymf71x->ramwrite_enable) {
             ymf71x_log(ymf71x->log, "Disable internal RAM write\n");
+            ymf71x->ramwrite_enable = 0;
             isapnp_update_card_rom(ymf71x->pnp_card, &ymf71x->ram_data[0], 512);
+        }
+        if ((ymf71x->configidx == 0x21) && (val & 0x02)) {
+            ymf71x_log(ymf71x->log, "Disable PnP key\n");
+            isapnp_enable_card(ymf71x->pnp_card, ISAPNP_CARD_NO_KEY);
+        } else if ((ymf71x->configidx == 0x21) && ((val & 0x02) == 0x00)) {
+            ymf71x_log(ymf71x->log, "Enable PnP key\n");
+            isapnp_enable_card(ymf71x->pnp_card, ISAPNP_CARD_ENABLE);
         }
         if ((ymf71x->configidx == 0x20) && (ymf71x->ramwrite_enable == 0x01)) {
             ymf71x_log(ymf71x->log, "Write to internal RAM addr %04X, val %02X\n", ymf71x->ram_addr, val);
@@ -661,6 +671,12 @@ ymf71x_get_buffer(int32_t *buffer, uint16_t len, void *priv)
 
         ymf71x->ad1848.pos = 0;
     }
+}
+
+static void
+ymf71x_get_sbpro_buffer(int32_t *buffer, uint16_t len, void *priv)
+{
+    ymf71x_t *ymf71x = (ymf71x_t *) priv;
 
     /* sbprov2 part */
     /* Don't play audio if the SB Compatibility analog or digital sections are powered down */
@@ -734,9 +750,10 @@ ymf71x_init(const device_t *info)
     ymf71x->sb->opl_mixer = ymf71x;
     ymf71x->sb->opl_mix   = ymf71x_filter_opl;
 
-    fm_driver_get(FM_YMF289B, &ymf71x->sb->opl, music_add_handler(sb_get_music_buffer_sbpro, ymf71x->sb));
+    fm_driver_get(FM_YMF289B | FM_OPL3TIMER, &ymf71x->sb->opl, music_add_handler(sb_get_music_buffer_sbpro, ymf71x->sb));
 
     ymf71x->ad1848.source = sound_add_handler(ymf71x_get_buffer, ymf71x);
+    ymf71x->sb->dsp.source = sound_add_handler(ymf71x_get_sbpro_buffer, ymf71x);
     ad1848_set_cd_audio_channel(&ymf71x->ad1848, AD1848_AUX1);
     sound_set_cd_audio_filter(NULL, NULL); /* Seems to be necessary for the filter below to apply */
     sound_set_cd_audio_filter(ymf71x_filter_cd_audio, ymf71x);

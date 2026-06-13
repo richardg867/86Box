@@ -43,7 +43,7 @@ fm_driver_get(int chip_id, fm_drv_t *drv, void *source)
         .source  = source
     };
 
-    switch (chip_id) {
+    switch (chip_id & FM_TYPE_MASK) {
         case FM_YM2149: /* SSG */
             *drv      = ymfm_drv;
             drv->priv = device_add_inst_params(&ym2149_ymfm_device, fm_dev_inst[fm_driver][chip_id]++, &params);
@@ -77,6 +77,11 @@ fm_driver_get(int chip_id, fm_drv_t *drv, void *source)
                 *drv      = ymfm_drv;
                 drv->priv = device_add_inst_params(&ymf262_ymfm_device, fm_dev_inst[fm_driver][chip_id]++, &params);
             }
+            break;
+
+        case FM_CQM: /* CQM */
+            *drv      = nuked_cqm_drv;
+            drv->priv = device_add_inst_params(&nuked_cqm_device, fm_dev_inst[fm_driver][chip_id]++, &params);
             break;
 
         case FM_YMF289B: /* OPL3-L */

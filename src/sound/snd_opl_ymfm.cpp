@@ -51,7 +51,8 @@ extern "C" {
 #define RSM_FRAC 10
 
 enum {
-    FLAG_CYCLES = (1 << 0)
+    FLAG_CYCLES    = (1 << 0),
+    FLAG_OPL3TIMER = (1 << 1)
 };
 
 class YMFMChipBase {
@@ -73,6 +74,7 @@ public:
     fm_type  type() const { return m_type; }
     int8_t   flags() const { return m_flags; }
     void     set_do_cycles(int8_t do_cycles) { do_cycles ? m_flags |= FLAG_CYCLES : m_flags &= ~FLAG_CYCLES; }
+    void     set_opl3timer(int8_t opl3timer) { opl3timer ? m_flags |= FLAG_OPL3TIMER : m_flags &= ~FLAG_OPL3TIMER; }
     int32_t *buffer() const { return (int32_t *) m_buffer; }
     void     reset_buffer() { m_buf_pos = 0; }
     int      is_48k() const { return sound_get_freq(m_source) != m_samplerate; }
@@ -113,6 +115,7 @@ public:
         m_subtract[0]    = 80.0;
         m_subtract[1]    = 320.0;
         m_type           = type;
+        
 
         if (m_type == FM_YMF278B) {
             if (rom_load_linear("roms/sound/yamaha/yrw801.rom", 0, 0x200000, 0, m_yrw801) == 0) {
@@ -131,16 +134,24 @@ public:
 
     virtual void ymfm_set_timer(uint32_t tnum, int32_t duration_in_clocks) override
     {
+        int special = !!(tnum >> 15);
+        tnum &= 0x7fff;
+
         if (tnum > 1)
             return;
 
         m_duration_in_clocks[tnum] = duration_in_clocks;
         pc_timer_t *timer          = &m_timers[tnum];
-        if (duration_in_clocks < 0)
+        if (!special && (duration_in_clocks < 0))
             timer_stop(timer);
         else {
             double period = m_clock_us * duration_in_clocks;
-            if (period < m_subtract[tnum])
+#ifdef USE_SPECIAL_FLAGS
+            int subtract = ((m_flags & FLAG_OPL3TIMER) || (m_type == FM_YMF262) || (m_type == FM_YMF289B) || (m_type == FM_YMF278B));
+#else
+            int subtract = (m_flags & FLAG_OPL3TIMER);
+#endif
+            if (subtract && (period < m_subtract[tnum]))
                 m_engine->engine_timer_expired(tnum);
             else
                 timer_on_auto(timer, period);
@@ -221,7 +232,7 @@ public:
         if (m_buf_pos >= source_pos)
             return m_buffer;
 
-        if (m_48k)
+        if (is_48k())
             generate_resampled(&m_buffer[m_buf_pos * 2], source_pos - m_buf_pos);
         else        
             generate(&m_buffer[m_buf_pos * 2], source_pos - m_buf_pos);
@@ -246,7 +257,11 @@ public:
 
     virtual uint32_t get_special_flags(void) override
     {
-        return ((m_type == FM_YMF262) || (m_type == FM_YMF289B) || (m_type == FM_YMF278B)) ? 0x8000 : 0x0000;
+#ifdef USE_SPECIAL_FLAGS
+        return ((m_flags & FLAG_OPL3TIMER) || (m_type == FM_YMF262) || (m_type == FM_YMF289B) || (m_type == FM_YMF278B)) ? 0x8000 : 0x0000;
+#else
+        return (m_flags & FLAG_OPL3TIMER) ? 0x8000 : 0x0000;
+#endif
     }
 
     static void timer1(void *priv)
@@ -288,8 +303,6 @@ private:
     int32_t m_samplecnt;
     int32_t m_oldsamples[2];
     int32_t m_samples[2];
-
-    int                            m_48k;
 };
 
 extern "C" {
@@ -330,7 +343,7 @@ ymfm_drv_init(const device_t *info)
     YMFMChipBase *fm;
     fm_drv_params_t *params = (fm_drv_params_t *) info->local;
 
-    switch (params->chip_id) {
+    switch (params->chip_id & FM_TYPE_MASK) {
         case FM_YM2149: /* OPL */
             // TODO: Check rates and frequency
             fm = (YMFMChipBase *) new YMFMChip<ymfm::ym2149>(14318181, FM_YM2149, FREQ_49716, params->source);
@@ -454,6 +467,7 @@ ymfm_drv_init(const device_t *info)
     }
 
     fm->set_do_cycles(1);
+    fm->set_opl3timer(!!(params->chip_id & FM_OPL3TIMER));
 
     return fm;
 }

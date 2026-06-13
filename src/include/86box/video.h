@@ -309,6 +309,8 @@ extern void    video_update_timing(void);
 extern void     video_load_font(char *fn, int format, int offset);
 extern uint32_t video_color_transform(uint32_t color);
 
+extern void     video_clamp_vram(uint64_t bios_flags, int *vram);
+
 #define video_inform(type, video_timings_ptr) video_inform_monitor(type, video_timings_ptr, monitor_index_global)
 #define video_get_type()                      video_get_type_monitor(0)
 #define video_blend(x, y)                     video_blend_monitor(x, y, monitor_index_global)
@@ -477,6 +479,7 @@ extern const device_t millennium_device;
 extern const device_t mystique_device;
 extern const device_t mystique_220_device;
 extern const device_t millennium_ii_device;
+extern const device_t millennium_ii_agp_device;
 #ifdef USE_G100
 extern const device_t productiva_g100_device;
 #endif /* USE_G100 */
@@ -582,6 +585,7 @@ extern const device_t ps1vga_mca_device;
 /* 3DFX Voodoo Graphics */
 extern const device_t voodoo_device;
 extern const device_t voodoo_banshee_pci_device;
+extern const device_t voodoo_banshee_agp_device;
 extern const device_t voodoo_3_1000_device;
 extern const device_t voodoo_3_1000_agp_device;
 extern const device_t voodoo_3_2000_device;

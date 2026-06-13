@@ -115,9 +115,9 @@ typedef struct sensation_t {
     fm_drv_t opl;
 
     int16_t mma_buffer[2][SOUNDBUFLEN];
+    void   *source;
 
     int pos;
-    void *source;
 
     int finish_dma;
     int mma_irq_status;
@@ -1166,11 +1166,11 @@ sensation_init(UNUSED(const device_t *info))
     dev->sensation_mma_enable[0] = 0;
     dev->sensation_mma_fifo_start[0] = dev->sensation_mma_fifo_end[0] = 0;
 
-    dev->source = sound_add_handler(sensation_get_buffer, dev);
-    fm_driver_get(FM_YMF262, &dev->opl, dev->source);
-
     timer_add(&dev->sensation_mma_timer_count, sensation_mma_timer_poll, dev, 1);
     timer_add(&dev->visdac_timer_count, sensation_visdac_poll, dev, 1);
+
+    dev->source = sound_add_handler(sensation_get_buffer, dev);
+    fm_driver_get(FM_YMF262 | FM_OPL3TIMER, &dev->opl, dev->source);
 
     if (device_get_config_int("receive_input"))
         midi_in_handler(1, sensation_input_msg, sensation_input_sysex, dev);

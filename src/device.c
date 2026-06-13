@@ -322,7 +322,7 @@ device_add_common(const device_t *dev, void *p, void *params, int inst)
         snprintf(temp, sizeof(temp),
                  plat_get_string(STRING_HW_NOT_AVAILABLE_DEVICE),
                  dev->name);
-        ui_msgbox_header(MBX_INFO,
+        ui_msgbox_header(MBX_WARNING,
                          plat_get_string(STRING_HW_NOT_AVAILABLE_TITLE),
                          temp);
         return ((void *) dev->name);
@@ -491,6 +491,36 @@ void *
 device_get_common_priv(void)
 {
     return device_common_priv;
+}
+
+void
+device_close(const device_t *device)
+{
+    int16_t c;
+
+    for (c = (DEVICE_MAX - 1); c >= 0; c--) {
+        if (devices[c] == device) {
+#ifdef ENABLE_DEVICE_LOG
+            if (devices[c]->name)
+                device_log("Closing device: \"%s\"...\n", devices[c]->name);
+#endif
+            if (devices[c]->close != NULL)
+                devices[c]->close(device_priv[c]);
+            devices[c]     = NULL;
+            device_priv[c] = NULL;
+            break;
+        }
+    }
+
+    if (c >= 0)  for (int16_t d = c; d <= (DEVICE_MAX - 1); d++) {
+        if (d == (DEVICE_MAX - 1)) {
+            devices[d]     = NULL;
+            device_priv[d] = NULL;
+        } else {
+            devices[d]     = devices[d + 1];
+            device_priv[d] = device_priv[d + 1];
+        }
+    }
 }
 
 void
@@ -800,7 +830,7 @@ device_get_name(const device_t *dev, int bus, char *name)
                 strcat(name, tname + strlen(sbus) + 1);
             /* Special case to not strip the "oPCI" from "Ensoniq AudioPCI",
                the "-ISA" from "AMD PCnet-ISA" or the " PCI" from "CMD PCI-064x". */
-            else if ((fbus == NULL) || (*(fbus - 1) == 'o') || (*(fbus - 1) == '-') || (*(fbus - 2) == 'r') || ((fbus[0] == 'P') && (fbus[1] == 'C') && (fbus[2] == 'I') && (fbus[3] == '-')) || is_dac)
+            else if ((fbus < &tname[2]) || (*(fbus - 1) == 'o') || (*(fbus - 1) == '-') || (*(fbus - 2) == 'r') || ((fbus[0] == 'P') && (fbus[1] == 'C') && (fbus[2] == 'I') && (fbus[3] == '-')) || is_dac)
                 strcat(name, tname);
             else {
                 strncat(name, tname, fbus - tname - 1);

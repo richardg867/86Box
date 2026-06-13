@@ -1435,6 +1435,12 @@ azt2316a_get_buffer(int32_t *buffer, uint16_t len, void *priv)
         buffer[c] += (azt2316a->ad1848.buffer[c] / 2);
 
     azt2316a->ad1848.pos = 0;
+}
+
+static void
+azt2316a_get_sbpro_buffer(int32_t *buffer, uint16_t len, void *priv)
+{
+    azt2316a_t *azt2316a = (azt2316a_t *) priv;
 
     /* sbprov2 part */
     sb_get_buffer_sbpro(buffer, len, azt2316a->sb);
@@ -1861,17 +1867,8 @@ azt_init(const device_t *info)
     for (i = 0; i < AZTECH_EEPROM_SIZE; i++)
         azt2316a->sb->dsp.azt_eeprom[i] = read_eeprom[i];
 
-    if ((azt2316a->type == SB_SUBTYPE_CLONE_AZT2316A_0X11) || (azt2316a->type == SB_SUBTYPE_CLONE_AZT2316R_0X12)) {
-        if (azt2316a->sb->opl_enabled)
-            fm_driver_get(FM_YMF262, &azt2316a->sb->opl, music_add_handler(sb_get_music_buffer_sbpro, azt2316a->sb));
-    }
-    else {
-        if (azt2316a->sb->opl_enabled) {
-            azt2316a->sb->opl_mixer = azt2316a;
-            azt2316a->sb->opl_mix = azt1605_filter_opl;
-            fm_driver_get(FM_YMF262, &azt2316a->sb->opl, music_add_handler(sb_get_music_buffer_sbpro, azt2316a->sb));
-        }
-    }
+    if (azt2316a->sb->opl_enabled)
+        ;
 
     sb_dsp_set_real_opl(&azt2316a->sb->dsp, 1);
     sb_dsp_init(&azt2316a->sb->dsp, SBPRO_DSP_302, azt2316a->type, azt2316a);
@@ -1889,7 +1886,20 @@ azt_init(const device_t *info)
     io_sethandler(azt2316a->cur_addr + 4, 0x0002, sb_ct1345_mixer_read, NULL, NULL, sb_ct1345_mixer_write, NULL, NULL, azt2316a->sb);
 
     azt2316a_create_config_word(azt2316a);
-    sound_add_handler(azt2316a_get_buffer, azt2316a);
+    azt2316a->ad1848.source = sound_add_handler(azt2316a_get_buffer, azt2316a);
+    azt2316a->sb->dsp.source = sound_add_handler(azt2316a_get_sbpro_buffer, azt2316a);
+
+    if ((azt2316a->type == SB_SUBTYPE_CLONE_AZT2316A_0X11) || (azt2316a->type == SB_SUBTYPE_CLONE_AZT2316R_0X12)) {
+        if (azt2316a->sb->opl_enabled)
+            fm_driver_get(FM_YMF262 | FM_OPL3TIMER, &azt2316a->sb->opl, music_add_handler(sb_get_music_buffer_sbpro, azt2316a->sb));
+    }
+    else {
+        if (azt2316a->sb->opl_enabled) {
+            azt2316a->sb->opl_mixer = azt2316a;
+            azt2316a->sb->opl_mix = azt1605_filter_opl;
+            fm_driver_get(FM_YMF262 | FM_OPL3TIMER, &azt2316a->sb->opl, music_add_handler(sb_get_music_buffer_sbpro, azt2316a->sb));
+        }
+    }
 
     sound_set_cd_audio_filter(NULL, NULL);
     if (azt2316a->type == SB_SUBTYPE_CLONE_AZT1605_0X0C)

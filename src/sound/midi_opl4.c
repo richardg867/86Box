@@ -1,5 +1,6 @@
 // Based off ROBOPLAY's OPL4 MID player code, with some fixes and modifications to make it work well.
 
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>

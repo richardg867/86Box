@@ -76,9 +76,11 @@
     <addaction name="actionUpdate_mouse_every_CPU_frame"/>
     <addaction name="separator"/>
     <addaction name="actionAuto_pause"/>
+    <addaction name="actionAutoDiag_pause" />
     <addaction name="actionPause"/>
     <addaction name="separator"/>
     <addaction name="actionFullscreen"/>
+    <addaction name="actionToggle_OSD"/>
     <addaction name="separator"/>
     <addaction name="actionFast_forward"/>
     <addaction name="actionForce_interpretation"/>
@@ -310,6 +312,14 @@
     <string>&amp;Auto-pause on focus loss</string>
    </property>
   </action>
+  <action name="actionAutoDiag_pause">
+    <property name="checkable">
+      <bool>true</bool>
+    </property>
+    <property name="text">
+      <string>Auto-pause on &amp;dialog boxes</string>
+    </property>
+  </action>
   <action name="actionKeyboard_requires_capture">
    <property name="checkable">
     <bool>true</bool>
@@ -397,6 +407,11 @@
   <action name="actionFullscreen">
    <property name="text">
     <string>&amp;Fullscreen</string>
+   </property>
+  </action>
+  <action name="actionToggle_OSD">
+   <property name="text">
+    <string>Toggle &amp;on-screen display</string>
    </property>
   </action>
   <action name="actionSoftware_Renderer">

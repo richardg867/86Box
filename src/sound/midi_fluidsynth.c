@@ -1,4 +1,5 @@
 /* some code borrowed from scummvm */
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

@@ -125,7 +125,7 @@ opl2board_device_init(UNUSED(const device_t *info))
     opl2board_device_t *serial = calloc(1, sizeof(opl2board_device_t));
 
     opl2board_device_log("opl2board_device_init\n");
-    fm_driver_get(FM_OPL2BOARD, &serial->opl, music_add_handler(opl2board_device_get_buffer, serial));
+    fm_driver_get(FM_OPL2BOARD | FM_OPL3TIMER, &serial->opl, music_add_handler(opl2board_device_get_buffer, serial));
     io_sethandler(0x0388, 0x0002,
                   serial->opl.read, NULL, NULL,
                   serial->opl.write, NULL, NULL,
@@ -165,7 +165,7 @@ opl2board_device_close(void *priv)
 static const device_config_t opl2board_config[] = {
     {
         .name           = "host_serial_path",
-        .description    = "Host Serial Device",
+        .description    = "Host serial device",
         .type           = CONFIG_SERPORT,
         .default_string = "",
         .default_int    = 0,

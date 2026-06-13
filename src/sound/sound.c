@@ -126,6 +126,9 @@ static void *filter_cd_audio_p                                          = NULL;
 void (*filter_pc_speaker)(int channel, double *buffer, void *priv) = NULL;
 void *filter_pc_speaker_p                                          = NULL;
 
+void (*filter_midi)(int channel, double *buffer, void *priv) = NULL;
+void *filter_midi_p                                          = NULL;
+
 static const SOUND_CARD sound_cards[] = {
     // clang-format off
     { &device_none                  },
@@ -179,6 +182,7 @@ static const SOUND_CARD sound_cards[] = {
     { &sb_32_pnp_device             },
     { &sb_awe32_device              },
     { &sb_awe32_pnp_device          },
+    { &sb_awe32_ide_pnp_device      },
     { &sb_awe64_value_device        },
     { &sb_awe64_device              },
     { &sb_awe64_ide_device          },
@@ -694,6 +698,15 @@ sound_set_pc_speaker_filter(void (*filter)(int channel, double *buffer, void *pr
     if ((filter_pc_speaker == NULL) || (filter == NULL)) {
         filter_pc_speaker   = filter;
         filter_pc_speaker_p = priv;
+    }
+}
+
+void
+sound_set_midi_filter(void (*filter)(int channel, double *buffer, void *priv), void *priv)
+{
+    if ((filter_midi == NULL) || (filter == NULL)) {
+        filter_midi   = filter;
+        filter_midi_p = priv;
     }
 }
 

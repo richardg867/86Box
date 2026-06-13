@@ -121,7 +121,7 @@ entertainer_init(UNUSED(const device_t *info))
     io_sethandler(0x280, 0x0020, ssi2001_read, NULL, NULL, ssi2001_write, NULL, NULL, ssi2001);
     if (ssi2001->gameport_enabled)
         gameport_remap(gameport_add(&gameport_201_device), 0x201);
-    sound_add_handler(ssi2001_get_buffer, ssi2001);
+    ssi2001->source = sound_add_handler(ssi2001_get_buffer, ssi2001);
     return ssi2001;
 }
 

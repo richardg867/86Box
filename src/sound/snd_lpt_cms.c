@@ -151,7 +151,7 @@ cmslpt_init(UNUSED(const device_t *info))
 
     cmslpt->cms = calloc(1, sizeof(cms_t));
     
-    sound_add_handler(cms_get_buffer, cmslpt->cms);
+    cmslpt->cms->source = sound_add_handler(cms_get_buffer, cmslpt->cms);
 
     cmslpt->status = 0x40;
     memset(&cmslpt->ready_timer, 0x00, sizeof(pc_timer_t));

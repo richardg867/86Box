@@ -2000,9 +2000,9 @@ handle_char(escp_t *dev, uint8_t ch)
         line_y = PIXY;
 
         if (dev->font_style & STYLE_UNDERLINE)
-            line_y = (PIXY + (uint16_t) (dev->fontface->size->metrics.height * 0.9));
+            line_y = (PIXY + (uint16_t) (dev->fontface->size->metrics.y_ppem * 0.9));
         if (dev->font_style & STYLE_STRIKETHROUGH)
-            line_y = (PIXY + (uint16_t) (dev->fontface->size->metrics.height * 0.45));
+            line_y = (PIXY + (uint16_t) (dev->fontface->size->metrics.y_ppem * 0.45));
         if (dev->font_style & STYLE_OVERSCORE)
             line_y = PIXY - ((dev->font_score == SCORE_DOUBLE || dev->font_score == SCORE_DOUBLEBROKEN) ? 5 : 0);
 
@@ -2153,8 +2153,7 @@ escp_init(const device_t *info)
 
     /* Create a full pathname for the font files. */
     if (strlen(dev->fontpath) == 0) {
-        ui_msgbox_header(MBX_ERROR, plat_get_string(STRING_ESCP_ERROR_TITLE),
-                         plat_get_string(STRING_ESCP_ERROR_DESC));
+        ui_msgbox(MBX_ERROR, plat_get_string(STRING_ESCP_ERROR));
         free(dev);
         return(NULL);
     }

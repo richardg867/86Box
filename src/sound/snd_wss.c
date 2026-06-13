@@ -111,7 +111,7 @@ wss_init(UNUSED(const device_t *info))
     wss->opl_enabled = device_get_config_int("opl");
 
     if (wss->opl_enabled)
-        fm_driver_get(FM_YMF262, &wss->opl, music_add_handler(wss_get_music_buffer, wss));
+        fm_driver_get(FM_YMF262 | FM_OPL3TIMER, &wss->opl, music_add_handler(wss_get_music_buffer, wss));
 
     ad1848_init(&wss->ad1848, AD1848_TYPE_DEFAULT);
 
@@ -206,7 +206,7 @@ ncr_audio_init(UNUSED(const device_t *info))
     wss_t *wss = calloc(1, sizeof(wss_t));
 
     if (wss->opl_enabled)
-        fm_driver_get(FM_YMF262, &wss->opl, music_add_handler(wss_get_music_buffer, wss));
+        fm_driver_get(FM_YMF262 | FM_OPL3TIMER, &wss->opl, music_add_handler(wss_get_music_buffer, wss));
     ad1848_init(&wss->ad1848, AD1848_TYPE_DEFAULT);
 
     ad1848_setirq(&wss->ad1848, 7);
@@ -216,7 +216,7 @@ ncr_audio_init(UNUSED(const device_t *info))
     wss->pos_regs[0] = 0x16;
     wss->pos_regs[1] = 0x51;
 
-    sound_add_handler(wss_get_buffer, wss);
+    wss->ad1848.source = sound_add_handler(wss_get_buffer, wss);
 
     return wss;
 }

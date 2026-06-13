@@ -200,7 +200,8 @@ ad1848_updatefreq(ad1848_t *ad1848)
     ad1848->freq        = (int) trunc(freq);
     ad1848->timer_latch = (uint64_t) ((double) TIMER_USEC * (1000000.0 / (double) ad1848->freq));
 
-    sound_set_format(ad1848->source, SOUND_S16, 2, ad1848->freq);
+    if (ad1848->source)
+        sound_set_format(ad1848->source, SOUND_S16, 2, ad1848->freq);
 }
 
 uint8_t

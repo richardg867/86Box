@@ -32,6 +32,7 @@
 #include <86box/device.h>
 #include "cpu.h"
 #include <86box/timer.h>
+#include <86box/video.h>
 #include <86box/snd_opl.h>
 #include <86box/plat_unused.h>
 
@@ -40,6 +41,7 @@
 typedef struct {
     esfm_chip opl;
     int8_t    flags;
+
     int8_t    pad;
 
     uint8_t  status;
@@ -57,6 +59,7 @@ typedef struct {
 } esfm_drv_t;
 
 enum {
+    FLAG_OPL3TIMER = 0x04,
     FLAG_CYCLES = 0x02,
     FLAG_OPL3   = 0x01
 };
@@ -110,6 +113,45 @@ esfm_drv_generate_stream(esfm_drv_t *dev, int32_t *sndptr, uint32_t num)
     }
 }
 
+#define ESFM_CLOCK     14318181.0
+#define ESFM_UCLOCK    14318181ULL
+#define ESFM_OPERATORS       36.0
+#define ESFM_PRESCALE         8.0
+
+static void    esfm_timer_tick(esfm_drv_t *dev, int tmr);
+
+static void
+esfm_timer_advance(esfm_drv_t *dev, int tmr, int start)
+{
+    if ((dev->flags & FLAG_OPL3TIMER) && start)
+        esfm_timer_tick(dev, tmr);
+    else {
+        const double clock_us = (1000000.0 / ESFM_CLOCK) * ESFM_OPERATORS * ESFM_PRESCALE;
+        double       period;
+
+        if (tmr == 1) {
+            if (start) {
+                /*
+                   This emulates the behavior found on everything but the Crystal OPL
+                   clone - the information in the YM262 (OPL3) datasheet is a typo,
+                   and YMFM explains what actually goes on.
+
+                   TSC = Currently elapsed CPU cycles, (cpu speed in Hz) cycles per second,
+                   What we need is elapsed OPL clocks, (opl speed in Hz) cycles per second,
+                   so we divide the TSC by (cpu speed in Hz) to get the time, then multiply
+                   it by (opl speed in Hz).
+                   */
+                uint64_t total_clocks = ((tsc * ESFM_UCLOCK) / (uint64_t) cpuclock);
+                period = clock_us * (16.0 - (double) (total_clocks & 15));
+            } else
+                period = clock_us * 16.0;
+        } else
+            period = clock_us * 4.0;
+
+        timer_on_auto(&dev->timers[tmr], period);
+    }
+}
+
 static void
 esfm_timer_tick(esfm_drv_t *dev, int tmr)
 {
@@ -124,7 +166,7 @@ esfm_timer_tick(esfm_drv_t *dev, int tmr)
         esfm_log("Count wrapped around to zero, reloading timer %i (%02X), status = %02X...\n", tmr, (STAT_TMR1_OVER >> tmr), dev->status);
     }
 
-    timer_on_auto(&dev->timers[tmr], (tmr == 1) ? 320.0 : 80.0);
+    esfm_timer_advance(dev, tmr, 0);
 }
 
 static void
@@ -135,10 +177,8 @@ esfm_timer_control(esfm_drv_t *dev, int tmr, int start)
     if (start) {
         esfm_log("Loading timer %i count: %02X = %02X\n", tmr, dev->timer_cur_count[tmr], dev->timer_count[tmr]);
         dev->timer_cur_count[tmr] = dev->timer_count[tmr];
-        if (dev->flags & FLAG_OPL3)
-            esfm_timer_tick(dev, tmr); /* Per the YMF 262 datasheet, OPL3 starts counting immediately, unlike OPL2. */
-        else
-            timer_on_auto(&dev->timers[tmr], (tmr == 1) ? 320.0 : 80.0);
+
+        esfm_timer_advance(dev, tmr, 1);
     } else {
         esfm_log("Timer %i stopped\n", tmr);
         if (tmr == 1) {
@@ -180,7 +220,7 @@ esfm_drv_init(const device_t *info)
 {
     esfm_drv_t *dev = (esfm_drv_t *) calloc(1, sizeof(esfm_drv_t));
     fm_drv_params_t *params = (fm_drv_params_t *) info->local;
-    dev->flags      = FLAG_CYCLES | FLAG_OPL3;
+    dev->flags      = FLAG_CYCLES | FLAG_OPL3 | ((params->chip_id & FM_OPL3TIMER) ? FLAG_OPL3TIMER : 0);
     dev->source     = params->source;
 
     /* Initialize the ESFMu object. */

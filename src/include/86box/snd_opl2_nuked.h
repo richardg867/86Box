@@ -172,7 +172,8 @@ typedef struct {
 } nuked_opl2_drv_t;
 
 enum {
-    FLAG_CYCLES = 0x02,
+    FLAG_OPL3TIMER = 0x04,
+    FLAG_CYCLES  = 0x02
 };
 
 enum {
