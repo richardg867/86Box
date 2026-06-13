@@ -54,6 +54,7 @@ typedef struct _sound_backend_source_ {
     uint32_t freq;
     uint32_t buf_len;
     uint32_t pos;
+    uint32_t legacy_target;
     uint8_t  format;
     uint8_t  channels;
     uint8_t  bytes_per_sample;
@@ -518,8 +519,7 @@ sound_poll_legacy(sound_buffer_t buffer, void *priv)
     sound_handler_t *handler = (sound_handler_t *) priv;
     sound_backend_source_t *backend_source = handler->source->backend_source;
 
-    uint32_t target = backend_source->pos + backend_source->bytes_per_sample; // TODO cache this
-    if (UNLIKELY(target >= backend_source->buf_len)) {
+    if (UNLIKELY(backend_source->pos >= backend_source->legacy_target)) {
         memset(backend_source->buffer, 0x00, backend_source->buf_len * 2);
 
         sound_buffer_t buffer = (sound_buffer_t) (uint8_t *) backend_source->buffer;
@@ -623,6 +623,7 @@ sound_start_source(void *priv)
         backend_source->buffer = calloc(((source->poll == sound_poll_legacy) || (source->poll == sound_poll_legacy_sync)) ? 2 : 1, buf_len + 8); /* add margin for format conversion operations, and special case for legacy source int32 buffer */
     }
     backend_source->buf_len = buf_len; // TODO: allow to get smaller
+    backend_source->legacy_target = backend_source->buf_len - backend_source->bytes_per_sample;
 
     /* Start polling timer. */
     timer_set_delay_u64(&source->timer, 0);
