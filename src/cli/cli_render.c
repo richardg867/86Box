@@ -646,6 +646,7 @@ void
 cli_render_setpal(uint8_t index, uint32_t color)
 {
     /* Don't re-calculate if the color hasn't changed. */
+    color &= 0xffffff;
     if (palette_24bit[index] == color)
         return;
 
