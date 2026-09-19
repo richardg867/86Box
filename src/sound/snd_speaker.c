@@ -62,7 +62,7 @@ speaker_update(void)
             amplitude = 5120.0;
 
         if (speaker->pos < music_pos_global) {
-            int32_t val;
+            int32_t val = 0;
 
             for (; speaker->pos < music_pos_global; speaker->pos++) {
                 if (speaker_gated && was_speaker_enable) {
