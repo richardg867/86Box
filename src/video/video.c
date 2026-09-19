@@ -388,8 +388,6 @@ video_screenshot_monitor(uint32_t *buf, int start_x, int start_y, int row_len, i
 
     if (screenshot_hook)
         screenshot_hook(path, buf, start_x, start_y, blit_data_ptr->w, blit_data_ptr->h, row_len);
-
-    screenshots--;
 }
 
 void

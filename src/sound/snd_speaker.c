@@ -27,7 +27,8 @@ int speaker_gated      = 0;
 int speaker_enable     = 0;
 int was_speaker_enable = 0;
 #ifdef USE_CLI
-int speaker_bell = 0, speaker_bell_cycles = 0;
+int speaker_bell = 0;
+int speaker_bell_cycles = 0;
 #endif
 
 int speakon;
@@ -83,9 +84,6 @@ speaker_update(void)
 
                 speaker->buffer[speaker->pos] = val;
             }
-
-            if (!speaker_enable)
-                was_speaker_enable = 0;
 
 #ifdef USE_CLI
             if ((!!val) ^ speaker_bell) {
