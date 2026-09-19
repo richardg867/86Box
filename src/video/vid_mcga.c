@@ -39,6 +39,7 @@
 #include <86box/pit.h>
 #include <86box/video.h>
 #include <86box/vid_mcga.h>
+#include <86box/cli.h>
 #include "cpu.h"
 #include "808x_marty_86box.h"
 
@@ -783,6 +784,14 @@ mcga_render_text(mcga_t *dev, int y)
     const uint16_t start = ((dev->crtc[0x0c] << 8) | dev->crtc[0x0d]) & 0x3fff;
     const uint16_t cursor = ((dev->crtc[0x0e] << 8) | dev->crtc[0x0f]) & 0x3fff;
 
+#ifdef USE_CLI
+    cli_render_cga(y, height,
+                   cols, 1,
+                   dev->vram, 0x8000, 0x7fff, 1,
+                   dev->cga_mode & 0x08, dev->blink & 0x08,
+                   cursor, !(dev->crtc[0x0a] & 0x20));
+#endif
+
     for (int column = 0; column < cols; column++) {
         const uint16_t cell = (start + (row * cols) + column) & 0x3fff;
         const uint8_t chr   = dev->vram[0x8000 + ((cell << 1) & 0x7fff)];
@@ -833,6 +842,10 @@ mcga_render_text(mcga_t *dev, int y)
 static void
 mcga_render_cga4(mcga_t *dev, int y)
 {
+#ifdef USE_CLI
+    cli_render_gfx("MCGA %dx%d");
+#endif
+
     const int source_y = y >> 1;
     const uint16_t start = ((dev->crtc[0x0c] << 8) | dev->crtc[0x0d]) << 1;
     const uint32_t row = start + ((source_y & 1) * 0x2000) +
@@ -871,6 +884,10 @@ mcga_render_cga4(mcga_t *dev, int y)
 static void
 mcga_render_cga6(mcga_t *dev, int y)
 {
+#ifdef USE_CLI
+    cli_render_gfx("MCGA %dx%d");
+#endif
+
     const int source_y = y >> 1;
     const uint16_t start = ((dev->crtc[0x0c] << 8) | dev->crtc[0x0d]) << 1;
     const uint32_t row = start + ((source_y & 1) * 0x2000) +
@@ -888,6 +905,10 @@ mcga_render_cga6(mcga_t *dev, int y)
 static void
 mcga_render_mode11(mcga_t *dev, int y)
 {
+#ifdef USE_CLI
+    cli_render_gfx("MCGA %dx%d");
+#endif
+
     const uint16_t start = ((dev->crtc[0x0c] << 8) | dev->crtc[0x0d]) << 1;
     const uint32_t row = start + (y * 80);
     const uint8_t fg = (dev->cga_mode & MCGA_CGA_BW) ? 0x07 : (dev->border & 0x0f);
@@ -903,6 +924,10 @@ mcga_render_mode11(mcga_t *dev, int y)
 static void
 mcga_render_mode13(mcga_t *dev, int y)
 {
+#ifdef USE_CLI
+    cli_render_gfx("MCGA %dx%d");
+#endif
+
     const int source_y = y >> 1;
     const uint16_t start = ((dev->crtc[0x0c] << 8) | dev->crtc[0x0d]) << 1;
     const uint32_t row = start + (source_y * 320);
