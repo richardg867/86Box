@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <sys/param.h>
 #ifdef _WIN32
@@ -45,6 +46,7 @@
 #include <86box/version.h>
 #include <86box/video.h>
 #include <86box/rdisk.h>
+#include <86box/scsi_tape.h>
 
 #define MONITOR_CMD_EXIT      0x01
 #define MONITOR_CMD_UNBOUNDED 0x02
@@ -463,6 +465,14 @@ cli_monitor_pause(int argc, char **argv, const void *priv)
 }
 
 static void
+cli_monitor_fastfwd(int argc, char **argv, const void *priv)
+{
+    extern bool fast_forward;
+    fast_forward ^= 1;
+    fprintf(CLI_RENDER_OUTPUT, "Emulated machine %sfast forwarded.\n", fast_forward ? "" : "no longer ");
+}
+
+static void
 cli_monitor_fullscreen(int argc, char **argv, const void *priv)
 {
     video_fullscreen ^= 1;
@@ -504,6 +514,42 @@ cli_monitor_screenshot(int argc, char **argv, const void *priv)
     /* Wait for the hook. */
     thread_wait_event(screenshot_event, -1);
     thread_destroy_event(screenshot_event);
+}
+
+static void
+cli_monitor_version(int argc, char **argv, const void *priv)
+{
+#ifndef EMU_GIT_HASH
+#    define EMU_GIT_HASH "0000000"
+#endif
+
+#if defined(__aarch64__) || defined(_M_ARM64)
+#    define ARCH_STR "arm64"
+#elif defined(__x86_64) || defined(__x86_64__) || defined(__amd64) || defined(_M_X64)
+#    define ARCH_STR "x86_64"
+#else
+#    define ARCH_STR "unknown arch"
+#endif
+
+#ifdef USE_DYNAREC
+#    ifdef USE_NEW_DYNAREC
+#        define DYNAREC_STR "new dynarec"
+#    else
+#        define DYNAREC_STR "old dynarec"
+#    endif
+#else
+#    define DYNAREC_STR "no dynarec"
+#endif
+
+    fprintf(CLI_RENDER_OUTPUT,
+        "%s v%s [%s] [%s, %s]\n\n"
+        "An emulator of old computers\n"
+        "Authors: Miran Grča (OBattler), RichardG867, Jasmine Iwanek, TC1995, coldbrewed, Teemu Korhonen (Manaatti), "
+        "Joakim L. Gilje, Adrien Moulin (elyosh), Daniel Balsom (gloriouscow), Cacodemon345, Fred N. van Kempen (waltje), "
+        "Tiseno100, reenigne, and others.\n"
+        "With previous core contributions from Sarah Walker, leilei, JohnElliott, greatpsycho, and others.\n\n"
+        "Released under the GNU General Public License version 2 or later. See LICENSE for more information.\n",
+        EMU_NAME, EMU_VERSION_FULL, EMU_GIT_HASH, ARCH_STR, DYNAREC_STR);
 }
 
 static void
@@ -561,11 +607,19 @@ static const struct {
      .category = MONITOR_CATEGORY_MEDIALOAD,
      .handler  = cli_monitor_mediaload,
      .priv     = &(const media_cmd_t) { mo_mount, MO_NUM, 0, "MO drive" } },
-    { .name     = "cartload",
-     .helptext = "Load cartridge <filename> image into slot <id>.\n[wp] enables write protection when set to 1.",
+    { .name     = "tapeload",
+     .helptext = "Load tape image <filename> into drive <id>.\n[wp] enables write protection when set to 1.",
      .args     = (const char *[]) { "id", "filename", "wp" },
      .args_min = 2,
      .args_max = 3,
+     .category = MONITOR_CATEGORY_MEDIALOAD,
+     .handler  = cli_monitor_mediaload,
+     .priv     = &(const media_cmd_t) { tape_load, TAPE_NUM, 0, "tape drive" } },
+    { .name     = "cartload",
+     .helptext = "Load cartridge image <filename> into slot <id>.",
+     .args     = (const char *[]) { "id", "filename" },
+     .args_min = 2,
+     .args_max = 2,
      .category = MONITOR_CATEGORY_MEDIALOAD,
      .handler  = cli_monitor_mediaload_nowp,
      .priv     = &(const media_cmd_t) { cart_load, sizeof(cart_fns) / sizeof(cart_fns[0]), 0, "cartridge slot" } },
@@ -602,6 +656,14 @@ static const struct {
      .category = MONITOR_CATEGORY_MEDIAEJECT,
      .handler  = cli_monitor_mediaeject,
      .priv     = &(const media_cmd_t) { mo_eject, MO_NUM, 0, "MO drive" } },
+    { .name     = "tapeeject",
+     .helptext = "Eject tape from tape drive <id>.",
+     .args     = (const char *[]) { "id" },
+     .args_min = 1,
+     .args_max = 1,
+     .category = MONITOR_CATEGORY_MEDIAEJECT,
+     .handler  = cli_monitor_mediaeject,
+     .priv     = &(const media_cmd_t) { tape_eject, TAPE_NUM, 0, "tape drive" } },
     { .name     = "carteject",
      .helptext = "Eject cartridge from slot <id>.",
      .args     = (const char *[]) { "id" },
@@ -637,6 +699,10 @@ static const struct {
      .helptext = "Pause or unpause the emulated machine.",
      .category = MONITOR_CATEGORY_EMULATOR,
      .handler  = cli_monitor_pause },
+    { .name     = "fastfwd",
+     .helptext = "Fast forward the emulated machine.",
+     .category = MONITOR_CATEGORY_EMULATOR,
+     .handler  = cli_monitor_fastfwd },
     { .name     = "fullscreen",
      .helptext = "Enter or exit fullscreen mode.",
      .category = MONITOR_CATEGORY_EMULATOR,
@@ -645,6 +711,10 @@ static const struct {
      .helptext = "Take a screenshot.",
      .category = MONITOR_CATEGORY_EMULATOR,
      .handler  = cli_monitor_screenshot },
+    { .name     = "version",
+     .helptext = "Show version and license information.",
+     .category = MONITOR_CATEGORY_EMULATOR,
+     .handler  = cli_monitor_version },
     { .name     = "exit",
      .helptext = "Exit " EMU_NAME ".",
      .flags    = MONITOR_CMD_EXIT,
