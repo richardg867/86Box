@@ -519,37 +519,34 @@ cli_monitor_screenshot(int argc, char **argv, const void *priv)
 static void
 cli_monitor_version(int argc, char **argv, const void *priv)
 {
-#ifndef EMU_GIT_HASH
-#    define EMU_GIT_HASH "0000000"
+    fputs(
+        EMU_NAME " v" EMU_VERSION_FULL
+#ifdef EMU_GIT_HASH
+        " [" EMU_GIT_HASH "]"
 #endif
-
+        " ["
 #if defined(__aarch64__) || defined(_M_ARM64)
-#    define ARCH_STR "arm64"
+        "arm64, "
 #elif defined(__x86_64) || defined(__x86_64__) || defined(__amd64) || defined(_M_X64)
-#    define ARCH_STR "x86_64"
-#else
-#    define ARCH_STR "unknown arch"
+        "x86_64, "
 #endif
-
 #ifdef USE_DYNAREC
 #    ifdef USE_NEW_DYNAREC
-#        define DYNAREC_STR "new dynarec"
+        "new dynarec"
 #    else
-#        define DYNAREC_STR "old dynarec"
+        "old dynarec"
 #    endif
 #else
-#    define DYNAREC_STR "no dynarec"
+        "no dynarec"
 #endif
-
-    fprintf(CLI_RENDER_OUTPUT,
-        "%s v%s [%s] [%s, %s]\n\n"
+        "]\n\n"
         "An emulator of old computers\n"
         "Authors: Miran Grča (OBattler), RichardG867, Jasmine Iwanek, TC1995, coldbrewed, Teemu Korhonen (Manaatti), "
         "Joakim L. Gilje, Adrien Moulin (elyosh), Daniel Balsom (gloriouscow), Cacodemon345, Fred N. van Kempen (waltje), "
         "Tiseno100, reenigne, and others.\n"
         "With previous core contributions from Sarah Walker, leilei, JohnElliott, greatpsycho, and others.\n\n"
         "Released under the GNU General Public License version 2 or later. See LICENSE for more information.\n",
-        EMU_NAME, EMU_VERSION_FULL, EMU_GIT_HASH, ARCH_STR, DYNAREC_STR);
+        CLI_RENDER_OUTPUT);
 }
 
 static void
