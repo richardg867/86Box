@@ -677,6 +677,8 @@ cli_render_updateline(char *buf, uint8_t y, uint8_t full_width, uint8_t new_cx, 
 {
     /* Get line. */
     cli_render_line_t *line = cli_render_getline(y);
+    if (!line)
+        return;
 
     /* Update line if required and within the terminal's limit. */
     if ((y < cli_term.size_y) && buf && ((buf == line->buffer) || strcmp(buf, line->buffer))) {
