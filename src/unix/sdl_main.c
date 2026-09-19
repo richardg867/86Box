@@ -40,8 +40,8 @@
 #include <86box/video.h>
 #include <86box/ui.h>
 #include <86box/gdbstub.h>
+#include <86box/cli.h>
 
-#include "sdl_monitor.h"
 #include "sdl_render.h"
 #include "sdl_osd.h"
 
@@ -388,8 +388,6 @@ main(int argc, char **argv)
         return -1;
     }
 
-    monitor_init();
-
     mousemutex = SDL_CreateMutex();
 
     if (start_in_fullscreen)
@@ -407,7 +405,7 @@ main(int argc, char **argv)
     do_start();
 
 #ifndef USE_CLI
-    thread_create(monitor_thread, NULL);
+    cli_monitor_init(1);
 #endif
 
     SDL_AddTimer(1000, timer_onesec, NULL);
@@ -699,7 +697,7 @@ check_flags:
     SDL_DestroyMutex(blitmtx);
     SDL_DestroyMutex(mousemutex);
     SDL_Quit();
-    monitor_close();
+    cli_monitor_close();
     return 0;
 }
 

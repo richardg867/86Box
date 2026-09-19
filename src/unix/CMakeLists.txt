@@ -82,7 +82,6 @@ option(USE_SDL_SHADER "Build SDL GLES2 shader pipeline" OFF)
 add_library(ui OBJECT
     sdl_render.c
     sdl_cdrom.c
-    sdl_monitor.c
     sdl_ui.c
 )
 if (NOT CLI)
