@@ -329,9 +329,7 @@ cmd_nt10:
         cli_render_write(
             "\033[1;1H" /* reset cursor */
             "\xC2\xA0" /* send UTF-8 non-breaking space */
-            "\033[6n" /* query Cursor Position Report to determine UTF-8 support */
-            "\033[c" /* query Primary Device Attributes to determine color and sixel support */
-            "\033[?1;1;0S" /* query Graphics Attributes to determine sixel color register count */
+            "\033[6n" /* query Cursor Position Report to determine UTF-8 support (begins terminal probe sequence) */
             "\033[1;1H" /* reset cursor again */
         );
     }

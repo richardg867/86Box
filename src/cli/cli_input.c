@@ -624,6 +624,9 @@ cli_input_csi_dispatch(int c)
                terminal has interpreted our UTF-8 sequence as UTF-8. */
             cli_term.can_utf8 = modifier == 2;
             cli_input_log("CLI Input: CPR probe reports %sUTF-8\n", cli_term.can_utf8 ? "" : "no ");
+
+            /* Query Primary Device Attributes to determine color and sixel support. */
+            cli_render_write("\033[c");
         } else {
             cli_term.cpr &= ~1;
 
@@ -640,10 +643,14 @@ cli_input_csi_dispatch(int c)
         /* Enable sixel graphics if supported. */
         modifier = cli_input_response_strstr(param_buf, ":4:");
         cli_input_log("%ssixel, ", modifier ? "" : "no ");
-        if (modifier)
+        if (modifier) {
             cli_term.gfx_level |= TERM_GFX_SIXEL;
-        else
+
+            /* Query Graphics Attributes to determine sixel color register count. */
+            cli_render_write("\033[?1;1;0S");
+        } else {
             cli_term.gfx_level &= ~TERM_GFX_SIXEL;
+        }
 
         /* Enable 4-bit color if supported. */
         modifier = cli_input_response_strstr(param_buf, ":22:");
