@@ -244,16 +244,16 @@ cli_render_gfx(char *str)
     /* Perform an image render if this terminal supports graphics. */
     if (cli_term.gfx_level) {
         /* Initialize stuff if this mode was just switched into. */
-        if (!cli_blit) {
+        if (!ATOMIC_LOAD(cli_blit)) {
             /* Tell video.c to start blitting to the image rendering buffer. */
-            cli_blit = 1;
+            ATOMIC_STORE(cli_blit, 1);
 
             /* Render on the first opportunity. */
             gfx_last = 0;
         }
 
         /* Render image if we have valid data. */
-        if (cli_blit == 2) {
+        if (ATOMIC_LOAD(cli_blit) == 2) {
             if (render_data.mode != CLI_RENDER_GFX) {
                 thread_wait_event(render_data.render_complete, -1);
                 thread_reset_event(render_data.render_complete);
@@ -308,7 +308,7 @@ cli_render_gfx_blit(bitmap_t *bitmap, int x, int y, int w, int h)
     render_data.blit_sy = h;
 
     /* Tell the main thread we have valid image data. */
-    cli_blit = 2;
+    ATOMIC_STORE(cli_blit, 2);
 }
 
 void
@@ -1086,7 +1086,7 @@ cli_render_process(void *priv)
             if (render_data.prev_mode == CLI_RENDER_BLANK)
                 render_data.infobox = NULL; /* invalidate infobox when exiting BLANK */
             else if (render_data.prev_mode == CLI_RENDER_GFX)
-                cli_blit = 0; /* stop blitting when exiting GFX */
+                ATOMIC_STORE(cli_blit, 0); /* stop blitting when exiting GFX */
             render_data.prev_mode      = render_data.mode;
             render_data.invalidate_all = 1;
         }
