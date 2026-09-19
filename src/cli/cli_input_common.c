@@ -213,7 +213,11 @@ cli_input_send(uint16_t code, uint16_t modifier)
     }
 
     /* Release key with modifiers if kitty event types are disabled or an explicit key up is requested. */
-    if (!(cli_term.kitty_input & 2) || (modifier & VT_KEY_UP)) {
+    if (
+#ifdef USE_CLI
+        !(cli_term.kitty_input & 2) ||
+#endif
+        (modifier & VT_KEY_UP)) {
         cli_input_common_log(" release");
         if (code)
             keyboard_input(0, code);
