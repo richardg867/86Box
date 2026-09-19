@@ -10,13 +10,15 @@
 
 class StyleOverride : public QProxyStyle {
 public:
+    using QProxyStyle::QProxyStyle;
+
     int styleHint(
         StyleHint           hint,
         const QStyleOption *option     = nullptr,
         const QWidget      *widget     = nullptr,
         QStyleHintReturn   *returnData = nullptr) const override;
 
-    void polish(QWidget *widget) override;
+    void    polish(QWidget *widget) override;
     QPixmap generatedIconPixmap(QIcon::Mode iconMode, const QPixmap &pixmap, const QStyleOption *option) const override;
 };
 

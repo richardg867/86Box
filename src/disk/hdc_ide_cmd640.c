@@ -30,11 +30,12 @@
 #include <86box/mem.h>
 #include <86box/pci.h>
 #include <86box/pic.h>
+#include <86box/plat_unused.h>
 #include <86box/timer.h>
 #include <86box/hdc.h>
 #include <86box/hdc_ide.h>
 #include <86box/hdc_ide_sff8038i.h>
-#include <86box/zip.h>
+#include <86box/rdisk.h>
 #include <86box/mo.h>
 
 typedef struct cmd640_t {
@@ -45,7 +46,7 @@ typedef struct cmd640_t {
     uint8_t  pci;
     uint8_t  irq_state;
     uint8_t  pci_slot;
-    uint8_t  pad0;
+    uint8_t  force_on;
     uint8_t  regs[256];
     uint32_t local;
     int      irq_mode[2];
@@ -143,7 +144,7 @@ cmd640_ide_handlers(cmd640_t *dev)
         ide_set_base(0, main);
         ide_set_side(0, side);
 
-        if (dev->regs[0x04] & 0x01)
+        if ((dev->regs[0x04] & 0x01) || dev->force_on)
             ide_pri_enable();
     }
 
@@ -161,7 +162,7 @@ cmd640_ide_handlers(cmd640_t *dev)
         ide_set_base(1, main);
         ide_set_side(1, side);
 
-        if ((dev->regs[0x04] & 0x01) && (dev->regs[0x51] & 0x08))
+        if (((dev->regs[0x04] & 0x01) || dev->force_on) && (dev->regs[0x51] & 0x08))
             ide_sec_enable();
     }
 }
@@ -289,20 +290,28 @@ cmd640_vlb_readl(uint16_t addr, void *priv)
 }
 
 static void
-cmd640_pci_write(int func, int addr, uint8_t val, void *priv)
+cmd640_pci_write(int func, int addr, int len, uint8_t val, void *priv)
 {
     cmd640_t *dev = (cmd640_t *) priv;
 
     cmd640_log("cmd640_pci_write(%i, %02X, %02X)\n", func, addr, val);
 
-    if (func == 0x00)
+    /* The CMD640 does not support DWORD write cycles. */
+    if ((func == 0x00) && (len < 4))
         switch (addr) {
             case 0x04:
                 dev->regs[addr] = (val & 0x41);
                 cmd640_ide_handlers(dev);
                 break;
+            case 0x05:
+                dev->regs[addr] = (val & 0xfe);
+                break;
+            case 0x06:
+                dev->regs[addr] &= ~val;
+                break;
             case 0x07:
-                dev->regs[addr] &= ~(val & 0x80);
+                dev->regs[addr] = (val & 0x06);
+                dev->regs[addr] &= ~(val & 0x81);
                 break;
             case 0x09:
                 if ((dev->regs[addr] & 0x0a) == 0x0a) {
@@ -349,7 +358,7 @@ cmd640_pci_write(int func, int addr, uint8_t val, void *priv)
                 }
                 break;
             case 0x1c:
-                if (dev->regs[0x50] & 0x40) {
+                if ((dev->regs[0x51] & 0x08) && (dev->regs[0x50] & 0x40)) {
                     dev->regs[0x1c] = (val & 0xfc) | 1;
                     cmd640_ide_handlers(dev);
                 }
@@ -367,7 +376,7 @@ cmd640_pci_write(int func, int addr, uint8_t val, void *priv)
 }
 
 static uint8_t
-cmd640_pci_read(int func, int addr, void *priv)
+cmd640_pci_read(int func, int addr, UNUSED(int len), void *priv)
 {
     cmd640_t *dev = (cmd640_t *) priv;
     uint8_t   ret = 0xff;
@@ -378,6 +387,8 @@ cmd640_pci_read(int func, int addr, void *priv)
             dev->regs[0x50] &= ~0x04;
         else if (addr == 0x57)
             dev->regs[0x57] &= ~0x10;
+        else if ((addr >= 0x18) && (addr <= 0x1f) && !(dev->regs[0x51] & 0x08))
+            ret = 0x00;
     }
 
     cmd640_log("cmd640_pci_read(%i, %02X, %02X)\n", func, addr, ret);
@@ -417,10 +428,10 @@ cmd640_reset(void *priv)
             (cdrom[i].ide_channel <= max_channel) && cdrom[i].priv)
             scsi_cdrom_reset((scsi_common_t *) cdrom[i].priv);
     }
-    for (i = 0; i < ZIP_NUM; i++) {
-        if ((zip_drives[i].bus_type == ZIP_BUS_ATAPI) && (zip_drives[i].ide_channel >= min_channel) &&
-            (zip_drives[i].ide_channel <= max_channel) && zip_drives[i].priv)
-            zip_reset((scsi_common_t *) zip_drives[i].priv);
+    for (i = 0; i < RDISK_NUM; i++) {
+        if ((rdisk_drives[i].bus_type == RDISK_BUS_ATAPI) && (rdisk_drives[i].ide_channel >= min_channel) &&
+            (rdisk_drives[i].ide_channel <= max_channel) && rdisk_drives[i].priv)
+            rdisk_reset((scsi_common_t *) rdisk_drives[i].priv);
     }
     for (i = 0; i < MO_NUM; i++) {
         if ((mo_drives[i].bus_type == MO_BUS_ATAPI) && (mo_drives[i].ide_channel >= min_channel) &&
@@ -512,6 +523,7 @@ cmd640_init(const device_t *info)
     dev->local = info->local;
 
     dev->channels = ((info->local & 0x60000) >> 17) & 0x03;
+    dev->force_on = !!(info->local & 0x100000);
 
     if (info->flags & DEVICE_PCI) {
         device_add(&ide_pci_2ch_device);
@@ -667,7 +679,7 @@ const device_t ide_cmd640_pci_legacy_only_device = {
 };
 
 const device_t ide_cmd640_pci_single_channel_device = {
-    .name          = "CMD PCI-0640B PCI",
+    .name          = "CMD PCI-0640B PCI (Single Channel)",
     .internal_name = "ide_cmd640_pci_single_channel",
     .flags         = DEVICE_PCI,
     .local         = 0x2000a,
@@ -681,7 +693,7 @@ const device_t ide_cmd640_pci_single_channel_device = {
 };
 
 const device_t ide_cmd640_pci_single_channel_sec_device = {
-    .name          = "CMD PCI-0640B PCI",
+    .name          = "CMD PCI-0640B PCI (Single Channel, Secondary)",
     .internal_name = "ide_cmd640_pci_single_channel_sec",
     .flags         = DEVICE_PCI,
     .local         = 0x4000a,
@@ -693,3 +705,18 @@ const device_t ide_cmd640_pci_single_channel_sec_device = {
     .force_redraw  = NULL,
     .config        = NULL
 };
+
+const device_t ide_cmd640_pci_single_channel_legacy_only_device = {
+    .name          = "CMD PCI-0640B PCI (Legacy Mode Only)",
+    .internal_name = "ide_cmd640_pci_single_channel_legacy_only",
+    .flags         = DEVICE_PCI,
+    .local         = 0x20000,
+    .init          = cmd640_init,
+    .close         = cmd640_close,
+    .reset         = cmd640_reset,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+

@@ -8,15 +8,15 @@
  *
  *          Implement threads and mutexes for the Win32 platform.
  *
- *
- *
  * Authors: Sarah Walker, <http://pcem-emulator.co.uk/>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
  *
  *          Copyright 2008-2018 Sarah Walker.
  *          Copyright 2017-2018 Fred N. van Kempen.
  */
+#ifndef UNICODE
 #define UNICODE
+#endif
 #define BITMAP WINDOWS_BITMAP
 #include <windows.h>
 #include <windowsx.h>
@@ -35,11 +35,11 @@ typedef struct {
     HANDLE handle;
 } win_event_t;
 
-/* For compatibility with thread.h, but Win32 does not allow named threads. */
 thread_t *
-thread_create_named(void (*func)(void *param), void *param, UNUSED(const char *name))
+thread_create_named(void (*func)(void *param), void *param, const char *name)
 {
     uintptr_t bt = _beginthread(func, 0, param);
+    plat_set_thread_name((void *) bt, name);
     return ((thread_t *) bt);
 }
 

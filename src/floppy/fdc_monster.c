@@ -8,8 +8,6 @@
  *
  *           Emulation of  Sergey Kiselev's Monster Floppy Disk Controller.
  *
- *
- *
  * Authors:  Jasmine Iwanek, <jasmine@iwanek.co.uk>
  *           Miran Grca, <mgrca8@gmail.com>
  *
@@ -162,7 +160,7 @@ static const device_config_t monster_fdc_config[] = {
 #endif
     {
         .name           = "bios_addr",
-        .description    = "BIOS Address",
+        .description    = "BIOS address",
         .type           = CONFIG_HEX20,
         .default_string = NULL,
         .default_int    = 0xc8000,
@@ -183,7 +181,7 @@ static const device_config_t monster_fdc_config[] = {
 #if 0
     {
         .name           = "bios_size",
-        .description    = "BIOS Size:",
+        .description    = "BIOS size",
         .type           = CONFIG_HEX20,
         .default_string = NULL,
         .default_int    = 32,
@@ -213,7 +211,7 @@ static const device_config_t monster_fdc_config[] = {
 };
 
 const device_t fdc_monster_device = {
-    .name          = "Monster FDC Floppy Drive Controller",
+    .name          = "Monster FDC",
     .internal_name = "monster_fdc",
     .flags         = DEVICE_ISA,
     .local         = 0,

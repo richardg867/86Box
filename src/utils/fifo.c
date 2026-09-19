@@ -50,12 +50,30 @@ int
 fifo_get_count(void *priv)
 {
     const fifo_t *fifo = (fifo_t *) priv;
-    int           ret  = fifo->len;
+    int           ret;
 
     if (fifo->end == fifo->start)
         ret = fifo->full ? fifo->len : 0;
+    else if (fifo->end > fifo->start)
+        ret = fifo->end - fifo->start;
     else
-        ret = abs(fifo->end - fifo->start);
+        ret = fifo->len + fifo->end - fifo->start;
+
+    return ret;
+}
+
+int
+fifo_get_remaining(void *priv)
+{
+    const fifo_t *fifo = (fifo_t *) priv;
+    int           ret;
+
+    if (fifo->end == fifo->start)
+        ret = fifo->full ? 0 : fifo->len;
+    else if (fifo->end > fifo->start)
+        ret = fifo->len - fifo->end + fifo->start;
+    else
+        ret = fifo->start - fifo->end;
 
     return ret;
 }
@@ -201,12 +219,11 @@ fifo_read(void *priv)
 
         count = fifo_get_count(fifo);
 
-        if (count < fifo->trigger_len) {
+        if (count < fifo->trigger_len)
             fifo->ready = 0;
 
-            if (count == 0)
-                fifo->empty = 1;
-        }
+        if (count == 0)
+            fifo->empty = 1;
     }
 
     return ret;
@@ -229,12 +246,11 @@ fifo_read_tagged(uint8_t *tag, void *priv)
 
         count = fifo_get_count(fifo);
 
-        if (count < fifo->trigger_len) {
+        if (count < fifo->trigger_len)
             fifo->ready = 0;
 
-            if (count == 0)
-                fifo->empty = 1;
-        }
+        if (count == 0)
+            fifo->empty = 1;
     } else
         *tag        = 0x00;
 
@@ -267,13 +283,13 @@ fifo_read_evt(void *priv)
             fifo->ready   = 0;
             if (fifo->d_ready && (fifo->d_ready_evt != NULL))
                 fifo->d_ready_evt(fifo->priv);
+        }
 
-            if (count == 0) {
-                fifo->d_empty = (fifo->empty != 1);
-                fifo->empty   = 1;
-                if (fifo->d_empty && (fifo->d_empty_evt != NULL))
-                    fifo->d_empty_evt(fifo->priv);
-            }
+        if (count == 0) {
+            fifo->d_empty = (fifo->empty != 1);
+            fifo->empty   = 1;
+            if (fifo->d_empty && (fifo->d_empty_evt != NULL))
+                fifo->d_empty_evt(fifo->priv);
         }
     }
 
@@ -308,13 +324,13 @@ fifo_read_evt_tagged(uint8_t *tag, void *priv)
             fifo->ready   = 0;
             if (fifo->d_ready && (fifo->d_ready_evt != NULL))
                 fifo->d_ready_evt(fifo->priv);
+        }
 
-            if (count == 0) {
-                fifo->d_empty = (fifo->empty != 1);
-                fifo->empty   = 1;
-                if (fifo->d_empty && (fifo->d_empty_evt != NULL))
-                    fifo->d_empty_evt(fifo->priv);
-            }
+        if (count == 0) {
+            fifo->d_empty = (fifo->empty != 1);
+            fifo->empty   = 1;
+            if (fifo->d_empty && (fifo->d_empty_evt != NULL))
+                fifo->d_empty_evt(fifo->priv);
         }
     } else
         *tag        = 0x00;
@@ -529,8 +545,10 @@ fifo_init(int len)
 
     if (fifo == NULL)
         fatal("FIFO%i: Failed to allocate memory for the FIFO\n", len);
-    else
+    else {
         ((fifo_t *) fifo)->len = len;
+        fifo_reset(fifo);
+    }
 
     return fifo;
 }

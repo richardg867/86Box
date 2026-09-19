@@ -59,11 +59,6 @@ smram_read(uint32_t addr, void *priv)
     const smram_t *dev      = (smram_t *) priv;
     uint32_t       new_addr = addr - dev->host_base + dev->ram_base;
 
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-    if (new_addr >= (1 << 30))
-        return mem_read_ram_2gb(new_addr, priv);
-    else
-#endif
     if (!use_separate_smram || (new_addr >= 0xa0000))
         return mem_read_ram(new_addr, priv);
     else
@@ -76,11 +71,6 @@ smram_readw(uint32_t addr, void *priv)
     smram_t *dev      = (smram_t *) priv;
     uint32_t new_addr = addr - dev->host_base + dev->ram_base;
 
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-    if (new_addr >= (1 << 30))
-        return mem_read_ram_2gbw(new_addr, priv);
-    else
-#endif
     if (!use_separate_smram || (new_addr >= 0xa0000))
         return mem_read_ramw(new_addr, priv);
     else
@@ -93,11 +83,6 @@ smram_readl(uint32_t addr, void *priv)
     smram_t *dev      = (smram_t *) priv;
     uint32_t new_addr = addr - dev->host_base + dev->ram_base;
 
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-    if (new_addr >= (1 << 30))
-        return mem_read_ram_2gbl(new_addr, priv);
-    else
-#endif
     if (!use_separate_smram || (new_addr >= 0xa0000))
         return mem_read_raml(new_addr, priv);
     else
@@ -170,7 +155,7 @@ smram_recalc_all(int ret)
     if (ret) {
         while (temp_smram != NULL) {
             if (temp_smram->old_size != 0x00000000)
-                mem_mapping_recalc(temp_smram->old_host_base, temp_smram->old_size);
+                mem_mapping_recalc(temp_smram->old_host_base, temp_smram->old_size, 0x00000000);
             temp_smram->old_host_base = temp_smram->old_size = 0x00000000;
 
             next       = temp_smram->next;
@@ -182,7 +167,7 @@ smram_recalc_all(int ret)
 
     while (temp_smram != NULL) {
         if (temp_smram->size != 0x00000000)
-            mem_mapping_recalc(temp_smram->host_base, temp_smram->size);
+            mem_mapping_recalc(temp_smram->host_base, temp_smram->size, 0x00000000);
 
         next       = temp_smram->next;
         temp_smram = next;
@@ -195,42 +180,44 @@ smram_recalc_all(int ret)
 void
 smram_del(smram_t *smr)
 {
-    /* Do a sanity check */
-    if ((base_smram == NULL) && (last_smram != NULL)) {
-        fatal("smram_del(): NULL base SMRAM with non-NULL last SMRAM\n");
-        return;
-    } else if ((base_smram != NULL) && (last_smram == NULL)) {
-        fatal("smram_del(): Non-NULL base SMRAM with NULL last SMRAM\n");
-        return;
-    } else if ((base_smram != NULL) && (base_smram->prev != NULL)) {
-        fatal("smram_del(): Base SMRAM with a preceding SMRAM\n");
-        return;
-    } else if ((last_smram != NULL) && (last_smram->next != NULL)) {
-        fatal("smram_del(): Last SMRAM with a following SMRAM\n");
-        return;
+    if (smr != NULL) {
+        /* Do a sanity check */
+        if ((base_smram == NULL) && (last_smram != NULL)) {
+            fatal("smram_del(): NULL base SMRAM with non-NULL last SMRAM\n");
+            return;
+        } else if ((base_smram != NULL) && (last_smram == NULL)) {
+            fatal("smram_del(): Non-NULL base SMRAM with NULL last SMRAM\n");
+            return;
+        } else if ((base_smram != NULL) && (base_smram->prev != NULL)) {
+            fatal("smram_del(): Base SMRAM with a preceding SMRAM\n");
+            return;
+        } else if ((last_smram != NULL) && (last_smram->next != NULL)) {
+            fatal("smram_del(): Last SMRAM with a following SMRAM\n");
+            return;
+        }
+
+        if (smr == NULL) {
+            fatal("smram_del(): Invalid SMRAM mapping\n");
+            return;
+        }
+
+        /* Disable the entry. */
+        smram_disable(smr);
+
+        /* Zap it from the list. */
+        if (smr->prev != NULL)
+            smr->prev->next = smr->next;
+        if (smr->next != NULL)
+            smr->next->prev = smr->prev;
+
+        /* Check if it's the first or the last mapping. */
+        if (base_smram == smr)
+            base_smram = smr->next;
+        if (last_smram == smr)
+            last_smram = smr->prev;
+
+        free(smr);
     }
-
-    if (smr == NULL) {
-        fatal("smram_del(): Invalid SMRAM mapping\n");
-        return;
-    }
-
-    /* Disable the entry. */
-    smram_disable(smr);
-
-    /* Zap it from the list. */
-    if (smr->prev != NULL)
-        smr->prev->next = smr->next;
-    if (smr->next != NULL)
-        smr->next->prev = smr->prev;
-
-    /* Check if it's the first or the last mapping. */
-    if (base_smram == smr)
-        base_smram = smr->next;
-    if (last_smram == smr)
-        last_smram = smr->prev;
-
-    free(smr);
 }
 
 /* Add a SMRAM mapping. */
@@ -238,6 +225,9 @@ smram_t *
 smram_add(void)
 {
     smram_t *temp_smram;
+
+    if (dump_missing)
+        return NULL;
 
     /* Do a sanity check */
     if ((base_smram == NULL) && (last_smram != NULL)) {
@@ -308,7 +298,8 @@ void
 smram_disable(smram_t *smr)
 {
     if (smr == NULL) {
-        fatal("smram_disable(): Invalid SMRAM mapping\n");
+        if (!dump_missing)
+            fatal("smram_disable(): Invalid SMRAM mapping\n");
         return;
     }
 
@@ -345,7 +336,8 @@ smram_enable_ex(smram_t *smr, uint32_t host_base, uint32_t ram_base, uint32_t si
                 int flags_normal, int flags_normal_bus, int flags_smm, int flags_smm_bus)
 {
     if (smr == NULL) {
-        fatal("smram_add(): Invalid SMRAM mapping\n");
+        if (!dump_missing)
+            fatal("smram_add(): Invalid SMRAM mapping\n");
         return;
     }
 
@@ -356,10 +348,7 @@ smram_enable_ex(smram_t *smr, uint32_t host_base, uint32_t ram_base, uint32_t si
 
         mem_mapping_set_addr(&(smr->mapping), smr->host_base, smr->size);
         if (!use_separate_smram || (smr->ram_base >= 0x000a0000)) {
-            if (smr->ram_base < (1 << 30))
-                mem_mapping_set_exec(&(smr->mapping), ram + smr->ram_base);
-            else
-                mem_mapping_set_exec(&(smr->mapping), ram2 + smr->ram_base - (1 << 30));
+            mem_mapping_set_exec(&(smr->mapping), ram + smr->ram_base);
         } else {
             if (smr->ram_base == 0x00030000)
                 mem_mapping_set_exec(&(smr->mapping), smram);

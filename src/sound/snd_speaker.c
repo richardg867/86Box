@@ -1,32 +1,26 @@
 /*
- * 86Box     A hypervisor and IBM PC system emulator that specializes in
- *           running old operating systems and software designed for IBM
- *           PC systems and compatibles from 1981 through fairly recent
- *           system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *           This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *           Emulation of the PC speaker.
+ *          Emulation of the PC speaker.
  *
+ * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
+ *          Miran Grca, <mgrca8@gmail.com>
  *
- *
- * Authors:  Sarah Walker, <https://pcem-emulator.co.uk/>
- *           Miran Grca, <mgrca8@gmail.com>
- *
- *           Copyright 2008-2019 Sarah Walker.
- *           Copyright 2016-2019 Miran Grca.
+ *          Copyright 2008-2019 Sarah Walker.
+ *          Copyright 2016-2019 Miran Grca.
  */
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <wchar.h>
-
-#include <86box/86box.h>
-#include <86box/timer.h>
-#include <86box/pit.h>
+#include <86box/device.h>
 #include <86box/snd_speaker.h>
 #include <86box/sound.h>
-#include <86box/plat_unused.h>
 
 int speaker_mute       = 0;
 int speaker_gated      = 0;
@@ -36,54 +30,62 @@ int was_speaker_enable = 0;
 int speaker_bell = 0, speaker_bell_cycles = 0;
 #endif
 
-int gated;
-int speakval;
 int speakon;
 
-static int32_t speaker_buffer[SOUNDBUFLEN];
-static int     speaker_pos = 0;
+typedef struct speaker_t {
+    int32_t buffer[MUSICBUFLEN];
+    int     pos;
 
-static uint8_t speaker_mode  = 0;
-static double  speaker_count = 65535.0;
+    uint8_t mode;
+    double  count;
+} speaker_t;
+
+speaker_t *speaker = NULL;
 
 void
-speaker_set_count(uint8_t new_m, int new_count)
+speaker_set_count(const uint8_t new_m, const int new_count)
 {
-    speaker_mode  = new_m;
-    speaker_count = (double) new_count;
+    if (speaker != NULL) {
+        speaker->mode  = new_m;
+        speaker->count = (double) new_count;
+    }
 }
 
 void
 speaker_update(void)
 {
-    int32_t val;
-    double  amplitude;
+    if (speaker != NULL) {
+        double amplitude = ((speaker->count / 256.0) * 10240.0) - 5120.0;
 
-    amplitude = ((speaker_count / 64.0) * 10240.0) - 5120.0;
+        if (amplitude > 5120.0)
+            amplitude = 5120.0;
 
-    if (amplitude > 5120.0)
-        amplitude = 5120.0;
+        if (speaker->pos < music_pos_global) {
+            int32_t val;
 
-    if (speaker_pos < sound_pos_global) {
-        for (; speaker_pos < sound_pos_global; speaker_pos++) {
-            if (speaker_gated && was_speaker_enable) {
-                if ((speaker_mode == 0) || (speaker_mode == 4))
-                    val = (int32_t) amplitude;
-                else if (speaker_count < 64.0)
-                    val = 0xa00;
-                else
-                    val = speakon ? 0x1400 : 0;
-            } else {
-                if (speaker_mode == 1)
-                    val = was_speaker_enable ? (int32_t) amplitude : 0;
-                else
-                    val = was_speaker_enable ? 0x1400 : 0;
+            for (; speaker->pos < music_pos_global; speaker->pos++) {
+                if (speaker_gated && was_speaker_enable) {
+                    if ((speaker->mode == 0) || (speaker->mode == 4))
+                        val = (int32_t) amplitude;
+                    else if (speaker->count < 64.0)
+                        val = 0xa00;
+                    else
+                        val = speakon ? 0x1400 : 0;
+                } else {
+                    if (speaker->mode == 1)
+                        val = was_speaker_enable ? (int32_t) amplitude : 0;
+                    else
+                        val = was_speaker_enable ? 0x1400 : 0;
+                }
+
+                if (!speaker_enable)
+                    was_speaker_enable = 0;
+
+                speaker->buffer[speaker->pos] = val;
             }
 
             if (!speaker_enable)
                 was_speaker_enable = 0;
-
-            speaker_buffer[speaker_pos] = val;
 
 #ifdef USE_CLI
             if ((!!val) ^ speaker_bell) {
@@ -101,15 +103,18 @@ speaker_update(void)
 }
 
 void
-speaker_get_buffer(int32_t *buffer, int len, UNUSED(void *priv))
+speaker_get_buffer(int32_t *buffer, uint16_t len, void *priv)
 {
-    double val_l, val_r;
+    speaker_t *dev   = (speaker_t *) priv;
+
+    double     val_l;
+    double     val_r;
 
     speaker_update();
 
     if (!speaker_mute) {
-        for (int c = 0; c < len * 2; c += 2) {
-            val_l = val_r = (double) speaker_buffer[c >> 1];
+        for (uint16_t c = 0; c < len * 2; c += 2) {
+            val_l = val_r = (double) dev->buffer[c >> 1];
             /* Apply PC speaker volume and filters */
             if (filter_pc_speaker != NULL) {
                 filter_pc_speaker(0, &val_l, filter_pc_speaker_p);
@@ -120,16 +125,56 @@ speaker_get_buffer(int32_t *buffer, int len, UNUSED(void *priv))
         }
     }
 
-    speaker_pos = 0;
+    dev->pos = 0;
 }
 
-void
-speaker_init(void)
+static void
+speaker_close(void *priv)
 {
-    memset(speaker_buffer, 0, sizeof(speaker_buffer));
+    speaker_t *dev = (speaker_t *) priv;
+
+    if (dev != NULL)
+        memset(dev->buffer, 0, sizeof(dev->buffer));
     sound_add_handler(speaker_get_buffer, NULL);
     speaker_mute = 0;
 #ifdef USE_CLI
     speaker_bell = speaker_bell_cycles = 0;
 #endif
+
+    free(dev);
+
+    speaker = NULL;
 }
+
+static void *
+speaker_init(const device_t *info)
+{
+    speaker_t *dev     = (speaker_t *) calloc(1, sizeof(speaker_t));
+
+    music_add_handler(speaker_get_buffer, dev);
+
+    speaker_mute       = 0;
+    speaker_gated      = 0;
+    speaker_enable     = 0;
+    was_speaker_enable = 0;
+
+    dev->count         = 65535.0;
+
+    speaker            = dev;
+
+    return dev;
+}
+
+const device_t speaker_device = {
+    .name          = "PC Speaker",
+    .internal_name = "speaker",
+    .flags         = 0,
+    .local         = 0,
+    .init          = speaker_init,
+    .close         = speaker_close,
+    .reset         = NULL,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};

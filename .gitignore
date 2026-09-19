@@ -3,11 +3,12 @@ CMakeUserPresets.json
 CMakeCache.txt
 CMakeFiles
 /build
-Makefile
 *.a
 /src/*.exe
 /src/86Box
 /src/include/86box/version.h
+/src/.vs
+/src/out
 
 # Legacy Makefile
 /src/*.o
@@ -65,3 +66,9 @@ CMakeLists.txt.user
 
 # Jetbrains CLion
 .idea
+
+# General debugging sessions
+86box.cfg
+*.patch
+*.*.orig
+*.*.rej

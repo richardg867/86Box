@@ -143,7 +143,7 @@ x86_doabrt(int x86_abrt)
     }
 }
 
-static void
+static inline void
 set_stack32(int s)
 {
     stack32 = s;
@@ -154,7 +154,7 @@ set_stack32(int s)
         cpu_cur_status &= ~CPU_STATUS_STACK32;
 }
 
-static void
+static inline void
 set_use32(int u)
 {
     use32 = u ? 0x300 : 0;
@@ -202,7 +202,7 @@ do_seg_load(x86seg *s, uint16_t *segdat)
 }
 #endif
 
-static void
+static inline void
 do_seg_v86_init(x86seg *s)
 {
     s->access     = 0xe2;
@@ -297,7 +297,7 @@ loadseg(uint16_t seg, x86seg *s)
                 return;
 #endif
             }
-            s->seg     = 0;
+            s->seg     = seg;
             s->access  = 0x80;
             s->ar_high = 0x10;
             s->base    = -1;
@@ -651,9 +651,7 @@ loadcsjmp(uint16_t seg, uint32_t old_pc)
                 case 0x0c00:
                     cgate32 = (type & 0x0800);
                     cgate16 = !cgate32;
-#ifndef USE_NEW_DYNAREC
                     oldcs = CS;
-#endif
                     cpu_state.oldpc = cpu_state.pc;
                     if (DPL < CPL) {
                         x86gpf("loadcsjmp(): Call gate DPL < CPL", seg & 0xfffc);
@@ -761,7 +759,7 @@ loadcsjmp(uint16_t seg, uint32_t old_pc)
     }
 }
 
-static void
+static inline void
 PUSHW(uint16_t v)
 {
     if (stack32) {
@@ -777,7 +775,7 @@ PUSHW(uint16_t v)
     }
 }
 
-static void
+static inline void
 PUSHL(uint32_t v)
 {
     if (cpu_16bitbus) {
@@ -798,7 +796,7 @@ PUSHL(uint32_t v)
     }
 }
 
-static void
+static inline void
 PUSHL_SEL(uint32_t v)
 {
     if (cpu_16bitbus) {
@@ -819,7 +817,7 @@ PUSHL_SEL(uint32_t v)
     }
 }
 
-static uint16_t
+static inline uint16_t
 POPW(void)
 {
     uint16_t tempw;
@@ -837,7 +835,7 @@ POPW(void)
     return tempw;
 }
 
-static uint32_t
+static inline uint32_t
 POPL(void)
 {
     uint32_t templ;
@@ -972,9 +970,7 @@ loadcscall(uint16_t seg)
                     x86seg_log("Callgate %08X\n", cpu_state.pc);
                     cgate32 = (type & 0x0800);
                     cgate16 = !cgate32;
-#ifndef USE_NEW_DYNAREC
                     oldcs = CS;
-#endif
                     count = segdat[2] & 0x001f;
                     if (DPL < CPL) {
                         x86gpf("loadcscall(): ex DPL < CPL", seg & 0xfffc);
@@ -1095,7 +1091,7 @@ loadcscall(uint16_t seg)
                                 writememw(0, addr + 4, segdat2[2] | 0x100); /* Set accessed bit */
                                 cpl_override = 0;
 
-                                CS = seg2;
+                                CS = (seg2 & ~3) | DPL;
                                 do_seg_load(&cpu_state.seg_cs, segdat);
                                 if ((CPL == 3) && (oldcpl != 3))
                                     flushmmucache_nopc();
@@ -1212,7 +1208,7 @@ loadcscall(uint16_t seg)
                         case 0x1d00:
                         case 0x1e00:
                         case 0x1f00: /* Conforming */
-                            CS = seg2;
+                            CS = (seg2 & ~3) | CPL;
                             do_seg_load(&cpu_state.seg_cs, segdat);
                             if ((CPL == 3) && (oldcpl != 3))
                                 flushmmucache_nopc();
@@ -1307,12 +1303,14 @@ pmoderetf(int is32, uint16_t off)
         return;
     }
     if (!(seg & 0xfffc)) {
+        ESP = oldsp;
         x86gpf("pmoderetf(): seg is NULL", 0);
         return;
     }
     addr = seg & 0xfff8;
     dt   = (seg & 0x0004) ? &ldt : &gdt;
     if ((addr + 7) > dt->limit) {
+        ESP = oldsp;
         x86gpf("pmoderetf(): Selector > DT limit", seg & 0xfffc);
         return;
     }
@@ -1361,6 +1359,7 @@ pmoderetf(int is32, uint16_t off)
                 }
                 break;
             default:
+                ESP = oldsp;
                 x86gpf("pmoderetf(): Unknown type", seg & 0xfffc);
                 return;
         }
@@ -1838,6 +1837,7 @@ pmodeiret(int is32)
     uint16_t      segs[4];
     uint32_t      tempflags;
     uint32_t      flagmask;
+    uint16_t      eflagmask;
     uint32_t      newpc;
     uint32_t      newsp;
     uint32_t      addr;
@@ -1911,6 +1911,14 @@ pmodeiret(int is32)
         flagmask &= ~0x3000;
     if (IOPL < CPL)
         flagmask &= ~0x200;
+    /* Per RETURN-TO-{SAME,OUTER}-PRIVILEGE-LEVEL, a 32-bit IRET loads RF, AC
+       and ID at any CPL and loads VIF and VIP only at CPL 0. VM is never
+       loaded here: entry to V86 mode is the separate CPL 0 path below. Like
+       flagmask above, this is decided by the CPL of the IRET itself, before
+       CS is reloaded. */
+    eflagmask = RF_FLAG | AC_FLAG | VID_FLAG;
+    if (CPL == 0)
+        eflagmask |= VIF_FLAG | VIP_FLAG;
     if (is32) {
         newpc     = POPL();
         seg       = POPL();
@@ -1919,7 +1927,7 @@ pmodeiret(int is32)
             ESP = oldsp;
             return;
         }
-        if (is386 && ((tempflags >> 16) & VM_FLAG)) {
+        if (is386 && (CPL == 0) && ((tempflags >> 16) & VM_FLAG)) {
             newsp   = POPL();
             newss   = POPL();
             segs[0] = POPL();
@@ -2146,7 +2154,8 @@ pmodeiret(int is32)
     cpu_state.pc    = newpc;
     cpu_state.flags = (cpu_state.flags & ~flagmask) | (tempflags & flagmask & 0xffd5) | 2;
     if (is32)
-        cpu_state.eflags = tempflags >> 16;
+        cpu_state.eflags = (cpu_state.eflags & (uint16_t) ~eflagmask) |
+                           ((tempflags >> 16) & eflagmask);
 }
 
 void
@@ -2373,14 +2382,22 @@ taskswitch286(uint16_t seg, uint16_t *segdat, int is32)
         op_loadseg(new_fs, &cpu_state.seg_fs);
         op_loadseg(new_gs, &cpu_state.seg_gs);
 
+#ifdef USE_DEBUG_REGS_486
+        rf_flag_no_clear = 1;
+#else
         if (!cpu_use_exec)
             rf_flag_no_clear = 1;
+#endif
 
         if (t_bit) {
+#ifdef USE_DEBUG_REGS_486
+            trap |= 2;
+#else
             if (cpu_use_exec)
                 trap = 2;
             else
                 trap |= 2;
+#endif
 #ifdef USE_DYNAREC
             cpu_block_end = 1;
 #endif
@@ -2560,8 +2577,12 @@ taskswitch286(uint16_t seg, uint16_t *segdat, int is32)
     tr.limit   = limit;
     tr.access  = segdat[2] >> 8;
     tr.ar_high = segdat[3] & 0xff;
+#ifdef USE_DEBUG_REGS_486
+    dr[7] &= 0xFFFFFFAA;
+#else
     if (!cpu_use_exec)
         dr[7] &= 0xFFFFFFAA;
+#endif
 }
 
 void
@@ -2575,6 +2596,12 @@ cyrix_write_seg_descriptor(uint32_t addr, x86seg *seg)
 
     if (seg->ar_high & 0x80)
         limit_raw >>= 12;
+
+    if ((limit_raw == 0xffffffff) && !(seg->ar_high & 0x80)) {
+        x86seg_log("4G segment limit without page granularity!\n");
+        seg->ar_high |= 0x80;
+        limit_raw >>= 12;
+    }
 
     writememl(0, addr, (limit_raw & 0xffff) | (seg->base << 16));
     writememl(0, addr + 4, ((seg->base >> 16) & 0xff) | (seg->access << 8) | (limit_raw & 0xf0000) | (seg->ar_high << 16) | (seg->base & 0xff000000));

@@ -27,6 +27,7 @@
 #include <86box/nvr.h>
 #include <86box/apm.h>
 #include <86box/acpi.h>
+#include <86box/keyboard.h>
 #include <86box/hdd.h>
 #include <86box/hdc.h>
 #include <86box/hdc_ide.h>
@@ -75,7 +76,7 @@ typedef struct sis_5591_t {
 } sis_5591_t;
 
 static void
-sis_5591_write(int func, int addr, uint8_t val, void *priv)
+sis_5591_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     const sis_5591_t *dev = (sis_5591_t *) priv;
 
@@ -88,7 +89,7 @@ sis_5591_write(int func, int addr, uint8_t val, void *priv)
 }
 
 static uint8_t
-sis_5591_read(int func, int addr, void *priv)
+sis_5591_read(int func, int addr, UNUSED(int len), void *priv)
 {
     const sis_5591_t *dev = (sis_5591_t *) priv;
     uint8_t ret = 0xff;
@@ -104,7 +105,7 @@ sis_5591_read(int func, int addr, void *priv)
 }
 
 static void
-sis_5595_write(int func, int addr, uint8_t val, void *priv)
+sis_5595_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     const sis_5591_t *dev = (sis_5591_t *) priv;
 
@@ -124,7 +125,7 @@ sis_5595_write(int func, int addr, uint8_t val, void *priv)
 }
 
 static uint8_t
-sis_5595_read(int func, int addr, void *priv)
+sis_5595_read(int func, int addr, UNUSED(int len), void *priv)
 {
     const sis_5591_t *dev = (sis_5591_t *) priv;
     uint8_t ret = 0xff;
@@ -177,6 +178,8 @@ sis_5591_init(UNUSED(const device_t *info))
         dev->pmu = device_add_linked(&sis_5595_1997_pmu_device, dev->sis);
     else
         dev->pmu = device_add_linked(&sis_5595_pmu_device, dev->sis);
+
+    device_add_params(&kbc_at_device, (void *) KBC_VEN_SIS);
 
     return dev;
 }

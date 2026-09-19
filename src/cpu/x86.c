@@ -283,7 +283,7 @@ reset_common(int hard)
         cr0 = 1 << 30;
     else
         cr0 = 0;
-    if (is386 && !is486 && (fpu_type == FPU_387))
+    if (is386 && !is486 && ((fpu_type == FPU_387) || (fpu_type == FPU_NONE)))
         cr0 |= 0x10;
     cpu_cache_int_enabled = 0;  
     cpu_update_waitstates();
@@ -309,7 +309,7 @@ reset_common(int hard)
         if (hard) {
             rammask = cpu_16bitbus ? 0xFFFFFF : 0xFFFFFFFF;
             if (is6117)
-                rammask |= 0x03000000;
+                rammask |= 0x3000000;
             mem_a20_key = mem_a20_alt = mem_a20_state = 0;
         }
     }
@@ -367,12 +367,18 @@ reset_common(int hard)
     } else
         device_reset_all(DEVICE_SOFTRESET);
 
-    if (!is286)
-        reset_808x(hard);
+    if (!is286) {
+        if (is_nec)
+            reset_vx0(hard);
+        else
+            reset_808x(hard);
+    }
 
     in_lock    = 0;
 
     cpu_cpurst_on_sr = 0;
+
+    cpu_force_interpreter = 0;
 }
 
 /* Hard reset. */
@@ -412,4 +418,15 @@ hardresetx86(void)
     flushmmucache();
 
     resetx86();
+}
+
+void
+fpu_postamble(void)
+{
+    if (cpu_state.ea_seg != NULL) {
+        cpu_state.fpu_DS = cpu_state.ea_seg->seg;
+        cpu_state.fpu_ds = cpu_state.ea_seg->base;
+    }
+
+    cpu_state.fpu_ea = cpu_state.eaaddr;
 }

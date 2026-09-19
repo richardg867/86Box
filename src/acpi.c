@@ -8,8 +8,6 @@
  *
  *          ACPI emulation.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2020 Miran Grca.
@@ -41,6 +39,7 @@
 #include <86box/i2c.h>
 #include <86box/video.h>
 #include <86box/smbus.h>
+#include <86box/hdc.h>
 #include <86box/hdc_ide.h>
 #include <86box/hdc_ide_sff8038i.h>
 #include <86box/sis_55xx.h>
@@ -256,13 +255,15 @@ acpi_raise_smi(void *priv, int do_smi)
                 dev->regs.smi_active = 1;
             }
         } else if ((dev->vendor == VEN_INTEL) || (dev->vendor == VEN_ALI)) {
-            if (do_smi)
+            if (do_smi) {
                 smi_raise();
-            /* Clear bit 16 of GLBCTL. */
-            if (dev->vendor == VEN_INTEL)
-                dev->regs.glbctl &= ~0x00010000;
-            else
-                dev->regs.ali_soft_smi = 1;
+
+                /* Clear bit 16 of GLBCTL. */
+                if (dev->vendor == VEN_INTEL)
+                    dev->regs.glbctl &= ~0x00010000;
+                else
+                    dev->regs.ali_soft_smi = 1;
+            }
         } else if (dev->vendor == VEN_SMC) {
             if (do_smi)
                 smi_raise();
@@ -307,7 +308,7 @@ acpi_reg_read_common_regs(UNUSED(int size), uint16_t addr, void *priv)
         case 0x0a:
         case 0x0b:
             /* PMTMR - Power Management Timer Register (IO) */
-            ret = (acpi_timer_get(dev) >> shift32) & 0xff;
+            ret = (dev->pmtmr_latch >> shift32) & 0xff;
 #ifdef USE_DYNAREC
             if (cpu_use_dynarec)
                 update_tsc();
@@ -467,16 +468,14 @@ acpi_reg_read_intel(int size, uint16_t addr, void *priv)
         case 0x31:
         case 0x32:
             /* GPIREG - General Purpose Input Register (IO) */
-            if (size == 1)
-                ret = dev->regs.gpireg[addr & 3];
+            ret = dev->regs.gpireg[addr & 3];
             break;
         case 0x34:
         case 0x35:
         case 0x36:
         case 0x37:
             /* GPOREG - General Purpose Output Register (IO) */
-            if (size == 1)
-                ret = dev->regs.gporeg[addr & 3];
+            ret = dev->regs.gporeg[addr & 3];
             break;
         default:
             ret = acpi_reg_read_common_regs(size, addr, priv);
@@ -1198,6 +1197,11 @@ acpi_reg_write_intel(int size, uint16_t addr, uint8_t val, void *priv)
         case 0x2b:
             /* GLBCTL - Global Control Register (IO) */
             dev->regs.glbctl = ((dev->regs.glbctl & ~(0xff << shift32)) | (val << shift32)) & 0x0701ff07;
+            /* Check if there's anything still pending and re-assert SMI# if it is. */
+            if (((dev->regs.glbctl & 0x00010001) == 0x00010001) &&
+                (((dev->regs.glbsts & 0x20) && dev->apm->do_smi) ||
+                 ((dev->regs.glbsts & 0x01) && (dev->regs.glben & 0x02))))
+                acpi_raise_smi(dev, 1);
             /* Setting BIOS_RLS also sets GBL_STS and generates SMI. */
             if (dev->regs.glbctl & 0x00000002) {
                 dev->regs.pmsts |= 0x20;
@@ -1219,8 +1223,9 @@ acpi_reg_write_intel(int size, uint16_t addr, uint8_t val, void *priv)
         case 0x36:
         case 0x37:
             /* GPOREG - General Purpose Output Register (IO) */
-            if (size == 1)
-                dev->regs.gporeg[addr & 3] = val;
+            dev->regs.gporeg[addr & 3] = val;
+            if ((addr == 0x34) && (machines[machine].init == machine_at_cubx_init))
+                hdc_onboard_enabled = (val & 0x01);
             break;
         default:
             acpi_reg_write_common_regs(size, addr, val, priv);
@@ -1745,7 +1750,7 @@ acpi_reg_write_sis_5595(int size, uint16_t addr, uint8_t val, void *priv)
             break;
         case 0x1c:
             dev->regs.gpe_pin = ((dev->regs.gpe_pin & ~(0xff << shift32)) | ((val & 0xff) << shift32));
-            if (!strcmp(machine_get_internal_name(), "m747") && (val & 0x10) &&
+            if ((machines[machine].init == machine_at_m747_init) && (val & 0x10) &&
                 !(dev->regs.gpe_io & 0x00000010))
                 resetx86();
             break;
@@ -1980,10 +1985,36 @@ acpi_aux_reg_write_common(int size, uint16_t addr, uint8_t val, void *priv)
         acpi_aux_reg_write_smc(size, addr, val, priv);
 }
 
+static void
+acpi_latch_pmtmr(acpi_t *dev)
+{
+    uint32_t new_latch = acpi_timer_get(dev);
+
+    if (new_latch == dev->pmtmr_latch) {
+        /* Windows Vista and 7 division by zero mitigation measure. */
+        if (dev->regs.timer32)
+            dev->pmtmr_latch = (new_latch + 1) & 0xffffffff;
+        else
+            dev->pmtmr_latch = (new_latch + 1) & 0x00ffffff;
+    } else
+        dev->pmtmr_latch = new_latch;
+
+#ifdef USE_DYNAREC
+    if (cpu_use_dynarec)
+        update_tsc();
+#endif
+}
+
 static uint32_t
 acpi_reg_readl(uint16_t addr, void *priv)
 {
-    uint32_t ret = 0x00000000;
+    acpi_t *       dev = (acpi_t *) priv;
+    const uint16_t reg = addr - dev->io_base;
+
+    uint32_t       ret = 0x00000000;
+
+    if ((reg >= 0x0008) && (reg <= 0x000b))
+        acpi_latch_pmtmr(dev);
 
     ret = acpi_reg_read_common(4, addr, priv);
     ret |= (acpi_reg_read_common(4, addr + 1, priv) << 8);
@@ -1998,7 +2029,13 @@ acpi_reg_readl(uint16_t addr, void *priv)
 static uint16_t
 acpi_reg_readw(uint16_t addr, void *priv)
 {
-    uint16_t ret = 0x0000;
+    acpi_t *       dev = (acpi_t *) priv;
+    const uint16_t reg = addr - dev->io_base;
+
+    uint16_t       ret = 0x0000;
+
+    if ((reg >= 0x0008) && (reg <= 0x000b))
+        acpi_latch_pmtmr(dev);
 
     ret = acpi_reg_read_common(2, addr, priv);
     ret |= (acpi_reg_read_common(2, addr + 1, priv) << 8);
@@ -2011,7 +2048,13 @@ acpi_reg_readw(uint16_t addr, void *priv)
 static uint8_t
 acpi_reg_read(uint16_t addr, void *priv)
 {
-    uint8_t ret = 0x00;
+    acpi_t *       dev = (acpi_t *) priv;
+    const uint16_t reg = addr - dev->io_base;
+
+    uint8_t        ret = 0x00;
+
+    if ((reg >= 0x0008) && (reg <= 0x000b))
+        acpi_latch_pmtmr(dev);
 
     ret = acpi_reg_read_common(1, addr, priv);
 
@@ -2361,45 +2404,66 @@ acpi_reset(void *priv)
     /* PC Chips M773:
        - Bit 3: 80-conductor cable on unknown IDE channel (active low)
        - Bit 1: 80-conductor cable on unknown IDE channel (active low) */
-    dev->regs.gpireg[0] = !strcmp(machine_get_internal_name(), "m773") ? 0xf5 : 0xff;
+    dev->regs.gpireg[0] = (machines[machine].init == machine_at_m773_init) ? 0xf5 : 0xff;
+    /* Dell OptiPlex E1 and GX1:
+       - Bit 6: Chassis intrusion switch - must be cleared as otherwise POST complains that the chassis was opened
+       - Bit 3: ??? - must be cleared as otherwise POST complains about regulator failure */    
+    dev->regs.gpireg[0] = ((machines[machine].init == machine_at_optiplexe1_init) ||
+                           (machines[machine].init == machine_at_optiplexgx1_init)) ? 0xb7 : 0xff;
     dev->regs.gpireg[1] = 0xff;
     /* A-Trend ATC7020BXII:
        - Bit 3: 80-conductor cable on secondary IDE channel (active low)
        - Bit 2: 80-conductor cable on primary IDE channel (active low)
        Gigabyte GA-686BX:
        - Bit 1: CMOS battery low (active high) */
-    dev->regs.gpireg[2] = dev->gpireg2_default;
+    if (machines[machine].init == machine_at_al440lx_init)
+        /* ED = Normal, DD (2-3) - Maintenance, BD, FD (none) - Recovery. */
+        dev->regs.gpireg[2] = 0xed;
+    else if ((machines[machine].init == machine_at_in440ex_init) || (machines[machine].init == machine_at_in440exd_init))
+        /* Bit 5: CMOS clear jumper(?) - must be set as otherwise CMOS is not saved */
+        dev->regs.gpireg[2] = 0xfd;
+    else if (machines[machine].init == machine_at_em440_init)
+        /* Bit 4: Recovery mode - must be set as otherwise the machine enters recovery flash mode */
+        dev->regs.gpireg[2] = 0xff;
+    else
+        dev->regs.gpireg[2] = dev->gpireg2_default;
     for (uint8_t i = 0; i < 4; i++)
         dev->regs.gporeg[i] = dev->gporeg_default[i];
     if (dev->vendor == VEN_VIA_596B) {
         dev->regs.gpo_val = 0x7fffffff;
-        /* FIC VA-503A:
-           - Bit 11: ATX power (active high)
-           - Bit  4: 80-conductor cable on primary IDE channel (active low)
-           - Bit  3: 80-conductor cable on secondary IDE channel (active low)
-           - Bit  2: password cleared (active low)
-           ASUS P3V4X:
-           - Bit 15: 80-conductor cable on secondary IDE channel (active low)
-           - Bit  5: 80-conductor cable on primary IDE channel (active low)
-           BCM GT694VA:
-           - Bit 19: 80-conductor cable on secondary IDE channel (active low)
-           - Bit 17: 80-conductor cable on primary IDE channel (active low)
-           ASUS CUV4X-LS:
-           - Bit  2: 80-conductor cable on secondary IDE channel (active low)
-           - Bit  1: 80-conductor cable on primary IDE channel (active low)
-           Acorp 6VIA90AP:
-           - Bit  3: 80-conductor cable on secondary IDE channel (active low)
-           - Bit  1: 80-conductor cable on primary IDE channel (active low) */
+        /*
+           - FIC VA-503A:
+               - Bit 11: ATX power (active high);
+               - Bit  4: 80-conductor cable on primary IDE channel (active low);
+               - Bit  3: 80-conductor cable on secondary IDE channel (active low);
+               - Bit  2: password cleared (active low).
+           - ASUS P3V4X:
+               - Bit 15: 80-conductor cable on secondary IDE channel (active low);
+               - Bit  5: 80-conductor cable on primary IDE channel (active low).
+           - BCM GT694VA:
+               - Bit 19: 80-conductor cable on secondary IDE channel (active low);
+               - Bit 17: 80-conductor cable on primary IDE channel (active low).
+           - ASUS CUV4X-LS:
+               - Bit  2: 80-conductor cable on secondary IDE channel (active low);
+               - Bit  1: 80-conductor cable on primary IDE channel (active low).
+           - Acorp 6VIA90AP:
+               - Bit  3: 80-conductor cable on secondary IDE channel (active low);
+               - Bit  1: 80-conductor cable on primary IDE channel (active low).
+           - FIC KA-6130:
+               - Bit 19: password cleared (active low).
+         */
         dev->regs.gpi_val = 0xfff57fc1;
-        if (!strcmp(machine_get_internal_name(), "ficva503a") || !strcmp(machine_get_internal_name(), "6via90ap"))
+        if ((machines[machine].init == machine_at_ficva503a_init) || (machines[machine].init == machine_at_6via90ap_init))
             dev->regs.gpi_val |= 0x00000004;
+        else if ((machines[machine].init == machine_at_ficka6130_init))
+            dev->regs.gpi_val |= 0x00080000;
          /*
             TriGem Delhi-III second GPI word:
                 - Bit 7 = Save CMOS (must be set);
                 - Bit 6 = Password jumper (must be set);
                 - Bit 5 = Enable Setup (must be set).
          */
-        else if (!strcmp(machine_get_internal_name(), "delhi3"))
+        else if (machines[machine].init == machine_at_delhi3_init)
             dev->regs.gpi_val |= 0x00008000;
     }
 
@@ -2410,7 +2474,7 @@ acpi_reset(void *priv)
     }
 
     /* The Gateway Tomahawk requires the LID polarity bit to be set. */
-    if (!strcmp(machine_get_internal_name(), "tomahawk"))
+    if (machines[machine].init == machine_at_tomahawk_init)
         dev->regs.glbctl |= 0x02000000;
 
     acpi_rtc_status = 0;
@@ -2430,6 +2494,10 @@ acpi_reset(void *priv)
         dev->regs.gp_tmr = 0xff;
         dev->regs.gpe_io = 0x00030b9f;
         dev->regs.gpe_mul = 0x1001;
+
+        /* Fix for the IN530 CMOS reset jumper */
+        if (machines[machine].init == machine_at_in530_init)
+            dev->regs.gpe_pin = 0x0003ffff;
     }
 }
 

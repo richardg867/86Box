@@ -8,15 +8,12 @@
  *
  *          Definitions for the mouse driver.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
  *
  *          Copyright 2016-2019 Miran Grca.
  *          Copyright 2017-2019 Fred N. van Kempen.
  */
-
 #ifndef EMU_MOUSE_H
 #define EMU_MOUSE_H
 
@@ -26,7 +23,7 @@
 #endif
 
 #define MOUSE_TYPE_NONE     0 /* no mouse configured */
-#define MOUSE_TYPE_INTERNAL 1 /* achine has internal mouse */
+#define MOUSE_TYPE_INTERNAL 1 /* machine has internal mouse */
 #define MOUSE_TYPE_LOGIBUS  2 /* Logitech/ATI Bus Mouse */
 #define MOUSE_TYPE_INPORT   3 /* Microsoft InPort Mouse */
 #if 0
@@ -42,8 +39,15 @@
 #define MOUSE_TYPE_WACOM     12 /* WACOM tablet */
 #define MOUSE_TYPE_WACOMARTP 13 /* WACOM tablet (ArtPad) */
 #define MOUSE_TYPE_MSYSTEMSB 14 /* Mouse Systems bus mouse */
+#define MOUSE_TYPE_MSBPOINT  15 /* Microsoft Serial BallPoint mouse */
+#define MOUSE_TYPE_PS2_QPORT 27 /* PS/2 QuickPort series Bus Mouse */
 
+#define MOUSE_TYPE_QPORT     0x40 /* Mouse is an on-board version of one of the above. */
 #define MOUSE_TYPE_ONBOARD   0x80 /* Mouse is an on-board version of one of the above. */
+
+/* Masks returned by mouse_get_release_buttons(). */
+#define MOUSE_RELEASE_MIDDLE 0x04 /* Middle button */
+#define MOUSE_RELEASE_THUMB  0x18 /* Thumb buttons (buttons 4 and 5) */
 
 
 #ifdef __cplusplus
@@ -51,6 +55,8 @@ extern "C" {
 #endif
 
 extern int    mouse_type;
+extern int    tablet_type;
+extern int    mouse_input_mode_initial;
 extern int    mouse_input_mode; /* 2 = Absolute (Visible Crosshair), 1 = Absolute, 0 = Relative */
 extern int    mouse_timed; /* 1 = Timed, 0 = Constant */
 extern int    mouse_tablet_in_proximity;
@@ -71,15 +77,21 @@ extern const device_t mouse_genibus_device;
 extern const device_t mouse_mssystems_device;
 extern const device_t mouse_mssystems_bus_device;
 extern const device_t mouse_msserial_device;
+extern const device_t mouse_msserial_ballpoint_device;
 extern const device_t mouse_ltserial_device;
 extern const device_t mouse_ps2_device;
+extern const device_t mouse_upc_device;
+extern const device_t mouse_upc_standalone_device;
+extern const device_t mouse_pxl_380_device;
 #    ifdef USE_WACOM
-extern const device_t mouse_wacom_device;
-extern const device_t mouse_wacom_artpad_device;
+extern const device_t mouse_wacom_tablet_device;
+extern const device_t mouse_wacom_artpad_tablet_device;
 #    endif
 extern const device_t mouse_mtouch_device;
+extern const device_t mouse_cga_lightpen_device;
 #endif
 
+extern int             mouse_both_enabled(void);
 extern void            mouse_clear_x(void);
 extern void            mouse_clear_y(void);
 extern void            mouse_clear_coords(void);
@@ -88,7 +100,6 @@ extern void            mouse_subtract_x(int *delta_x, int *o_x, int min, int max
 extern void            mouse_subtract_y(int *delta_y, int *o_y, int min, int max, int invert, int abs);
 extern void            mouse_subtract_coords(int *delta_x, int *delta_y, int *o_x, int *o_y,
                                              int min, int max, int invert, int abs);
-extern  int            mouse_wheel_moved(void);
 extern  int            mouse_moved(void);
 extern  int            mouse_state_changed(void);
 extern  int            mouse_mbut_changed(void);
@@ -107,27 +118,39 @@ extern void            mouse_clear_w(void);
 extern void            mouse_subtract_w(int *delta_w, int min, int max, int invert);
 extern void            mouse_set_buttons_ex(int b);
 extern int             mouse_get_buttons_ex(void);
+extern int             tablet_get_buttons_ex(void);
 extern void            mouse_set_sample_rate(double new_rate);
+extern void            mouse_update_sample_rate(void);
 extern void            mouse_set_buttons(int buttons);
 extern void            mouse_get_abs_coords(double *x_abs, double *y_abs);
 extern void            mouse_process(void);
-extern void            mouse_set_poll_ex(void (*poll_ex)(void));
+extern void            mouse_set_poll_ex(int (*poll_ex)(void*), void *arg);
 extern void            mouse_set_poll(int (*f)(void *), void *);
-extern const char *    mouse_get_name(int mouse);
 extern const char *    mouse_get_internal_name(int mouse);
 extern int             mouse_get_from_internal_name(char *s);
 extern int             mouse_has_config(int mouse);
+extern const char *    tablet_get_internal_name(int mouse);
+extern int             tablet_get_from_internal_name(char *s);
+extern int             tablet_has_config(int mouse);
 #ifdef EMU_DEVICE_H
 extern const device_t *mouse_get_device(int mouse);
+extern const device_t *tablet_get_device(int mouse);
 #endif
 extern int             mouse_get_buttons(void);
+extern int             mouse_get_release_buttons(void);
 extern int             mouse_get_ndev(void);
+extern int             tablet_get_ndev(void);
 extern void            mouse_set_raw(int raw);
 extern void            mouse_reset(void);
 extern void            mouse_close(void);
 extern void            mouse_init(void);
 
 extern void            mouse_bus_set_irq(void *priv, int irq);
+
+extern void            mouse_upc_port_handler(int num, int set, uint16_t port, void *priv);
+extern void            mouse_upc_handler(int set, uint16_t port, void *priv);
+
+extern void            mouse_upc_set_irq(int num, uint16_t irq, void *priv);
 
 #ifdef __cplusplus
 }

@@ -8,8 +8,6 @@
  *
  *          Configuration file handler.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
@@ -25,7 +23,6 @@
  *          it on Windows XP, and possibly also Vista. Use the
  *          -DANSI_CFG for use on these systems.
  */
-
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -37,6 +34,8 @@
 #define HAVE_STDARG_H
 #include <86box/86box.h>
 #include <86box/ini.h>
+#include <86box/mem.h>
+#include <86box/rom.h>
 #include <86box/plat.h>
 
 typedef struct _list_ {
@@ -316,7 +315,7 @@ ini_close(ini_t ini)
     free(list);
 }
 
-static int
+int
 ini_detect_bom(const char *fn)
 {
     FILE         *fp;
@@ -363,9 +362,9 @@ ini_fgetws(wchar_t *str, int count, FILE *stream)
 }
 #endif
 
-/* Read and parse the configuration file into memory. */
+/* Read and parse the configuration file into memory, with open type selection. */
 ini_t
-ini_read(const char *fn)
+ini_read_ex(const char *fn, int is_rom)
 {
     char       sname[128];
     char       ename[128];
@@ -380,11 +379,20 @@ ini_read(const char *fn)
     list_t    *head;
 
     bom = ini_detect_bom(fn);
+
+    if (is_rom)
 #if defined(ANSI_CFG) || !defined(_WIN32)
-    fp = plat_fopen(fn, "rt");
+        fp = rom_fopen(fn, "rt");
 #else
-    fp = plat_fopen(fn, "rt, ccs=UTF-8");
+        fp = rom_fopen(fn, "rt, ccs=UTF-8");
 #endif
+    else
+#if defined(ANSI_CFG) || !defined(_WIN32)
+        fp = plat_fopen(fn, "rt");
+#else
+        fp = plat_fopen(fn, "rt, ccs=UTF-8");
+#endif
+
     if (fp == NULL)
         return NULL;
 
@@ -438,7 +446,7 @@ ini_read(const char *fn)
                 continue;
 
             /* Create a new section and insert it. */
-            ns = malloc(sizeof(section_t));
+            ns = calloc(1, sizeof(section_t));
             memset(ns, 0x00, sizeof(section_t));
             memcpy(ns->name, sname, 128);
             list_add(&ns->list, head);
@@ -491,9 +499,16 @@ ini_read(const char *fn)
     return (ini_t) head;
 }
 
-/* Write the in-memory configuration to disk. */
+/* Read and parse the configuration file into memory. */
+ini_t
+ini_read(const char *fn)
+{
+    return ini_read_ex(fn, 0);
+}
+
+/* Write the in-memory configuration to disk, with open type selection. */
 void
-ini_write(ini_t ini, const char *fn)
+ini_write_ex(ini_t ini, const char *fn, int is_rom)
 {
     wchar_t    wtemp[512];
     list_t    *list = (list_t *) ini;
@@ -506,11 +521,19 @@ ini_write(ini_t ini, const char *fn)
 
     sec = (section_t *) list->next;
 
+    if (is_rom)
 #if defined(ANSI_CFG) || !defined(_WIN32)
-    fp = plat_fopen(fn, "wt");
+        fp = rom_fopen(fn, "wt");
 #else
-    fp = plat_fopen(fn, "wt, ccs=UTF-8");
+        fp = rom_fopen(fn, "wt, ccs=UTF-8");
 #endif
+    else
+#if defined(ANSI_CFG) || !defined(_WIN32)
+        fp = plat_fopen(fn, "wt");
+#else
+        fp = plat_fopen(fn, "wt, ccs=UTF-8");
+#endif
+
     if (fp == NULL)
         return;
 
@@ -544,6 +567,13 @@ ini_write(ini_t ini, const char *fn)
     }
 
     (void) fclose(fp);
+}
+
+/* Write the in-memory configuration to disk. */
+void
+ini_write(ini_t ini, const char *fn)
+{
+    ini_write_ex(ini, fn, 0);
 }
 
 /* Wide-character version of "trim" */
@@ -646,8 +676,7 @@ ini_strip_quotes(ini_t ini)
 ini_t
 ini_new(void)
 {
-    ini_t ini = malloc(sizeof(list_t));
-    memset(ini, 0, sizeof(list_t));
+    ini_t ini = calloc(1, sizeof(list_t));
     return ini;
 }
 
@@ -726,7 +755,12 @@ ini_section_get_uint(ini_section_t self, const char *name, uint32_t def)
     if (entry == NULL)
         return def;
 
-    sscanf(entry->data, "%u", &value);
+    if (stricmp(entry->data, "true") == 0)
+        return 1;
+    if (stricmp(entry->data, "false") == 0)
+        return 0;
+
+    value = (uint32_t)strtoul(entry->data, NULL, 0);
 
     return value;
 }
@@ -778,6 +812,25 @@ ini_section_get_double(ini_section_t self, const char *name, double def)
         }
         (void)sscanf(entry->data, "%lg", &value);
     }
+
+    return value;
+}
+
+int
+ini_section_get_hex12(ini_section_t self, const char *name, int def)
+{
+    section_t     *section = (section_t *) self;
+    const entry_t *entry;
+    unsigned int   value = 0;
+
+    if (section == NULL)
+        return def;
+
+    entry = find_entry(section, name);
+    if (entry == NULL)
+        return def;
+
+    sscanf(entry->data, "%03X", &value);
 
     return value;
 }
@@ -941,6 +994,23 @@ ini_section_set_double(ini_section_t self, const char *name, double val)
 
     sprintf(ent->data, "%lg", val);
     mbstowcs(ent->wdata, ent->data, 512);
+}
+
+void
+ini_section_set_hex12(ini_section_t self, const char *name, int val)
+{
+    section_t *section = (section_t *) self;
+    entry_t   *ent;
+
+    if (section == NULL)
+        return;
+
+    ent = find_entry(section, name);
+    if (ent == NULL)
+        ent = create_entry(section, name);
+
+    sprintf(ent->data, "%03X", val);
+    mbstowcs(ent->wdata, ent->data, sizeof_w(ent->wdata));
 }
 
 void

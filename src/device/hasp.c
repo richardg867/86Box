@@ -12,8 +12,6 @@
  *          emulation is enough to satisfy that game, but not Aladdin's
  *          DiagnostiX utility.
  *
- *
- *
  * Authors: RichardG, <richardg867@gmail.com>
  *          Peter Ferrie
  *
@@ -27,8 +25,9 @@
 #include <stdarg.h>
 #define HAVE_STDARG_H
 #include <86box/86box.h>
-#include <86box/lpt.h>
+#include <86box/timer.h>
 #include <86box/device.h>
+#include <86box/lpt.h>
 
 #define HASP_BYTEARRAY(...) \
     {                       \
@@ -303,13 +302,13 @@ hasp_read_status(void *priv)
 }
 
 static void *
-hasp_init(void *lpt, int type)
+hasp_init(const device_t *info, int type)
 {
     hasp_t *dev = calloc(1, sizeof(hasp_t));
 
     hasp_log("HASP: init(%d)\n", type);
 
-    dev->lpt  = lpt;
+    dev->lpt  = lpt_attach(hasp_write_data, NULL, NULL, hasp_read_status, NULL, NULL, NULL, dev);
     dev->type = &hasp_types[type];
 
     dev->status = 0x80;
@@ -318,9 +317,9 @@ hasp_init(void *lpt, int type)
 }
 
 static void *
-hasp_init_savquest(void *lpt)
+hasp_init_savquest(const device_t *info)
 {
-    return hasp_init(lpt, HASP_TYPE_SAVQUEST);
+    return hasp_init(info, HASP_TYPE_SAVQUEST);
 }
 
 static void
@@ -333,14 +332,16 @@ hasp_close(void *priv)
     free(dev);
 }
 
-const lpt_device_t lpt_hasp_savquest_device = {
+const device_t lpt_hasp_savquest_device = {
     .name          = "Protection Dongle for Savage Quest",
     .internal_name = "dongle_savquest",
+    .flags         = DEVICE_LPT | DEVICE_HOTPLUG,
+    .local         = 0,
     .init          = hasp_init_savquest,
     .close         = hasp_close,
-    .write_data    = hasp_write_data,
-    .write_ctrl    = NULL,
-    .read_data     = NULL,
-    .read_status   = hasp_read_status,
-    .read_ctrl     = NULL
+    .reset         = NULL,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
 };

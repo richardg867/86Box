@@ -13,8 +13,6 @@
  *          printer mechanics. This would lead to a page being 66 lines
  *          of 80 characters each.
  *
- *
- *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *
  *          Copyright 2018-2019 Fred N. van Kempen.
@@ -63,12 +61,14 @@
 #include <86box/lpt.h>
 #include <86box/printer.h>
 #include <86box/prt_devs.h>
+#include "cpu.h"
+#include <86box/prt_papersizes.h>
 
 #define FULL_PAGE 1 /* set if no top/bot margins */
 
 /* Default page values (for now.) */
-#define PAGE_WIDTH   8.5 /* standard U.S. Letter */
-#define PAGE_HEIGHT  11
+#define PAGE_WIDTH  LETTER_PAGE_WIDTH
+#define PAGE_HEIGHT LETTER_PAGE_HEIGHT
 #define PAGE_LMARGIN 0.25 /* 0.25" left and right */
 #define PAGE_RMARGIN 0.25
 #if FULL_PAGE
@@ -88,7 +88,7 @@ typedef struct psurface_t {
     uint8_t w; /* size //INFO */
     uint8_t h;
 
-    char *chars; /* character data */
+    uint8_t *chars; /* character data */
 } psurface_t;
 
 typedef struct prnt_t {
@@ -138,7 +138,6 @@ static void
 dump_page(prnt_t *dev)
 {
     char     path[1024];
-    uint8_t  ch;
     FILE    *fp;
 
     /* Create the full path for this file. */
@@ -171,7 +170,7 @@ dump_page(prnt_t *dev)
 
     for (uint16_t y = 0; y < dev->curr_y; y++) {
         for (uint16_t x = 0; x < dev->page->w; x++) {
-            ch = dev->page->chars[(y * dev->page->w) + x];
+            const uint8_t ch = dev->page->chars[(y * dev->page->w) + x];
             if (ch == 0x00) {
                 /* End of line marker. */
                 fputc('\n', fp);
@@ -231,7 +230,7 @@ timeout_timer(void *priv)
     if (dev->page->dirty)
         new_page(dev);
 
-    timer_disable(&dev->timeout_timer);
+    timer_stop(&dev->timeout_timer);
 }
 
 static void
@@ -261,7 +260,7 @@ reset_printer(prnt_t *dev)
     plat_tempfile(dev->filename, NULL, ".txt");
 
     timer_disable(&dev->pulse_timer);
-    timer_disable(&dev->timeout_timer);
+    timer_stop(&dev->timeout_timer);
 }
 
 static int
@@ -353,7 +352,7 @@ process_char(prnt_t *dev, uint8_t ch)
 static void
 handle_char(prnt_t *dev)
 {
-    uint8_t ch = dev->data;
+    const uint8_t ch = dev->data;
 
     if (dev->page == NULL)
         return;
@@ -387,6 +386,34 @@ write_data(uint8_t val, void *priv)
 }
 
 static void
+strobe(uint8_t old, uint8_t val, void *priv)
+{
+    prnt_t *dev = (prnt_t *) priv;
+
+    if (dev == NULL)
+        return;
+
+    if (!(val & 0x01) && (old & 0x01)) { /* STROBE */
+        /* Process incoming character. */
+        handle_char(dev);
+
+        if (timer_is_on(&dev->timeout_timer)) {
+            timer_stop(&dev->timeout_timer);
+#ifdef USE_DYNAREC
+            if (cpu_use_dynarec)
+                update_tsc();
+#endif
+        }
+
+        /* ACK it, will be read on next READ STATUS. */
+        dev->ack = 1;
+
+        timer_set_delay_u64(&dev->pulse_timer, ISACONST);
+        timer_on_auto(&dev->timeout_timer, 5000000.0);
+    }
+}
+
+static void
 write_ctrl(uint8_t val, void *priv)
 {
     prnt_t *dev = (prnt_t *) priv;
@@ -395,7 +422,7 @@ write_ctrl(uint8_t val, void *priv)
         return;
 
     /* set autofeed value */
-    dev->autofeed = val & 0x02 ? 1 : 0;
+    dev->autofeed = (val & 0x02) ? 1 : 0;
 
     if (val & 0x08) { /* SELECT */
         /* select printer */
@@ -416,8 +443,16 @@ write_ctrl(uint8_t val, void *priv)
         /* ACK it, will be read on next READ STATUS. */
         dev->ack = 1;
 
+        if (timer_is_on(&dev->timeout_timer)) {
+            timer_stop(&dev->timeout_timer);
+#ifdef USE_DYNAREC
+            if (cpu_use_dynarec)
+                update_tsc();
+#endif
+        }
+
         timer_set_delay_u64(&dev->pulse_timer, ISACONST);
-        timer_set_delay_u64(&dev->timeout_timer, 5000000 * TIMER_USEC);
+        timer_on_auto(&dev->timeout_timer, 5000000.0);
     }
 
     dev->ctrl = val;
@@ -438,23 +473,22 @@ read_status(void *priv)
 }
 
 static void *
-prnt_init(void *lpt)
+prnt_init(const device_t *info)
 {
     /* Initialize a device instance. */
     prnt_t *dev = (prnt_t *) calloc(1, sizeof(prnt_t));
 
     dev->ctrl = 0x04;
-    dev->lpt  = lpt;
+    dev->lpt  = lpt_attach(write_data, write_ctrl, strobe, read_status, NULL, NULL, NULL, dev);
 
     /* Initialize parameters. */
     reset_printer(dev);
 
     /* Create a page buffer. */
-    dev->page        = (psurface_t *) malloc(sizeof(psurface_t));
+    dev->page        = (psurface_t *) calloc(1, sizeof(psurface_t));
     dev->page->w     = dev->max_chars;
     dev->page->h     = dev->max_lines;
-    dev->page->chars = (char *) malloc(dev->page->w * dev->page->h);
-    memset(dev->page->chars, 0x00, dev->page->w * dev->page->h);
+    dev->page->chars = (uint8_t *) calloc(dev->page->w, dev->page->h);
 
     timer_add(&dev->pulse_timer, pulse_timer, dev, 0);
     timer_add(&dev->timeout_timer, timeout_timer, dev, 0);
@@ -480,17 +514,49 @@ prnt_close(void *priv)
         free(dev->page);
     }
 
+    timer_disable(&dev->pulse_timer);
+    timer_disable(&dev->timeout_timer);
+
     free(dev);
 }
 
-const lpt_device_t lpt_prt_text_device = {
+// clang-format off
+#if 0
+static const device_config_t lpt_prt_text_config[] = {
+    {
+        .name           = "paper_size",
+        .description    = "Paper Size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "Letter", .value = 0 },
+            { .description = "A4",     .value = 1 },
+            { .description = ""                   }
+        },
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+};
+#endif
+// clang-format on
+
+const device_t lpt_prt_text_device = {
     .name          = "Generic Text Printer",
     .internal_name = "text_prt",
+    .flags         = DEVICE_LPT | DEVICE_HOTPLUG,
+    .local         = 0,
     .init          = prnt_init,
     .close         = prnt_close,
-    .write_data    = write_data,
-    .write_ctrl    = write_ctrl,
-    .read_data     = NULL,
-    .read_status   = read_status,
-    .read_ctrl     = NULL
+    .reset         = NULL,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+#if 0
+    .config        = lpt_prt_text_config
+#else
+    .config        = NULL
+#endif
 };

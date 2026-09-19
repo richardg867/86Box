@@ -13,8 +13,6 @@
  *          8MB of DRAM chips', because it works fine with bus-based
  *          memory expansion.
  *
- *
- *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *
  *          Copyright 2018 Fred N. van Kempen.
@@ -988,7 +986,7 @@ neat_read(uint16_t port, void *priv)
             if ((dev->indx >= 0x60) && (dev->indx <= 0x6e))
                 ret = dev->regs[dev->indx];
             else if (dev->indx == 0x6f)
-                ret = (dev->regs[dev->indx] & 0xfd) | ~(mem_a20_alt & 0x02);
+                ret = (dev->regs[dev->indx] & 0xfd) | ((~mem_a20_alt) & 0x02);
             break;
 
         default:

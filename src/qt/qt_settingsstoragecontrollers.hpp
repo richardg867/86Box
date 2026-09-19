@@ -14,38 +14,52 @@ public:
     explicit SettingsStorageControllers(QWidget *parent = nullptr);
     ~SettingsStorageControllers();
 
-    void save();
+    int  changed();
+
+    void restore();
+    void save(int soft);
 
 public slots:
     void onCurrentMachineChanged(int machineId);
 
 private slots:
-    void on_pushButtonSCSI4_clicked();
-    void on_pushButtonSCSI3_clicked();
-    void on_pushButtonSCSI2_clicked();
-    void on_pushButtonSCSI1_clicked();
-    void on_comboBoxSCSI4_currentIndexChanged(int index);
-    void on_comboBoxSCSI3_currentIndexChanged(int index);
-    void on_comboBoxSCSI2_currentIndexChanged(int index);
-    void on_comboBoxSCSI1_currentIndexChanged(int index);
-    void on_pushButtonQuaternaryIDE_clicked();
-    void on_pushButtonTertiaryIDE_clicked();
-    void on_pushButtonFD_clicked();
-    void on_pushButtonHD_clicked();
-    void on_pushButtonCDInterface_clicked();
-    void on_checkBoxQuaternaryIDE_stateChanged(int arg1);
-    void on_checkBoxTertiaryIDE_stateChanged(int arg1);
     void on_comboBoxFD_currentIndexChanged(int index);
-    void on_comboBoxHD_currentIndexChanged(int index);
+    void on_pushButtonFD_clicked();
+
+    void on_comboBoxHD1_currentIndexChanged(int index);
+    void on_pushButtonHD1_clicked();
+    void on_comboBoxHD2_currentIndexChanged(int index);
+    void on_pushButtonHD2_clicked();
+    void on_comboBoxHD3_currentIndexChanged(int index);
+    void on_pushButtonHD3_clicked();
+    void on_comboBoxHD4_currentIndexChanged(int index);
+    void on_pushButtonHD4_clicked();
+
     void on_comboBoxCDInterface_currentIndexChanged(int index);
+    void on_pushButtonCDInterface_clicked();
 
-    void on_checkBoxLbaEnhancer_stateChanged(int arg1);
-
-    void on_pushButtonConfigureLbaEnhancer_clicked();
+    void on_comboBoxSCSI1_currentIndexChanged(int index);
+    void on_pushButtonSCSI1_clicked();
+    void on_comboBoxSCSI2_currentIndexChanged(int index);
+    void on_pushButtonSCSI2_clicked();
+    void on_comboBoxSCSI3_currentIndexChanged(int index);
+    void on_pushButtonSCSI3_clicked();
+    void on_comboBoxSCSI4_currentIndexChanged(int index);
+    void on_pushButtonSCSI4_clicked();
 
 private:
     Ui::SettingsStorageControllers *ui;
     int                             machineId = 0;
+
+    int                             hdc_cfg_changed[4]          = { 0, 0, 0, 0 };
+    int                             scsi_card_cfg_changed[4]    = { 0, 0, 0, 0 };
+    int                             fdc_cfg_changed             = 0;
+    int                             cdrom_interface_cfg_changed = 0;
+
+    SettingsCompleter *scFD;
+    SettingsCompleter *scHD[4];
+    SettingsCompleter *scCDInterface;
+    SettingsCompleter *scSCSI[4];
 };
 
 #endif // QT_SETTINGSSTORAGECONTROLLERS_HPP

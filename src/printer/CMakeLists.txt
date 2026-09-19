@@ -23,10 +23,6 @@ add_library(print OBJECT
     prt_ps.c
 )
 
-if(PCL)
-    target_compile_definitions(print PRIVATE USE_PCL)
-endif()
-
 if(APPLE)
     find_library(GHOSTSCRIPT_LIB gs)
     if (NOT GHOSTSCRIPT_LIB)
@@ -37,6 +33,10 @@ endif()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FREETYPE REQUIRED IMPORTED_TARGET freetype2)
 target_link_libraries(86Box PkgConfig::FREETYPE)
+if(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
+	target_include_directories(print PRIVATE /usr/local/include)
+	target_include_directories(print PRIVATE /usr/local/include/freetype2)
+endif()
 if(STATIC_BUILD)
     # if(QT)
         # Qt provides its own version of harfbuzz which leads to duplicated symbols.

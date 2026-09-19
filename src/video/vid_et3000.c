@@ -8,8 +8,6 @@
  *
  *          Emulation of the Tseng Labs ET3000.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2016-2018 Miran Grca.
@@ -424,7 +422,7 @@ et3000_out(uint16_t addr, uint8_t val, void *priv)
 static void
 et3000_recalctimings(svga_t *svga)
 {
-    svga->ma_latch |= (svga->crtc[0x23] & 2) << 15;
+    svga->memaddr_latch |= (svga->crtc[0x23] & 2) << 15;
     if (svga->crtc[0x25] & 1)
         svga->vblankstart |= 0x400;
     if (svga->crtc[0x25] & 2)
@@ -439,12 +437,13 @@ et3000_recalctimings(svga_t *svga)
     svga->interlace = !!(svga->crtc[0x25] & 0x80);
 
     if (svga->attrregs[0x16] & 0x10) {
-        svga->ma_latch <<= (1 << 0);
+        svga->memaddr_latch <<= (1 << 0);
         svga->rowoffset <<= (1 << 0);
         switch (svga->gdcreg[5] & 0x60) {
             case 0x00:
                 svga->render = svga_render_4bpp_highres;
                 svga->hdisp *= 2;
+                svga->dots_per_clock *= 2;
                 break;
             case 0x20:
                 svga->render = svga_render_2bpp_highres;
@@ -476,6 +475,20 @@ et3000_recalctimings(svga_t *svga)
             svga->clock = (cpuclock * (double) (1ULL << 32)) / 36000000.0;
             break;
     }
+
+    if (svga->render == svga_render_4bpp_highres)
+        svga->render = svga_render_4bpp_tseng_highres;
+}
+
+static int
+et3000_line_compare(svga_t* svga)
+{
+    if (svga->split > svga->vsyncstart) {
+        /* Don't do line compare if we're already in vertical retrace. */
+        /* This makes picture bouncing effect work on Copper demo. */
+        return 0;
+    }
+    return 1;
 }
 
 static void *
@@ -484,8 +497,7 @@ et3000_init(const device_t *info)
     const char *fn;
     et3000_t   *dev;
 
-    dev = (et3000_t *) malloc(sizeof(et3000_t));
-    memset(dev, 0x00, sizeof(et3000_t));
+    dev = (et3000_t *) calloc(1, sizeof(et3000_t));
     dev->name = info->name;
     dev->type = info->local;
     fn        = BIOS_ROM_PATH;
@@ -496,7 +508,7 @@ et3000_init(const device_t *info)
             svga_init(info, &dev->svga, dev, device_get_config_int("memory") << 10,
                       et3000_recalctimings, et3000_in, et3000_out,
                       NULL, NULL);
-            io_sethandler(0x03b0, 48,
+            io_sethandler(0x03a0, 64,
                           et3000_in, NULL, NULL, et3000_out, NULL, NULL, dev);
             break;
 
@@ -508,9 +520,12 @@ et3000_init(const device_t *info)
              0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
 
     dev->svga.bpp     = 8;
-    dev->svga.miscout = 1;
+    dev->svga.miscout = 0;
 
     dev->svga.packed_chain4 = 1;
+    dev->svga.line_compare  = et3000_line_compare;
+
+    dev->svga.adv_flags    |= FLAG_EXT_AR;
 
     return dev;
 }

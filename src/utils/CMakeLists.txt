@@ -16,11 +16,22 @@
 #
 
 add_library(utils OBJECT
+
+    # Core
     cJSON.c
     crc.c
+    crc32.c
     fifo.c
     fifo8.c
     ini.c
     log.c
     random.c
+
+)
+
+add_library(mdsx_dll OBJECT
+
+    # MDSX DLL Core
+    mdsx_dll.c
+
 )

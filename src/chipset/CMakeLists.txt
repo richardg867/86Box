@@ -17,6 +17,7 @@
 
 add_library(chipset OBJECT
     82c100.c
+    acc2036.c
     acc2168.c
     cs8220.c
     cs8230.c
@@ -29,12 +30,15 @@ add_library(chipset OBJECT
     ali1621.c
     ali6117.c
     ali1409.c
-    headland.c
-    ims8848.c
-    intel_82335.c
+    compaq.c
     compaq_386.c
     contaq_82c59x.c
     cs4031.c
+    grid1520.c
+    gc100.c
+    headland.c
+    ims8848.c
+    intel_82335.c
     intel_420ex.c
     intel_4x0.c
     intel_i450kx.c
@@ -42,17 +46,22 @@ add_library(chipset OBJECT
     intel_piix.c
     isa486c.c
     ../ioapic.c
+    laserxt.c
     neat.c
     olivetti_eva.c
     opti283.c
     opti291.c
     opti391.c
     opti495.c
+    opti498.c
     opti499.c
     opti602.c
     opti822.c
     opti895.c
     opti5x7.c
+    opti55x.c
+    philips.c
+    sanyo.c
     scamp.c
     scat.c
     sis_85c310.c
@@ -61,6 +70,8 @@ add_library(chipset OBJECT
     sis_85c50x.c
     sis_5511.c
     sis_5571.c
+    sis_530.c
+    sis_530_h2p.c
     sis_5581.c
     sis_5591.c
     sis_5600.c
@@ -75,15 +86,16 @@ add_library(chipset OBJECT
     sis_5595_pmu.c
     sis_55xx.c
     sl82c461.c
+    stpc.c
     via_vt82c49x.c
     via_vt82c505.c
-    gc100.c
-    stpc.c
     umc_8886.c
     umc_hb4.c
     umc_8890.c
+    ut85c50x.c
     via_apollo.c
     via_pipc.c
     vl82c480.c
+    vl82c59x.c
     wd76c10.c
 )

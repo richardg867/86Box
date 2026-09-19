@@ -8,8 +8,6 @@
  *
  *          Implementation of the VIA VT82C49X chipset.
  *
- *
- *
  * Authors: Tiseno100,
  *          Miran Grca, <mgrca8@gmail.com>
  *
@@ -193,6 +191,8 @@ vt82c49x_recalc(vt82c49x_t *dev)
         default:
             break;
     }
+
+    flushmmucache_nopc();
 }
 
 static void

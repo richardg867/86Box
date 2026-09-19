@@ -68,8 +68,6 @@
  *
  * WARNING THIS IS A WORK-IN-PROGRESS MODULE. USE AT OWN RISK.
  *
- *
- *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *
  *          Inspired by the "jim.c" file originally present, but a
@@ -563,6 +561,18 @@ europc_boot(UNUSED(const device_t *info))
                (sys->nvr.regs[MRTC_CHECK_LO] != rtc_checksum(sys->nvr.regs)) ? "IN" : "");
 
     /*
+     * Allocate the system's I/O handlers.
+     *
+     * The first one is for the JIM. Note that although JIM usually
+     * resides at 0x0250, a special solder jumper on the mainboard
+     * (JS9) can be used to "move" it to 0x0350, to get it out of
+     * the way of other cards that need this range.
+     */
+    sys->jim = device_get_config_hex16("js9");
+    io_sethandler(sys->jim, 16,
+                  jim_read, NULL, NULL, jim_write, NULL, NULL, sys);
+
+    /*
      * Now that we have initialized the NVR (either from file,
      * or by setting it to defaults) we can start overriding it
      * with values set by the user.
@@ -625,7 +635,7 @@ europc_boot(UNUSED(const device_t *info))
         mouse_bus_set_irq(sys->mouse, 2);
         /* Configure the port for (Bus Mouse Compatible) Mouse. */
         b |= 0x01;
-    } else if (joystick_type)
+    } else if (joystick_type[0])
         b |= 0x02; /* enable port as joysticks */
     sys->nvr.regs[MRTC_CONF_C] = b;
 
@@ -638,19 +648,8 @@ europc_boot(UNUSED(const device_t *info))
     sys->nvr.regs[MRTC_CHECK_LO] = rtc_checksum(sys->nvr.regs);
     nvr_dosave++;
 
-    /*
-     * Allocate the system's I/O handlers.
-     *
-     * The first one is for the JIM. Note that although JIM usually
-     * resides at 0x0250, a special solder jumper on the mainboard
-     * (JS9) can be used to "move" it to 0x0350, to get it out of
-     * the way of other cards that need this range.
-     */
-    io_sethandler(sys->jim, 16,
-                  jim_read, NULL, NULL, jim_write, NULL, NULL, sys);
-
     /* Only after JIM has been initialized. */
-    (void) device_add(&keyboard_xt_device);
+    (void) device_add(&kbc_xt_device);
 
     /* Enable and set up the FDC. */
     (void) device_add(&fdc_xt_device);
@@ -676,23 +675,24 @@ europc_close(UNUSED(void *priv))
 }
 
 static const device_config_t europc_config[] = {
-  // clang-format off
+    // clang-format off
     {
-        .name = "js9",
-        .description = "JS9 Jumper (JIM)",
-        .type = CONFIG_INT,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
-            { .description = "Disabled (250h)", .value = 0 },
-            { .description = "Enabled (350h)",  .value = 1 },
-            { .description = ""                            }
+        .name           = "js9",
+        .description    = "JS9 Jumper (JIM)",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0x0250,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "Disabled (250h)", .value = 0x0250 },
+            { .description = "Enabled (350h)",  .value = 0x0350 },
+            { .description = ""                                 }
         },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
-  // clang-format on
+    // clang-format on
 };
 
 const device_t europc_device = {

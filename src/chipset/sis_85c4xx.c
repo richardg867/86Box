@@ -9,8 +9,6 @@
  *          Emulation of the SiS 85c401/85c402, 85c460, 85c461, and
  *          85c407/85c471 chipsets.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2019-2020 Miran Grca.
@@ -60,6 +58,8 @@ typedef struct sis_85c4xx_t {
     uint8_t       shadowed;
     uint8_t       smram_enabled;
     uint8_t       pad;
+    uint8_t       force_cache_size;
+    uint8_t       cache_size_code;
     uint8_t       regs[39];
     uint8_t       scratch[2];
     uint32_t      mem_state[8];
@@ -587,6 +587,9 @@ sis_85c4xx_out(uint16_t port, uint8_t val, void *priv)
             break;
         case 0x23:
             if ((dev->cur_reg >= dev->reg_base) && (dev->cur_reg <= dev->reg_last)) {
+                if (dev->is_471 && dev->force_cache_size && (rel_reg == 0x01))
+                    val = (val & 0x8f) | ((dev->cache_size_code & 0x07) << 4);
+
                 valxor = val ^ dev->regs[rel_reg];
 
                 if (!dev->is_471 && (rel_reg == 0x00))
@@ -596,15 +599,6 @@ sis_85c4xx_out(uint16_t port, uint8_t val, void *priv)
 
                 switch (rel_reg) {
                     case 0x00:
-                        if (dev->is_471) {
-                            if (val & 0x01) {
-                                kbc_at_set_fast_reset(0);
-                                cpu_cpurst_on_sr = 1;
-                            } else {
-                                kbc_at_set_fast_reset(1);
-                                cpu_cpurst_on_sr = 0;
-                            }
-                        }
                         break;
 
                     case 0x01:
@@ -769,13 +763,13 @@ sis_85c4xx_reset(void *priv)
 
     memset(dev->regs, 0x00, sizeof(dev->regs));
 
-    if (cpu_s->rspeed < 25000000)
+    if ((cpu_s != NULL) && (cpu_s->rspeed < 25000000))
         dev->regs[0x08] = 0x80;
 
     if (dev->is_471) {
         dev->regs[0x09] = 0x40;
 
-        if (!strcmp(machine_get_internal_name(), "vli486sv2g")) {
+        if (machines[machine].init == machine_at_vli486sv2g_init) {
             if (mem_size_mb == 64)
                 dev->regs[0x09] |= 0x1f;
             else
@@ -793,7 +787,7 @@ sis_85c4xx_reset(void *priv)
                 dev->regs[0x09] |= 0x34;
             else
                 dev->regs[0x09] |= 0x35;
-        } else if (!strcmp(machine_get_internal_name(), "tg486g"))
+        } else if (machines[machine].init == machine_at_tg486g_init)
             dev->regs[0x09] |= ram_tg486g[mem_size_mb];
         else
             dev->regs[0x09] |= ram_471[mem_size_mb];
@@ -870,7 +864,9 @@ sis_85c4xx_init(const device_t *info)
 {
     sis_85c4xx_t *dev = (sis_85c4xx_t *) calloc(1, sizeof(sis_85c4xx_t));
 
-    dev->is_471 = (info->local >> 8) & 0xff;
+    dev->is_471           = (info->local >> 8) & 0xff;
+    dev->cache_size_code  = (info->local >> 16) & 0x07;
+    dev->force_cache_size = (info->local >> 24) & 0x01;
 
     dev->reg_base = info->local & 0xff;
 

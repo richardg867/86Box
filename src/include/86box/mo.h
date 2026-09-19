@@ -17,7 +17,6 @@
  *          Copyright 2020-2025 Miran Grca.
  *          Copyright 2020-2025 Fred N. van Kempen
  */
-
 #ifndef EMU_MO_H
 #define EMU_MO_H
 
@@ -84,10 +83,11 @@ static const mo_drive_type_t mo_drive_types[KNOWN_MO_DRIVE_TYPES] = {
 };
 
 enum {
-    MO_BUS_DISABLED = 0,
-    MO_BUS_ATAPI    = 5,
-    MO_BUS_SCSI     = 6,
-    MO_BUS_USB      = 7
+    MO_BUS_DISABLED =  0,
+    MO_BUS_LPT      =  6,
+    MO_BUS_ATAPI    =  8,
+    MO_BUS_SCSI     =  9,
+    MO_BUS_USB      = 10
 };
 
 typedef struct mo_drive_t {
@@ -110,13 +110,13 @@ typedef struct mo_drive_t {
     uint8_t            pad;
     uint8_t            pad0;
 
-    FILE *             fp;
-    void *             priv;
+    FILE              *fp;
+    void              *priv;
 
-    char               image_path[1024];
-    char               prev_image_path[1024];
+    char               image_path[MAX_IMAGE_PATH_LEN];
+    char               prev_image_path[MAX_IMAGE_PATH_LEN + 256];
 
-    char *             image_history[MO_IMAGE_HISTORY];
+    char              *image_history[MO_IMAGE_HISTORY];
 
     uint32_t           type;
     uint32_t           medium_size;
@@ -129,16 +129,17 @@ typedef struct mo_drive_t {
 typedef struct mo_t {
     mode_sense_pages_t ms_pages_saved;
 
-    mo_drive_t *       drv;
+    mo_drive_t        *drv;
 #ifdef EMU_IDE_H
-    ide_tf_t *         tf;
+    ide_tf_t          *tf;
 #else
-    void *             tf;
+    void              *tf;
 #endif
 
     void *             log;
 
-    uint8_t *          buffer;
+    uint8_t           *buffer;
+    size_t             buffer_sz;
     uint8_t            atapi_cdb[16];
     uint8_t            current_cdb[16];
     uint8_t            sense[256];

@@ -23,7 +23,6 @@
  *
  *          See https://gitlab.freedesktop.org/xorg/lib/libxcvt/-/blob/master/COPYING for libxcvt license details
  */
-
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -40,14 +39,15 @@
 #include <86box/vid_svga.h>
 #include <86box/vid_svga_render.h>
 #include <86box/pci.h>
+#include <86box/plat_unused.h>
 #include <86box/i2c.h>
 #include <86box/vid_ddc.h>
 
 #define VBE_DISPI_BANK_SIZE_KB           64
 #define VBE_DISPI_BANK_GRANULARITY_KB    32
 
-#define VBE_DISPI_MAX_XRES               1920
-#define VBE_DISPI_MAX_YRES               1600
+#define VBE_DISPI_MAX_XRES               2048
+#define VBE_DISPI_MAX_YRES               2048
 
 #define VBE_DISPI_IOPORT_INDEX           0x01CE
 #define VBE_DISPI_IOPORT_DATA            0x01CF
@@ -293,17 +293,17 @@ bochs_vbe_recalctimings(svga_t* svga)
         vbe_mode_info_t mode = { 0 };
         svga->bpp = dev->vbe_regs[VBE_DISPI_INDEX_BPP];
         dev->vbe_regs[VBE_DISPI_INDEX_XRES] &= ~7;
-        if (dev->vbe_regs[VBE_DISPI_INDEX_XRES] == 0) {
+        if (dev->vbe_regs[VBE_DISPI_INDEX_XRES] == 0)
             dev->vbe_regs[VBE_DISPI_INDEX_XRES] = 8;
-        }
         if (dev->vbe_regs[VBE_DISPI_INDEX_VIRT_WIDTH] > VBE_DISPI_MAX_XRES)
             dev->vbe_regs[VBE_DISPI_INDEX_VIRT_WIDTH] = VBE_DISPI_MAX_XRES;
         if (dev->vbe_regs[VBE_DISPI_INDEX_VIRT_WIDTH] < dev->vbe_regs[VBE_DISPI_INDEX_XRES])
             dev->vbe_regs[VBE_DISPI_INDEX_VIRT_WIDTH] = dev->vbe_regs[VBE_DISPI_INDEX_XRES];
-        if (dev->vbe_regs[VBE_DISPI_INDEX_X_OFFSET] > VBE_DISPI_MAX_XRES)
-            dev->vbe_regs[VBE_DISPI_INDEX_X_OFFSET] = VBE_DISPI_MAX_XRES;
-        if (dev->vbe_regs[VBE_DISPI_INDEX_Y_OFFSET] > VBE_DISPI_MAX_YRES)
-            dev->vbe_regs[VBE_DISPI_INDEX_Y_OFFSET] = VBE_DISPI_MAX_YRES;
+        /* Logic would dictate that offsets are 0-based, not 1-based. */
+        if (dev->vbe_regs[VBE_DISPI_INDEX_X_OFFSET] >= VBE_DISPI_MAX_XRES)
+            dev->vbe_regs[VBE_DISPI_INDEX_X_OFFSET] = (VBE_DISPI_MAX_XRES - 1);
+        if (dev->vbe_regs[VBE_DISPI_INDEX_Y_OFFSET] >= VBE_DISPI_MAX_YRES)
+            dev->vbe_regs[VBE_DISPI_INDEX_Y_OFFSET] = (VBE_DISPI_MAX_YRES - 1);
 
         if (dev->vbe_regs[VBE_DISPI_INDEX_YRES] == 0)
             dev->vbe_regs[VBE_DISPI_INDEX_YRES] = 1;
@@ -320,10 +320,11 @@ bochs_vbe_recalctimings(svga_t* svga)
         svga->vtotal = mode.vtotal;
         svga->htotal = mode.htotal;
         svga->hblankstart = mode.hdisplay;
-        svga->hblankend = mode.hdisplay + (mode.htotal - mode.hdisplay - 1);
+        svga->hblankend = mode.htotal - 1;
         svga->vblankstart = svga->dispend; /* no vertical overscan. */
         svga->rowcount = 0;
         svga->hoverride = 1;
+        svga->panning_blank = 1;
         if (dev->vbe_regs[VBE_DISPI_INDEX_BPP] != 4) {
             svga->fb_only = 1;
             svga->adv_flags |= FLAG_NO_SHIFT3;
@@ -336,14 +337,15 @@ bochs_vbe_recalctimings(svga_t* svga)
 
         if (svga->bpp == 4) {
             svga->rowoffset = (dev->vbe_regs[VBE_DISPI_INDEX_VIRT_WIDTH] / 2) >> 3;
-            svga->ma_latch  = (dev->vbe_regs[VBE_DISPI_INDEX_Y_OFFSET] * svga->rowoffset) +
-                              (dev->vbe_regs[VBE_DISPI_INDEX_X_OFFSET] >> 3);
+            svga->memaddr_latch  = (dev->vbe_regs[VBE_DISPI_INDEX_Y_OFFSET] * svga->rowoffset) +
+                                   (dev->vbe_regs[VBE_DISPI_INDEX_X_OFFSET] >> 3);
 
             svga->fullchange = 3;
         } else {
-            svga->rowoffset = dev->vbe_regs[VBE_DISPI_INDEX_VIRT_WIDTH] * ((svga->bpp == 15) ? 2 : (svga->bpp / 8));
-            svga->ma_latch = (dev->vbe_regs[VBE_DISPI_INDEX_Y_OFFSET] * svga->rowoffset) +
-                             (dev->vbe_regs[VBE_DISPI_INDEX_X_OFFSET] * ((svga->bpp == 15) ? 2 : (svga->bpp / 8)));
+            const uint32_t pitch = ((svga->bpp == 15) ? 2 : (svga->bpp / 8));
+            svga->rowoffset = dev->vbe_regs[VBE_DISPI_INDEX_VIRT_WIDTH] * pitch;
+            svga->memaddr_latch = (dev->vbe_regs[VBE_DISPI_INDEX_Y_OFFSET] * svga->rowoffset) +
+                                  (dev->vbe_regs[VBE_DISPI_INDEX_X_OFFSET] * pitch);
             svga->fullchange = 3;
         }
 
@@ -379,6 +381,7 @@ bochs_vbe_recalctimings(svga_t* svga)
         svga->packed_4bpp = 0;
         svga->adv_flags &= ~FLAG_NO_SHIFT3;
         svga->hoverride = 0;
+        svga->panning_blank = 0;
     }
 }
 
@@ -466,16 +469,20 @@ bochs_vbe_outw(const uint16_t addr, const uint16_t val, void *priv)
         case VBE_DISPI_INDEX_X_OFFSET:
         case VBE_DISPI_INDEX_Y_OFFSET:
             dev->vbe_regs[dev->vbe_index] = val;
-            if (dev->vbe_index == VBE_DISPI_INDEX_X_OFFSET || dev->vbe_index == VBE_DISPI_INDEX_Y_OFFSET) {
-                svga_t *svga = &dev->svga;
+            svga_t *svga = &dev->svga;
+            if (svga->hoverride && ((dev->vbe_index == VBE_DISPI_INDEX_VIRT_WIDTH) ||
+                                    (dev->vbe_index == VBE_DISPI_INDEX_X_OFFSET) ||
+                                    (dev->vbe_index == VBE_DISPI_INDEX_Y_OFFSET))) {
                 if (svga->bpp == 4) {
                     svga->rowoffset = (dev->vbe_regs[VBE_DISPI_INDEX_VIRT_WIDTH] / 2) >> 3;
-                    svga->ma_latch  = (dev->vbe_regs[VBE_DISPI_INDEX_Y_OFFSET] * svga->rowoffset) +
+                    svga->memaddr_latch  = (dev->vbe_regs[VBE_DISPI_INDEX_Y_OFFSET] * svga->rowoffset) +
                                     (dev->vbe_regs[VBE_DISPI_INDEX_X_OFFSET] >> 3);
                 } else {
-                    svga->rowoffset = dev->vbe_regs[VBE_DISPI_INDEX_VIRT_WIDTH] * ((svga->bpp == 15) ? 2 : (svga->bpp / 8));
-                    svga->ma_latch = (dev->vbe_regs[VBE_DISPI_INDEX_Y_OFFSET] * svga->rowoffset) +
-                                    (dev->vbe_regs[VBE_DISPI_INDEX_X_OFFSET] * ((svga->bpp == 15) ? 2 : (svga->bpp / 8)));
+                    const uint32_t pitch = ((svga->bpp == 15) ? 2 : (svga->bpp / 8));
+                    svga->rowoffset = dev->vbe_regs[VBE_DISPI_INDEX_VIRT_WIDTH] * pitch;
+                    svga->memaddr_latch = (dev->vbe_regs[VBE_DISPI_INDEX_Y_OFFSET] * svga->rowoffset) +
+                                          (dev->vbe_regs[VBE_DISPI_INDEX_X_OFFSET] * pitch);
+                    svga->fullchange = 3;
                 }
 
                 svga->fullchange = 3;
@@ -511,7 +518,7 @@ bochs_vbe_outw(const uint16_t addr, const uint16_t val, void *priv)
                 svga_recalctimings(&dev->svga);
                 if (!(val & VBE_DISPI_NOCLEARMEM)) {
                     memset(dev->svga.vram, 0,
-                           dev->vbe_regs[VBE_DISPI_INDEX_YRES] * dev->svga.rowoffset);
+                           (size_t) dev->vbe_regs[VBE_DISPI_INDEX_YRES] * dev->svga.rowoffset);
                 }
             } else
                 dev->svga.read_bank = dev->svga.write_bank = 0;
@@ -575,7 +582,8 @@ bochs_vbe_out(uint16_t addr, uint8_t val, void *priv)
                 if (svga->crtcreg < 0xe || svga->crtcreg > 0x10) {
                     if ((svga->crtcreg == 0xc) || (svga->crtcreg == 0xd)) {
                         svga->fullchange = 3;
-                        svga->ma_latch   = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) + ((svga->crtc[8] & 0x60) >> 5);
+                        if (!svga->hoverride)
+                            svga->memaddr_latch   = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) + ((svga->crtc[8] & 0x60) >> 5);
                     } else {
                         svga->fullchange = changeframecount;
                         svga_recalctimings(svga);
@@ -629,7 +637,7 @@ bochs_vbe_in(uint16_t addr, void *priv)
 }
 
 static uint8_t
-bochs_vbe_pci_read(const int func, const int addr, void *priv)
+bochs_vbe_pci_read(const int func, const int addr, UNUSED(const int len), void *priv)
 {
     const bochs_vbe_t *dev = (bochs_vbe_t *) priv;
     uint8_t            ret = 0x00;
@@ -691,7 +699,7 @@ bochs_vbe_pci_read(const int func, const int addr, void *priv)
 static void
 bochs_vbe_disable_handlers(bochs_vbe_t *dev)
 {
-    io_removehandler(0x03c0, 0x0020, bochs_vbe_in, NULL, NULL,
+    io_removehandler(0x03a0, 0x0040, bochs_vbe_in, NULL, NULL,
                      bochs_vbe_out, NULL, NULL, dev);
     io_removehandler(0x01ce, 0x0003, bochs_vbe_in, bochs_vbe_inw,
                      bochs_vbe_inl, bochs_vbe_out, bochs_vbe_outw, bochs_vbe_outl, dev);
@@ -712,7 +720,7 @@ bochs_vbe_disable_handlers(bochs_vbe_t *dev)
 }
 
 static void
-bochs_vbe_pci_write(const int func, const int addr, const uint8_t val, void *priv)
+bochs_vbe_pci_write(const int func, const int addr, UNUSED(const int len), const uint8_t val, void *priv)
 {
     bochs_vbe_t *dev = (bochs_vbe_t *) priv;
 
@@ -721,7 +729,7 @@ bochs_vbe_pci_write(const int func, const int addr, const uint8_t val, void *pri
             break;
         case 0x04:
             dev->pci_conf_status = val;
-            io_removehandler(0x03c0, 0x0020, bochs_vbe_in, NULL, NULL,
+            io_removehandler(0x03a0, 0x0040, bochs_vbe_in, NULL, NULL,
                              bochs_vbe_out, NULL, NULL, dev);
             io_removehandler(0x01ce, 0x0003, bochs_vbe_in, bochs_vbe_inw,
                              bochs_vbe_inl, bochs_vbe_out, bochs_vbe_outw, bochs_vbe_outl, dev);
@@ -730,6 +738,9 @@ bochs_vbe_pci_write(const int func, const int addr, const uint8_t val, void *pri
             mem_mapping_disable(&dev->svga.mapping);
             mem_mapping_disable(&dev->bios_rom.mapping);
             if (dev->pci_conf_status & PCI_COMMAND_IO) {
+                if (!(dev->svga.miscout & 0x01))
+                    io_sethandler(0x03a0, 0x0020, bochs_vbe_in, NULL, NULL,
+                                  bochs_vbe_out, NULL, NULL, dev);
                 io_sethandler(0x03c0, 0x0020, bochs_vbe_in, NULL, NULL,
                               bochs_vbe_out, NULL, NULL, dev);
                 io_sethandler(0x01ce, 0x0003, bochs_vbe_in, bochs_vbe_inw, bochs_vbe_inl,
@@ -856,7 +867,7 @@ bochs_vbe_init(const device_t *info)
     mem_mapping_disable(&dev->linear_mapping_2);
 
     dev->svga.bpp     = 8;
-    dev->svga.miscout = 1;
+    dev->svga.miscout = 0;
 
     dev->bank_gran    = 64;
 

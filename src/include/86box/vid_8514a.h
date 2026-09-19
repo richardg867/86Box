@@ -9,8 +9,6 @@
  *          Emulation of the 8514/A card from IBM for the MCA bus and
  *          generic ISA bus clones without vendor extensions.
  *
- *
- *
  * Authors: TheCollector1995
  *
  *          Copyright 2022 TheCollector1995.
@@ -23,6 +21,26 @@
 #define INT_FIFO_OVR    (1 << 2)
 #define INT_FIFO_EMP    (1 << 3)
 #define INT_MASK        0xf
+
+typedef enum {
+    IBM_8514A_TYPE = 0,
+    ATI_38800_TYPE,
+    ATI_68800_TYPE,
+    TYPE_MAX
+} ibm8514_card_type;
+
+typedef enum {
+    IBM = 0,
+    ATI,
+    EXTENSIONS_MAX
+} ibm8514_extensions_t;
+
+typedef enum {
+    VGA_MODE = 0,
+    IBM_MODE,
+    ATI_MODE,
+    MODE_MAX
+} ibm8514_mode_t;
 
 typedef struct hwcursor8514_t {
     int      ena;
@@ -48,7 +66,6 @@ typedef union {
 typedef struct ibm8514_t {
     rom_t bios_rom;
     rom_t bios_rom2;
-    mem_mapping_t bios_mapping;
     uint8_t *rom1;
     uint8_t *rom2;
     hwcursor8514_t hwcursor;
@@ -56,9 +73,11 @@ typedef struct ibm8514_t {
     uint8_t        pos_regs[8];
     char *rom_path;
 
+    void *log;
+
     int force_old_addr;
     int type;
-    int local;
+    ibm8514_card_type local;
     int bpp;
     int on;
     int accel_bpp;
@@ -67,7 +86,7 @@ typedef struct ibm8514_t {
     uint32_t vram_mask;
     uint32_t pallook[512];
     uint32_t bios_addr;
-    uint32_t ma_latch;
+    uint32_t memaddr_latch;
 
     PALETTE   vgapal;
     uint8_t   hwcursor_oddeven;
@@ -81,12 +100,13 @@ typedef struct ibm8514_t {
     int       dac_b;
     int       internal_pitch;
     int       hwcursor_on;
-    int       modechange;
 
     uint64_t  dispontime;
     uint64_t  dispofftime;
 
     struct {
+        uint16_t scratch0;
+        uint16_t scratch1;
         uint16_t subsys_cntl;
         uint16_t setup_md;
         uint16_t advfunc_cntl;
@@ -138,6 +158,7 @@ typedef struct ibm8514_t {
         int16_t  sy;
         int16_t  dx;
         int16_t  dy;
+        int16_t  dy2;
         int16_t  err;
         uint32_t src;
         uint32_t dest;
@@ -146,8 +167,11 @@ typedef struct ibm8514_t {
         int      y_count;
         int      input;
         int      input2;
+        int      input3;
         int      output;
         int      output2;
+        int      output3;
+        int      init_cx;
 
         int      ssv_len;
         int      ssv_len_back;
@@ -166,6 +190,7 @@ typedef struct ibm8514_t {
         uint32_t dst_ge_offset;
         uint16_t src_pitch;
         uint16_t dst_pitch;
+        uint16_t read_pixel;
         int64_t cur_x_24bpp;
         int64_t cur_y_24bpp;
         int64_t dest_x_24bpp;
@@ -189,6 +214,9 @@ typedef struct ibm8514_t {
     int      split;
     int      h_disp;
     int      h_total;
+    int      h_total_back;
+    int      vga_htotal;
+    int      h_sync_start;
     int      h_sync_width;
     int      h_disp_time;
     int      rowoffset;
@@ -207,8 +235,8 @@ typedef struct ibm8514_t {
     int      lastline_draw;
     int      displine;
     int      fullchange;
-    uint32_t ma;
-    uint32_t maback;
+    uint32_t memaddr;
+    uint32_t memaddr_backup;
 
     uint8_t *vram;
     uint8_t *changedvram;
@@ -223,16 +251,19 @@ typedef struct ibm8514_t {
     int     hdisp;
     int     hdisp2;
     int     hdisped;
-    int     sc;
+    int     scanline;
     int     vsyncstart;
     int     vsyncwidth;
     int     vtotal;
     int     v_disp;
-    int     v_disp2;
     int     vdisp;
     int     vdisp2;
     int     disp_cntl;
+    int     disp_change;
+    int     extended_mode;
     int     interlace;
+    int     disp_cntl_interlace;
+    int     disp_cntl_double_scan;
     uint16_t subsys_cntl;
     uint8_t subsys_stat;
 
@@ -246,14 +277,20 @@ typedef struct ibm8514_t {
     int      pitch;
     int      ext_pitch;
     int      ext_crt_pitch;
-    int      extensions;
+    ibm8514_extensions_t extensions;
+    ibm8514_mode_t mode;
+    int      onboard;
     int      linear;
     uint32_t vram_amount;
     int      vram_512k_8514;
+    uint32_t vram_8514_addr_mask;
     int      vendor_mode;
+    int      monitorid;
     int      _8514on;
     int      _8514crt;
     PALETTE  _8514pal;
+    uint8_t  ven_clock;
+    uint8_t  double_clock;
 
     latch8514_t latch;
 
@@ -263,9 +300,9 @@ typedef struct ibm8514_t {
 
 } ibm8514_t;
 
-#define IBM_8514A (((dev->local & 0xff) == 0x00) && (dev->extensions == 0x00))
-#define ATI_8514A_ULTRA (((dev->local & 0xff) == 0x00) && (dev->extensions == 0x01))
-#define ATI_GRAPHICS_ULTRA ((dev->local & 0xff) == 0x01)
-#define ATI_MACH32 ((dev->local & 0xff) == 0x02)
+#define IBM_8514A (((dev->local & 0xff) == IBM_8514A_TYPE) && (dev->extensions == IBM))
+#define ATI_8514A_ULTRA (((dev->local & 0xff) == IBM_8514A_TYPE) && (dev->extensions == ATI))
+#define ATI_GRAPHICS_ULTRA ((dev->local & 0xff) == ATI_38800_TYPE)
+#define ATI_MACH32 ((dev->local & 0xff) == ATI_68800_TYPE)
 
 #endif /*VIDEO_8514A_H*/

@@ -152,6 +152,14 @@ mo_load(const mo_t *dev, const char *fn, const int skip_insert)
 {
     const int was_empty = mo_is_empty(dev->id);
     int       ret       = 0;
+    int       offs      = 0;
+
+    if (strstr(fn, "wp://") == fn) {
+        offs                = 5;
+        dev->drv->read_only = 1;
+    }
+
+    fn += offs;
 
     if (dev->drv == NULL)
         mo_eject(dev->id);
@@ -202,7 +210,10 @@ mo_load(const mo_t *dev, const char *fn, const int skip_insert)
                     log_fatal(dev->log, "mo_load(): Error seeking to the beginning of "
                               "the file\n");
 
-                strncpy(dev->drv->image_path, fn, sizeof(dev->drv->image_path) - 1);
+                if (dev->drv->image_path != (fn - offs)) {
+                    const int len = MIN(strlen(fn - offs), (strlen(dev->drv->image_path) - 1));
+                    strncpy(dev->drv->image_path, fn - offs, len);
+                }
 
                 ret = 1;
             } else
@@ -218,6 +229,9 @@ mo_load(const mo_t *dev, const char *fn, const int skip_insert)
         if (was_empty)
             mo_insert((mo_t *) dev);
     }
+
+    if (ret)
+        ui_sb_update_icon_wp(SB_MO | dev->id, dev->drv->read_only);
 }
 
 void
@@ -243,7 +257,7 @@ mo_disk_close(const mo_t *dev)
         mo_disk_unload(dev);
 
         memcpy(dev->drv->prev_image_path, dev->drv->image_path,
-               sizeof(dev->drv->prev_image_path));
+               sizeof(dev->drv->image_path));
         memset(dev->drv->image_path, 0, sizeof(dev->drv->image_path));
 
         dev->drv->medium_size = 0;
@@ -486,7 +500,7 @@ mo_bus_speed(mo_t *dev)
 {
     double ret = -1.0;
 
-    if (dev && dev->drv)
+    if (dev && dev->drv && (dev->drv->bus_type == MO_BUS_ATAPI))
         ret = ide_atapi_get_period(dev->drv->ide_channel);
 
     if (ret == -1.0) {
@@ -653,8 +667,17 @@ static void
 mo_buf_alloc(mo_t *dev, uint32_t len)
 {
     mo_log(dev->log, "Allocated buffer length: %i\n", len);
-    if (dev->buffer == NULL)
-        dev->buffer = (uint8_t *) malloc(len);
+
+    if (dev->buffer == NULL) {
+        dev->buffer = (uint8_t *) calloc(1, len);
+        dev->buffer_sz = len;
+    }
+
+    if (len > dev->buffer_sz) {
+        uint8_t *buf = (uint8_t *) realloc(dev->buffer, len);
+        dev->buffer = buf;
+        dev->buffer_sz = len;
+    }
 }
 
 static void
@@ -1183,15 +1206,13 @@ mo_request_sense_for_scsi(scsi_common_t *sc, uint8_t *buffer, uint8_t alloc_leng
 static void
 mo_set_buf_len(const mo_t *dev, int32_t *BufLen, int32_t *src_len)
 {
-    if (dev->drv->bus_type == MO_BUS_SCSI) {
-        if (*BufLen == -1)
-            *BufLen = *src_len;
-        else {
-            *BufLen  = MIN(*src_len, *BufLen);
-            *src_len = *BufLen;
-        }
-        mo_log(dev->log, "Actual transfer length: %i\n", *BufLen);
+    if (*BufLen == -1)
+        *BufLen = *src_len;
+    else {
+        *BufLen  = MIN(*src_len, *BufLen);
+        *src_len = *BufLen;
     }
+    mo_log(dev->log, "Actual transfer length: %i\n", *BufLen);
 }
 
 static void
@@ -1200,7 +1221,7 @@ mo_command(scsi_common_t *sc, const uint8_t *cdb)
     mo_t *        dev                = (mo_t *) sc;
     char          device_identify[9] = { '8', '6', 'B', '_', 'M', 'O', '0', '0', 0 };
     uint32_t      previous_pos       = 0;
-    int32_t       blen               = 0;
+    int32_t       blen               = 65536;
     const uint8_t scsi_bus           = (dev->drv->scsi_device_id >> 4) & 0x0f;
     const uint8_t scsi_id            = dev->drv->scsi_device_id & 0x0f;
     int           pos                = 0;
@@ -2005,7 +2026,7 @@ mo_get_max(UNUSED(const ide_t *ide), const int ide_has_dma, const int type)
 
     switch (type) {
         case TYPE_PIO:
-            ret = ide_has_dma ? 3 : 0;
+            ret = 3;
             break;
         case TYPE_SDMA:
         default:
@@ -2032,10 +2053,10 @@ mo_get_timings(UNUSED(const ide_t *ide), const int ide_has_dma, const int type)
             ret = ide_has_dma ? 0x96 : 0;
             break;
         case TIMINGS_PIO:
-            ret = ide_has_dma ? 0xb4 : 0;
+            ret = 0xf0;
             break;
         case TIMINGS_PIO_FC:
-            ret = ide_has_dma ? 0xb4 : 0;
+            ret = 0xb4;
             break;
         default:
             ret = 0;
@@ -2176,11 +2197,11 @@ mo_hard_reset(void)
 
             mo_log(dev->log, "MO hard_reset drive=%d\n", c);
 
-            if (dev->tf == NULL)
-                continue;
-
             dev->id  = c;
             dev->drv = &mo_drives[c];
+
+            if (dev->tf == NULL)
+                continue;
 
             mo_init(dev);
 

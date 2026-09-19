@@ -47,8 +47,6 @@
  *          access size or host data has any affect, but the Windows 3.1
  *          driver always reads bytes and write words of 0xffff.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *
@@ -72,6 +70,7 @@
 #include <86box/video.h>
 #include <86box/i2c.h>
 #include <86box/vid_ddc.h>
+#include <86box/vid_xga.h>
 #include <86box/vid_svga.h>
 #include <86box/vid_svga_render.h>
 
@@ -162,7 +161,7 @@ typedef struct tgui_t {
     uint8_t ramdac_ctrl;
     uint8_t alt_clock;
 
-    int clock_m, clock_n, clock_k;
+    uint16_t vclk;
 
     uint32_t vram_size, vram_mask;
 
@@ -231,7 +230,7 @@ tgui_update_irqs(tgui_t *tgui)
 static void
 tgui_remove_io(tgui_t *tgui)
 {
-    io_removehandler(0x03c0, 0x0020, tgui_in, NULL, NULL, tgui_out, NULL, NULL, tgui);
+    io_removehandler(0x03a0, 0x0040, tgui_in, NULL, NULL, tgui_out, NULL, NULL, tgui);
     if (tgui->type >= TGUI_9440) {
         io_removehandler(0x43c6, 0x0004, tgui_in, NULL, NULL, tgui_out, NULL, NULL, tgui);
         io_removehandler(0x83c6, 0x0003, tgui_in, NULL, NULL, tgui_out, NULL, NULL, tgui);
@@ -263,6 +262,8 @@ tgui_set_io(tgui_t *tgui)
 {
     tgui_remove_io(tgui);
 
+    if (!(tgui->svga.miscout & 0x01))
+        io_sethandler(0x03a0, 0x0020, tgui_in, NULL, NULL, tgui_out, NULL, NULL, tgui);
     io_sethandler(0x03c0, 0x0020, tgui_in, NULL, NULL, tgui_out, NULL, NULL, tgui);
     if (tgui->type >= TGUI_9440) {
         io_sethandler(0x43c6, 0x0004, tgui_in, NULL, NULL, tgui_out, NULL, NULL, tgui);
@@ -543,7 +544,7 @@ tgui_out(uint16_t addr, uint8_t val, void *priv)
                 if (svga->crtcreg < 0xe || svga->crtcreg > 0x10) {
                     if ((svga->crtcreg == 0xc) || (svga->crtcreg == 0xd)) {
                         svga->fullchange = 3;
-                        svga->ma_latch   = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) + ((svga->crtc[8] & 0x60) >> 5);
+                        svga->memaddr_latch   = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) + ((svga->crtc[8] & 0x60) >> 5);
                     } else {
                         svga->fullchange = svga->monitor->mon_changeframecount;
                         svga_recalctimings(svga);
@@ -568,17 +569,18 @@ tgui_out(uint16_t addr, uint8_t val, void *priv)
             return;
 
         case 0x3DB:
-            tgui->alt_clock = val & 0xe3;
+            tgui->alt_clock = val;
+            svga_recalctimings(svga);
             return;
 
         case 0x43c8:
-            tgui->clock_n = val & 0x7f;
-            tgui->clock_m = (tgui->clock_m & ~1) | (val >> 7);
-            break;
+            tgui->vclk = (tgui->vclk & 0xff00) | val;
+            svga_recalctimings(svga);
+            return;
         case 0x43c9:
-            tgui->clock_m = (tgui->clock_m & ~0x1e) | ((val << 1) & 0x1e);
-            tgui->clock_k = (val & 0x10) >> 4;
-            break;
+            tgui->vclk = (tgui->vclk & 0x00ff) | (val << 8);
+            svga_recalctimings(svga);
+            return;
 
         default:
             break;
@@ -693,6 +695,10 @@ tgui_recalctimings(svga_t *svga)
     const tgui_t *tgui       = (tgui_t *) svga->priv;
     uint8_t       ger22lower = (tgui->accel.ger22 & 0xff);
     uint8_t       ger22upper = (tgui->accel.ger22 >> 8);
+    int           std_vga_clock = 1;
+    int           m = 0;
+    int           n = 0;
+    int           k = 0;
 
     if (tgui->type >= TGUI_9440) {
         if ((svga->crtc[0x38] & 0x19) == 0x09)
@@ -726,13 +732,13 @@ tgui_recalctimings(svga_t *svga)
 #endif
 
     if ((svga->crtc[0x1e] & 0xA0) == 0xA0)
-        svga->ma_latch |= 0x10000;
+        svga->memaddr_latch |= 0x10000;
     if (svga->crtc[0x27] & 0x01)
-        svga->ma_latch |= 0x20000;
+        svga->memaddr_latch |= 0x20000;
     if (svga->crtc[0x27] & 0x02)
-        svga->ma_latch |= 0x40000;
+        svga->memaddr_latch |= 0x40000;
     if (svga->crtc[0x27] & 0x04)
-        svga->ma_latch |= 0x80000;
+        svga->memaddr_latch |= 0x80000;
 
     if (svga->crtc[0x27] & 0x08)
         svga->split |= 0x400;
@@ -759,19 +765,30 @@ tgui_recalctimings(svga_t *svga)
         svga->vdisp += 2;
 
     if (tgui->oldctrl2 & 0x10)
-        svga->ma_latch <<= 1;
+        svga->memaddr_latch <<= 1;
 
     svga->lowres = !(svga->crtc[0x2a] & 0x40);
 
     if (tgui->type >= TGUI_9440) {
-        if (svga->miscout & 8)
-            svga->clock = (cpuclock * (double) (1ULL << 32)) / (((tgui->clock_n + 8) * 14318180.0) / ((tgui->clock_m + 2) * (1 << tgui->clock_k)));
+        // Bits 0-6: M
+        // Bits 7-11: N
+        // Bit 12: K
+        // Later formula extends each variable by one extra bit (Providia 9685 and later)
+        if (((svga->miscout & 0x0c) >> 2) == 0x02) {
+            m = tgui->vclk & 0x007f;
+            n = (tgui->vclk & 0x0f80) >> 7;
+            k = (tgui->vclk & 0x1000) >> 12;
+            svga->clock = (cpuclock * (double) (1ULL << 32)) / (((m + 8) * 14318180.0) / ((n + 2) * (1 << k)));
+        }
 
-        if (svga->gdcreg[0xf] & 0x08)
-            svga->clock *= 2;
+        if ((svga->gdcreg[0xf] & 0x08) || (tgui->alt_clock & 0x20))
+            svga->clock *= 2.0;
         else if (svga->gdcreg[0xf] & 0x40)
-            svga->clock *= 3;
+            svga->clock *= 3.0;
+
+        // pclog("GDCREGF=%02x, miscout=%02x.\n", svga->gdcreg[0xf] & 0x48, svga->miscout & 0x0c);
     } else {
+        //pclog("TGUI9400CXi: Clock double=%d.\n", (((svga->miscout >> 2) & 3) | ((tgui->newctrl2 << 2) & 4) | ((tgui->newctrl2 >> 3) & 8)));
         switch (((svga->miscout >> 2) & 3) | ((tgui->newctrl2 << 2) & 4) | ((tgui->newctrl2 >> 3) & 8)) {
             case 0x02:
                 svga->clock = (cpuclock * (double) (1ULL << 32)) / 44900000.0;
@@ -817,6 +834,7 @@ tgui_recalctimings(svga_t *svga)
                 break;
 
             default:
+                std_vga_clock = 0;
                 break;
         }
 
@@ -824,6 +842,9 @@ tgui_recalctimings(svga_t *svga)
             svga->htotal <<= 1;
             svga->hdisp <<= 1;
             svga->hdisp_time <<= 1;
+            svga->dots_per_clock <<= 1;
+            if (std_vga_clock)
+                svga->clock /= 2.0;
         }
     }
 
@@ -844,6 +865,7 @@ tgui_recalctimings(svga_t *svga)
                             svga->htotal <<= 1;
                             svga->hdisp <<= 1;
                             svga->hdisp_time <<= 1;
+                            svga->dots_per_clock <<= 1;
                             break;
                         default:
                             break;
@@ -867,6 +889,7 @@ tgui_recalctimings(svga_t *svga)
                         svga->htotal <<= 1;
                         svga->hdisp <<= 1;
                         svga->hdisp_time <<= 1;
+                        svga->dots_per_clock <<= 1;
                     }
                     switch (svga->hdisp) {
                         case 640:
@@ -881,18 +904,24 @@ tgui_recalctimings(svga_t *svga)
                 break;
             case 15:
                 svga->render = svga_render_15bpp_highres;
-                if (tgui->type < TGUI_9440)
+                if (tgui->type < TGUI_9440) {
                     svga->hdisp >>= 1;
+                    svga->dots_per_clock >>= 1;
+                }
                 break;
             case 16:
                 svga->render = svga_render_16bpp_highres;
-                if (tgui->type < TGUI_9440)
+                if (tgui->type < TGUI_9440) {
                     svga->hdisp >>= 1;
+                    svga->dots_per_clock >>= 1;
+                }
                 break;
             case 24:
                 svga->render = svga_render_24bpp_highres;
-                if (tgui->type < TGUI_9440)
-                    svga->hdisp = (svga->hdisp << 1) / 3;
+                if (tgui->type < TGUI_9440) {
+                    svga->hdisp /= 3;
+                    svga->dots_per_clock /= 3;
+                }
                 break;
             case 32:
                 if (svga->rowoffset == 0x100)
@@ -911,6 +940,7 @@ static void
 tgui_recalcmapping(tgui_t *tgui)
 {
     svga_t *svga = &tgui->svga;
+    xga_t  *xga  = (xga_t *) svga->xga;
 
     if (tgui->type == TGUI_9400CXI) {
         if (svga->gdcreg[0x10] & EXT_CTRL_LATCH_COPY) {
@@ -964,6 +994,10 @@ tgui_recalcmapping(tgui_t *tgui)
                 case 0x4: /*64k at A0000*/
                     mem_mapping_set_addr(&svga->mapping, 0xa0000, 0x10000);
                     svga->banked_mask = 0xffff;
+                    if (xga_active && (svga->xga != NULL)) {
+                        xga->on = 0;
+                        mem_mapping_set_handler(&svga->mapping, svga->read, svga->readw, svga->readl, svga->write, svga->writew, svga->writel);
+                    }
                     break;
                 case 0x8: /*32k at B0000*/
                     mem_mapping_set_addr(&svga->mapping, 0xb0000, 0x08000);
@@ -988,6 +1022,10 @@ tgui_recalcmapping(tgui_t *tgui)
             case 0x4: /*64k at A0000*/
                 mem_mapping_set_addr(&svga->mapping, 0xa0000, 0x10000);
                 svga->banked_mask = 0xffff;
+                if (xga_active && (svga->xga != NULL)) {
+                    xga->on = 0;
+                    mem_mapping_set_handler(&svga->mapping, svga->read, svga->readw, svga->readl, svga->write, svga->writew, svga->writel);
+                }
                 break;
             case 0x8: /*32k at B0000*/
                 mem_mapping_set_addr(&svga->mapping, 0xb0000, 0x08000);
@@ -1060,7 +1098,7 @@ tgui_hwcursor_draw(svga_t *svga, int displine)
 }
 
 uint8_t
-tgui_pci_read(UNUSED(int func), int addr, void *priv)
+tgui_pci_read(UNUSED(int func), int addr, UNUSED(int len), void *priv)
 {
     const tgui_t *tgui = (tgui_t *) priv;
 
@@ -1130,7 +1168,7 @@ tgui_pci_read(UNUSED(int func), int addr, void *priv)
 }
 
 void
-tgui_pci_write(UNUSED(int func), int addr, uint8_t val, void *priv)
+tgui_pci_write(UNUSED(int func), int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     tgui_t *tgui = (tgui_t *) priv;
     svga_t *svga = &tgui->svga;
@@ -3993,9 +4031,8 @@ tgui_init(const device_t *info)
 {
     const char *bios_fn;
 
-    tgui_t *tgui = malloc(sizeof(tgui_t));
+    tgui_t *tgui = calloc(1, sizeof(tgui_t));
     svga_t *svga = &tgui->svga;
-    memset(tgui, 0, sizeof(tgui_t));
 
     tgui->vram_size = device_get_config_int("memory") << 20;
     tgui->vram_mask = tgui->vram_size - 1;
@@ -4258,7 +4295,7 @@ const device_t tgui9660_onboard_pci_device = {
     .available     = NULL,
     .speed_changed = tgui_speed_changed,
     .force_redraw  = tgui_force_redraw,
-    .config        = tgui96xx_config
+    .config        = tgui9440_config
 };
 
 const device_t tgui9680_pci_device = {

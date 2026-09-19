@@ -1,20 +1,20 @@
 /*
- * 86Box     A hypervisor and IBM PC system emulator that specializes in
- *           running old operating systems and software designed for IBM
- *           PC systems and compatibles from 1981 through fairly recent
- *           system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *           This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *           Roland MPU-401 emulation.
+ *          Roland MPU-401 emulation.
  *
- * Authors:  DOSBox Team,
- *           Miran Grca, <mgrca8@gmail.com>
- *           TheCollector1995, <mariogplayer@gmail.com>
+ * Authors: DOSBox Team,
+ *          Miran Grca, <mgrca8@gmail.com>
+ *          TheCollector1995, <mariogplayer@gmail.com>
  *
- *           Copyright 2008-2024 DOSBox Team.
- *           Copyright 2016-2024 Miran Grca.
- *           Copyright 2016-2024 TheCollector1995.
+ *          Copyright 2008-2024 DOSBox Team.
+ *          Copyright 2016-2024 Miran Grca.
+ *          Copyright 2016-2024 TheCollector1995.
  */
 #include <inttypes.h>
 #include <stdarg.h>
@@ -210,7 +210,8 @@ MPU401_RecQueueBuffer(mpu_t *mpu, uint8_t *buf, unsigned int len)
                 break;
             }
             cnt++;
-        }
+        } else
+            break; /* Input queue full, drop the rest of the message. */
     }
     if (!mpu->queue_used) {
         if (mpu->state.rec_copy || mpu->state.irq_pending) {
@@ -278,6 +279,7 @@ MPU401_Reset(mpu_t *mpu)
     mpu->state.midi_mask                            = 0xffff;
     mpu->state.command_byte                         = 0;
     mpu->state.block_ack                            = 0;
+    mpu->state.sysex_in_finished                    = 1; // Initialize in finished state
     mpu->clock.tempo = mpu->clock.old_tempo         = 100;
     mpu->clock.timebase = mpu->clock.old_timebase   = 120;
     mpu->clock.tempo_rel = mpu->clock.old_tempo_rel = 0x40;
@@ -316,7 +318,10 @@ MPU401_Reset(mpu_t *mpu)
             mpu->ch_toref[i]                        = 4; /* Dummy reftable. */
     }
 
-    MPU401_ClrQueue(mpu);
+    /* SB 16 only? */
+    if (!mpu->intelligent)
+        MPU401_ClrQueue(mpu);
+
     mpu->state.data_onoff                           = -1;
 
     mpu->state.req_mask                             = 0;
@@ -1415,6 +1420,17 @@ MPU401_InputSysex(void *priv, uint8_t *buffer, uint32_t len, int abort)
     return 0;
 }
 
+int
+MPU401_InputQueueRemain(void *priv)
+{
+    mpu_t         *mpu = (mpu_t *) priv;
+
+    if (mpu->intelligent && (mpu->mode == M_INTELLIGENT))
+        return (MPU401_INPUT_QUEUE - mpu->rec_queue_used);
+    else
+        return (MPU401_QUEUE - mpu->queue_used);
+}
+
 /*Input handler for MIDI*/
 void
 MPU401_InputMsg(void *priv, uint8_t *msg, uint32_t len)
@@ -1701,7 +1717,7 @@ mpu401_init(mpu_t *mpu, uint16_t addr, int irq, int mode, int receive_input)
     MPU401_Reset(mpu);
 
     if (receive_input)
-        midi_in_handler(1, MPU401_InputMsg, MPU401_InputSysex, mpu);
+        midi_in_handler(1, MPU401_InputMsg, MPU401_InputSysex, MPU401_InputQueueRemain, mpu);
 }
 
 void
@@ -1717,7 +1733,7 @@ mpu401_device_add(void)
 }
 
 static uint8_t
-mpu401_mca_read(int port, void *priv)
+mpu401_mca_read(const uint16_t port, void *priv)
 {
     const mpu_t *mpu = (mpu_t *) priv;
 
@@ -1725,7 +1741,7 @@ mpu401_mca_read(int port, void *priv)
 }
 
 static void
-mpu401_mca_write(int port, uint8_t val, void *priv)
+mpu401_mca_write(uint16_t port, uint8_t val, void *priv)
 {
     mpu_t   *mpu = (mpu_t *) priv;
     uint16_t addr;

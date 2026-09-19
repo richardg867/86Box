@@ -11,8 +11,6 @@
  *          series of SCSI Host Adapters made by Mylex.
  *          These controllers were designed for various buses.
  *
- *
- *
  * Authors: TheCollector1995, <mariogplayer@gmail.com>
  *          Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
@@ -287,7 +285,7 @@ x54x_bios_scsi_command(scsi_device_t *dev, uint8_t *cdb, uint8_t *buf, int len, 
 static uint8_t
 x54x_bios_read_capacity(scsi_device_t *sd, uint8_t *buf, int transfer_size)
 {
-    uint8_t *cdb = (uint8_t *) malloc(12);;
+    uint8_t *cdb = (uint8_t *) calloc(1, 12);
     uint8_t  ret;
 
     memset(cdb, 0, 12);
@@ -304,7 +302,7 @@ x54x_bios_read_capacity(scsi_device_t *sd, uint8_t *buf, int transfer_size)
 static uint8_t
 x54x_bios_inquiry(scsi_device_t *sd, uint8_t *buf, int transfer_size)
 {
-    uint8_t *cdb = (uint8_t *) malloc(12);
+    uint8_t *cdb = (uint8_t *) calloc(1, 12);
     uint8_t  ret;
 
     memset(cdb, 0, 12);
@@ -322,7 +320,7 @@ x54x_bios_inquiry(scsi_device_t *sd, uint8_t *buf, int transfer_size)
 static uint8_t
 x54x_bios_command_08(scsi_device_t *sd, uint8_t *buffer, int transfer_size)
 {
-    uint8_t *rcbuf = (uint8_t *) malloc(8);
+    uint8_t *rcbuf = (uint8_t *) calloc(1, 8);
     uint8_t  ret;
     int      i;
 
@@ -350,7 +348,7 @@ x54x_bios_command_08(scsi_device_t *sd, uint8_t *buffer, int transfer_size)
 static int
 x54x_bios_command_15(scsi_device_t *sd, uint8_t *buffer, int transfer_size)
 {
-    uint8_t *inqbuf = (uint8_t *) malloc(36);
+    uint8_t *inqbuf = (uint8_t *) calloc(1, 36);
     uint8_t *rcbuf;
     uint8_t  ret;
 
@@ -365,7 +363,7 @@ x54x_bios_command_15(scsi_device_t *sd, uint8_t *buffer, int transfer_size)
     buffer[4] = inqbuf[0];
     buffer[5] = inqbuf[1];
 
-    rcbuf = (uint8_t *) malloc(8);
+    rcbuf = (uint8_t *) calloc(1, 8);
     ret   = x54x_bios_read_capacity(sd, rcbuf, transfer_size);
     if (ret) {
         free(rcbuf);
@@ -523,7 +521,7 @@ x54x_bios_command(x54x_t *x54x, uint8_t max_id, BIOSCMD *cmd, int8_t islba)
 
                 dev->buffer_length = 6;
 
-                buf = (uint8_t *) malloc(6);
+                buf = (uint8_t *) calloc(1, 6);
                 if (cmd->command == 0x08)
                     ret = x54x_bios_command_08(dev, buf, x54x->transfer_size);
                 else
@@ -1241,10 +1239,16 @@ x54x_cmd_callback(void *priv)
     switch (dev->callback_sub_phase) {
         case 0:
             /* Sub-phase 0 - Look for mailbox. */
-            if ((dev->callback_phase == 0) && mailboxes_present)
+            if ((dev->callback_phase == 0) && mailboxes_present) {
+                x54x_log("%s: Callback: Look for mailbox\n", dev->name);
                 x54x_do_mail(dev);
-            else if ((dev->callback_phase == 1) && bios_mailboxes_present)
+            } else if ((dev->callback_phase == 1) && bios_mailboxes_present) {
+                x54x_log("%s: Callback: Look for BIOS mailbox\n", dev->name);
                 dev->ven_callback(dev);
+            } else {
+                x54x_log("%s: Callback: Do nothing (%i, %i, %i)\n",
+                         dev->name, !(dev->Status & STAT_INIT), dev->MailboxInit, dev->MailboxReq);
+            }
 
             if (dev->ven_callback && (dev->callback_sub_phase == 0))
                 dev->callback_phase ^= 1;
@@ -1354,7 +1358,6 @@ x54x_in(uint16_t port, void *priv)
                             ret = 'P';
                             break;
                     }
-                    ret ^= 1;
                     dev->Geometry++;
                     dev->Geometry &= 0x03;
                 } else

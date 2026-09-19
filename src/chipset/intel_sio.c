@@ -6,8 +6,6 @@
  *
  *          Emulation of Intel System I/O PCI chip.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2016-2018 Miran Grca.
@@ -137,7 +135,7 @@ sio_timer_readw(uint16_t addr, void *priv)
 }
 
 static void
-sio_write(int func, int addr, uint8_t val, void *priv)
+sio_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     sio_t  *dev = (sio_t *) priv;
     uint8_t old;
@@ -326,7 +324,7 @@ sio_write(int func, int addr, uint8_t val, void *priv)
 }
 
 static uint8_t
-sio_read(int func, int addr, void *priv)
+sio_read(int func, int addr, UNUSED(int len), void *priv)
 {
     const sio_t  *dev = (sio_t *) priv;
     uint8_t       ret;
@@ -368,7 +366,7 @@ sio_config_read(uint16_t port, UNUSED(void *priv))
                        - 1, 0 = M;
                        - 1, 1 = M.
              */
-            if (!strcmp(machine_get_internal_name(), "opti560l"))
+            if (machines[machine].init == machine_at_opti560l_init)
                 ret = 0x20;
             else
                 ret = 0xd3;
@@ -475,20 +473,25 @@ sio_reset(void *priv)
     const sio_t *dev = (sio_t *) priv;
 
     /* Disable the PIC mouse latch. */
-    sio_write(0, 0x4d, 0x40, priv);
+    sio_write(0, 0x4d, 1, 0x40, priv);
 
-    sio_write(0, 0x57, 0x04, priv);
+    sio_write(0, 0x57, 1, 0x04, priv);
 
     dma_set_params(1, 0xffffffff);
 
     if (dev->id == 0x03) {
-        sio_write(0, 0xa0, 0x08, priv);
-        sio_write(0, 0xa2, 0x00, priv);
-        sio_write(0, 0xa4, 0x00, priv);
-        sio_write(0, 0xa5, 0x00, priv);
-        sio_write(0, 0xa6, 0x00, priv);
-        sio_write(0, 0xa7, 0x00, priv);
-        sio_write(0, 0xa8, 0x0f, priv);
+        sio_write(0, 0x60, 1, 0x80, priv);
+        sio_write(0, 0x61, 1, 0x80, priv);
+        sio_write(0, 0x62, 1, 0x80, priv);
+        sio_write(0, 0x63, 1, 0x80, priv);
+
+        sio_write(0, 0xa0, 1, 0x08, priv);
+        sio_write(0, 0xa2, 1, 0x00, priv);
+        sio_write(0, 0xa4, 1, 0x00, priv);
+        sio_write(0, 0xa5, 1, 0x00, priv);
+        sio_write(0, 0xa6, 1, 0x00, priv);
+        sio_write(0, 0xa7, 1, 0x00, priv);
+        sio_write(0, 0xa8, 1, 0x0f, priv);
     }
 }
 

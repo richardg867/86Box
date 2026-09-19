@@ -9,8 +9,6 @@
  *          Implementation of the IDE emulation for hard disks and ATAPI
  *          CD-ROM devices.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *          Copyright 2008-2019 Sarah Walker.
@@ -98,6 +96,7 @@ typedef struct ide_s {
     int      reset;
     int      mdma_mode;
     int      do_initial_read;
+    uint8_t  is_jride;
     uint32_t drive;
     uint32_t cfg_spt;
     uint32_t cfg_hpc;
@@ -178,9 +177,6 @@ enum {
     TIMINGS_PIO_FC = 2
 };
 
-extern int ide_ter_enabled;
-extern int ide_qua_enabled;
-
 #ifdef SCSI_DEVICE_H
 extern ide_t *ide_get_drive(int ch);
 extern void   ide_irq(ide_t *ide, int set, int log);
@@ -190,6 +186,10 @@ extern void   ide_atapi_attach(ide_t *dev);
 
 extern void *ide_xtide_init(void);
 extern void  ide_xtide_close(void);
+extern void  ide_xtide_set_is_jride(int is_jride);
+extern uint8_t *ide_get_pio_buffer(void *priv);
+extern void  ide_complete_pio_buffer_read(void *priv);
+extern void  ide_complete_pio_buffer_write(void *priv);
 
 extern void  ide_drives_set_shadow(void);
 
@@ -215,6 +215,7 @@ extern void ide_handlers(uint8_t board, int set);
 extern void ide_board_set_force_ata3(int board, int force_ata3);
 #ifdef EMU_ISAPNP_H
 extern void ide_pnp_config_changed(uint8_t ld, isapnp_device_config_t *config, void *priv);
+extern void ide_pnp_config_changed_opti931(uint8_t ld, isapnp_device_config_t *config, void *priv);
 extern void ide_pnp_config_changed_1addr(uint8_t ld, isapnp_device_config_t *config, void *priv);
 #endif
 
@@ -229,6 +230,9 @@ extern void ide_padstr8(uint8_t *buf, int buf_size, const char *src);
 
 extern uint8_t ide_read_ali_75(void);
 extern uint8_t ide_read_ali_76(void);
+
+extern void    ide_hard_reset(void);
+extern void    ide_wait_for_async_reads(void);
 
 /* Legacy #define's. */
 #define ide_irq_raise(ide) ide_irq(ide, 1, 1)

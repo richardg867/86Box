@@ -12,7 +12,6 @@
  *
  *          Copyright 2021 Tiseno100
  */
-
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -110,7 +109,7 @@ static const device_config_t b215_config[] = {
   // clang-format off
     {
         .name           = "bios_addr",
-        .description    = "BIOS Address",
+        .description    = "BIOS address",
         .type           = CONFIG_HEX20,
         .default_string = NULL,
         .default_int    = 0xca000,

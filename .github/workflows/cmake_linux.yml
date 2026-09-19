@@ -8,6 +8,7 @@ on:
       - cmake/**
       - "**/CMakeLists.txt"
       - "CMakePresets.json"
+      - "!.github/workflows/**"
       - .github/workflows/cmake_linux.yml
       - vcpkg.json
       - "!**/Makefile*"
@@ -18,7 +19,7 @@ on:
       - cmake/**
       - "**/CMakeLists.txt"
       - "CMakePresets.json"
-      - .github/workflows/**
+      - "!.github/workflows/**"
       - .github/workflows/cmake_linux.yml
       - vcpkg.json
       - "!**/Makefile*"
@@ -26,12 +27,10 @@ on:
 jobs:
 
   linux:
-    name: "${{ matrix.ui.name }}, ${{ matrix.build.name }}, ${{ matrix.dynarec.name }}, x86_64"
 
-    runs-on: ubuntu-22.04
+    name: "${{ matrix.ui.name }}, ${{ matrix.build.name }}, ${{ matrix.dynarec.name }}, ${{ matrix.environment.arch }}"
 
-    env:
-      BUILD_WRAPPER_OUT_DIR: build_wrapper_output_directory # Directory where build-wrapper output will be placed
+    runs-on: ${{ matrix.environment.runner }}
 
     strategy:
       fail-fast: true
@@ -55,10 +54,15 @@ jobs:
         ui:
           - name: SDL GUI
             qt: off
+            qt6: off
+            sdl_shader: on
+            slug: -SDL
             static: on
-          - name: Qt GUI
+          - name: Qt 5 GUI
             qt: on
-            slug: -Qt
+            qt6: off
+            sdl_shader: off
+            slug: -Qt5
             packages: >-
               qtbase5-dev
               qtbase5-private-dev
@@ -66,6 +70,33 @@ jobs:
               qttranslations5-l10n
               libevdev-dev
               libxkbcommon-x11-dev
+          - name: Qt 6 GUI
+            qt: on
+            qt6: on
+            sdl_shader: off
+            slug: -Qt6
+            packages: >-
+              qt6-base-dev
+              qt6-base-private-dev
+              qt6-tools-dev
+              qt6-tools-dev-tools
+              qt6-l10n-tools
+              qt6-translations-l10n
+              libevdev-dev
+              libxkbcommon-x11-dev
+              libvulkan-dev
+        environment:
+          - arch: x86_64
+            slug: "-x86_64"
+            runner: ubuntu-26.04
+          - arch: arm64
+            slug: -arm64
+            runner: ubuntu-26.04-arm
+        exclude:
+          - dynarec:
+              new: off
+            environment:
+              arch: arm64
 
     steps:
       - name: Install dependencies
@@ -74,7 +105,8 @@ jobs:
           build-essential
           ninja-build
           libfreetype-dev
-          libsdl2-dev
+          libgles2-mesa-dev
+          libsdl3-dev
           libpng-dev
           libc6-dev
           librtmidi-dev
@@ -83,42 +115,32 @@ jobs:
           libfluidsynth-dev
           libvdeplug-dev
           libserialport-dev
+          libzstd-dev
           ${{ matrix.ui.packages }}
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
 
-      - name: Install sonar-scanner and build-wrapper
-        uses: SonarSource/sonarcloud-github-c-cpp@v3
-
       - name: Configure CMake
         run: >-
-          cmake -G Ninja -S . -B build --preset ${{ matrix.build.preset }}
-          --toolchain ./cmake/flags-gcc-x86_64.cmake
+          cmake -S . -B build --preset ${{ matrix.build.preset }}
           -D NEW_DYNAREC=${{ matrix.dynarec.new }}
-          -D CMAKE_INSTALL_PREFIX=./build/artifacts
           -D QT=${{ matrix.ui.qt }}
+          -D USE_QT6=${{ matrix.ui.qt6 }}
+          -D USE_SDL_SHADER=${{ matrix.ui.sdl_shader }}
 
       - name: Build
         run: |
-          build-wrapper-linux-x86-64 --out-dir ${{ env.BUILD_WRAPPER_OUT_DIR }} cmake --build build
-
-      - name: Run sonar-scanner
-        if: 0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          sonar-scanner --define sonar.cfamily.build-wrapper-output="${{ env.BUILD_WRAPPER_OUT_DIR }}"
+          cmake --build build
 
       - name: Generate package
         run: |
           cmake --install build
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: '86Box${{ matrix.ui.slug }}${{ matrix.dynarec.slug }}${{ matrix.build.slug }}-UbuntuJammy-x86_64-gha${{ github.run_number }}'
+          name: '86Box${{ matrix.ui.slug }}${{ matrix.dynarec.slug }}${{ matrix.build.slug }}-UbuntuJammy${{ matrix.environment.slug }}-gha${{ github.run_number }}'
           path: build/artifacts/**

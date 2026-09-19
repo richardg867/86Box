@@ -8,8 +8,6 @@
  *
  *          EGA renderers.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *
@@ -48,7 +46,9 @@ ega_display_line(ega_t *ega)
 void
 ega_render_blank(ega_t *ega)
 {
-    if ((ega->displine + ega->y_add) < 0)
+    if (((ega->displine + ega->y_add) < 0) ||
+        (buffer32 == NULL) ||
+        (buffer32->line[ega->displine + ega->y_add] == NULL))
         return;
 
     for (int x = 0; x < (ega->hdisp + ega->scrollcache); x++) {
@@ -79,7 +79,9 @@ ega_render_blank(ega_t *ega)
 void
 ega_render_overscan_left(ega_t *ega)
 {
-    if ((ega->displine + ega->y_add) < 0)
+    if (((ega->displine + ega->y_add) < 0) ||
+        (buffer32 == NULL) ||
+        (buffer32->line[ega->displine + ega->y_add] == NULL))
         return;
 
     if (ega->scrblank || (ega->hdisp == 0))
@@ -94,7 +96,9 @@ ega_render_overscan_right(ega_t *ega)
 {
     int right;
 
-    if ((ega->displine + ega->y_add) < 0)
+    if (((ega->displine + ega->y_add) < 0) ||
+        (buffer32 == NULL) ||
+        (buffer32->line[ega->displine + ega->y_add] == NULL))
         return;
 
     if (ega->scrblank || (ega->hdisp == 0))
@@ -113,7 +117,9 @@ ega_render_text(ega_t *ega)
         return;
     }
 
-    if ((ega->displine + ega->y_add) < 0)
+    if (((ega->displine + ega->y_add) < 0) ||
+        (buffer32 == NULL) ||
+        (buffer32->line[ega->displine + ega->y_add] == NULL))
         return;
 
     if (ega->firstline_draw == 2000)
@@ -143,16 +149,16 @@ ega_render_text(ega_t *ega)
 
         for (int x = 0; x < (ega->hdisp + ega->scrollcache); x += charwidth) {
 #ifdef USE_CLI
-            if (ega->sc == 0)
-                cli_render_cga((ega->ma >> 2) / 80, ega->rowcount,
+            if (ega->scanline == 0)
+                cli_render_cga((ega->memaddr >> 2) / 80, ega->rowcount,
                         ega->hdisp + ega->scrollcache, charwidth,
-                        ega->vram, ega->ma, ega->vrammask, 4,
+                        ega->vram, ega->memaddr, ega->vrammask, 4,
                         ega->crtc[0x17] & 0x80, ega->attrregs[0x10] & 0x08,
-                        ega->ca, !(ega->crtc[0x0a] & 0x20) && ((ega->crtc[0x0b] & 0x1f) >= (ega->crtc[0x0a] & 0x1f)));
+                        ega->cursoraddr, !(ega->crtc[0x0a] & 0x20) && ((ega->crtc[0x0b] & 0x1f) >= (ega->crtc[0x0a] & 0x1f)));
 #endif
-            uint32_t addr = ega->remap_func(ega, ega->ma) & ega->vrammask;
+            uint32_t addr = ega->remap_func(ega, ega->memaddr) & ega->vrammask;
 
-            int drawcursor = ((ega->ma == ega->ca) && ega->con && ega->cursoron);
+            int drawcursor = ((ega->memaddr == ega->cursoraddr) && ega->cursorvisible && ega->cursoron);
 
             uint32_t chr;
             uint32_t attr;
@@ -171,20 +177,20 @@ ega_render_text(ega_t *ega)
             int fg;
             int bg;
             if (drawcursor) {
-                bg = ega->pallook[ega->egapal[attr & 0x0f]];
-                fg = ega->pallook[ega->egapal[attr >> 4]];
+                bg = ega->pallook[ega->egapal[(attr & 0x0f) & ega->plane_mask]];
+                fg = ega->pallook[ega->egapal[(attr >> 4) & ega->plane_mask]];
             } else {
-                fg = ega->pallook[ega->egapal[attr & 0x0f]];
-                bg = ega->pallook[ega->egapal[attr >> 4]];
+                fg = ega->pallook[ega->egapal[(attr & 0x0f) & ega->plane_mask]];
+                bg = ega->pallook[ega->egapal[(attr >> 4) & ega->plane_mask]];
 
                 if ((attr & 0x80) && attrblink) {
-                    bg = ega->pallook[ega->egapal[(attr >> 4) & 7]];
+                    bg = ega->pallook[ega->egapal[((attr >> 4) & 7) & ega->plane_mask]];
                     if (blinked)
                         fg = bg;
                 }
             }
 
-            uint32_t dat = ega->vram[charaddr + (ega->sc << 2)];
+            uint32_t dat = ega->vram[charaddr + (ega->scanline << 2)];
             dat <<= 1;
             if (((chr & ~0x1f) == 0xc0) && attrlinechars)
                 dat |= (dat >> 1) & 1;
@@ -193,28 +199,30 @@ ega_render_text(ega_t *ega)
                 if (monoattrs) {
                     int bit   = (dat & (0x100 >> (xx >> dwshift))) ? 1 : 0;
                     int blink = (!drawcursor && (attr & 0x80) && attrblink && blinked);
-                    if ((ega->sc == ega->crtc[0x14]) && ((attr & 7) == 1))
-                        p[xx] = ega->mdacols[attr][blink][1];
+                    if ((ega->scanline == ega->crtc[0x14]) && ((attr & 7) == 1))
+                        p[xx] = ega->mda_attr_to_color_table[attr][blink][1];
                     else
-                        p[xx] = ega->mdacols[attr][blink][bit];
+                        p[xx] = ega->mda_attr_to_color_table[attr][blink][bit];
                     if (drawcursor)
-                        p[xx] ^= ega->mdacols[attr][0][1];
-                    p[xx] = ega->pallook[ega->egapal[p[xx] & 0x0f]];
+                        p[xx] ^= ega->mda_attr_to_color_table[attr][0][1];
+                    p[xx] = ega->pallook[ega->egapal[(p[xx] & 0x0f) & ega->plane_mask]];
                 } else
                     p[xx] = (dat & (0x100 >> (xx >> dwshift))) ? fg : bg;
             }
 
-            ega->ma += 4;
+            ega->memaddr += 4;
             p += charwidth;
         }
-        ega->ma &= 0x3ffff;
+        ega->memaddr &= 0x3ffff;
     }
 }
 
 void
 ega_render_graphics(ega_t *ega)
 {
-    if ((ega->displine + ega->y_add) < 0)
+    if (((ega->displine + ega->y_add) < 0) ||
+        (buffer32 == NULL) ||
+        (buffer32->line[ega->displine + ega->y_add] == NULL))
         return;
 
     if (ega->firstline_draw == 2000)
@@ -245,11 +253,7 @@ ega_render_graphics(ega_t *ega)
     }
 
     for (int x = 0; x <= (ega->hdisp + ega->scrollcache); x += charwidth) {
-#ifdef USE_CLI
-        cli_render_gfx("EGA %dx%d");
-#endif
-        uint32_t addr = ega->remap_func(ega, ega->ma) & ega->vrammask;
-
+        uint32_t addr = ega->remap_func(ega, ega->memaddr) & ega->vrammask;
         uint8_t edat[4];
         if (seqoddeven) {
             // FIXME: Verify the behaviour of planes 1,3 on actual hardware
@@ -259,12 +263,12 @@ ega_render_graphics(ega_t *ega)
             edat[3]    = ega->vram[(addr | 3) ^ secondcclk];
             secondcclk = (secondcclk + 1) & 1;
             if (secondcclk == 0)
-                ega->ma += 4;
+                ega->memaddr += 4;
         } else {
             *(uint32_t *) (&edat[0]) = *(uint32_t *) (&ega->vram[addr]);
-            ega->ma += 4;
+            ega->memaddr += 4;
         }
-        ega->ma &= 0x3ffff;
+        ega->memaddr &= 0x3ffff;
 
         if (cga2bpp) {
             // Remap CGA 2bpp-chunky data into fully planar data

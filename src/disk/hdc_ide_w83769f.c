@@ -30,11 +30,12 @@
 #include <86box/mem.h>
 #include <86box/pci.h>
 #include <86box/pic.h>
+#include <86box/plat_unused.h>
 #include <86box/timer.h>
 #include <86box/hdc.h>
 #include <86box/hdc_ide.h>
 #include <86box/hdc_ide_sff8038i.h>
-#include <86box/zip.h>
+#include <86box/rdisk.h>
 #include <86box/mo.h>
 
 typedef struct w83769f_t {
@@ -233,7 +234,7 @@ w83769f_vlb_readl(uint16_t addr, void *priv)
 }
 
 static void
-w83769f_pci_write(int func, int addr, uint8_t val, void *priv)
+w83769f_pci_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     w83769f_t *dev = (w83769f_t *) priv;
 
@@ -252,7 +253,7 @@ w83769f_pci_write(int func, int addr, uint8_t val, void *priv)
 }
 
 static uint8_t
-w83769f_pci_read(int func, int addr, void *priv)
+w83769f_pci_read(int func, int addr, UNUSED(int len), void *priv)
 {
     w83769f_t *dev = (w83769f_t *) priv;
     uint8_t    ret = 0xff;
@@ -297,10 +298,10 @@ w83769f_reset(void *priv)
             (cdrom[i].ide_channel <= max_channel) && cdrom[i].priv)
             scsi_cdrom_reset((scsi_common_t *) cdrom[i].priv);
     }
-    for (i = 0; i < ZIP_NUM; i++) {
-        if ((zip_drives[i].bus_type == ZIP_BUS_ATAPI) && (zip_drives[i].ide_channel >= min_channel) &&
-            (zip_drives[i].ide_channel <= max_channel) && zip_drives[i].priv)
-            zip_reset((scsi_common_t *) zip_drives[i].priv);
+    for (i = 0; i < RDISK_NUM; i++) {
+        if ((rdisk_drives[i].bus_type == RDISK_BUS_ATAPI) && (rdisk_drives[i].ide_channel >= min_channel) &&
+            (rdisk_drives[i].ide_channel <= max_channel) && rdisk_drives[i].priv)
+            rdisk_reset((scsi_common_t *) rdisk_drives[i].priv);
     }
     for (i = 0; i < MO_NUM; i++) {
         if ((mo_drives[i].bus_type == MO_BUS_ATAPI) && (mo_drives[i].ide_channel >= min_channel) &&

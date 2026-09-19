@@ -8,8 +8,6 @@
  *
  *          Distributed DMA emulation.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2020 Miran Grca.
@@ -37,7 +35,7 @@
 #include <86box/plat_unused.h>
 
 #ifdef ENABLE_DDMA_LOG
-int ddma_do_log = ENABLE_DDMA_LOG;
+uint8_t ddma_do_log = ENABLE_DDMA_LOG;
 
 static void
 ddma_log(const char *fmt, ...)
@@ -59,8 +57,9 @@ ddma_reg_read(uint16_t addr, void *priv)
 {
     const ddma_channel_t *dev  = (ddma_channel_t *) priv;
     uint8_t               ret  = 0xff;
-    int                   ch   = dev->channel;
+    uint8_t               ch   = dev->channel;
     uint8_t               dmab = (ch >= 4) ? 0xc0 : 0x00;
+    uint8_t               dmas = (ch >= 4) ? 0x01 : 0x00;
 
     switch (addr & 0x0f) {
         case 0x00:
@@ -78,8 +77,8 @@ ddma_reg_read(uint16_t addr, void *priv)
         case 0x05:
             ret = (dma[ch].cc >> 8) & 0xff;
             break;
-        case 0x09:
-            ret = inb(dmab + 0x08);
+        case 0x08:
+            ret = inb(dmab + (0x08 << dmas));
             break;
 
         default:
@@ -93,9 +92,10 @@ static void
 ddma_reg_write(uint16_t addr, uint8_t val, void *priv)
 {
     const ddma_channel_t *dev          = (ddma_channel_t *) priv;
-    int                   ch           = dev->channel;
+    uint8_t               ch           = dev->channel;
     uint8_t               page_regs[4] = { 7, 3, 1, 2 };
     uint8_t               dmab = (ch >= 4) ? 0xc0 : 0x00;
+    uint8_t               dmas = (ch >= 4) ? 0x01 : 0x00;
 
     switch (addr & 0x0f) {
         case 0x00:
@@ -121,26 +121,25 @@ ddma_reg_write(uint16_t addr, uint8_t val, void *priv)
             dma[ch].cc = dma[ch].cb;
             break;
         case 0x08:
-            outb(dmab + 0x08, val);
+            outb(dmab + (0x08 << dmas), val);
             break;
         case 0x09:
-            outb(dmab + 0x09, val);
+            outb(dmab + (0x09 << dmas), val);
             break;
         case 0x0a:
-            outb(dmab + 0x0a, val);
+            outb(dmab + (0x0a << dmas), val);
             break;
         case 0x0b:
-            outb(dmab + 0x0b, val);
+            outb(dmab + (0x0b << dmas), val);
             break;
         case 0x0d:
-            outb(dmab + 0x0d, val);
+            outb(dmab + (0x0d << dmas), val);
             break;
         case 0x0e:
-            for (uint8_t i = 0; i < 4; i++)
-                outb(dmab + 0x0a, i);
+            outb(dmab + (0x0e << dmas), val);
             break;
         case 0x0f:
-            outb(dmab + 0x0a, (val << 2) | (ch & 3));
+            outb(dmab + (0x0f << dmas), val);
             break;
 
         default:
@@ -149,8 +148,11 @@ ddma_reg_write(uint16_t addr, uint8_t val, void *priv)
 }
 
 void
-ddma_update_io_mapping(ddma_t *dev, int ch, uint8_t base_l, uint8_t base_h, int enable)
+ddma_update_io_mapping(ddma_t *dev, uint8_t ch, uint8_t base_l, uint8_t base_h, uint8_t enable)
 {
+    if (ch >= 8)
+        return;
+
     if (dev->channels[ch].enable && (dev->channels[ch].io_base != 0x0000))
         io_removehandler(dev->channels[ch].io_base, 0x10, ddma_reg_read, NULL, NULL, ddma_reg_write, NULL, NULL, &dev->channels[ch]);
 
@@ -174,10 +176,9 @@ ddma_init(UNUSED(const device_t *info))
 {
     ddma_t *dev;
 
-    dev = (ddma_t *) malloc(sizeof(ddma_t));
+    dev = (ddma_t *) calloc(1, sizeof(ddma_t));
     if (dev == NULL)
         return (NULL);
-    memset(dev, 0x00, sizeof(ddma_t));
 
     for (uint8_t i = 0; i < 8; i++)
         dev->channels[i].channel = i;

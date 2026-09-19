@@ -43,7 +43,7 @@
 #include <86box/device.h>
 #include <86box/thread.h>
 #include <86box/network.h>
-#include <86box/net_eeprom_nmc93cxx.h>
+#include <86box/nmc93cxx.h>
 #include <86box/nvr.h>
 #include "cpu.h"
 #include <86box/plat_unused.h>
@@ -407,6 +407,7 @@ struct RTL8139State {
     uint32_t RxMissed;
 
     uint16_t CSCR;
+    uint16_t CSCR_last;
 
     uint8_t Cfg9346;
     uint8_t Config0;
@@ -638,7 +639,13 @@ net_crc32_le(const uint8_t *p, int len)
         }
     }
 
-    return crc;
+    /*
+     * The Ethernet FCS is the one's complement of the running remainder.  This
+     * is what QEMU's crc32() (which this was ported from) returns, and drivers
+     * that verify the FCS appended to a received frame - the Realtek Windows
+     * driver does, for everything except IPv4/TCP - drop every frame without it.
+     */
+    return ~crc;
 }
 
 #define ETH_ALEN 6
@@ -835,7 +842,7 @@ rtl8139_do_receive(void *priv, uint8_t *buf, int size_)
         uint32_t rx_space = rxdw0 & CP_RX_BUFFER_SIZE_MASK;
 
         /* write VLAN info to descriptor variables. */
-        if (s->CpCmd & CPlusRxVLAN && bswap16(*((uint16_t *) &buf[ETH_ALEN * 2])) == 0x8100) {
+        if (s->CpCmd & CPlusRxVLAN && bswap16(AS_U16(buf[ETH_ALEN * 2])) == 0x8100) {
             dot1q_buf = &buf[ETH_ALEN * 2];
             size -= VLAN_HLEN;
             /* if too small buffer, use the tailroom added duing expansion */
@@ -849,7 +856,7 @@ rtl8139_do_receive(void *priv, uint8_t *buf, int size_)
 
             rtl8139_log("C+ Rx mode : extracted vlan tag with tci: "
                         "%u\n",
-                        bswap16(*((uint16_t *) &dot1q_buf[ETHER_TYPE_LEN])));
+                        bswap16(AS_U16(dot1q_buf[ETHER_TYPE_LEN])));
         } else {
             /* reset VLAN tag flag */
             rxdw1 &= ~CP_RX_TAVA;
@@ -889,7 +896,7 @@ rtl8139_do_receive(void *priv, uint8_t *buf, int size_)
         }
 
         /* write checksum */
-        val = (net_crc32_le(buf, size_));
+        val = (net_crc32_le(buf, size));
         dma_bm_write(rx_addr + size, (uint8_t *) &val, 4, 4);
 
 /* first segment of received packet flag */
@@ -2292,17 +2299,16 @@ rtl8139_TSAD_read(RTL8139State *s)
 static uint16_t
 rtl8139_CSCR_read(RTL8139State *s)
 {
-    static uint16_t old_ret = 0xffff;
     uint16_t ret = s->CSCR |
                    ((net_cards_conf[s->nic->card_num].link_state & NET_LINK_DOWN) ? 0 : CSCR_Cable);
 
-    if (old_ret != 0xffff) {
+    if (s->CSCR_last != 0xffff) {
         ret &= ~CSCR_Cable_Changed;
-        if ((ret ^ old_ret) & CSCR_Cable)
+        if ((ret ^ s->CSCR_last) & CSCR_Cable)
             ret |= CSCR_Cable_Changed;
     }
 
-    old_ret = ret;
+    s->CSCR_last = ret;
 
     rtl8139_log("CSCR read val=0x%04x\n", ret);
 
@@ -2994,7 +3000,7 @@ rtl8139_io_readl_mem(uint32_t addr, void *priv)
     RTL8139State *s = (RTL8139State *) priv;
     uint32_t ret = 0xffffffff;
 
-    if ((addr >= s->mem_base) && (addr < (s->mem_base + 0xff)))
+    if ((addr >= s->mem_base) && (addr < (s->mem_base + 0x100)))
         ret = rtl8139_io_readl(addr, priv);
 
     rtl8139_log("[%04X:%08X] [RLM] %08X = %08X\n", CS, cpu_state.pc, addr, ret);
@@ -3008,7 +3014,7 @@ rtl8139_io_readw_mem(uint32_t addr, void *priv)
     RTL8139State *s = (RTL8139State *) priv;
     uint16_t ret = 0xffff;
 
-    if ((addr >= s->mem_base) && (addr < (s->mem_base + 0xff)))
+    if ((addr >= s->mem_base) && (addr < (s->mem_base + 0x100)))
         ret = rtl8139_io_readw(addr, priv);
 
     rtl8139_log("[%04X:%08X] [RWM] %08X = %04X\n", CS, cpu_state.pc, addr, ret);
@@ -3022,7 +3028,7 @@ rtl8139_io_readb_mem(uint32_t addr, void *priv)
     RTL8139State *s = (RTL8139State *) priv;
     uint8_t ret = 0xff;
 
-    if ((addr >= s->mem_base) && (addr < (s->mem_base + 0xff)))
+    if ((addr >= s->mem_base) && (addr < (s->mem_base + 0x100)))
         ret = rtl8139_io_readb(addr, priv);
 
     rtl8139_log("[%04X:%08X] [RBM] %08X = %02X\n", CS, cpu_state.pc, addr, ret);
@@ -3037,7 +3043,7 @@ rtl8139_io_writel_mem(uint32_t addr, uint32_t val, void *priv)
 
     rtl8139_log("[%04X:%08X] [WLM] %08X = %08X\n", CS, cpu_state.pc, addr, val);
 
-    if ((addr >= s->mem_base) && (addr < (s->mem_base + 0xff)))
+    if ((addr >= s->mem_base) && (addr < (s->mem_base + 0x100)))
         rtl8139_io_writel(addr, val, priv);
 }
 
@@ -3048,7 +3054,7 @@ rtl8139_io_writew_mem(uint32_t addr, uint16_t val, void *priv)
 
     rtl8139_log("[%04X:%08X] [WWM] %08X = %04X\n", CS, cpu_state.pc, addr, val);
 
-    if ((addr >= s->mem_base) && (addr < (s->mem_base + 0xff)))
+    if ((addr >= s->mem_base) && (addr < (s->mem_base + 0x100)))
         rtl8139_io_writew(addr, val, priv);
 }
 
@@ -3059,7 +3065,7 @@ rtl8139_io_writeb_mem(uint32_t addr, uint8_t val, void *priv)
 
     rtl8139_log("[%04X:%08X] [WBM] %08X = %02X\n", CS, cpu_state.pc, addr, val);
 
-    if ((addr >= s->mem_base) && (addr < (s->mem_base + 0xff)))
+    if ((addr >= s->mem_base) && (addr < (s->mem_base + 0x100)))
         rtl8139_io_writeb(addr, val, priv);
 }
 
@@ -3100,7 +3106,7 @@ rtl8139_timer(void *priv)
 }
 
 static uint8_t
-rtl8139_pci_read(UNUSED(int func), int addr, void *priv)
+rtl8139_pci_read(UNUSED(int func), int addr, UNUSED(int len), void *priv)
 {
     const RTL8139State *s = (RTL8139State *) priv;
 
@@ -3156,14 +3162,42 @@ rtl8139_pci_read(UNUSED(int func), int addr, void *priv)
     }
 }
 
+/*
+ * (Re)program the memory-mapped register BAR.  This has to be driven from both
+ * the BAR registers and the command register: guests normally assign the BAR
+ * first and only then set PCI_COMMAND_MEM, so keying the mapping off either one
+ * alone leaves it permanently disabled.
+ */
 static void
-rtl8139_pci_write(UNUSED(int func), int addr, uint8_t val, void *priv)
+rtl8139_mem_update(RTL8139State *s)
+{
+    mem_mapping_disable(&s->bar_mem);
+
+#ifdef USE_256_BYTE_BAR
+    s->mem_base = (s->pci_conf[0x15] << 8) | (s->pci_conf[0x16] << 16) |
+                  (s->pci_conf[0x17] << 24);
+#else
+    s->mem_base = ((s->pci_conf[0x15] & 0xf0) << 8) | (s->pci_conf[0x16] << 16) |
+                  (s->pci_conf[0x17] << 24);
+#endif
+
+    rtl8139_log("Memory BAR: base %08X, command %02X\n", s->mem_base, s->pci_conf[0x04]);
+
+    if ((s->pci_conf[0x04] & PCI_COMMAND_MEM) && (s->mem_base != 0x00000000))
+#ifdef USE_256_BYTE_BAR
+        mem_mapping_set_addr(&s->bar_mem, s->mem_base, 256);
+#else
+        mem_mapping_set_addr(&s->bar_mem, s->mem_base, 4096);
+#endif
+}
+
+static void
+rtl8139_pci_write(UNUSED(int func), int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     RTL8139State *s = (RTL8139State *) priv;
 
     switch (addr) {
         case 0x04:
-            mem_mapping_disable(&s->bar_mem);
             io_removehandler((s->pci_conf[0x11] << 8), 256,
                              rtl8139_io_readb_ioport, rtl8139_io_readw_ioport, rtl8139_io_readl_ioport,
                              rtl8139_io_writeb_ioport, rtl8139_io_writew_ioport, rtl8139_io_writel_ioport,
@@ -3174,8 +3208,7 @@ rtl8139_pci_write(UNUSED(int func), int addr, uint8_t val, void *priv)
                               rtl8139_io_readb_ioport, rtl8139_io_readw_ioport, rtl8139_io_readl_ioport,
                               rtl8139_io_writeb_ioport, rtl8139_io_writew_ioport, rtl8139_io_writel_ioport,
                               priv);
-            if ((val & PCI_COMMAND_MEM) && s->bar_mem.size)
-                mem_mapping_enable(&s->bar_mem);
+            rtl8139_mem_update(s);
             break;
         case 0x05:
             s->pci_conf[addr & 0xFF] = val & 1;
@@ -3207,20 +3240,7 @@ rtl8139_pci_write(UNUSED(int func), int addr, uint8_t val, void *priv)
         case 0x16:
         case 0x17:
             s->pci_conf[addr & 0xFF] = val;
-            s->mem_base = (s->pci_conf[0x15] << 8) | (s->pci_conf[0x16] << 16) |
-                          (s->pci_conf[0x17] << 24);
-#ifndef USE_256_BYTE_BAR
-            s->mem_base &= 0xfffff000;
-#endif
-            rtl8139_log("New memory base: %08X\n", s->mem_base);
-            if (s->pci_conf[0x4] & PCI_COMMAND_MEM)
-#ifdef USE_256_BYTE_BAR
-                mem_mapping_set_addr(&s->bar_mem, (s->pci_conf[0x15] << 8) | (s->pci_conf[0x16] << 16) |
-                                     (s->pci_conf[0x17] << 24), 256);
-#else
-                mem_mapping_set_addr(&s->bar_mem, ((s->pci_conf[0x15] & 0xf0) << 8) |
-                                     (s->pci_conf[0x16] << 16) | (s->pci_conf[0x17] << 24), 4096);
-#endif
+            rtl8139_mem_update(s);
             break;
         case 0x3c:
             s->pci_conf[addr & 0xFF] = val;
@@ -3257,14 +3277,9 @@ nic_init(const device_t *info)
     eep_data[1] = 0x10EC;
     eep_data[2] = 0x8139;
 
-    /* XXX: Get proper MAC addresses from real EEPROM dumps. OID taken from net_ne2000.c */
-#ifdef USE_REALTEK_OID
+    /* XXX: Get proper MAC addresses from real EEPROM dumps. OID is generic Realtek */
     eep_data[7] = 0xe000;
     eep_data[8] = 0x124c;
-#else
-    eep_data[7] = 0x1400;
-    eep_data[8] = 0x122a;
-#endif
     eep_data[9] = 0x1413;
 
     mac_bytes = (uint8_t *) &(eep_data[7]);
@@ -3291,15 +3306,11 @@ nic_init(const device_t *info)
     for (uint32_t i = 0; i < 6; i++)
         s->phys[MAC0 + i] = mac_bytes[i];
 
-    params.nwords          = 64;
-    params.default_content = (uint16_t *) s->eeprom_data;
+    params.type            = NMC_93C46_x16_64;
+    params.default_content = s->eeprom_data;
     params.filename        = filename;
-    snprintf(filename, sizeof(filename), "nmc93cxx_eeprom_%s_%d.nvr", info->internal_name, device_get_instance());
-    s->eeprom = device_add_params(&nmc93cxx_device, &params);
-    if (s->eeprom == NULL) {
-        free(s);
-        return NULL;
-    }
+    snprintf(filename, sizeof(filename), "nmc93cxx_eeprom_%s_%d.nvr", info->internal_name, s->inst);
+    s->eeprom = device_add_inst_params(&nmc93cxx_device, s->inst, &params);
 
     s->nic = network_attach(s, (uint8_t *) &s->phys[MAC0], rtl8139_do_receive, rtl8139_set_link_status);
     timer_add(&s->timer, rtl8139_timer, s, 0);

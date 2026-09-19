@@ -1,22 +1,20 @@
 /*
- * 86Box     A hypervisor and IBM PC system emulator that specializes in
- *           running old operating systems and software designed for IBM
- *           PC systems and compatibles from 1981 through fairly recent
- *           system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *           This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *           MIDI device core module.
+ *          MIDI device core module.
  *
+ * Authors: Miran Grca, <mgrca8@gmail.com>
+ *          Bit,
+ *          DOSBox Team,
  *
- *
- * Authors:  Miran Grca, <mgrca8@gmail.com>
- *           Bit,
- *           DOSBox Team,
- *
- *           Copyright 2016-2020 Miran Grca.
- *           Copyright 2016-2020 Bit.
- *           Copyright 2008-2020 DOSBox Team.
+ *          Copyright 2016-2020 Miran Grca.
+ *          Copyright 2016-2020 Bit.
+ *          Copyright 2008-2020 DOSBox Team.
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -27,7 +25,11 @@
 #include <86box/86box.h>
 #include <86box/device.h>
 #include <86box/midi.h>
+#include <86box/sound.h>
 #include <86box/plat.h>
+
+#define MIDI_SYSEX_MAX_ITERATIONS 1000
+#define MIDI_SYSEX_TIMEOUT_MS 5000
 
 int        midi_output_device_current = 0;
 static int midi_output_device_last    = 0;
@@ -36,6 +38,9 @@ static int midi_input_device_last     = 0;
 
 midi_t *midi_out = NULL;
 midi_t *midi_in  = NULL;
+
+const device_t *midi_out_device = NULL;
+const device_t *midi_in_device  = NULL;
 
 midi_in_handler_t *mih_first = NULL;
 midi_in_handler_t *mih_last = NULL;
@@ -86,6 +91,9 @@ static const MIDI_OUT_DEVICE midi_out_devices[] = {
 #ifdef USE_OPL4ML
     { &opl4_midi_device     },
 #endif /* USE_OPL4ML */
+#ifdef USE_SOUNDCANVAS
+    { &soundcanvas_device   },
+#endif /* USE_SOUNDCANVAS */
 #ifdef USE_RTMIDI
     { &rtmidi_output_device },
 #endif /* USE_RTMIDI */
@@ -149,8 +157,10 @@ midi_out_device_get_from_internal_name(char *s)
 void
 midi_out_device_init(void)
 {
-    if ((midi_output_device_current > 0) && midi_out_devices[midi_output_device_current].device)
-        device_add(midi_out_devices[midi_output_device_current].device);
+    if ((midi_output_device_current > 0) && midi_out_devices[midi_output_device_current].device) {
+        midi_out_device = midi_out_devices[midi_output_device_current].device;
+        device_add(midi_out_device);
+    }
     midi_output_device_last = midi_output_device_current;
 }
 
@@ -265,9 +275,35 @@ midi_in_device_get_from_internal_name(char *s)
 void
 midi_in_device_init(void)
 {
-    if ((midi_input_device_current > 0) && midi_in_devices[midi_input_device_current].device)
-        device_add(midi_in_devices[midi_input_device_current].device);
+    if ((midi_input_device_current > 0) && midi_in_devices[midi_input_device_current].device) {
+        midi_in_device = midi_in_devices[midi_input_device_current].device;
+        device_add(midi_in_device);
+    }
     midi_input_device_last = midi_input_device_current;
+}
+
+void
+midi_config_changed(void)
+{
+    if (midi_out_device) {
+        device_close(midi_out_device);
+        midi_out_device = NULL;
+    }
+
+    midi_out_close();
+
+    if (midi_in_device) {
+        device_close(midi_in_device);
+        midi_in_device = NULL;
+    }
+
+    midi_in_close();
+
+    closeal();
+    inital();
+
+    midi_out_device_init();
+    midi_in_device_init();
 }
 
 void
@@ -282,9 +318,11 @@ midi_raw_out_rt_byte(uint8_t val)
     if (!midi_in->midi_clockout && (val == 0xf8))
         return;
 
-    midi_in->midi_cmd_r = val << 24;
-    /* pclog("Play RT Byte msg\n"); */
-    play_msg((uint8_t *) &midi_in->midi_cmd_r);
+    if (!midi_out || !midi_out->m_out_device)
+        return;
+
+    midi_out->midi_rt_buf[0] = val;
+    play_msg(midi_out->midi_rt_buf);
 }
 
 void
@@ -379,7 +417,11 @@ midi_clear_buffer(void)
 }
 
 void
-midi_in_handler(int set, void (*msg)(void *priv, uint8_t *msg, uint32_t len), int (*sysex)(void *priv, uint8_t *buffer, uint32_t len, int abort), void *priv)
+midi_in_handler(int set,
+                void (*msg)(void *priv, uint8_t *msg, uint32_t len),
+                int (*sysex)(void *priv, uint8_t *buffer, uint32_t len, int abort),
+                int (*remain)(void *priv),
+                void *priv)
 {
     midi_in_handler_t *temp = NULL;
     midi_in_handler_t *next;
@@ -393,9 +435,10 @@ midi_in_handler(int set, void (*msg)(void *priv, uint8_t *msg, uint32_t len), in
             fatal("First MIDI IN handler present with no last MIDI IN handler\n");
 
         temp = (midi_in_handler_t *) calloc(1, sizeof(midi_in_handler_t));
-        temp->msg   = msg;
-        temp->sysex = sysex;
-        temp->priv  = priv;
+        temp->msg    = msg;
+        temp->sysex  = sysex;
+        temp->remain = remain;
+        temp->priv   = priv;
 
         if (mih_last == NULL)
             mih_first = mih_last = temp;
@@ -469,8 +512,14 @@ midi_in_msg(uint8_t *msg, uint32_t len)
         if (temp == NULL)
             break;
 
-        if (temp->msg)
+        if (temp->msg) {
+            while ((temp->remain == NULL) ||
+                   (temp->remain(temp->priv) < (len + 1))) {
+                plat_delay_ms(1); /* msec */
+            }
+
             temp->msg(temp->priv, msg, len);
+        }
 
         temp = temp->next;
 
@@ -570,15 +619,48 @@ midi_do_sysex(void)
 void
 midi_in_sysex(uint8_t *buffer, uint32_t len)
 {
+    int max_iterations = MIDI_SYSEX_MAX_ITERATIONS;
+    int iteration_count = 0;
+    uint32_t start_time = plat_get_ticks();
+    uint32_t max_timeout_ms = MIDI_SYSEX_TIMEOUT_MS;
+
+    /* Input validation */
+    if (!buffer || len == 0) {
+        return;
+    }
+
     midi_start_sysex(buffer, len);
 
-    while (1) {
-        /* This will return 0 if all theh handlers have either
-           timed out or otherwise indicated it is time to stop. */
-        if (midi_do_sysex())
-            plat_delay_ms(5); /* msec */
-        else
+    while (iteration_count < max_iterations) {
+        /* Check for timeout */
+        uint32_t elapsed_time = plat_get_ticks() - start_time;
+        if (elapsed_time > max_timeout_ms) {
+            /* Force abort all handlers on timeout */
+            midi_in_handler_t *temp = mih_first;
+            while (temp != NULL) {
+                while ((temp->remain == NULL) ||
+                       (temp->remain(temp->priv) < (len + 1))) {
+                    plat_delay_ms(1); /* msec */
+                }
+                if (temp->sysex) {
+                    temp->sysex(temp->priv, NULL, 0, 1); /* Call with abort=1 */
+                }
+                temp->cnt = 0;
+                temp->len = 0;
+                temp = temp->next;
+            }
+            /* pclog("MIDI: SYSEX processing timed out after %d ms\n", elapsed_time); */
             break;
+        }
+
+        /* This will return 0 if all the handlers have either
+           timed out or otherwise indicated it is time to stop. */
+        if (midi_do_sysex()) {
+            plat_delay_ms(5); /* msec */
+            iteration_count++;
+        } else {
+            break;
+        }
     }
 }
 

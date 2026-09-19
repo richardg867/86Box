@@ -8,8 +8,6 @@
  *
  *          Emulation of the VIA PIPC southbridges.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          RichardG, <richardg867@gmail.com>
  *
@@ -43,6 +41,7 @@
 #include <86box/hdc.h>
 #include <86box/hdc_ide.h>
 #include <86box/hdc_ide_sff8038i.h>
+#include <86box/keyboard.h>
 #include <86box/usb.h>
 #include <86box/machine.h>
 #include <86box/smbus.h>
@@ -171,11 +170,11 @@ pipc_log(const char *fmt, ...)
 static void    pipc_sgd_handlers(pipc_t *dev, uint8_t modem);
 static void    pipc_codec_handlers(pipc_t *dev, uint8_t modem);
 static void    pipc_sb_handlers(pipc_t *dev, uint8_t modem);
-static uint8_t pipc_read(int func, int addr, void *priv);
-static void    pipc_write(int func, int addr, uint8_t val, void *priv);
+static uint8_t pipc_read(int func, int addr, int len, void *priv);
+static void    pipc_write(int func, int addr, int len, uint8_t val, void *priv);
 
 static void
-pipc_io_trap_pact(UNUSED(int size), UNUSED(uint16_t addr), UNUSED(uint8_t write), UNUSED(uint8_t val), void *priv)
+pipc_io_trap_pact(UNUSED(const uint16_t size), UNUSED(const uint16_t port), UNUSED(const uint8_t write), UNUSED(const uint8_t val), void *priv)
 {
     pipc_io_trap_t *trap = (pipc_io_trap_t *) priv;
 
@@ -188,7 +187,7 @@ pipc_io_trap_pact(UNUSED(int size), UNUSED(uint16_t addr), UNUSED(uint8_t write)
 }
 
 static void
-pipc_io_trap_glb(UNUSED(int size), UNUSED(uint16_t addr), uint8_t write, UNUSED(uint8_t val), void *priv)
+pipc_io_trap_glb(UNUSED(const uint16_t size), UNUSED(const uint16_t port), const uint8_t write, UNUSED(const uint8_t val), void *priv)
 {
     pipc_io_trap_t *trap = (pipc_io_trap_t *) priv;
 
@@ -917,7 +916,7 @@ pipc_sb_handlers(pipc_t *dev, uint8_t modem)
 }
 
 static void
-pipc_sb_get_buffer(int32_t *buffer, int len, void *priv)
+pipc_sb_get_buffer(int32_t *buffer, uint16_t len, void *priv)
 {
     pipc_t *dev = (pipc_t *) priv;
 
@@ -931,7 +930,7 @@ pipc_sb_get_buffer(int32_t *buffer, int len, void *priv)
 }
 
 static uint8_t
-pipc_read(int func, int addr, void *priv)
+pipc_read(int func, int addr, UNUSED(int len), void *priv)
 {
     pipc_t *dev = (pipc_t *) priv;
     uint8_t ret = 0xff;
@@ -975,7 +974,7 @@ pipc_read(int func, int addr, void *priv)
     else if (func == pm_func) { /* Power */
         ret = dev->power_regs[addr];
         if (addr == 0x42) {
-            if (dev->nvr->regs[0x0d] & 0x80)
+            if (dev->nvr->regs[0x0d] & 0x40)
                 ret |= 0x10;
             else
                 ret &= ~0x10;
@@ -987,9 +986,12 @@ pipc_read(int func, int addr, void *priv)
                 ret |= 0x10;
         }
     } else if ((func <= (pm_func + 2)) && !(dev->pci_isa_regs[0x85] & ((func == (pm_func + 1)) ? 0x04 : 0x08))) { /* AC97 / MC97 */
-        if (addr == 0x40)
-            ret = ac97_via_read_status(dev->ac97, func - pm_func - 1);
-        else
+        if (addr == 0x40) {
+            if (dev->local >= VIA_PIPC_686A)
+                ret = ac97_via_read_status(dev->ac97);
+            else
+                ret = 0x00;
+        } else
             ret = dev->ac97_regs[func - pm_func - 1][addr];
     }
 
@@ -1027,7 +1029,7 @@ pipc_ddma_update(pipc_t *dev, int addr)
 }
 
 static void
-pipc_write(int func, int addr, uint8_t val, void *priv)
+pipc_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     pipc_t *dev = (pipc_t *) priv;
     int     c;
@@ -1584,7 +1586,7 @@ pipc_write(int func, int addr, uint8_t val, void *priv)
 
             case 0x41:
                 dev->ac97_regs[func][addr] = val;
-                ac97_via_write_control(dev->ac97, func, val);
+                ac97_via_write_control(dev->ac97, val);
                 break;
 
             case 0x42:
@@ -1662,34 +1664,34 @@ pipc_reset(void *priv)
     pipc_t *dev     = (pipc_t *) priv;
     uint8_t pm_func = dev->usb[1] ? 4 : 3;
 
-    pipc_write(pm_func, 0x41, 0x00, priv);
-    pipc_write(pm_func, 0x48, 0x01, priv);
-    pipc_write(pm_func, 0x49, 0x00, priv);
+    pipc_write(pm_func, 0x41, 1, 0x00, priv);
+    pipc_write(pm_func, 0x48, 1, 0x01, priv);
+    pipc_write(pm_func, 0x49, 1, 0x00, priv);
 
     dev->power_regs[0x42] = ((dev->local >> 16) == VIA_PIPC_586) ? 0x00 : 0x50;
     acpi_set_irq_line(dev->acpi, 0x00);
 
-    pipc_write(1, 0x04, 0x80, priv);
-    pipc_write(1, 0x09, 0x85, priv);
-    pipc_write(1, 0x10, 0xf1, priv);
-    pipc_write(1, 0x11, 0x01, priv);
-    pipc_write(1, 0x14, 0xf5, priv);
-    pipc_write(1, 0x15, 0x03, priv);
-    pipc_write(1, 0x18, 0x71, priv);
-    pipc_write(1, 0x19, 0x01, priv);
-    pipc_write(1, 0x1c, 0x75, priv);
-    pipc_write(1, 0x1d, 0x03, priv);
-    pipc_write(1, 0x20, 0x01, priv);
-    pipc_write(1, 0x21, 0xcc, priv);
+    pipc_write(1, 0x04, 1, 0x80, priv);
+    pipc_write(1, 0x09, 1, 0x85, priv);
+    pipc_write(1, 0x10, 1, 0xf1, priv);
+    pipc_write(1, 0x11, 1, 0x01, priv);
+    pipc_write(1, 0x14, 1, 0xf5, priv);
+    pipc_write(1, 0x15, 1, 0x03, priv);
+    pipc_write(1, 0x18, 1, 0x71, priv);
+    pipc_write(1, 0x19, 1, 0x01, priv);
+    pipc_write(1, 0x1c, 1, 0x75, priv);
+    pipc_write(1, 0x1d, 1, 0x03, priv);
+    pipc_write(1, 0x20, 1, 0x01, priv);
+    pipc_write(1, 0x21, 1, 0xcc, priv);
     if (dev->local <= VIA_PIPC_586B)
-        pipc_write(1, 0x40, 0x04, priv);
+        pipc_write(1, 0x40, 1, 0x04, priv);
     else
-        pipc_write(1, 0x40, 0x00, priv);
+        pipc_write(1, 0x40, 1, 0x00, priv);
 
     if (dev->local < VIA_PIPC_586B)
-        pipc_write(0, 0x44, 0x00, priv);
+        pipc_write(0, 0x44, 1, 0x00, priv);
 
-    pipc_write(0, 0x77, 0x00, priv);
+    pipc_write(0, 0x77, 1, 0x00, priv);
 
     sff_set_slot(dev->bm[0], dev->pci_slot);
     sff_set_slot(dev->bm[1], dev->pci_slot);
@@ -1723,7 +1725,7 @@ pipc_init(const device_t *info)
     else if (dev->local >= VIA_PIPC_596A)
         dev->smbus = device_add(&piix4_smbus_device);
 
-    dev->nvr = device_add(&via_nvr_device);
+    dev->nvr = device_add_params(&nvr_at_device, (void *) (uintptr_t) NVR_VIA);
 
     if (dev->local >= VIA_PIPC_596A) {
         dev->acpi = device_add(&acpi_via_596b_device);
@@ -1773,6 +1775,38 @@ pipc_init(const device_t *info)
 
         acpi_set_irq_mode(dev->acpi, 0);
     }
+
+    uint32_t kbc_params = 0x00424600;
+    /*
+       NOTE: The VIA VT82C42N returns 0x46 ('F') in command 0xA1 (so it
+             emulates the AMI KF/AMIKey KBC firmware), and 0x42 ('B') in
+             command 0xAF.
+
+            The version on the VIA VT82C686B southbridge also returns
+            'F' in command 0xA1, but 0x45 ('E') in command 0xAF.
+            The version on the VIA VT82C586B southbridge also returns
+            'F' in command 0xA1, but 0x44 ('D') in command 0xAF.
+            The version on the VIA VT82C586A southbridge also returns
+            'F' in command 0xA1, but 0x43 ('C') in command 0xAF.
+     */
+    switch (dev->local) {
+        /* 596A, 596B, 686B, and 8231 are guesses because we have no probes yet. */
+        case VIA_PIPC_586A: case VIA_PIPC_596A:
+            kbc_params = 0x00434600;
+            break;
+        case VIA_PIPC_586B: case VIA_PIPC_596B:
+            kbc_params = 0x00444600;
+            break;
+        case VIA_PIPC_686A: case VIA_PIPC_686B:
+        case VIA_PIPC_8231:
+            kbc_params = 0x00454600;
+            break;
+    }
+
+    kbc_params |= KBC_VEN_VIA;
+
+    if ((machine_get_kbc_device(machine) == NULL) && !(info->local & VIA_PIPC_NO_KBC))
+        device_add_params(&kbc_at_device, (void *) (uintptr_t) kbc_params);
 
     return dev;
 }

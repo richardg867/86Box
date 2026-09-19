@@ -321,8 +321,8 @@ cli_render_gfx_box(char *str)
 
     render_data.mode = CLI_RENDER_BLANK;
 
-    render_data.infobox_sx = get_actual_size_x();
-    render_data.infobox_sy = get_actual_size_y();
+    render_data.infobox_sx = cli_term.size_x;
+    render_data.infobox_sy = cli_term.size_y;
     strncpy(infobox, str, sizeof(infobox));
     infobox[sizeof(infobox) - 1] = '\0';
     render_data.infobox          = infobox;
@@ -1186,7 +1186,7 @@ cli_render_process(void *priv)
                     goto next;
 
                 /* Handle changes in text line count. */
-                w = get_actual_size_y() / render_data.rowcount;
+                w = cli_term.size_y / render_data.rowcount;
                 if (w < render_data.prev_rowcount) {
                     /* Reset background color. */
                     cli_render_clearbg(buf);

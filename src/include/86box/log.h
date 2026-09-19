@@ -16,7 +16,6 @@
  *          Copyright 2021-25 Fred N. van Kempen.
  *          Copyright 2025 Connor Hyde.
  */
-
 #ifndef EMU_LOG_H
 #define EMU_LOG_H
 
@@ -29,7 +28,7 @@ extern "C" {
 #include <stdarg.h>
 #endif
 
-#define LOG_SIZE_BUFFER                 1024            /* Log size buffer */
+#define LOG_SIZE_BUFFER                 8192            /* Log size buffer */
 #define LOG_SIZE_BUFFER_CYCLIC_LINES    32              /* Cyclic log size buffer (number of lines that should be cehcked) */
 #define LOG_MINIMUM_REPEAT_ORDER        4               /* Minimum repeat size */
 
@@ -39,6 +38,9 @@ extern void log_set_dev_name(void *priv, char *dev_name);
 #ifndef RELEASE_BUILD
 extern void log_out(void *priv, const char *fmt, va_list);
 extern void log_out_cyclic(void* priv, const char *fmt, va_list);
+#else
+#    define log_out(priv, fmt, ...)
+#    define log_out_cyclic(priv, fmt, ...)
 #endif /*RELEASE_BUILD*/
 extern void log_fatal(void *priv, const char *fmt, ...);
 extern void log_warning(void *priv, const char *fmt, ...);

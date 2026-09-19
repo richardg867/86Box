@@ -8,8 +8,6 @@
  *
  *          C&T 69000 emulation.
  *
- *
- *
  * Authors: Cacodemon345
  *
  *          Copyright 2023-2024 Cacodemon345
@@ -1098,14 +1096,12 @@ chips_69000_recalctimings(svga_t *svga)
         svga->hblank_end_val = ((svga->crtc[3] & 0x1f) | ((svga->crtc[5] & 0x80) ? 0x20 : 0x00)) | (svga->crtc[0x3c] & 0b11000000);
         svga->hblank_end_mask = 0xff;
 
-        svga->ma_latch |= (svga->crtc[0x40] & 0xF) << 16;
+        svga->memaddr_latch |= (svga->crtc[0x40] & 0xF) << 16;
         svga->rowoffset |= (svga->crtc[0x41] & 0xF) << 8;
 
         svga->interlace = !!(svga->crtc[0x70] & 0x80);
-
-        if (svga->hdisp == 1280 && svga->dispend == 1024) {
-            svga->interlace = 0;
-        }
+        if (svga->interlace)
+            svga->dispend >>= 1;
 
         switch (chips->ext_regs[0x81] & 0xF) {
             default:
@@ -1146,6 +1142,8 @@ chips_69000_recalctimings(svga_t *svga)
 
             if (svga->dispend > (((chips->flat_panel_regs[0x30] | ((chips->flat_panel_regs[0x35] & 0xF) << 8)) + 1))) {
                 svga->dispend = svga->vsyncstart = svga->vblankstart = ((chips->flat_panel_regs[0x30] | ((chips->flat_panel_regs[0x35] & 0xF) << 8)) + 1);
+                if (svga->interlace)
+                    svga->dispend >>= 1;
             }
             //svga->hdisp = ((chips->flat_panel_regs[0x20] | ((chips->flat_panel_regs[0x25] & 0xF) << 8)) + 1) << 3;
             //svga->htotal = ((chips->flat_panel_regs[0x23] | ((chips->flat_panel_regs[0x26] & 0xF) << 8)) + 5) << 3;
@@ -1268,15 +1266,15 @@ chips_69000_process_pixel(chips_69000_t* chips, uint32_t pixel)
         if (chips->bitblt_running.bytes_per_pixel == 3) {
             pattern_pixel = chips_69000_readb_linear(chips->bitblt_running.bitblt.pat_addr
                                                         + (4 * 8 * ((vert_pat_alignment + chips->bitblt_running.y) & 7))
-                                                        + (3 * (((chips->bitblt_running.bitblt.destination_addr & 7) + chips->bitblt_running.x) & 7)), chips);
+                                                        + (3 * ((((chips->bitblt_running.bitblt.destination_addr / 3) & 7) + chips->bitblt_running.x) & 7)), chips);
 
             pattern_pixel |= chips_69000_readb_linear(chips->bitblt_running.bitblt.pat_addr
                                                         + (4 * 8 * ((vert_pat_alignment + chips->bitblt_running.y) & 7))
-                                                        + (3 * (((chips->bitblt_running.bitblt.destination_addr & 7) + chips->bitblt_running.x) & 7)) + 1, chips) << 8;
+                                                        + (3 * ((((chips->bitblt_running.bitblt.destination_addr / 3) & 7) + chips->bitblt_running.x) & 7)) + 1, chips) << 8;
 
             pattern_pixel |= chips_69000_readb_linear(chips->bitblt_running.bitblt.pat_addr
                                                         + (4 * 8 * ((vert_pat_alignment + chips->bitblt_running.y) & 7))
-                                                        + (3 * (((chips->bitblt_running.bitblt.destination_addr & 7) + chips->bitblt_running.x) & 7)) + 2, chips) << 16;
+                                                        + (3 * ((((chips->bitblt_running.bitblt.destination_addr / 3) & 7) + chips->bitblt_running.x) & 7)) + 2, chips) << 16;
         }
     }
     if (chips->bitblt_running.bytes_per_pixel == 2) {
@@ -2044,7 +2042,7 @@ chips_69000_out(uint16_t addr, uint8_t val, void *priv)
                 if (svga->crtcreg < 0xe || svga->crtcreg > 0x10) {
                     if ((svga->crtcreg == 0xc) || (svga->crtcreg == 0xd)) {
                         svga->fullchange = 3;
-                        svga->ma_latch   = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) + ((svga->crtc[8] & 0x60) >> 5);
+                        svga->memaddr_latch   = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) + ((svga->crtc[8] & 0x60) >> 5);
                     } else {
                         svga->fullchange = changeframecount;
                         svga_recalctimings(svga);
@@ -2143,7 +2141,7 @@ chips_69000_in(uint16_t addr, void *priv)
 }
 
 static uint8_t
-chips_69000_pci_read(UNUSED(int func), int addr, void *priv)
+chips_69000_pci_read(UNUSED(int func), int addr, UNUSED(int len), void *priv)
 {
     chips_69000_t *chips = (chips_69000_t *) priv;
     uint8_t        ret   = 0x00;
@@ -2217,20 +2215,23 @@ chips_69000_pci_read(UNUSED(int func), int addr, void *priv)
 }
 
 static void
-chips_69000_pci_write(UNUSED(int func), int addr, uint8_t val, void *priv)
+chips_69000_pci_write(UNUSED(int func), int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     chips_69000_t *chips = (chips_69000_t *) priv;
 
     switch (addr) {
         case 0x04:
             chips->pci_conf_status = val;
-            io_removehandler(0x03c0, 0x0020, chips_69000_in, NULL, NULL, chips_69000_out, NULL, NULL, chips);
+            io_removehandler(0x03b0, 0x0040, chips_69000_in, NULL, NULL, chips_69000_out, NULL, NULL, chips);
             mem_mapping_disable(&chips->linear_mapping);
             mem_mapping_disable(&chips->svga.mapping);
             if (!chips->on_board)
                 mem_mapping_disable(&chips->bios_rom.mapping);
-            if (val & PCI_COMMAND_IO)
+            if (val & PCI_COMMAND_IO) {
+                if (!(chips->svga.miscout & 0x01))
+                    io_sethandler(0x03a0, 0x0020, chips_69000_in, NULL, NULL, chips_69000_out, NULL, NULL, chips);
                 io_sethandler(0x03c0, 0x0020, chips_69000_in, NULL, NULL, chips_69000_out, NULL, NULL, chips);
+            }
             if (val & PCI_COMMAND_MEM) {
                 if (!chips->on_board && (chips->pci_rom_enable & 1))
                     mem_mapping_set_addr(&chips->bios_rom.mapping, chips->rom_addr << 16, 0x10000);
@@ -2779,13 +2780,13 @@ chips_69000_line_compare(svga_t* svga)
 static void
 chips_69000_disable_handlers(chips_69000_t *chips)
 {
-    io_removehandler(0x03c0, 0x0020, chips_69000_in, NULL, NULL, chips_69000_out, NULL, NULL, chips);
+    io_removehandler(0x03a0, 0x0040, chips_69000_in, NULL, NULL, chips_69000_out, NULL, NULL, chips);
 
     mem_mapping_disable(&chips->linear_mapping);
     mem_mapping_disable(&chips->svga.mapping);
     if (!chips->on_board)
         mem_mapping_disable(&chips->bios_rom.mapping);
-    
+
     chips->linear_mapping.base = 0;
 
     /* Save all the mappings and the timers because they are part of linked lists. */
@@ -2832,7 +2833,7 @@ chips_69000_init(const device_t *info)
               chips_69000_hwcursor_draw,
               NULL);
 
-    io_sethandler(0x03c0, 0x0020, chips_69000_in, NULL, NULL, chips_69000_out, NULL, NULL, chips);
+    io_sethandler(0x03a0, 0x0040, chips_69000_in, NULL, NULL, chips_69000_out, NULL, NULL, chips);
 
     pci_add_card(info->local ? PCI_ADD_VIDEO : PCI_ADD_NORMAL, chips_69000_pci_read, chips_69000_pci_write, chips, &chips->slot);
 
@@ -2865,7 +2866,7 @@ chips_69000_init(const device_t *info)
     chips->subsys_vid      = 0x102c;
     chips->subsys_pid      = 0x00c0;
 
-    io_removehandler(0x03c0, 0x0020, chips_69000_in, NULL, NULL, chips_69000_out, NULL, NULL, chips);
+    io_removehandler(0x03a0, 0x0040, chips_69000_in, NULL, NULL, chips_69000_out, NULL, NULL, chips);
     mem_mapping_disable(&chips->linear_mapping);
     mem_mapping_disable(&chips->svga.mapping);
     if (!chips->on_board)

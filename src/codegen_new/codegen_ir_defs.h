@@ -41,8 +41,8 @@
 #define UOP_LOAD_FUNC_ARG_2_IMM (UOP_TYPE_PARAMS_IMM | 0x0a | UOP_TYPE_BARRIER)
 #define UOP_LOAD_FUNC_ARG_3_IMM (UOP_TYPE_PARAMS_IMM | 0x0b | UOP_TYPE_BARRIER)
 #define UOP_CALL_FUNC           (UOP_TYPE_PARAMS_POINTER | 0x10 | UOP_TYPE_BARRIER)
-/*UOP_CALL_INSTRUCTION_FUNC - call instruction handler at p, check return value and exit block if non-zero*/
-#define UOP_CALL_INSTRUCTION_FUNC (UOP_TYPE_PARAMS_POINTER | 0x11 | UOP_TYPE_BARRIER)
+/*UOP_CALL_INSTRUCTION_FUNC - call instruction handler at p with fetchdat, check return value and exit block if non-zero*/
+#define UOP_CALL_INSTRUCTION_FUNC (UOP_TYPE_PARAMS_POINTER | UOP_TYPE_PARAMS_IMM | 0x11 | UOP_TYPE_BARRIER)
 #define UOP_STORE_P_IMM           (UOP_TYPE_PARAMS_IMM | 0x12)
 #define UOP_STORE_P_IMM_8         (UOP_TYPE_PARAMS_IMM | 0x13)
 /*UOP_LOAD_SEG - load segment in src_reg_a to segment p via loadseg(), check return value and exit block if non-zero*/
@@ -213,6 +213,8 @@
 #define UOP_FTST (UOP_TYPE_PARAMS_REGS | 0x88)
 /*UOP_FSQRT - dest_reg = fsqrt(src_reg_a)*/
 #define UOP_FSQRT (UOP_TYPE_PARAMS_REGS | 0x89)
+/*UOP_FROUND_S - dest_reg = (double)(float)src_reg_a (x87 precision control = 24)*/
+#define UOP_FROUND_S (UOP_TYPE_PARAMS_REGS | 0x8a)
 
 /*UOP_MMX_ENTER - must be called before any MMX registers accessed*/
 #define UOP_MMX_ENTER (UOP_TYPE_PARAMS_IMM | 0x90 | UOP_TYPE_BARRIER)
@@ -317,14 +319,30 @@
 #define UOP_PFCMPGT (UOP_TYPE_PARAMS_REGS | 0xc1)
 /*UOP_PF2ID - (packed long)dest_reg = (packed float)src_reg_a*/
 #define UOP_PF2ID (UOP_TYPE_PARAMS_REGS | 0xc2)
+/*UOP_PF2IW - dest_reg keeps high 32-bit lane from src_reg_a; low 32 bits get truncated low words from src_reg_b floats*/
+#define UOP_PF2IW (UOP_TYPE_PARAMS_REGS | 0xc9)
 /*UOP_PI2FD - (packed float)dest_reg = (packed long)src_reg_a*/
 #define UOP_PI2FD (UOP_TYPE_PARAMS_REGS | 0xc3)
+/*UOP_PI2FW - (packed float)dest_reg = sign-extended low words from src_reg_a*/
+#define UOP_PI2FW (UOP_TYPE_PARAMS_REGS | 0xca)
 /*UOP_PFRCP - (packed float) dest_reg[0] = dest_reg[1] = 1.0 / src_reg[0]*/
 #define UOP_PFRCP (UOP_TYPE_PARAMS_REGS | 0xc4)
 /*UOP_PFRSQRT - (packed float) dest_reg[0] = dest_reg[1] = 1.0 / sqrt(src_reg[0])*/
 #define UOP_PFRSQRT (UOP_TYPE_PARAMS_REGS | 0xc5)
+/*UOP_PFACC - (packed float) dest_reg[0] = dest_reg[0] + dest_reg[1], dest_reg[1] = src_reg_b[0] + src_reg_b[1]*/
+#define UOP_PFACC (UOP_TYPE_PARAMS_REGS | 0xc6)
+/*UOP_PFNACC - (packed float) dest_reg[0] = src_reg_a[0] - src_reg_a[1], dest_reg[1] = src_reg_b[0] - src_reg_b[1]*/
+#define UOP_PFNACC (UOP_TYPE_PARAMS_REGS | 0xcb)
+/*UOP_PFPNACC - (packed float) dest_reg[0] = src_reg_a[0] - src_reg_a[1], dest_reg[1] = src_reg_b[0] + src_reg_b[1]*/
+#define UOP_PFPNACC (UOP_TYPE_PARAMS_REGS | 0xcc)
+/*UOP_PSWAPD - (packed float) dest_reg[0] = src_reg_a[1], dest_reg[1] = src_reg_a[0]*/
+#define UOP_PSWAPD (UOP_TYPE_PARAMS_REGS | 0xcd)
+/*UOP_PMULHRW - (packed word) dest_reg = ((src_reg_a * src_reg_b) + 0x8000) >> 16*/
+#define UOP_PMULHRW (UOP_TYPE_PARAMS_REGS | 0xc7)
+/*UOP_PAVGUSB - (packed byte) dest_reg = (src_reg_a + src_reg_b + 1) >> 1*/
+#define UOP_PAVGUSB (UOP_TYPE_PARAMS_REGS | 0xc8)
 
-#define UOP_MAX     0xc6
+#define UOP_MAX     0xce
 
 #define UOP_INVALID 0xff
 
@@ -336,7 +354,11 @@ typedef struct uop_t {
     ir_reg_t      src_reg_a;
     ir_reg_t      src_reg_b;
     ir_reg_t      src_reg_c;
+#if defined __ARM_EABI__ || defined _ARM_ || defined _M_ARM || defined __aarch64__ || defined _M_ARM64
+    uintptr_t     imm_data;
+#else
     uint32_t      imm_data;
+#endif
     void         *p;
     ir_host_reg_t dest_reg_a_real;
     ir_host_reg_t src_reg_a_real, src_reg_b_real, src_reg_c_real;
@@ -357,6 +379,34 @@ typedef struct ir_data_t {
 
 static inline uop_t *
 uop_alloc(ir_data_t *ir, uint32_t uop_type)
+{
+    uop_t *uop;
+
+    if (ir->wr_pos >= UOP_NR_MAX)
+        fatal("Exceeded uOP max\n");
+
+    uop = &ir->uops[ir->wr_pos++];
+
+    uop->is_a16     = 0;
+
+    uop->dest_reg_a = invalid_ir_reg;
+    uop->src_reg_a  = invalid_ir_reg;
+    uop->src_reg_b  = invalid_ir_reg;
+    uop->src_reg_c  = invalid_ir_reg;
+
+    uop->pc = cpu_state.oldpc;
+
+    uop->jump_dest_uop  = -1;
+    uop->jump_list_next = -1;
+
+    if (uop_type & (UOP_TYPE_BARRIER | UOP_TYPE_ORDER_BARRIER))
+        dirty_ir_regs[0] = dirty_ir_regs[1] = ~0ULL;
+
+    return uop;
+}
+
+static inline uop_t *
+uop_alloc_unroll(ir_data_t *ir, uint32_t uop_type)
 {
     uop_t *uop;
 
@@ -573,7 +623,11 @@ uop_gen_reg_src3_imm(uint32_t uop_type, ir_data_t *ir, int src_reg_a, int src_re
 }
 
 static inline void
+#if defined __ARM_EABI__ || defined _ARM_ || defined _M_ARM || defined __aarch64__ || defined _M_ARM64
+uop_gen_imm(uint32_t uop_type, ir_data_t *ir, uintptr_t imm)
+#else
 uop_gen_imm(uint32_t uop_type, ir_data_t *ir, uint32_t imm)
+#endif
 {
     uop_t *uop = uop_alloc(ir, uop_type);
 
@@ -632,6 +686,10 @@ uop_gen_reg_src2_pointer(uint32_t uop_type, ir_data_t *ir, int src_reg_a, int sr
     uop->p         = p;
 }
 
+extern int codegen_mmx_enter(void);
+extern int codegen_femms(void);
+extern int codegen_fp_enter(void);
+
 #define uop_LOAD_FUNC_ARG_REG(ir, arg, reg)                      uop_gen_reg_src1(UOP_LOAD_FUNC_ARG_0 + arg, ir, reg)
 
 #define uop_LOAD_FUNC_ARG_IMM(ir, arg, imm)                      uop_gen_imm(UOP_LOAD_FUNC_ARG_0_IMM + arg, ir, imm)
@@ -662,7 +720,7 @@ uop_gen_reg_src2_pointer(uint32_t uop_type, ir_data_t *ir, int src_reg_a, int sr
 
 #define uop_CALL_FUNC(ir, p)                                     uop_gen_pointer(UOP_CALL_FUNC, ir, p)
 #define uop_CALL_FUNC_RESULT(ir, dst_reg, p)                     uop_gen_reg_dst_pointer(UOP_CALL_FUNC_RESULT, ir, dst_reg, p)
-#define uop_CALL_INSTRUCTION_FUNC(ir, p)                         uop_gen_pointer(UOP_CALL_INSTRUCTION_FUNC, ir, p)
+#define uop_CALL_INSTRUCTION_FUNC(ir, p, imm)                    uop_gen_pointer_imm(UOP_CALL_INSTRUCTION_FUNC, ir, p, imm)
 
 #define uop_CMP_IMM_JZ(ir, src_reg, imm, p)                      uop_gen_reg_src_pointer_imm(UOP_CMP_IMM_JZ, ir, src_reg, p, imm)
 
@@ -694,8 +752,31 @@ uop_gen_reg_src2_pointer(uint32_t uop_type, ir_data_t *ir, int src_reg_a, int sr
 #define uop_FABS(ir, dst_reg, src_reg)                           uop_gen_reg_dst_src1(UOP_FABS, ir, dst_reg, src_reg)
 #define uop_FCHS(ir, dst_reg, src_reg)                           uop_gen_reg_dst_src1(UOP_FCHS, ir, dst_reg, src_reg)
 #define uop_FSQRT(ir, dst_reg, src_reg)                          uop_gen_reg_dst_src1(UOP_FSQRT, ir, dst_reg, src_reg)
+#define uop_FROUND_S(ir, dst_reg, src_reg)                       uop_gen_reg_dst_src1(UOP_FROUND_S, ir, dst_reg, src_reg)
 #define uop_FTST(ir, dst_reg, src_reg)                           uop_gen_reg_dst_src1(UOP_FTST, ir, dst_reg, src_reg)
 
+#if defined __ARM_EABI__ || defined _ARM_ || defined _M_ARM || defined __aarch64__ || defined _M_ARM64
+#define uop_FP_ENTER(ir)                                    \
+    do {                                                    \
+        if (!codegen_fpu_entered) {                         \
+            uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);           \
+            uop_CALL_FUNC_RESULT(ir, IREG_temp0, codegen_fp_enter); \
+            uop_CMP_IMM_JZ(ir, IREG_temp0, 1, codegen_exit_rout); \
+        }                                                   \
+        codegen_fpu_entered = 1;                            \
+        codegen_mmx_entered = 0;                            \
+    } while (0)
+#define uop_MMX_ENTER(ir)                                    \
+    do {                                                     \
+        if (!codegen_mmx_entered) {                         \
+            uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);            \
+            uop_CALL_FUNC_RESULT(ir, IREG_temp0, codegen_mmx_enter); \
+            uop_CMP_IMM_JZ(ir, IREG_temp0, 1, codegen_exit_rout); \
+        }                                                   \
+        codegen_mmx_entered = 1;                             \
+        codegen_fpu_entered = 0;                             \
+    } while (0)
+#else
 #define uop_FP_ENTER(ir)                                    \
     do {                                                    \
         if (!codegen_fpu_entered)                           \
@@ -710,6 +791,7 @@ uop_gen_reg_src2_pointer(uint32_t uop_type, ir_data_t *ir, int src_reg_a, int sr
         codegen_mmx_entered = 1;                             \
         codegen_fpu_entered = 0;                             \
     } while (0)
+#endif
 
 #define uop_JMP(ir, p)                                                   uop_gen_pointer(UOP_JMP, ir, p)
 #define uop_JMP_DEST(ir)                                                 uop_gen(UOP_JMP_DEST, ir)
@@ -764,6 +846,7 @@ uop_gen_reg_src2_pointer(uint32_t uop_type, ir_data_t *ir, int src_reg_a, int sr
 #define uop_PCMPGTD(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_PCMPGTD, ir, dst_reg, src_reg_a, src_reg_b)
 
 #define uop_PF2ID(ir, dst_reg, src_reg)                                  uop_gen_reg_dst_src1(UOP_PF2ID, ir, dst_reg, src_reg)
+#define uop_PF2IW(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PF2IW, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PFADD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PFADD, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PFCMPEQ(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_PFCMPEQ, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PFCMPGE(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_PFCMPGE, ir, dst_reg, src_reg_a, src_reg_b)
@@ -773,8 +856,15 @@ uop_gen_reg_src2_pointer(uint32_t uop_type, ir_data_t *ir, int src_reg_a, int sr
 #define uop_PFMUL(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PFMUL, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PFRCP(ir, dst_reg, src_reg)                                  uop_gen_reg_dst_src1(UOP_PFRCP, ir, dst_reg, src_reg)
 #define uop_PFRSQRT(ir, dst_reg, src_reg)                                uop_gen_reg_dst_src1(UOP_PFRSQRT, ir, dst_reg, src_reg)
+#define uop_PFACC(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PFACC, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_PFNACC(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PFNACC, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_PFPNACC(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_PFPNACC, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_PSWAPD(ir, dst_reg, src_reg)                                 uop_gen_reg_dst_src1(UOP_PSWAPD, ir, dst_reg, src_reg)
+#define uop_PMULHRW(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_PMULHRW, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_PAVGUSB(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_PAVGUSB, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PFSUB(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PFSUB, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PI2FD(ir, dst_reg, src_reg)                                  uop_gen_reg_dst_src1(UOP_PI2FD, ir, dst_reg, src_reg)
+#define uop_PI2FW(ir, dst_reg, src_reg)                                  uop_gen_reg_dst_src1(UOP_PI2FW, ir, dst_reg, src_reg)
 
 #define uop_PMADDWD(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_PMADDWD, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PMULHW(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PMULHW, ir, dst_reg, src_reg_a, src_reg_b)

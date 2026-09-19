@@ -197,10 +197,12 @@ bool opl_registers_base<Revision>::write(uint16_t index, uint8_t data, uint32_t 
 	assert(index < REGISTERS);
 
 	// writes to the mode register with high bit set ignore the low bits
-	if (index == REG_MODE && bitfield(data, 7) != 0)
-		m_regdata[index] |= 0x80;
-	else
-		m_regdata[index] = data;
+        if (index < sizeof(m_regdata)) {
+            if (index == REG_MODE && bitfield(data, 7) != 0)
+                m_regdata[index] |= 0x80;
+            else
+                m_regdata[index] = data;
+        }
 
 	// handle writes to the rhythm keyons
 	if (index == 0xbd)
@@ -1716,15 +1718,15 @@ uint8_t ymf278b::read_status()
 uint8_t ymf278b::read_data_pcm()
 {
 	// read from PCM
-	if (bitfield(m_address, 9) != 0)
-	{
-		uint8_t result = m_pcm.read(m_address & 0xff);
-		if ((m_address & 0xff) == 0x02)
-			result |= 0x20;
-
-		return result;
+	if (bitfield(m_address, 9) != 0) {
+		auto ret = m_pcm.read(m_address & 0xff);
+		if (m_address == 0x202) {
+			ret &= ~0xe0;
+			ret |= 0x20;
+		}
+		return ret;
 	}
-	return 0;
+    return 0;
 }
 
 

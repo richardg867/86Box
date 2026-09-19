@@ -8,8 +8,6 @@
  *
  *          Definitions for the Intel DMA controller.
  *
- *
- *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *          Miran Grca, <mgrca8@gmail.com>
  *          Sarah Walker, <https://pcem-emulator.co.uk/>
@@ -81,6 +79,7 @@ extern uint8_t dma_e;
 extern uint8_t dma_m;
 
 extern void dma_init(void);
+extern void dma_init_ibm5140(void);
 extern void dma16_init(void);
 extern void ps2_dma_init(void);
 extern void dma_reset(void);
@@ -95,6 +94,8 @@ extern void writedma2(uint8_t temp);
 
 extern int  dma_get_drq(int channel);
 extern void dma_set_drq(int channel, int set);
+extern void dma_set_eop(int channel, int set);
+extern void dma_set_service_handler(int channel, void (*handler)(void *), void *priv);
 
 extern int dma_channel_read_only(int channel);
 extern int dma_channel_advance(int channel);
@@ -113,6 +114,7 @@ void dma_set_params(uint8_t advanced, uint32_t mask);
 void dma_set_mask(uint32_t mask);
 
 void dma_set_at(uint8_t at);
+void dma_set_force_xt(int enable);
 
 void dma_ext_mode_init(void);
 void dma_high_page_init(void);
@@ -121,5 +123,8 @@ void dma_remove_sg(void);
 void dma_set_sg_base(uint8_t sg_base);
 
 extern int dma_channel_readable(int channel);
+extern int dma_channel_writable(int channel);
+
+extern void dma_xt_refresh_request(void);
 
 #endif /*EMU_DMA_H*/

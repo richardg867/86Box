@@ -139,16 +139,16 @@ compaq_cga_poll(void *priv)
             if (self->cga.cgamode & 1) {
 #ifdef USE_CLI
                 if ((self->cga.displine % 8) == 0)
-                    cli_render_cga(self->cga.ma / self->cga.crtc[1], self->cga.crtc[9] & 0x0f,
+                    cli_render_cga(self->cga.memaddr / self->cga.crtc[1], self->cga.crtc[9] & 0x0f,
                         self->cga.crtc[1], 1,
                         self->cga.charbuffer, 0, sizeof(self->cga.charbuffer) - 1, 1,
                         self->cga.cgamode & 0x08, self->cga.cgamode & 0x20,
-                        ca - self->cga.ma, !(self->cga.crtc[0x0a] & 0x20) && ((self->cga.crtc[0x0b] & 0x1f) >= (self->cga.crtc[0x0a] & 0x1f)));
+                        ca - self->cga.memaddr, !(self->cga.crtc[0x0a] & 0x20) && ((self->cga.crtc[0x0b] & 0x1f) >= (self->cga.crtc[0x0a] & 0x1f)));
 #endif
                 for (x = 0; x < self->cga.crtc[1]; x++) {
                     chr        = self->cga.charbuffer[x << 1];
                     attr       = self->cga.charbuffer[(x << 1) + 1];
-                    drawcursor = ((self->cga.ma == ca) && self->cga.con && self->cga.cursoron);
+                    drawcursor = ((self->cga.memaddr == ca) && self->cga.cursorvisible && self->cga.cursoron);
 
                     if (vflags) {
                         underline = 0;
@@ -187,21 +187,21 @@ compaq_cga_poll(void *priv)
                         for (c = 0; c < 8; c++)
                             buffer32->line[self->cga.displine][(x << 3) + c + 8] = cols[(fontdatm[chr + self->cga.fontbase][self->cga.sc & 15] & (1 << (c ^ 7))) ? 1 : 0];
                     }
-                    self->cga.ma++;
+                    self->cga.memaddr++;
                 }
             } else {
 #ifdef USE_CLI
                 if ((self->cga.displine % 8) == 0)
-                    cli_render_cga(self->cga.ma / self->cga.crtc[1], self->cga.crtc[9] & 0x0f,
+                    cli_render_cga(self->cga.memaddr / self->cga.crtc[1], self->cga.crtc[9] & 0x0f,
                             self->cga.crtc[1], 1,
-                            self->cga.vram, self->cga.ma << 1, 0x3fff, 1,
+                            self->cga.vram, self->cga.memaddr << 1, 0x3fff, 1,
                             self->cga.cgamode & 0x08, self->cga.cgamode & 0x20,
                             ca, !(self->cga.crtc[0x0a] & 0x20) && ((self->cga.crtc[0x0b] & 0x1f) >= (self->cga.crtc[0x0a] & 0x1f)));
 #endif
                 for (x = 0; x < self->cga.crtc[1]; x++) {
-                    chr        = self->cga.vram[(self->cga.ma << 1) & 0x3fff];
-                    attr       = self->cga.vram[((self->cga.ma << 1) + 1) & 0x3fff];
-                    drawcursor = ((self->cga.ma == ca) && self->cga.con && self->cga.cursoron);
+                    chr        = self->cga.vram[(self->cga.memaddr << 1) & 0x3fff];
+                    attr       = self->cga.vram[((self->cga.memaddr << 1) + 1) & 0x3fff];
+                    drawcursor = ((self->cga.memaddr == ca) && self->cga.cursorvisible && self->cga.cursoron);
 
                     if (vflags) {
                         underline = 0;
@@ -228,7 +228,7 @@ compaq_cga_poll(void *priv)
                         cols[1] = (attr & 15) + 16;
                         cols[0] = (attr >> 4) + 16;
                     }
-                    self->cga.ma++;
+                    self->cga.memaddr++;
 
                     if (vflags && underline) {
                         for (c = 0; c < 8; c++)
@@ -285,25 +285,25 @@ compaq_cga_poll(void *priv)
         }
 
         if (self->cga.sc == (self->cga.crtc[11] & 31) || ((self->cga.crtc[8] & 3) == 3 && self->cga.sc == ((self->cga.crtc[11] & 31) >> 1))) {
-            self->cga.con  = 0;
-            self->cga.coff = 1;
+            self->cga.cursorvisible = 0;
+            self->cga.coff         = 1;
         }
         if ((self->cga.crtc[8] & 3) == 3 && self->cga.sc == (self->cga.crtc[9] >> 1))
-            self->cga.maback = self->cga.ma;
+            self->cga.memaddr_backup = self->cga.memaddr;
         if (self->cga.vadj) {
             self->cga.sc++;
             self->cga.sc &= 31;
-            self->cga.ma = self->cga.maback;
+            self->cga.memaddr = self->cga.memaddr_backup;
             self->cga.vadj--;
             if (!self->cga.vadj) {
                 self->cga.cgadispon = 1;
-                self->cga.ma = self->cga.maback = (self->cga.crtc[13] | (self->cga.crtc[12] << 8)) & 0x3fff;
-                self->cga.sc                    = 0;
+                self->cga.memaddr = self->cga.memaddr_backup = (self->cga.crtc[13] | (self->cga.crtc[12] << 8)) & 0x3fff;
+                self->cga.sc = 0;
             }
         } else if (self->cga.sc == self->cga.crtc[9]) {
-            self->cga.maback = self->cga.ma;
-            self->cga.sc     = 0;
-            oldvc            = self->cga.vc;
+            self->cga.memaddr_backup = self->cga.memaddr;
+            self->cga.sc = 0;
+            oldvc = self->cga.vc;
             self->cga.vc++;
             self->cga.vc &= 127;
 
@@ -318,7 +318,7 @@ compaq_cga_poll(void *priv)
                     self->cga.cgadispon = 1;
 
                 if (!self->cga.vadj)
-                    self->cga.ma = self->cga.maback = (self->cga.crtc[13] | (self->cga.crtc[12] << 8)) & 0x3fff;
+                    self->cga.memaddr = self->cga.memaddr_backup = (self->cga.crtc[13] | (self->cga.crtc[12] << 8)) & 0x3fff;
 
                 if ((self->cga.crtc[10] & 0x60) == 0x20)
                     self->cga.cursoron = 0;
@@ -397,18 +397,18 @@ compaq_cga_poll(void *priv)
         } else {
             self->cga.sc++;
             self->cga.sc &= 31;
-            self->cga.ma = self->cga.maback;
+            self->cga.memaddr = self->cga.memaddr_backup;
         }
 
         if (self->cga.cgadispon)
             self->cga.cgastat &= ~1;
 
         if (self->cga.sc == (self->cga.crtc[10] & 31) || ((self->cga.crtc[8] & 3) == 3 && self->cga.sc == ((self->cga.crtc[10] & 31) >> 1)))
-            self->cga.con = 1;
+            self->cga.cursorvisible = 1;
 
         if (self->cga.cgadispon && (self->cga.cgamode & 1)) {
             for (x = 0; x < (self->cga.crtc[1] << 1); x++)
-                self->cga.charbuffer[x] = self->cga.vram[((self->cga.ma << 1) + x) & 0x3fff];
+                self->cga.charbuffer[x] = self->cga.vram[((self->cga.memaddr << 1) + x) & 0x3fff];
         }
     }
 }

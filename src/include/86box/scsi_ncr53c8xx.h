@@ -10,8 +10,6 @@
  *          Adapters made by NCR and later Symbios and LSI. These
  *          controllers were designed for the PCI bus.
  *
- *
- *
  * Authors: TheCollector1995, <mariogplayer@gmail.com>
  *          Miran Grca, <mgrca8@gmail.com>
  *          Paul Brook (QEMU),
@@ -21,7 +19,6 @@
  *          Copyright 2009-2018 Artyom Tarasenko.
  *          Copyright 2017-2018 Miran Grca.
  */
-
 #ifndef SCSI_NCR53C8XX_H
 #define SCSI_NCR53C8XX_H
 
@@ -32,5 +29,6 @@ extern const device_t ncr53c820_pci_device;
 extern const device_t ncr53c825a_pci_device;
 extern const device_t ncr53c860_pci_device;
 extern const device_t ncr53c875_pci_device;
+extern const device_t ncr53c875_onboard_pci_device;
 
 #endif /*SCSI_NCR53C8XX_H*/

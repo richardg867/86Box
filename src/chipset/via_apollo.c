@@ -8,8 +8,6 @@
  *
  *          Implementation of the VIA Apollo series of chips.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          RichardG, <richardg867@gmail.com>
  *          Tiseno100,
@@ -31,6 +29,7 @@
 #include <86box/device.h>
 #include <86box/pci.h>
 #include <86box/chipset.h>
+#include <86box/plat_unused.h>
 #include <86box/spd.h>
 #include <86box/agpgart.h>
 
@@ -227,7 +226,7 @@ via_apollo_setup(via_apollo_t *dev)
 }
 
 static void
-via_apollo_host_bridge_write(int func, int addr, uint8_t val, void *priv)
+via_apollo_host_bridge_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     via_apollo_t *dev = (via_apollo_t *) priv;
     if (func)
@@ -350,7 +349,7 @@ via_apollo_host_bridge_write(int func, int addr, uint8_t val, void *priv)
             break;
 
         case 0x58:
-            if ((dev->id >= VIA_585) || (dev->id < VIA_597) || (dev->id == VIA_597) || ((dev->id >= VIA_693A) || (dev->id < VIA_8601)))
+            if ((dev->id >= VIA_585) || (dev->id < VIA_597) || (dev->id == VIA_597) || ((dev->id >= VIA_693A) && (dev->id < VIA_8601)))
                 dev->pci_conf[0x58] = (dev->pci_conf[0x58] & ~0xee) | (val & 0xee);
             else
                 dev->pci_conf[0x58] = val;
@@ -503,14 +502,14 @@ via_apollo_host_bridge_write(int func, int addr, uint8_t val, void *priv)
             break;
         case 0x69:
             if ((dev->id != VIA_585) || (dev->id != VIA_595)) {
-                if ((dev->id == VIA_693A) || (dev->id < VIA_8601))
+                if ((dev->id == VIA_693A) && (dev->id < VIA_8601))
                     dev->pci_conf[0x69] = (dev->pci_conf[0x69] & ~0xfe) | (val & 0xfe);
                 else
                     dev->pci_conf[0x69] = val;
             }
             break;
         case 0x6b:
-            if ((dev->id == VIA_693A) || (dev->id < VIA_8601))
+            if ((dev->id == VIA_693A) && (dev->id < VIA_8601))
                 dev->pci_conf[0x6b] = val;
             else if (dev->id == VIA_691)
                 dev->pci_conf[0x6b] = (dev->pci_conf[0x6b] & ~0xcf) | (val & 0xcf);
@@ -522,7 +521,7 @@ via_apollo_host_bridge_write(int func, int addr, uint8_t val, void *priv)
                 dev->pci_conf[0x6b] = (dev->pci_conf[0x6b] & ~0xc1) | (val & 0xc1);
             break;
         case 0x6c:
-            if ((dev->id == VIA_597) || ((dev->id == VIA_693A) || (dev->id < VIA_8601)))
+            if ((dev->id == VIA_597) || ((dev->id == VIA_693A) && (dev->id < VIA_8601)))
                 dev->pci_conf[0x6c] = (dev->pci_conf[0x6c] & ~0x1f) | (val & 0x1f);
             else if (dev->id == VIA_598)
                 dev->pci_conf[0x6c] = (dev->pci_conf[0x6c] & ~0x7f) | (val & 0x7f);
@@ -686,28 +685,27 @@ via_apollo_host_bridge_write(int func, int addr, uint8_t val, void *priv)
 }
 
 static uint8_t
-via_apollo_read(int func, int addr, void *priv)
+via_apollo_read(int func, int addr, UNUSED(int len), void *priv)
 {
     const via_apollo_t *dev = (via_apollo_t *) priv;
     uint8_t             ret = 0xff;
 
-    switch (func) {
-        case 0:
+    if (func == 0) {
+        if ((dev->pci_conf[0xfc] & 0x01) && ((addr == 2) || (addr == 3)))
+            ret = dev->pci_conf[addr + 0xfc];
+        else
             ret = dev->pci_conf[addr];
-            break;
-        default:
-            break;
     }
 
     return ret;
 }
 
 static void
-via_apollo_write(int func, int addr, uint8_t val, void *priv)
+via_apollo_write(int func, int addr, int len, uint8_t val, void *priv)
 {
     switch (func) {
         case 0:
-            via_apollo_host_bridge_write(func, addr, val, priv);
+            via_apollo_host_bridge_write(func, addr, len, val, priv);
             break;
         default:
             break;
@@ -717,9 +715,9 @@ via_apollo_write(int func, int addr, uint8_t val, void *priv)
 static void
 via_apollo_reset(void *priv)
 {
-    via_apollo_write(0, 0x61, 0x00, priv);
-    via_apollo_write(0, 0x62, 0x00, priv);
-    via_apollo_write(0, 0x63, 0x00, priv);
+    via_apollo_write(0, 0x61, 1, 0x00, priv);
+    via_apollo_write(0, 0x62, 1, 0x00, priv);
+    via_apollo_write(0, 0x63, 1, 0x00, priv);
 }
 
 static void *

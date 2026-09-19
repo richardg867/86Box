@@ -8,8 +8,6 @@
  *
  *          Utility functions.
  *
- *
- *
  * Authors: Teemu Korhonen
  *
  *          Copyright 2022 Teemu Korhonen
@@ -20,6 +18,11 @@
 #include <QStringList>
 #include <QWidget>
 #include <QApplication>
+#include <QBuffer>
+#include <QClipboard>
+#include <QImage>
+#include <QImageWriter>
+#include <QMimeData>
 #if QT_VERSION <= QT_VERSION_CHECK(5, 14, 0)
 #    include <QDesktopWidget>
 #endif
@@ -27,6 +30,7 @@
 #include "qt_util.hpp"
 
 #ifdef Q_OS_WINDOWS
+#    include <windows.h>
 #    include <dwmapi.h>
 #    ifndef DWMWA_WINDOW_CORNER_PREFERENCE
 #        define DWMWA_WINDOW_CORNER_PREFERENCE 33
@@ -62,6 +66,38 @@ screenOfWidget(QWidget *widget)
 }
 
 #ifdef Q_OS_WINDOWS
+
+bool
+isWindowsLightTheme(void)
+{
+    if (color_scheme != 0) {
+        return (color_scheme == 1);
+    }
+
+    // based on https://stackoverflow.com/questions/51334674/how-to-detect-windows-10-light-dark-mode-in-win32-application
+
+    // The value is expected to be a REG_DWORD, which is a signed 32-bit little-endian
+    auto buffer = std::vector<char>(4);
+    auto cbData = static_cast<DWORD>(buffer.size() * sizeof(char));
+    auto res    = RegGetValueW(
+        HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+        L"AppsUseLightTheme",
+        RRF_RT_REG_DWORD, // expected value type
+        nullptr,
+        buffer.data(),
+        &cbData);
+
+    if (res != ERROR_SUCCESS) {
+        return 1;
+    }
+
+    // convert bytes written to our buffer to an int, assuming little-endian
+    auto i = int(buffer[3] << 24 | buffer[2] << 16 | buffer[1] << 8 | buffer[0]);
+
+    return i == 1;
+}
+
 void
 setWin11RoundedCorners(WId hwnd, bool enable)
 {
@@ -71,7 +107,7 @@ setWin11RoundedCorners(WId hwnd, bool enable)
 #endif
 
 QString
-DlgFilter(std::initializer_list<QString> extensions, bool last)
+DlgFilter(QStringList extensions, bool last)
 {
     QStringList temp;
 
@@ -92,16 +128,32 @@ DlgFilter(std::initializer_list<QString> extensions, bool last)
     return " (" % temp.join(' ') % ")" % (!last ? ";;" : "");
 }
 
-QString currentUuid()
+QString
+DlgFilter(std::initializer_list<QString> extensions, bool last)
 {
-    auto configPath = QFileInfo(cfg_path).dir().canonicalPath();
-    if(!configPath.endsWith("/")) {
-        configPath.append("/");
-    }
-    return QUuid::createUuidV5(QUuid{}, configPath).toString(QUuid::WithoutBraces);
+    QStringList temp(extensions);
+
+    return DlgFilter(temp, last);
 }
 
-bool compareUuid()
+QString
+currentUuid()
+{
+    return generateUuid(QString(cfg_path));
+}
+
+QString
+generateUuid(const QString &path)
+{
+    auto dirPath = QFileInfo(path).dir().canonicalPath();
+    if (!dirPath.endsWith("/")) {
+        dirPath.append("/");
+    }
+    return QUuid::createUuidV5(QUuid {}, dirPath).toString(QUuid::WithoutBraces);
+}
+
+bool
+compareUuid()
 {
     // A uuid not set in the config file will have a zero length.
     // Any uuid that is lower than the minimum length will be considered invalid
@@ -111,7 +163,7 @@ bool compareUuid()
         return true;
     }
     // Do not prompt on mismatch if the system does not have any configured NICs. Just update the uuid
-    if(!hasConfiguredNICs() && uuid != currentUuid()) {
+    if (!hasConfiguredNICs() && uuid != currentUuid()) {
         storeCurrentUuid();
         return true;
     }
@@ -150,6 +202,38 @@ hasConfiguredNICs()
         }
     }
     return false;
+}
+
+void
+copyImageToClipboard(const QImage &image)
+{
+    /* QImage does not take ownership of externally allocated pixels and the
+       clipboard only encodes the image once another application asks for it,
+       so hand over a copy the caller cannot invalidate. */
+    const QImage img = image.copy();
+
+    QByteArray png;
+    QBuffer    buf(&png);
+    buf.open(QIODevice::WriteOnly);
+    QImageWriter writer(&buf, "png");
+    writer.setCompression(100); /* Qt 6 maps 0-100 onto zlib levels 0-9 */
+    writer.setQuality(0);       /* Qt 5 uses quality as the compression lever */
+    writer.write(img);
+    buf.close();
+
+    /* Qt offers the clipboard image in every format the image plugins can
+       write, and encodes on demand. The first format offered is whichever
+       one was named first, and application/x-qt-image - which Qt's Wayland
+       backend serialises as an uncompressed BMP - otherwise leads the list.
+       Applications that take the first format on offer then receive a bitmap
+       several times the size of a PNG of the same screen. Naming image/png
+       before the image data puts it at the head of the list instead, while
+       still offering the image itself for the platforms and applications
+       that want it. */
+    auto *mime = new QMimeData;
+    mime->setData(QStringLiteral("image/png"), png);
+    mime->setImageData(img);
+    QApplication::clipboard()->setMimeData(mime, QClipboard::Clipboard);
 }
 
 }

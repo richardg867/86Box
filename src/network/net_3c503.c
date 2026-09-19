@@ -9,8 +9,6 @@
  *          Implementation of the following network controllers:
  *            - 3Com Etherlink II 3c503 (ISA 8-bit).
  *
- *
- *
  * Based on @(#)3c503.cpp Carl (MAME)
  *
  * Authors: TheCollector1995, <mariogplayer@gmail.com>
@@ -45,6 +43,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <stdarg.h>
 #include <wchar.h>
 #include <time.h>
@@ -720,7 +719,7 @@ static const device_config_t threec503_config[] = {
     },
     {
         .name           = "bios_addr",
-        .description    = "BIOS Address",
+        .description    = "BIOS address",
         .type           = CONFIG_HEX20,
         .default_string = NULL,
         .default_int    = 0xCC000,

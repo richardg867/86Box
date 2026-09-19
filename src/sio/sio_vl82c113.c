@@ -134,16 +134,19 @@ vl82c113_init(UNUSED(const device_t *info))
 {
     vl82c113_t *dev  = (vl82c113_t *) calloc(1, sizeof(vl82c113_t));
 
-    if (!strcmp(machine_get_internal_name(), "martin"))
-        dev->nvr         = device_add(&martin_nvr_device);
+    if (machines[machine].init == machine_at_martin_init)
+        dev->nvr         = device_add_params(&nvr_at_device, (void *) (uintptr_t) NVR_MARTIN);
+    else if ((machines[machine].init == machine_at_monsoon_init) || (machines[machine].init == machine_at_sensation1_init) ||
+             (machines[machine].init == machine_at_sensation2_init))
+        dev->nvr         = device_add_params(&nvr_at_device, (void *) (uintptr_t) NVR_AT);
     else
-        dev->nvr         = device_add(&amstrad_megapc_nvr_device);
+        dev->nvr         = device_add_params(&nvr_at_device, (void *) (uintptr_t) NVR_AT_ZERO_DEFAULT);
 
     dev->nvr_enabled = 1;
     dev->nvr_base    = 0x0070;
 
     /* Commands are standard. */
-    dev->kbc         = device_add(&keyboard_at_device);
+    dev->kbc         = device_add(&kbc_at_device);
 
     vl82c113_reset(dev);
 

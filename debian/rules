@@ -5,27 +5,17 @@
 
 ARCH=$(shell dpkg-architecture -qDEB_HOST_ARCH)
 
-ifeq ($(ARCH), $(filter $(ARCH), amd64 i386))
+ifeq ($(ARCH), $(filter $(ARCH), amd64))
 	NDR=off
-	ifeq ($(ARCH),amd64)
-		TOOLCHAIN=cmake/flags-gcc-x86_64.cmake
-	else
-		TOOLCHAIN=cmake/flags-gcc-i686.cmake
-	endif
 else
 	NDR=on
-	ifeq ($(ARCH),armhf)
-		TOOLCHAIN=cmake/flags-gcc-armv7.cmake
-	else
-		TOOLCHAIN=cmake/flags-gcc-aarch64.cmake
-	endif
 endif
 
 %:
 	dh $@ --buildsystem cmake+ninja
 
 override_dh_auto_configure:
-	dh_auto_configure --buildsystem cmake+ninja -- --preset regular --toolchain $(TOOLCHAIN) -DNEW_DYNAREC=$(NDR) -B .
+	dh_auto_configure --buildsystem cmake+ninja -- --preset regular -DNEW_DYNAREC=$(NDR) -B .
 
 override_dh_auto_build:
 	dh_auto_build --buildsystem cmake+ninja
@@ -34,7 +24,7 @@ override_dh_auto_test:
 
 override_dh_auto_install:
 	dh_auto_install --buildsystem cmake+ninja
-	for i in 48x48 64x64 72x72 96x96 128x128 192x192 256x256 512x512 ; do \
+	for i in 16x16 20x20 24x24 32x32 40x40 48x48 64x64 72x72 128x128 256x256; do \
 		install -Dm644 src/unix/assets/$$i/net.86box.86Box.png -t debian/86box/usr/share/icons/hicolor/$$i/apps ; \
 	done
 	mkdir debian/86box/usr/share/applications

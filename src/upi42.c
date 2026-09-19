@@ -8,8 +8,6 @@
  *
  *          Intel UPI-42/MCS-48 microcontroller emulation.
  *
- *
- *
  * Authors: RichardG, <richardg867@gmail.com>
  *
  *          Copyright 2022 RichardG.
@@ -875,7 +873,7 @@ upi42_exec(void *priv)
     }
 
     /* Fetch instruction. */
-    uint32_t fetchdat = *((uint32_t *) &upi42->rom[upi42->pc]);
+    uint32_t fetchdat = AS_U32(upi42->rom[upi42->pc]);
 
     /* Decode instruction. */
     uint8_t insn = fetchdat & 0xff;
@@ -1036,7 +1034,7 @@ void *
 upi42_init(uint32_t type, uint8_t *rom)
 {
     /* Allocate state structure. */
-    upi42_t *upi42 = (upi42_t *) malloc(sizeof(upi42_t));
+    upi42_t *upi42 = (upi42_t *) calloc(1, sizeof(upi42_t));
     upi42_do_init(type, rom);
 
     return upi42;

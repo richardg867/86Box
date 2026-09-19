@@ -13,8 +13,12 @@
 #
 #          Copyright 2020-2022 David Hrdlička.
 #          Copyright 2021      dob205.
-#          Copyright 2024      Jasmine Iwanek.
+#          Copyright 2024-2026 Jasmine Iwanek.
 #
+
+if(NOT CMAKE_TOP_LEVEL_PROCESSED)
+    message(FATAL_ERROR "Incorrect source directory specified. Delete your build directory and retry with the top-level directory instead")
+endif()
 
 if(APPLE)
     set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
@@ -30,8 +34,10 @@ add_executable(86Box
     dma.c
     ddma.c
     nmi.c
+    pci_dummy.c
     pic.c
     pit.c
+    pit_exact.c
     pit_fast.c
     port_6x.c
     port_92.c
@@ -80,6 +86,10 @@ if(DEBUGREGS486)
     add_compile_definitions(USE_DEBUG_REGS_486)
 endif()
 
+if(SCREENSHOT_MODE)
+    add_compile_definitions(SCREENSHOT_MODE)
+endif()
+
 if(VNC)
     find_package(LibVNCServer)
     if(LibVNCServer_FOUND)
@@ -99,35 +109,56 @@ if(CLI)
     add_compile_definitions(USE_CLI)
 endif()
 
-include(CheckIncludeFile)
-check_include_file("linux/vfio.h" VFIO)
-if(VFIO)
-    add_compile_definitions(USE_VFIO)
+if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+    include(CheckIncludeFile)
+    check_include_file("linux/vfio.h" VFIO_AVAILABLE)
+    if(VFIO_AVAILABLE)
+        add_compile_definitions(USE_VFIO)
+    endif()
 endif()
 
 if(INSTRUMENT)
     add_compile_definitions(USE_INSTRUMENT)
 endif()
 
-target_link_libraries(86Box cpu chipset mch dev mem fdd game cdrom zip mo hdd
-    net print scsi sio snd utils vid voodoo plat ui)
+target_link_libraries(86Box
+    cpu
+    char
+    chipset
+    mch
+    dev
+    mem
+    fdd
+    game
+    cdrom
+    rdisk
+    mo
+    hdd
+    net
+    print
+    scsi
+    sio
+    snd
+    mdsx_dll
+    utils
+    vid
+    voodoo
+    plat
+    ui
+)
 
 if(HAIKU)
     target_link_libraries(86Box be)
-endif()
-
-if(WIN32 AND ARCH STREQUAL "i386")
-    if(MINGW)
-        target_link_options(86Box PRIVATE "LINKER:--large-address-aware")
-    else()
-        target_link_options(86Box PRIVATE "LINKER:/LARGEADDRESSAWARE")
-    endif()
 endif()
 
 if(STATIC_BUILD)
     if(MINGW OR UNIX)
         target_link_options(86Box PRIVATE "-static")
         set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+    endif()
+
+    if(MINGW AND NOT $ENV{MSYSTEM} MATCHES "MINGW")
+        target_link_libraries(86Box ucrt)
     endif()
 endif()
 
@@ -159,16 +190,6 @@ if(APPLE)
     target_link_libraries(86Box Freetype::Freetype)
 endif()
 
-find_package(SDL2 REQUIRED)
-include_directories(${SDL2_INCLUDE_DIRS})
-if(STATIC_BUILD AND TARGET SDL2::SDL2-static)
-    target_link_libraries(86Box SDL2::SDL2-static)
-elseif(TARGET SDL2::SDL2)
-    target_link_libraries(86Box SDL2::SDL2)
-else()
-    target_link_libraries(86Box ${SDL2_LIBRARIES})
-endif()
-
 find_package(PNG REQUIRED)
 include_directories(${PNG_INCLUDE_DIRS})
 target_link_libraries(86Box PNG::PNG)
@@ -186,6 +207,7 @@ else()
 endif()
 
 add_subdirectory(cdrom)
+add_subdirectory(char)
 add_subdirectory(chipset)
 
 add_subdirectory(cpu)
@@ -266,6 +288,8 @@ add_subdirectory(video)
 if (APPLE)
     add_subdirectory(mac)
 endif()
+
+add_subdirectory(osd)
 
 if (QT)
     add_subdirectory(qt)

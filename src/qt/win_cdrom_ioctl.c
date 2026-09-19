@@ -8,15 +8,15 @@
  *
  *          Win32 CD-ROM support via IOCTL.
  *
- *
- *
  * Authors: TheCollector1995, <mariogplayer@gmail.com>,
  *          Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2023 TheCollector1995.
  *          Copyright 2023 Miran Grca.
  */
+#ifndef UNICODE
 #define UNICODE
+#endif
 #define BITMAP WINDOWS_BITMAP
 #include <windows.h>
 #undef BITMAP
@@ -39,15 +39,23 @@
 #include <86box/scsi_device.h>
 
 typedef struct ioctl_t {
-    cdrom_t                *dev;
-    void                   *log;
-    int                     is_dvd;
-    int                     has_audio;
-    int                     blocks_num;
-    uint8_t                 cur_rti[65536];
-    HANDLE                  handle;
-    WCHAR                   path[256];
+    cdrom_t *dev;
+    void    *log;
+    int      is_dvd;
+    int      has_audio;
+    int      has_data;
+    int      blocks_num;
+    uint8_t  cur_rti[65536];
+    HANDLE   handle;
+    WCHAR    path[256];
 } ioctl_t;
+
+typedef struct _CDROM_FULL_TOC {
+  UCHAR                         Length[2];
+  UCHAR                         FirstCompleteSession;
+  UCHAR                         LastCompleteSession;
+  CDROM_TOC_FULL_TOC_DATA_BLOCK Descriptors[MAXIMUM_NUMBER_TRACKS + 2];
+} CDROM_FULL_TOC;
 
 static int ioctl_read_dvd_structure(const void *local, uint8_t layer, uint8_t format,
                                     uint8_t *buffer, uint32_t *info);
@@ -124,7 +132,7 @@ ioctl_read_normal_toc(ioctl_t *ioctl, uint8_t *toc_buf, int32_t *tracks_num)
 
     const int temp = DeviceIoControl(ioctl->handle, IOCTL_CDROM_READ_TOC_EX,
                                      &cur_read_toc_ex, sizeof(CDROM_READ_TOC_EX),
-                                     cur_full_toc, 65535,
+                                     cur_full_toc, sizeof(CDROM_TOC),
                                      (LPDWORD) &size, NULL);
     ioctl_log(ioctl->log, "temp = %i\n", temp);
 
@@ -166,6 +174,7 @@ ioctl_read_raw_toc(ioctl_t *ioctl)
     free(buffer);
 
     ioctl->has_audio  = 0;
+    ioctl->has_data  = 0;
     ioctl->blocks_num = 0;
     memset(ioctl->cur_rti, 0x00, 65536);
 
@@ -179,7 +188,7 @@ ioctl_read_raw_toc(ioctl_t *ioctl)
     if (!ioctl->is_dvd) {
         status = DeviceIoControl(ioctl->handle, IOCTL_CDROM_READ_TOC_EX,
                                  &cur_read_toc_ex, sizeof(CDROM_READ_TOC_EX),
-                                 cur_full_toc, 65535,
+                                 cur_full_toc, sizeof(CDROM_FULL_TOC),
                                  (LPDWORD) &size, NULL);
         ioctl_log(ioctl->log, "status = %i\n", status);
     }
@@ -230,10 +239,8 @@ ioctl_read_raw_toc(ioctl_t *ioctl)
 
                 ioctl->blocks_num++;
             }
-        } else if (status > 0)
-           /* Announce that we've had a failure. */
-           status = 0;
-    } else if (status != 0) {
+        }
+    } else {
         ioctl->blocks_num = (((cur_full_toc->Length[0] << 8) |
                               cur_full_toc->Length[1]) - 2) / 11;
         memcpy(ioctl->cur_rti, cur_full_toc->Descriptors, ioctl->blocks_num * 11);
@@ -242,9 +249,11 @@ ioctl_read_raw_toc(ioctl_t *ioctl)
     if (ioctl->blocks_num)  for (int i = 0; i < ioctl->blocks_num; i++) {
         const raw_track_info_t *crt = &(rti[i]);
 
-        if ((crt->point >= 1) && (crt->point <= 99) && !(crt->adr_ctl & 0x04)) {
-            ioctl->has_audio = 1;
-            break;
+        if ((crt->point >= 1) && (crt->point <= 99)) {
+            if (crt->adr_ctl & 0x04)
+                ioctl->has_data |= 1;
+            else
+                ioctl->has_audio |= 1;
         }
     }
 
@@ -315,6 +324,7 @@ ioctl_get_track_info(const void *local, const uint32_t track,
     const raw_track_info_t *rti   = (const raw_track_info_t *) ioctl->cur_rti;
     int                     ret   = 1;
     int                     trk   = -1;
+    int                     next  = -1;
 
     if ((track >= 1) && (track < 99))
         for (int i = 0; i < ioctl->blocks_num; i++)
@@ -323,13 +333,35 @@ ioctl_get_track_info(const void *local, const uint32_t track,
                  break;
              }
 
+    if ((track >= 1) && (track < 98))
+        for (int i = 0; i < ioctl->blocks_num; i++)
+             if ((rti[i].point == (track + 1)) && (rti[i].session == rti[trk].session)) {
+                 next = i;
+                 break;
+             }
+
+    if ((track >= 1) && (track < 99) && (trk != -1) && (next == -1))
+        for (int i = 0; i < ioctl->blocks_num; i++)
+            if ((rti[i].point == 0xa2) && (rti[i].session == rti[trk].session)) {
+                next = i;
+                break;
+            }
+
     if ((track == 0xaa) || (trk == -1)) {
         ioctl_log(ioctl->log, "ioctl_get_track_info(%02i)\n", track);
         ret = 0;
     } else {
-        ti->m      = rti[trk].pm;
-        ti->s      = rti[trk].ps;
-        ti->f      = rti[trk].pf;
+        if (end) {
+            if (next != -1) {
+                ti->m      = rti[next].pm;
+                ti->s      = rti[next].ps;
+                ti->f      = rti[next].pf;
+            }
+        } else {
+            ti->m      = rti[trk].pm;
+            ti->s      = rti[trk].ps;
+            ti->f      = rti[trk].pf;
+        }
 
         ti->number = rti[trk].point;
         ti->attr   = rti[trk].adr_ctl;
@@ -348,25 +380,6 @@ ioctl_get_raw_track_info(const void *local, int *num, uint8_t *rti)
 
     *num = ioctl->blocks_num;
     memcpy(rti, ioctl->cur_rti, ioctl->blocks_num * 11);
-}
-
-static int
-ioctl_is_track_pre(const void *local, const uint32_t sector)
-{
-    const ioctl_t          *ioctl   = (const ioctl_t *) local;
-    const raw_track_info_t *rti     = (const raw_track_info_t *) ioctl->cur_rti;
-    int                     ret     = 0;
-
-    if (ioctl->has_audio && !ioctl->is_dvd) {
-        const int track   = ioctl_get_track(ioctl, sector);
-        const int control = rti[track].adr_ctl;
-
-        ret     = control & 0x01;
-
-        ioctl_log(ioctl->log, "ioctl_is_track_pre(%08X, %02X): %i\n", sector, track, ret);
-    }
-
-    return ret;
 }
 
 static int
@@ -455,6 +468,56 @@ ioctl_read_sector(const void *local, uint8_t *buffer, uint32_t const sector)
             buffer[sc_offs + 8] = bin2bcd(s);
             buffer[sc_offs + 9] = bin2bcd(f);
         }
+    } else if (ioctl->dev->audio_read) {
+        RAW_READ_INFO in;
+        int           track;
+
+        req.spt.DataTransferLength    = 0;
+        ret                           = 0;
+
+        if (lba == 0xffffffff) {
+            lba                           = ioctl->dev->seek_pos;
+            track                         = ioctl_get_track(ioctl, lba);
+
+            if (track != -1) {
+                req.spt.DataTransferLength    = len;
+                ret                           = 1;
+            }
+        } else {
+            len                           = RAW_SECTOR_SIZE;
+            track                         = ioctl_get_track(ioctl, lba);
+
+            in.DiskOffset.LowPart  = lba * COOKED_SECTOR_SIZE;
+            in.DiskOffset.HighPart = 0;
+            in.SectorCount         = 1;
+            in.TrackMode           = CDDA;
+
+            ret = DeviceIoControl(ioctl->handle, IOCTL_CDROM_RAW_READ,
+                          &in, sizeof(in),
+                        buffer, RAW_SECTOR_SIZE,
+                                  &req.spt.DataTransferLength, NULL);
+        }
+
+        if (ret && (req.spt.DataTransferLength >= len) && (track != -1)) {
+            const raw_track_info_t *ct    = &(rti[track]);
+            const uint32_t          start = (ct->pm * 60 * 75) + (ct->ps * 75) + ct->pf;
+
+            /* Construct Q. */
+            buffer[sc_offs + 0] = (ct->adr_ctl >> 4) | ((ct->adr_ctl & 0xf) << 4);
+            buffer[sc_offs + 1] = bin2bcd(ct->point);
+            buffer[sc_offs + 2] = 1;
+            FRAMES_TO_MSF((int32_t) (lba + 150 - start), &m, &s, &f);
+            buffer[sc_offs + 3] = bin2bcd(m);
+            buffer[sc_offs + 4] = bin2bcd(s);
+            buffer[sc_offs + 5] = bin2bcd(f);
+            FRAMES_TO_MSF(lba + 150, &m, &s, &f);
+            buffer[sc_offs + 7] = bin2bcd(m);
+            buffer[sc_offs + 8] = bin2bcd(s);
+            buffer[sc_offs + 9] = bin2bcd(f);
+        }
+
+        if (!ret)
+            memset(buffer, 0x00, 2352);
     } else {
         memset(&req, 0x00, sizeof(SCSI_PASS_THROUGH_DIRECT_BUF));
         req.spt.Length                = sizeof(SCSI_PASS_THROUGH_DIRECT);
@@ -504,7 +567,7 @@ ioctl_read_sector(const void *local, uint8_t *buffer, uint32_t const sector)
     if (req.spt.SenseInfoLength >= 16) {
         uint8_t *cdb = (uint8_t *) req.SenseBuf;
         if ((cdb[2] == 0x03) && (cdb[12] == 0x11))
-            /* Treat this as an error to corectly indicate CIRC error to the guest. */
+            /* Treat this as an error to correctly indicate CIRC error to the guest. */
             ret = 0;
         ioctl_log(ioctl->log, "Host sense: %02X %02X %02X %02X %02X %02X %02X %02X\n",
                   cdb[0], cdb[1], cdb[ 2], cdb[ 3], cdb[ 4], cdb[ 5], cdb[ 6], cdb[ 7]);
@@ -667,6 +730,14 @@ ioctl_has_audio(const void *local)
 }
 
 static int
+ioctl_has_data(const void *local)
+{
+    const ioctl_t *ioctl = (const ioctl_t *) local;
+
+    return ioctl->has_data;
+}
+
+static int
 ioctl_is_empty(const void *local)
 {
     typedef struct SCSI_PASS_THROUGH_DIRECT_BUF {
@@ -706,7 +777,7 @@ ioctl_is_empty(const void *local)
     req.spt.Cdb[10]                = 0x00;
     req.spt.Cdb[11]                = 0x00;
 
-    DWORD length                   = sizeof(SCSI_PASS_THROUGH_DIRECT_BUF);
+    const DWORD length             = sizeof(SCSI_PASS_THROUGH_DIRECT_BUF);
 
 #ifdef ENABLE_IOCTL_LOG
     uint8_t *cdb = (uint8_t *) req.spt.Cdb;
@@ -716,10 +787,12 @@ ioctl_is_empty(const void *local)
               cdb[6], cdb[7], cdb[8], cdb[9], cdb[10], cdb[11]);
 #endif
 
-    int ret = DeviceIoControl(ioctl->handle, IOCTL_SCSI_PASS_THROUGH_DIRECT,
-                              &req, length,
-                              &req, length,
-                              &unused, NULL);
+    int ret;
+
+    (void) DeviceIoControl(ioctl->handle, IOCTL_SCSI_PASS_THROUGH_DIRECT,
+                           &req, length,
+                           &req, length,
+                           &unused, NULL);
 
     ioctl_log(ioctl->log, "ioctl_read_dvd_structure(): ret = %d, "
               "req.spt.DataTransferLength = %lu\n",
@@ -728,7 +801,7 @@ ioctl_is_empty(const void *local)
               req.spt.SenseInfoOffset);
 
     if (req.spt.SenseInfoLength >= 16) {
-        uint8_t *sb = (uint8_t *) req.SenseBuf;
+        const uint8_t *sb = (const uint8_t *) req.SenseBuf;
         /* Return sense to the host as is. */
         ret = ((sb[2] == SENSE_NOT_READY) && (sb[12] == ASC_MEDIUM_NOT_PRESENT));
         ioctl_log(ioctl->log, "Host sense: %02X %02X %02X %02X %02X %02X %02X %02X\n",
@@ -778,13 +851,13 @@ ioctl_load(const void *local)
 static const cdrom_ops_t ioctl_ops = {
     ioctl_get_track_info,
     ioctl_get_raw_track_info,
-    ioctl_is_track_pre,
     ioctl_read_sector,
     ioctl_get_track_type,
     ioctl_get_last_block,
     ioctl_read_dvd_structure,
     ioctl_is_dvd,
     ioctl_has_audio,
+    ioctl_has_data,
     ioctl_is_empty,
     ioctl_close,
     ioctl_load

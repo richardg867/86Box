@@ -15,7 +15,7 @@
  *
  *          Copyright 2016-2022 Miran Grca.
  *          Copyright 2008-2018 Sarah Walker.
- *          Copyright 2021 RichardG.
+ *          Copyright 2021      RichardG.
  *          Copyright 2021-2025 Jasmine Iwanek.
  */
 #include <stdio.h>
@@ -48,6 +48,8 @@ typedef struct g_axis_t {
 typedef struct _gameport_ {
     uint16_t                    addr;
     uint8_t                     len;
+    uint8_t                     read_enabled;
+    uint8_t                     write_enabled;
     struct _joystick_instance_ *joystick;
     struct _gameport_          *next;
 } gameport_t;
@@ -61,13 +63,13 @@ typedef struct _joystick_instance_ {
     uint8_t  state;
     g_axis_t axis[4];
 
-    const joystick_if_t *intf;
-    void                *dat;
+    const joystick_t *intf;
+    void             *dat;
 } joystick_instance_t;
 
-int joystick_type = JS_TYPE_NONE;
+int joystick_type[GAMEPORT_MAX] = { JS_TYPE_NONE, JS_TYPE_NONE };
 
-static const joystick_if_t joystick_none = {
+static const joystick_t joystick_none = {
     .name          = "None",
     .internal_name = "none",
     .init          = NULL,
@@ -86,45 +88,92 @@ static const joystick_if_t joystick_none = {
 };
 
 static const struct {
-    const joystick_if_t *joystick;
+    const joystick_t *joystick;
 } joysticks[] = {
-    { &joystick_none                         },
-    { &joystick_2axis_2button                },
-    { &joystick_2axis_4button                },
-    { &joystick_2axis_6button                },
-    { &joystick_2axis_8button                },
-    { &joystick_3axis_2button                },
-    { &joystick_3axis_4button                },
-    { &joystick_4axis_4button                },
-    { &joystick_ch_flightstick_pro           },
-    { &joystick_ch_flightstick_pro_ch_pedals },
-    { &joystick_sw_pad                       },
-    { &joystick_tm_fcs                       },
-    { &joystick_tm_fcs_rcs                   },
-    { NULL                                   }
+    { &joystick_none                               },
+    { &joystick_generic_paddle                     },
+    { &joystick_2axis_1button                      },
+    { &joystick_2axis_2button                      },
+    { &joystick_2axis_3button                      },
+    { &joystick_2axis_4button                      },
+    { &joystick_2axis_6button                      },
+    { &joystick_2axis_8button                      },
+    { &joystick_3axis_2button                      },
+    { &joystick_3axis_3button                      },
+    { &joystick_3axis_4button                      },
+    { &joystick_4axis_2button                      },
+    { &joystick_4axis_3button                      },
+    { &joystick_4axis_4button                      },
+    { &joystick_2button_gamepad                    },
+    { &joystick_3button_gamepad                    },
+    { &joystick_4button_gamepad                    },
+    { &joystick_6button_gamepad                    },
+    { &joystick_gravis_gamepad                     },
+    { &joystick_2button_flight_yoke                },
+    { &joystick_3button_flight_yoke                },
+    { &joystick_4button_flight_yoke                },
+    { &joystick_2button_yoke_throttle              },
+    { &joystick_3button_yoke_throttle              },
+    { &joystick_4button_yoke_throttle              },
+    { &joystick_steering_wheel_2_button            },
+    { &joystick_steering_wheel_3_button            },
+    { &joystick_steering_wheel_4_button            },
+    { &joystick_ch_flightstick                     },
+    { &joystick_ch_flightstick_ch_pedals           },
+    { &joystick_ch_flightstick_ch_pedals_pro       },
+    { &joystick_ch_flightstick_pro                 },
+    { &joystick_ch_flightstick_pro_ch_pedals       },
+    { &joystick_ch_flightstick_pro_ch_pedals_pro   },
+    { &joystick_ch_virtual_pilot                   },
+    { &joystick_ch_virtual_pilot_ch_pedals         },
+    { &joystick_ch_virtual_pilot_ch_pedals_pro     },
+    { &joystick_ch_virtual_pilot_pro               },
+    { &joystick_ch_virtual_pilot_pro_ch_pedals     },
+    { &joystick_ch_virtual_pilot_pro_ch_pedals_pro },
+    { &joystick_sw_pad                             },
+    { &joystick_tm_fcs                             },
+    { &joystick_tm_fcs_rcs                         },
+    { &joystick_tm_formula_t1t2                    },
+    { &joystick_tm_formula_t1t2wa                  },
+    { NULL                                         }
 };
 
 static joystick_instance_t *joystick_instance[GAMEPORT_MAX] = { NULL, NULL };
 
 static uint8_t gameport_pnp_rom[] = {
-    0x09, 0xf8, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,          /* BOX0002, dummy checksum (filled in by isapnp_add_card) */
-    0x0a, 0x10, 0x10,                                              /* PnP version 1.0, vendor version 1.0 */
-    0x82, 0x09, 0x00, 'G', 'a', 'm', 'e', ' ', 'P', 'o', 'r', 't', /* ANSI identifier */
+    /* BOX0002, serial 0, dummy checksum (filled in by isapnp_add_card) */
+    0x09, 0xf8, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
+    /* PnP version 1.0, vendor version 1.0 */
+    0x0a, 0x10, 0x10,
+    /* ANSI identifier */
+    0x82, 0x09, 0x00, 'G', 'a', 'm', 'e', ' ', 'P', 'o', 'r', 't',
 
-    0x15, 0x09, 0xf8, 0x00, 0x02, 0x01,             /* logical device BOX0002, can participate in boot */
-    0x1c, 0x41, 0xd0, 0xb0, 0x2f,                   /* compatible device PNPB02F */
-    0x31, 0x00,                                     /* start dependent functions, preferred */
-    0x47, 0x01, 0x00, 0x02, 0x00, 0x02, 0x08, 0x08, /* I/O 0x200, decodes 16-bit, 8-byte alignment, 8 addresses */
-    0x30,                                           /* start dependent functions, acceptable */
-    0x47, 0x01, 0x08, 0x02, 0x08, 0x02, 0x08, 0x08, /* I/O 0x208, decodes 16-bit, 8-byte alignment, 8 addresses */
-    0x31, 0x02,                                     /* start dependent functions, sub-optimal */
-    0x47, 0x01, 0x00, 0x01, 0xf8, 0xff, 0x08, 0x08, /* I/O 0x100-0xFFF8, decodes 16-bit, 8-byte alignment, 8 addresses */
-    0x38,                                           /* end dependent functions */
+    /* Logical device BOX0002, can participate in boot */
+    0x15, 0x09, 0xf8, 0x00, 0x02, 0x01,
+    /* Compatible device PNPB02F */
+    0x1c, 0x41, 0xd0, 0xb0, 0x2f,
+    /* Start dependent functions, preferred */
+    0x31, 0x00,
+    /* I/O 0x200, decodes 16-bit, 8-byte alignment, 8 addresses */
+    0x47, 0x01, 0x00, 0x02, 0x00, 0x02, 0x08, 0x08,
+    /* Start dependent functions, acceptable */
+    0x30,
+    /* I/O 0x208, decodes 16-bit, 8-byte alignment, 8 addresses */
+    0x47, 0x01, 0x08, 0x02, 0x08, 0x02, 0x08, 0x08,
+    /* Start dependent functions, sub-optimal */
+    0x31, 0x02,
+    /* I/O 0x100-0xFFF8, decodes 16-bit, 8-byte alignment, 8 addresses */
+    0x47, 0x01, 0x00, 0x01, 0xf8, 0xff, 0x08, 0x08,
+    /* End dependent functions */
+    0x38,
 
-    0x79, 0x00 /* end tag, dummy checksum (filled in by isapnp_add_card) */
+    /* End tag, dummy checksum (filled in by isapnp_add_card) */
+    0x79, 0x00
 };
+
 static const isapnp_device_config_t gameport_pnp_defaults[] = {
-    {.activate = 1,
+    {
+        .activate = 1,
         .io       = {
             { .base = 0x200 },
         }
@@ -213,9 +262,12 @@ joystick_get_pov_name(int js, int id)
 static void
 gameport_time(joystick_instance_t *joystick, int nr, int axis)
 {
-    if (axis == AXIS_NOT_PRESENT)
+    if (axis == AXIS_NOT_PRESENT) {
+#if !defined(_WIN32) && !defined(__APPLE__)
+        joystick->state &= ~(1 << nr);
+#endif
         timer_disable(&joystick->axis[nr].timer);
-    else {
+    } else {
         /* Convert axis value to 555 timing. */
         axis += 32768;
         axis = (axis * 100) / 65; /* axis now in ohms */
@@ -237,15 +289,13 @@ gameport_write(UNUSED(uint16_t addr), UNUSED(uint8_t val), void *priv)
     /* Read all axes. */
     joystick->state |= 0x0f;
 
-    gameport_time(joystick, 0, joystick->intf->read_axis(joystick->dat, 0));
-    gameport_time(joystick, 1, joystick->intf->read_axis(joystick->dat, 1));
-    gameport_time(joystick, 2, joystick->intf->read_axis(joystick->dat, 2));
-    gameport_time(joystick, 3, joystick->intf->read_axis(joystick->dat, 3));
+    for (uint8_t i = 0; i < 4; i++)
+        gameport_time(joystick, i, joystick->intf->read_axis(joystick->dat, i));
 
     /* Notify the interface. */
     joystick->intf->write(joystick->dat);
 
-    cycles -= ISA_CYCLES(8);
+    cycles -= ISA_CYCLES((8 << (is_pcjr || machine_is_pcjx(machine))));
 }
 
 static uint8_t
@@ -259,9 +309,19 @@ gameport_read(UNUSED(uint16_t addr), void *priv)
         return 0xff;
 
     /* Merge axis state with button state. */
+#if defined(_WIN32) || defined(__APPLE__)
     uint8_t ret = joystick->state | joystick->intf->read(joystick->dat);
+#else
+    uint8_t       buttons = joystick->intf->read(joystick->dat);
 
-    cycles -= ISA_CYCLES(8);
+    /* Keep button lines stable while axis timers are still discharging. */
+    if (joystick->state & 0x0f)
+        buttons = 0xf0;
+
+    const uint8_t ret     = joystick->state | buttons;
+#endif
+
+    cycles -= ISA_CYCLES((8 << (is_pcjr || machine_is_pcjx(machine))));
 
     return ret;
 }
@@ -279,18 +339,45 @@ timer_over(void *priv)
 }
 
 void
-gameport_update_joystick_type(void)
+gameport_update_joystick_type(uint8_t gp)
 {
     /* Add a standalone game port if a joystick is enabled but no other game ports exist. */
     if (standalone_gameport_type)
         gameport_add(standalone_gameport_type);
 
     /* Reset the joystick interface. */
-    if (joystick_instance[0]) {
-        joystick_instance[0]->intf->close(joystick_instance[0]->dat);
-        joystick_instance[0]->intf = joysticks[joystick_type].joystick;
-        joystick_instance[0]->dat  = joystick_instance[0]->intf->init();
+    if (joystick_instance[gp]) {
+        joystick_instance[gp]->intf->close(joystick_instance[gp]->dat);
+        joystick_instance[gp]->intf = joysticks[joystick_type[gp]].joystick;
+        joystick_instance[gp]->dat  = joystick_instance[gp]->intf->init();
     }
+}
+
+static void
+gameport_handler(gameport_t *dev, int set)
+{
+    if (dev->addr && (dev->read_enabled || dev->write_enabled))
+        io_handler(set, dev->addr, dev->len,
+                   dev->read_enabled ? gameport_read : NULL, NULL, NULL,
+                   dev->write_enabled ? gameport_write : NULL, NULL, NULL, dev);
+}
+
+void
+gameport_set_decode(void *priv, int read_enabled, int write_enabled)
+{
+    gameport_t *dev = (gameport_t *) priv;
+
+    if (!dev)
+        return;
+    read_enabled  = !!read_enabled;
+    write_enabled = !!write_enabled;
+    if ((dev->read_enabled == read_enabled) && (dev->write_enabled == write_enabled))
+        return;
+
+    gameport_handler(dev, 0);
+    dev->read_enabled  = read_enabled;
+    dev->write_enabled = write_enabled;
+    gameport_handler(dev, 1);
 }
 
 void
@@ -298,6 +385,9 @@ gameport_remap(void *priv, uint16_t address)
 {
     gameport_t *dev = (gameport_t *) priv;
     gameport_t *other_dev;
+
+    if (dev == NULL)
+        return;
 
     if (dev->addr) {
         /* Remove this port from the active ports list. */
@@ -316,8 +406,7 @@ gameport_remap(void *priv, uint16_t address)
             }
         }
 
-        io_removehandler(dev->addr, dev->len,
-                         gameport_read, NULL, NULL, gameport_write, NULL, NULL, dev);
+        gameport_handler(dev, 0);
     }
 
     dev->addr = address;
@@ -336,8 +425,7 @@ gameport_remap(void *priv, uint16_t address)
             other_dev->next = dev;
         }
 
-        io_sethandler(dev->addr, dev->len,
-                      gameport_read, NULL, NULL, gameport_write, NULL, NULL, dev);
+        gameport_handler(dev, 1);
     }
 }
 
@@ -370,37 +458,36 @@ gameport_init(const device_t *info)
 {
     gameport_t *dev = calloc(1, sizeof(gameport_t));
 
+    // TODO: Later we'll actually support more than one gameport
+    uint8_t joy_insn = 0;
+
     /* Allocate global instance. */
-    if (!joystick_instance[0] && joystick_type) {
-        joystick_instance[0] = calloc(1, sizeof(joystick_instance_t));
+    if (!joystick_instance[joy_insn] && joystick_type[joy_insn]) {
+        joystick_instance[joy_insn] = calloc(1, sizeof(joystick_instance_t));
 
-        joystick_instance[0]->axis[0].joystick = joystick_instance[0];
-        joystick_instance[0]->axis[1].joystick = joystick_instance[0];
-        joystick_instance[0]->axis[2].joystick = joystick_instance[0];
-        joystick_instance[0]->axis[3].joystick = joystick_instance[0];
+        // For each analog joystick axis
+        for (uint8_t i = 0; i < 4; i++) {
+            joystick_instance[joy_insn]->axis[i].joystick = joystick_instance[joy_insn];
 
-        joystick_instance[0]->axis[0].axis_nr = 0;
-        joystick_instance[0]->axis[1].axis_nr = 1;
-        joystick_instance[0]->axis[2].axis_nr = 2;
-        joystick_instance[0]->axis[3].axis_nr = 3;
+            joystick_instance[joy_insn]->axis[i].axis_nr = i;
 
-        timer_add(&joystick_instance[0]->axis[0].timer, timer_over, &joystick_instance[0]->axis[0], 0);
-        timer_add(&joystick_instance[0]->axis[1].timer, timer_over, &joystick_instance[0]->axis[1], 0);
-        timer_add(&joystick_instance[0]->axis[2].timer, timer_over, &joystick_instance[0]->axis[2], 0);
-        timer_add(&joystick_instance[0]->axis[3].timer, timer_over, &joystick_instance[0]->axis[3], 0);
+            timer_add(&joystick_instance[joy_insn]->axis[i].timer, timer_over, &joystick_instance[joy_insn]->axis[i], 0);
+        }
 
-        joystick_instance[0]->intf = joysticks[joystick_type].joystick;
-        joystick_instance[0]->dat  = joystick_instance[0]->intf->init();
+        joystick_instance[joy_insn]->intf = joysticks[joystick_type[joy_insn]].joystick;
+        joystick_instance[joy_insn]->dat  = joystick_instance[joy_insn]->intf->init();
     }
 
-    dev->joystick = joystick_instance[0];
+    dev->joystick = joystick_instance[joy_insn];
+    dev->read_enabled  = 1;
+    dev->write_enabled = 1;
 
     /* Map game port to the default address. Not applicable on PnP-only ports. */
     dev->len = (info->local >> 16) & 0xff;
     gameport_remap(dev, info->local & 0xffff);
 
-    /* Register ISAPnP if this is a standard game port card. */
-    if ((info->local & 0xffff) == 0x200)
+    /* Register ISAPnP if this is a PNP game port card. */
+    if (info->local & GAMEPORT_PNPROM)
         isapnp_set_device_defaults(isapnp_add_card(gameport_pnp_rom, sizeof(gameport_pnp_rom), gameport_pnp_config_changed, NULL, NULL, NULL, dev), 0, gameport_pnp_defaults);
 
     return dev;
@@ -458,23 +545,40 @@ gameport_close(void *priv)
 {
     gameport_t *dev = (gameport_t *) priv;
 
+    // TODO: Later we'll actually support more than one gameport
+    uint8_t joy_insn = 0;
+
     /* If this port was active, remove it from the active ports list. */
     gameport_remap(dev, 0);
 
     /* Free the global instance here, if it wasn't already freed. */
-    if (joystick_instance[0]) {
-        joystick_instance[0]->intf->close(joystick_instance[0]->dat);
+    if (joystick_instance[joy_insn]) {
+        joystick_instance[joy_insn]->intf->close(joystick_instance[joy_insn]->dat);
 
-        free(joystick_instance[0]);
-        joystick_instance[0] = NULL;
+        free(joystick_instance[joy_insn]);
+        joystick_instance[joy_insn] = NULL;
     }
 
     free(dev);
 }
 
 const device_t gameport_device = {
-    .name          = "Game port",
+    .name          = "86Box PNP Game port",
     .internal_name = "gameport",
+    .flags         = 0,
+    .local         = GAMEPORT_PNPROM | GAMEPORT_8ADDR | 0x0200,
+    .init          = gameport_init,
+    .close         = gameport_close,
+    .reset         = NULL,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+const device_t gameport_200_device = {
+    .name          = "Game port (Port 200h-207h)",
+    .internal_name = "gameport_200",
     .flags         = 0,
     .local         = GAMEPORT_8ADDR | 0x0200,
     .init          = gameport_init,
@@ -726,7 +830,7 @@ const device_t gameport_sio_device = {
 
 const device_t gameport_sio_1io_device = {
     .name          = "Game port (Super I/O, 1 I/O port)",
-    .internal_name = "gameport_sio",
+    .internal_name = "gameport_sio_1io",
     .flags         = 0,
     .local         = GAMEPORT_SIO | GAMEPORT_1ADDR,
     .init          = gameport_init,
@@ -741,6 +845,7 @@ const device_t gameport_sio_1io_device = {
 static const GAMEPORT gameports[] = {
     { &device_none            },
     { &device_internal        },
+    { &gameport_200_device    },
     { &gameport_device        },
     { &gameport_208_device    },
     { &gameport_pnp_device    },
@@ -761,7 +866,7 @@ gameport_available(int port)
 
 /* UI */
 const device_t *
-gameports_getdevice(int port)
+gameport_get_device(int port)
 {
     return (gameports[port].device);
 }

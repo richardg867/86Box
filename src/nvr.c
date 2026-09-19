@@ -6,8 +6,6 @@
  *
  *          Implement a generic NVRAM/CMOS/RTC device.
  *
- *
- *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>,
  *          David Hrdlička, <hrdlickadavid@outlook.com>
  *
@@ -102,10 +100,14 @@ nvr_is_leap(int year)
 int
 nvr_get_days(int month, int year)
 {
-    if (month != 2)
-        return (days_in_month[month - 1]);
+    int ret;
 
-    return (nvr_is_leap(year) ? 29 : 28);
+    if (month == 2)
+        ret = (nvr_is_leap(year) ? 29 : 28);
+    else
+        ret = (int) (days_in_month[month - 1]);
+
+    return ret;
 }
 
 /* One more second has passed, update the internal clock. */
@@ -162,7 +164,7 @@ nvr_init(nvr_t *nvr)
 
     /* Set up the NVR file's name. */
     c       = strlen(machine_get_nvr_name()) + 5;
-    nvr->fn = (char *) malloc(c + 1);
+    nvr->fn = (char *) calloc(1, c + 1);
     sprintf(nvr->fn, "%s.nvr", machine_get_nvr_name());
 
     /* Initialize the internal clock as needed. */
@@ -310,18 +312,25 @@ nvr_close(void)
 void
 nvr_time_sync(void)
 {
-    struct tm *tm;
-    time_t     now;
+    struct tm tm;
+    time_t    now;
 
     /* Get the current time of day, and convert to local time. */
     (void) time(&now);
-    if (time_sync & TIME_SYNC_UTC)
-        tm = gmtime(&now);
-    else
-        tm = localtime(&now);
 
-    /* Set the internal clock. */
-    nvr_time_set(tm);
+#ifdef _WIN32
+    if (time_sync & TIME_SYNC_UTC)
+        gmtime_s(&tm, &now);
+    else
+        localtime_s(&tm, &now);
+#else
+    if (time_sync & TIME_SYNC_UTC)
+        gmtime_r(&now, &tm);
+    else
+        localtime_r(&now, &tm);
+#endif
+
+    nvr_time_set(&tm);
 }
 
 /* Get current time from internal clock. */

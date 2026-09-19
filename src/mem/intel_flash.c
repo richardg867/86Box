@@ -9,8 +9,6 @@
  *          Implementation of the Intel 1 Mbit and 2 Mbit, 8-bit and
  *          16-bit flash devices.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *
@@ -30,9 +28,11 @@
 #include <86box/nvr.h>
 #include <86box/plat.h>
 
-#define FLAG_WORD    4
-#define FLAG_BXB     2
-#define FLAG_INV_A16 1
+#define FLAG_X00     16
+#define FLAG_MICRON   8
+#define FLAG_WORD     4
+#define FLAG_BXB      2
+#define FLAG_INV_A16  1
 
 enum {
     BLOCK_MAIN1,
@@ -60,7 +60,7 @@ enum {
 typedef struct flash_t {
     uint8_t  command;
     uint8_t  status;
-    uint8_t  pad;
+    uint8_t  dirty;
     uint8_t  flags;
     uint8_t *array;
 
@@ -95,7 +95,8 @@ flash_read(uint32_t addr, void *priv)
             break;
 
         case CMD_IID:
-            if (addr & 1)
+            if (((addr & 1) && (!(dev->flags & FLAG_X00))) ||
+                ((addr & 2) && (dev->flags & FLAG_X00)))
                 ret = dev->flash_id & 0xff;
             else
                 ret = 0x89;
@@ -167,9 +168,8 @@ flash_write(uint32_t addr, uint8_t val, void *priv)
 {
     flash_t *dev = (flash_t *) priv;
     uint32_t bb_mask = biosmask & 0xffffe000;
-    if (biosmask == 0x7ffff)
-        bb_mask &= 0xffff8000;
-    else if (biosmask == 0x3ffff)
+
+    if ((biosmask == 0x3ffff) || (biosmask == 0x7ffff))
         bb_mask &= 0xffffc000;
 
     if (dev->flags & FLAG_INV_A16)
@@ -180,8 +180,10 @@ flash_write(uint32_t addr, uint8_t val, void *priv)
         case CMD_ERASE_SETUP:
             if (val == CMD_ERASE_CONFIRM) {
                 for (uint8_t i = 0; i < 6; i++) {
-                    if ((i == dev->program_addr) && (addr >= dev->block_start[i]) && (addr <= dev->block_end[i]))
+                    if ((i == dev->program_addr) && (addr >= dev->block_start[i]) && (addr <= dev->block_end[i])) {
                         memset(&(dev->array[dev->block_start[i]]), 0xff, dev->block_len[i]);
+                        dev->dirty = 1;
+                    }
                 }
 
                 dev->status = 0x80;
@@ -191,8 +193,10 @@ flash_write(uint32_t addr, uint8_t val, void *priv)
 
         case CMD_PROGRAM_SETUP:
         case CMD_PROGRAM_SETUP_ALT:
-            if (((addr & bb_mask) != (dev->block_start[6] & bb_mask)) && (addr == dev->program_addr))
+            if (((addr & bb_mask) != (dev->block_start[6] & bb_mask)) && (addr == dev->program_addr)) {
                 dev->array[addr] = val;
+                dev->dirty = 1;
+            }
             dev->command = CMD_READ_STATUS;
             dev->status  = 0x80;
             break;
@@ -225,9 +229,8 @@ flash_writew(uint32_t addr, uint16_t val, void *priv)
 {
     flash_t *dev = (flash_t *) priv;
     uint32_t bb_mask = biosmask & 0xffffe000;
-    if (biosmask == 0x7ffff)
-        bb_mask &= 0xffff8000;
-    else if (biosmask == 0x3ffff)
+
+    if ((biosmask == 0x3ffff) || (biosmask == 0x7ffff))
         bb_mask &= 0xffffc000;
 
     if (dev->flags & FLAG_INV_A16)
@@ -239,8 +242,10 @@ flash_writew(uint32_t addr, uint16_t val, void *priv)
             case CMD_ERASE_SETUP:
                 if (val == CMD_ERASE_CONFIRM) {
                     for (uint8_t i = 0; i < 6; i++) {
-                        if ((i == dev->program_addr) && (addr >= dev->block_start[i]) && (addr <= dev->block_end[i]))
+                        if ((i == dev->program_addr) && (addr >= dev->block_start[i]) && (addr <= dev->block_end[i])) {
                             memset(&(dev->array[dev->block_start[i]]), 0xff, dev->block_len[i]);
+                            dev->dirty = 1;
+                        }
                     }
 
                     dev->status = 0x80;
@@ -264,8 +269,10 @@ flash_writew(uint32_t addr, uint16_t val, void *priv)
                         break;
                     case CMD_ERASE_SETUP:
                         for (uint8_t i = 0; i < 7; i++) {
-                            if ((addr >= dev->block_start[i]) && (addr <= dev->block_end[i]))
+                            if ((addr >= dev->block_start[i]) && (addr <= dev->block_end[i])) {
                                 dev->program_addr = i;
+                                dev->dirty = 1;
+                            }
                         }
                         break;
                     case CMD_PROGRAM_SETUP:
@@ -316,22 +323,35 @@ intel_flash_add_mappings(flash_t *dev)
         if (dev->flags & FLAG_INV_A16)
             fbase ^= 0x10000;
 
+        /*
+           What happens with the inverted flashes:
+
+           Top gets copied to bottom and bottom to top, exec gets set to top and
+           then to bottom, respectively.
+
+           Doing this, we simplify the read and write handlers, but complicate
+           the mappings.
+
+           But if we stored the array inverted, then we would simplify the mapping,
+           but complicate the read and write handlers, unless we applied the XOR
+           within the code.
+         */
         memcpy(&dev->array[fbase], &rom[base & biosmask], 0x10000);
 
         if ((max == 2) || (i >= 2)) {
             mem_mapping_add(&(dev->mapping[i]), base, 0x10000,
                             flash_read, flash_readw, flash_readl,
                             flash_write, flash_writew, flash_writel,
-                            dev->array + fbase, MEM_MAPPING_EXTERNAL | MEM_MAPPING_ROM | MEM_MAPPING_ROMCS, (void *) dev);
+                            dev->array + fbase, MEM_MAPPING_EXTERNAL | MEM_MAPPING_ROM | MEM_MAPPING_ROMCS | MEM_MAPPING_ROM_WS, (void *) dev);
         }
         mem_mapping_add(&(dev->mapping_h[i]), (base | 0xfff00000) - sub, 0x10000,
                         flash_read, flash_readw, flash_readl,
                         flash_write, flash_writew, flash_writel,
-                        dev->array + fbase, MEM_MAPPING_EXTERNAL | MEM_MAPPING_ROM | MEM_MAPPING_ROMCS, (void *) dev);
+                        dev->array + fbase, MEM_MAPPING_EXTERNAL | MEM_MAPPING_ROM | MEM_MAPPING_ROMCS | MEM_MAPPING_ROM_WS, (void *) dev);
         mem_mapping_add(&(dev->mapping_h[i + max]), (base | 0xfff00000), 0x10000,
                         flash_read, flash_readw, flash_readl,
                         flash_write, flash_writew, flash_writel,
-                        dev->array + fbase, MEM_MAPPING_EXTERNAL | MEM_MAPPING_ROM | MEM_MAPPING_ROMCS, (void *) dev);
+                        dev->array + fbase, MEM_MAPPING_EXTERNAL | MEM_MAPPING_ROM | MEM_MAPPING_ROMCS | MEM_MAPPING_ROM_WS, (void *) dev);
     }
 }
 
@@ -360,12 +380,16 @@ intel_flash_init(const device_t *info)
     mem_mapping_disable(&bios_mapping);
     mem_mapping_disable(&bios_high_mapping);
 
-    dev->array = (uint8_t *) malloc(biosmask + 1);
+    dev->array = (uint8_t *) calloc(1, biosmask + 1);
     memset(dev->array, 0xff, biosmask + 1);
 
     switch (biosmask) {
         case 0x7ffff:
-            if (dev->flags & FLAG_WORD)
+            if (dev->flags & FLAG_X00)
+                dev->flash_id = (dev->flags & FLAG_BXB) ? 0x71 : 0x70;
+            else if (dev->flags & FLAG_MICRON)
+                dev->flash_id = (dev->flags & FLAG_BXB) ? 0x79 : 0x78;
+            else if (dev->flags & FLAG_WORD)
                 dev->flash_id = (dev->flags & FLAG_BXB) ? 0x4471 : 0x4470;
             else
                 dev->flash_id = (dev->flags & FLAG_BXB) ? 0x8A : 0x89;
@@ -413,7 +437,9 @@ intel_flash_init(const device_t *info)
             break;
 
         case 0x3ffff:
-            if (dev->flags & FLAG_WORD)
+            if (dev->flags & FLAG_X00)
+                dev->flash_id = (dev->flags & FLAG_BXB) ? 0x75 : 0x74;
+            else if (dev->flags & FLAG_WORD)
                 dev->flash_id = (dev->flags & FLAG_BXB) ? 0x2275 : 0x2274;
             else
                 dev->flash_id = (dev->flags & FLAG_BXB) ? 0x7D : 0x7C;
@@ -511,20 +537,26 @@ intel_flash_init(const device_t *info)
     dev->command = CMD_READ_ARRAY;
     dev->status  = 0;
 
-    fp = nvr_fopen(flash_path, "rb");
-    if (fp) {
-        (void) !fread(&(dev->array[dev->block_start[BLOCK_MAIN1]]), dev->block_len[BLOCK_MAIN1], 1, fp);
-        if (dev->block_len[BLOCK_MAIN2])
-            (void) !fread(&(dev->array[dev->block_start[BLOCK_MAIN2]]), dev->block_len[BLOCK_MAIN2], 1, fp);
-        if (dev->block_len[BLOCK_MAIN3])
-            (void) !fread(&(dev->array[dev->block_start[BLOCK_MAIN3]]), dev->block_len[BLOCK_MAIN3], 1, fp);
-        if (dev->block_len[BLOCK_MAIN4])
-            (void) !fread(&(dev->array[dev->block_start[BLOCK_MAIN4]]), dev->block_len[BLOCK_MAIN4], 1, fp);
+    if (strlen(flash_path) != 0) {
+        fp = nvr_fopen(flash_path, "rb");
+        if (fp != NULL) {
+            if (!dump_missing) {
+                (void) !fread(&(dev->array[dev->block_start[BLOCK_MAIN1]]), dev->block_len[BLOCK_MAIN1], 1, fp);
+                if (dev->block_len[BLOCK_MAIN2])
+                    (void) !fread(&(dev->array[dev->block_start[BLOCK_MAIN2]]), dev->block_len[BLOCK_MAIN2], 1, fp);
+                if (dev->block_len[BLOCK_MAIN3])
+                    (void) !fread(&(dev->array[dev->block_start[BLOCK_MAIN3]]), dev->block_len[BLOCK_MAIN3], 1, fp);
+                if (dev->block_len[BLOCK_MAIN4])
+                    (void) !fread(&(dev->array[dev->block_start[BLOCK_MAIN4]]), dev->block_len[BLOCK_MAIN4], 1, fp);
 
-        (void) !fread(&(dev->array[dev->block_start[BLOCK_DATA1]]), dev->block_len[BLOCK_DATA1], 1, fp);
-        (void) !fread(&(dev->array[dev->block_start[BLOCK_DATA2]]), dev->block_len[BLOCK_DATA2], 1, fp);
-        fclose(fp);
-    }
+                (void) !fread(&(dev->array[dev->block_start[BLOCK_DATA1]]), dev->block_len[BLOCK_DATA1], 1, fp);
+                (void) !fread(&(dev->array[dev->block_start[BLOCK_DATA2]]), dev->block_len[BLOCK_DATA2], 1, fp);
+            }
+            fclose(fp);
+        } else if (!dump_missing)
+            dev->dirty = 1;
+    } else
+        fatal("Attempting to open the Flash file for reading with an empty invalid name\n");
 
     return dev;
 }
@@ -532,21 +564,30 @@ intel_flash_init(const device_t *info)
 static void
 intel_flash_close(void *priv)
 {
-    FILE    *fp;
     flash_t *dev = (flash_t *) priv;
 
-    fp = nvr_fopen(flash_path, "wb");
-    fwrite(&(dev->array[dev->block_start[BLOCK_MAIN1]]), dev->block_len[BLOCK_MAIN1], 1, fp);
-    if (dev->block_len[BLOCK_MAIN2])
-        fwrite(&(dev->array[dev->block_start[BLOCK_MAIN2]]), dev->block_len[BLOCK_MAIN2], 1, fp);
-    if (dev->block_len[BLOCK_MAIN3])
-        fwrite(&(dev->array[dev->block_start[BLOCK_MAIN3]]), dev->block_len[BLOCK_MAIN3], 1, fp);
-    if (dev->block_len[BLOCK_MAIN4])
-        fwrite(&(dev->array[dev->block_start[BLOCK_MAIN4]]), dev->block_len[BLOCK_MAIN4], 1, fp);
+    if (dev->dirty) {
+        if (strlen(flash_path) > 0) {
+            FILE *fp = nvr_fopen(flash_path, "wb");
+            if (fp != NULL) {
+                if (!dump_missing) {
+                    fwrite(&(dev->array[dev->block_start[BLOCK_MAIN1]]), dev->block_len[BLOCK_MAIN1], 1, fp);
+                    if (dev->block_len[BLOCK_MAIN2])
+                        fwrite(&(dev->array[dev->block_start[BLOCK_MAIN2]]), dev->block_len[BLOCK_MAIN2], 1, fp);
+                    if (dev->block_len[BLOCK_MAIN3])
+                        fwrite(&(dev->array[dev->block_start[BLOCK_MAIN3]]), dev->block_len[BLOCK_MAIN3], 1, fp);
+                    if (dev->block_len[BLOCK_MAIN4])
+                        fwrite(&(dev->array[dev->block_start[BLOCK_MAIN4]]), dev->block_len[BLOCK_MAIN4], 1, fp);
 
-    fwrite(&(dev->array[dev->block_start[BLOCK_DATA1]]), dev->block_len[BLOCK_DATA1], 1, fp);
-    fwrite(&(dev->array[dev->block_start[BLOCK_DATA2]]), dev->block_len[BLOCK_DATA2], 1, fp);
-    fclose(fp);
+                    fwrite(&(dev->array[dev->block_start[BLOCK_DATA1]]), dev->block_len[BLOCK_DATA1], 1, fp);
+                    fwrite(&(dev->array[dev->block_start[BLOCK_DATA2]]), dev->block_len[BLOCK_DATA2], 1, fp);
+                }
+                fclose(fp);
+            } else if (!dump_missing)
+                warning("Unable to open %s for writing, please make sure your NVR folder is writable\n", flash_path);
+        } else
+            fatal("Attempting to open the Flash file for writing with an empty invalid name\n");
+    }
 
     free(dev->array);
     dev->array = NULL;
@@ -588,6 +629,34 @@ const device_t intel_flash_bxb_device = {
     .internal_name = "intel_flash_bxb",
     .flags         = DEVICE_PCI,
     .local         = FLAG_BXB,
+    .init          = intel_flash_init,
+    .close         = intel_flash_close,
+    .reset         = intel_flash_reset,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+const device_t micron_flash_t_device = {
+    .name          = "Micron 28F00xB5-T Flash BIOS",
+    .internal_name = "micron_flash_t",
+    .flags         = DEVICE_PCI,
+    .local         = FLAG_MICRON,
+    .init          = intel_flash_init,
+    .close         = intel_flash_close,
+    .reset         = intel_flash_reset,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+const device_t micron_flash_x00_t_device = {
+    .name          = "Micron 28FX00B5-T Flash BIOS",
+    .internal_name = "micron_flash_x00_t",
+    .flags         = DEVICE_PCI,
+    .local         = FLAG_MICRON | FLAG_X00,
     .init          = intel_flash_init,
     .close         = intel_flash_close,
     .reset         = intel_flash_reset,

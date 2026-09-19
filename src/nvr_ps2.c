@@ -8,8 +8,6 @@
  *
  *          Handling of the PS/2 series CMOS devices.
  *
- *
- *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *          Sarah Walker, <https://pcem-emulator.co.uk/>
  *
@@ -48,9 +46,11 @@
 #include <86box/nvr.h>
 #include <86box/nvr_ps2.h>
 #include <86box/rom.h>
+#include "cpu.h"
 
 typedef struct ps2_nvr_t {
     int addr;
+    int loaded;
 
     uint8_t *ram;
     int      size;
@@ -123,7 +123,7 @@ ps2_nvr_init(const device_t *info)
 
     /* Set up the NVR file's name. */
     c       = strlen(machine_get_nvr_name()) + 9;
-    nvr->fn = (char *) malloc(c + 1);
+    nvr->fn = (char *) calloc(1, c + 1);
     sprintf(nvr->fn, "%s_sec.nvr", machine_get_nvr_name());
 
     io_sethandler(0x0074, 3,
@@ -131,15 +131,33 @@ ps2_nvr_init(const device_t *info)
 
     fp = nvr_fopen(nvr->fn, "rb");
 
-    nvr->ram = (uint8_t *) malloc(nvr->size);
+    nvr->ram = (uint8_t *) calloc(1, nvr->size);
     memset(nvr->ram, 0xff, nvr->size);
     if (fp != NULL) {
-        if (fread(nvr->ram, 1, nvr->size, fp) != nvr->size)
+        nvr->loaded = 1;
+        if ((cpu_s != NULL) && (fread(nvr->ram, 1, nvr->size, fp) != nvr->size))
             fatal("ps2_nvr_init(): Error reading EEPROM data\n");
         fclose(fp);
     }
 
     return nvr;
+}
+
+int
+ps2_nvr_is_new(void *priv)
+{
+    const ps2_nvr_t *nvr = (const ps2_nvr_t *) priv;
+
+    return !nvr->loaded;
+}
+
+void
+ps2_nvr_set_byte(void *priv, uint16_t addr, uint8_t val)
+{
+    ps2_nvr_t *nvr = (ps2_nvr_t *) priv;
+
+    if (addr < nvr->size)
+        nvr->ram[addr] = val;
 }
 
 static void

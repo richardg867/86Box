@@ -1,6 +1,9 @@
 #ifndef _CODEGEN_ALLOCATOR_H_
 #define _CODEGEN_ALLOCATOR_H_
 
+#include <stdbool.h>
+#include <stdint.h>
+
 /*The allocator handles all allocation of executable memory. Since the two-pass
   recompiler design makes applying hard limits to codeblock size difficult, the
   allocator allows memory to be provided as and when required.
@@ -11,13 +14,13 @@
   are chained together by jump instructions.
 
   Due to the chaining, the total memory size is limited by the range of a jump
-  instruction. ARMv7 is restricted to +/- 32 MB, ARMv8 to +/- 128 MB, x86 to
-  +/- 2GB. As a result, total memory size is limited to 32 MB on ARMv7*/
-#if defined __ARM_EABI__ || defined _ARM_ || defined _M_ARM
-#    define MEM_BLOCK_NR 32768
-#else
-#    define MEM_BLOCK_NR 131072
+  instruction. ARMv8 is limited to +/- 128 MB, x86 to
+  +/- 2GB. It was 32 MB on ARMv7 before we removed it*/
+
+#ifndef MEM_BLOCK_NR
+#define MEM_BLOCK_NR 131072
 #endif
+
 
 #define MEM_BLOCK_MASK (MEM_BLOCK_NR - 1)
 #define MEM_BLOCK_SIZE 0x3c0
@@ -33,6 +36,20 @@ void codegen_allocator_free(struct mem_block_t *block);
 uint8_t *codeblock_allocator_get_ptr(struct mem_block_t *block);
 /*Cache clean memory block list*/
 void codegen_allocator_clean_blocks(struct mem_block_t *block);
+
+/* Branch classification helpers:
+   - codegen_allocator_contains_host_ptr(): tells whether a host pointer targets
+     the JIT allocator arena (candidate for direct local branch).
+   - codegen_allocator_can_branch_imm14(): validates AArch64 TBZ/TBNZ immediate
+     branch range/alignment from a source instruction address to target.
+   - codegen_allocator_can_branch_imm19(): validates AArch64 CBZ/CBNZ immediate
+     branch range/alignment from a source instruction address to target.
+   - codegen_allocator_can_branch_imm26(): validates AArch64 B/BL immediate
+     branch range/alignment from a source instruction address to target. */
+bool codegen_allocator_contains_host_ptr(const void *p);
+bool codegen_allocator_can_branch_imm14(const uint8_t *src_insn_addr, const void *dst);
+bool codegen_allocator_can_branch_imm19(const uint8_t *src_insn_addr, const void *dst);
+bool codegen_allocator_can_branch_imm26(const uint8_t *src_insn_addr, const void *dst);
 
 extern int codegen_allocator_usage;
 

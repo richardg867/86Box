@@ -8,8 +8,6 @@
  *
  *          General keyboard driver interface.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
@@ -27,14 +25,50 @@
 #define HAVE_STDARG_H
 #include <86box/86box.h>
 #include <86box/machine.h>
+#include <86box/device.h>
 #include <86box/keyboard.h>
 #include <86box/plat.h>
 
 #include "cpu.h"
 
-uint16_t     scancode_map[768] = { 0 };
+uint16_t     scancode_map[768]        = { 0 };
+uint16_t     scancode_config_map[768] = { 0 };
 
 int          keyboard_scan;
+
+typedef struct keyboard_t {
+    const device_t *device;
+} keyboard_t;
+
+int          keyboard_type    = 0;
+
+static int   override_capture = 0;
+
+static const device_t keyboard_internal_device = {
+    .name          = "Internal",
+    .internal_name = "internal",
+    .flags         = 0,
+    .local         = KEYBOARD_TYPE_INTERNAL,
+    .init          = NULL,
+    .close         = NULL,
+    .reset         = NULL,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+static keyboard_t keyboard_devices[] = {
+    // clang-format off
+    { &keyboard_internal_device        },
+    { &keyboard_pc_xt_device           },
+    { &keyboard_at_device              },
+    { &keyboard_ax_device              },
+    { &keyboard_ps2_device             },
+    { &keyboard_ps55_device            },
+    { NULL                             }
+    // clang-format on
+};
 
 #ifdef ENABLE_KBC_AT_LOG
 int kbc_at_do_log = ENABLE_KBC_AT_LOG;
@@ -55,12 +89,14 @@ kbc_at_log(const char* fmt, ...)
 #endif
 
 void (*keyboard_send)(uint16_t val);
+static void (*keyboard_input_handler)(uint16_t scan, int down, void *priv);
+static void *keyboard_input_priv;
 
-static int recv_key[512] = { 0 }; /* keyboard input buffer */
-static int recv_key_ui[512] = { 0 }; /* keyboard input buffer */
-static int oldkey[512];
+static int recv_key[768] = { 0 }; /* keyboard input buffer */
+static int recv_key_ui[768] = { 0 }; /* keyboard input buffer */
+static int oldkey[768];
 #if 0
-static int keydelay[512];
+static int keydelay[768];
 #endif
 static scancode *scan_table; /* scancode table for keyboard */
 
@@ -105,6 +141,12 @@ static scconvtbl scconv55_8a[18 + 1] =
 };
 
 void
+keyboard_toggle_override(void)
+{
+    override_capture ^= 1;
+}
+
+void
 keyboard_init(void)
 {
     num_lock     = 0;
@@ -123,6 +165,7 @@ keyboard_init(void)
 
     keyboard_scan = 1;
     scan_table    = NULL;
+    keyboard_set_input_handler(NULL, NULL);
 
     memset(keyboard_set3_flags, 0x00, sizeof(keyboard_set3_flags));
     keyboard_set3_all_repeat = 0;
@@ -133,6 +176,13 @@ void
 keyboard_set_table(const scancode *ptr)
 {
     scan_table = (scancode *) ptr;
+}
+
+void
+keyboard_set_input_handler(void (*handler)(uint16_t scan, int down, void *priv), void *priv)
+{
+    keyboard_input_handler = handler;
+    keyboard_input_priv    = handler ? priv : NULL;
 }
 
 static uint8_t
@@ -163,10 +213,18 @@ key_process(uint16_t scan, int down)
     const scancode *codes = scan_table;
     int             c;
 
-    if (!codes)
+    if (!keyboard_scan)
         return;
 
-    if (!keyboard_scan || (keyboard_send == NULL))
+    scan = scancode_config_map[scan];
+
+    if (keyboard_input_handler) {
+        oldkey[scan] = down;
+        keyboard_input_handler(scan, down, keyboard_input_priv);
+        return;
+    }
+
+    if (!codes || !keyboard_send)
         return;
 
     oldkey[scan] = down;
@@ -182,22 +240,24 @@ key_process(uint16_t scan, int down)
     */
     if (key5576mode) {
         int i = 0;
-        if (!down) {
-            /* Do and exit the 5576-001 emulation when a key is pressed other than trigger keys. */
-            if (scan != 0x1d && scan != 0x2a && scan != 0x138)
-            {
+        if (down) {
+            while (scconv55_8a[i].sc != 0) {
+                if (scconv55_8a[i].sc == scan) {
+                    while (scconv55_8a[i].mk[c] != 0)
+                        keyboard_send(scconv55_8a[i].mk[c++]);
+                }
+                i++;
+            }
+        }
+        /* Do and exit the 5576-001 emulation when a key is pressed other than trigger keys. */
+        if (scan != 0x1d && scan != 0x2a && scan != 0x138) {
+            if (!down) {
                 key5576mode = 0;
                 kbc_at_log("5576-001 key emulation disabled.\n");
             }
-        }
-        while (scconv55_8a[i].sc != 0)
-        {
-            if (scconv55_8a[i].sc == scan) {
-                while (scconv55_8a[i].mk[c] != 0)
-                    keyboard_send(scconv55_8a[i].mk[c++]);
-                return;
-            }
-            i++;
+            /* If the key is found in the table, the scancode has been sent.
+               Or else, do nothing. */
+            return;
         }
     }
 
@@ -338,7 +398,7 @@ keyboard_input(int down, uint16_t scan)
     /* kbc_at_log("Received scan code: %03X (%s)\n", scan & 0x1ff, down ? "down" : "up"); */
     recv_key_ui[scan & 0x1ff] = down;
 
-    if (mouse_capture || !kbd_req_capture || video_fullscreen) {
+    if (override_capture || mouse_capture || !kbd_req_capture || (video_fullscreen && !fullscreen_ui_visible)) {
         recv_key[scan & 0x1ff] = down;
         key_process(scan & 0x1ff, down);
     }
@@ -353,9 +413,14 @@ keyboard_all_up(void)
 
         if (recv_key[i]) {
             recv_key[i] = 0;
-            key_process(i, 0);
+            if (kbd_in_reset && !keyboard_input_handler)
+                oldkey[i] = 0;
+            else
+                key_process(i, 0);
         }
     }
+
+    shift = 0;
 }
 
 void
@@ -515,4 +580,58 @@ convert_scan_code(uint16_t scan_code)
         scan_code = 0xFFFF;
 
     return scan_code;
+}
+
+const char *
+keyboard_get_name(int keyboard)
+{
+    return (keyboard_devices[keyboard].device->name);
+}
+
+const char *
+keyboard_get_internal_name(int keyboard)
+{
+    return device_get_internal_name(keyboard_devices[keyboard].device);
+}
+
+int
+keyboard_get_from_internal_name(char *s)
+{
+    int c = 0;
+
+    while (keyboard_devices[c].device != NULL) {
+        if (!strcmp((char *) keyboard_devices[c].device->internal_name, s))
+            return c;
+        c++;
+    }
+
+    return 0;
+}
+
+int
+keyboard_has_config(int keyboard)
+{
+    if (keyboard_devices[keyboard].device == NULL)
+        return 0;
+
+    return (keyboard_devices[keyboard].device->config ? 1 : 0);
+}
+
+const device_t *
+keyboard_get_device(int keyboard)
+{
+    return (keyboard_devices[keyboard].device);
+}
+
+/* Return number of MOUSE types we know about. */
+int
+keyboard_get_ndev(void)
+{
+    return ((sizeof(keyboard_devices) / sizeof(keyboard_t)) - 1);
+}
+
+void
+keyboard_add_device(void)
+{
+    device_add(keyboard_devices[keyboard_type].device);
 }

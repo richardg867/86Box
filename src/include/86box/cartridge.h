@@ -8,8 +8,6 @@
  *
  *          Definitions for the PCjr cartridge emulation.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2021 Miran Grca.
@@ -23,13 +21,15 @@ extern "C" {
 
 #define CART_IMAGE_HISTORY    10
 
-extern char cart_fns[2][512];
+extern char cart_fns[2][MAX_IMAGE_PATH_LEN];
 extern char *cart_image_history[2][CART_IMAGE_HISTORY];
 
 extern void cart_load(int drive, char *fn);
 extern void cart_close(int drive);
 
 extern void cart_reset(void);
+/* Return presence separately from the byte, including populated FF bytes. */
+extern int cart_read_resource(uint32_t address, uint8_t *value);
 
 #ifdef __cplusplus
 }

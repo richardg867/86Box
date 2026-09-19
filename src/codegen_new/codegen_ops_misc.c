@@ -5,14 +5,17 @@
 #include <86box/plat_unused.h>
 
 #include "x86.h"
+#include "x86_ops.h"
 #include "x86_flags.h"
 #include "x86seg_common.h"
 #include "x86seg.h"
 #include "386_common.h"
 #include "codegen.h"
+#include "codegen_accumulate.h"
 #include "codegen_ir.h"
 #include "codegen_ops.h"
 #include "codegen_ops_helpers.h"
+#include "codegen_ops_jit_wrappers.h"
 #include "codegen_ops_misc.h"
 
 uint32_t
@@ -276,7 +279,7 @@ rebuild_c(ir_data_t *ir)
     }
 
     if (needs_rebuild) {
-        uop_CALL_FUNC(ir, flags_rebuild_c);
+        uop_CALL_FUNC(ir, jit_flags_rebuild_c);
     }
 }
 
@@ -578,21 +581,21 @@ ropLxS(LSS, &cpu_state.seg_ss)
 uint32_t
 ropCLC(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
 {
-    uop_CALL_FUNC(ir, flags_rebuild);
+    uop_CALL_FUNC(ir, jit_flags_rebuild);
     uop_AND_IMM(ir, IREG_flags, IREG_flags, ~C_FLAG);
     return op_pc;
 }
 uint32_t
 ropCMC(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
 {
-    uop_CALL_FUNC(ir, flags_rebuild);
+    uop_CALL_FUNC(ir, jit_flags_rebuild);
     uop_XOR_IMM(ir, IREG_flags, IREG_flags, C_FLAG);
     return op_pc;
 }
 uint32_t
 ropSTC(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
 {
-    uop_CALL_FUNC(ir, flags_rebuild);
+    uop_CALL_FUNC(ir, jit_flags_rebuild);
     uop_OR_IMM(ir, IREG_flags, IREG_flags, C_FLAG);
     return op_pc;
 }
@@ -611,20 +614,69 @@ ropSTD(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED
 }
 
 uint32_t
-ropCLI(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
+ropPREFETCH(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
-    if (!IOPLp && (cr4 & (CR4_VME | CR4_PVI)))
+    if ((fetchdat & 0xc0) == 0xc0)
         return 0;
 
-    uop_AND_IMM(ir, IREG_flags, IREG_flags, ~I_FLAG);
+    codegen_mark_code_present(block, cs + op_pc, 1);
+    codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
+    return op_pc + 1;
+}
+
+uint32_t
+ropFEMMS(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
+{
+    uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
+    uop_CALL_FUNC_RESULT(ir, IREG_temp0, codegen_femms);
+    uop_CMP_IMM_JZ(ir, IREG_temp0, 1, codegen_exit_rout);
+
+    codegen_mmx_entered = 0;
+    codegen_fpu_entered = 0;
     return op_pc;
 }
-uint32_t
-ropSTI(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
-{
-    if (!IOPLp && (cr4 & (CR4_VME | CR4_PVI)))
-        return 0;
 
-    uop_OR_IMM(ir, IREG_flags, IREG_flags, I_FLAG);
+/* Blocks are keyed on protected mode but not on CPL or IOPL, so outside
+   real mode the privilege check has to run with the block. CPL > IOPL takes
+   the interpreter's CLI/STI, which raises #GP(0) or updates VIF under
+   VME/PVI; Windows relies on that fault to virtualize IF. */
+static uint32_t
+ropCLI_STI(ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc, int set)
+{
+    if (cpu_cur_status & CPU_STATUS_PMODE) {
+        int jump_uop;
+
+        codegen_accumulate_flush(ir);
+        uop_MOVZX_REG_PTR_8(ir, IREG_temp0, &cpu_state.seg_cs.access);
+        uop_SHR_IMM(ir, IREG_temp0, IREG_temp0, 5);
+        uop_AND_IMM(ir, IREG_temp0, IREG_temp0, 3);
+        uop_MOVZX(ir, IREG_temp1, IREG_flags);
+        uop_SHR_IMM(ir, IREG_temp1, IREG_temp1, 12);
+        uop_AND_IMM(ir, IREG_temp1, IREG_temp1, 3);
+        jump_uop = uop_CMP_JBE_DEST(ir, IREG_temp0, IREG_temp1);
+
+        uop_MOV_IMM(ir, IREG_pc, op_pc);
+        uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
+        uop_CALL_INSTRUCTION_FUNC(ir, x86_dynarec_opcodes[(opcode | op_32) & 0x3ff], fetchdat);
+        uop_JMP(ir, codegen_exit_rout);
+        uop_set_jump_dest(ir, jump_uop);
+    }
+
+    if (set)
+        uop_OR_IMM(ir, IREG_flags, IREG_flags, I_FLAG);
+    else
+        uop_AND_IMM(ir, IREG_flags, IREG_flags, ~I_FLAG);
+
     return op_pc;
+}
+
+uint32_t
+ropCLI(UNUSED(codeblock_t *block), ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+{
+    return ropCLI_STI(ir, opcode, fetchdat, op_32, op_pc, 0);
+}
+uint32_t
+ropSTI(UNUSED(codeblock_t *block), ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+{
+    return ropCLI_STI(ir, opcode, fetchdat, op_32, op_pc, 1);
 }

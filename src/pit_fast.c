@@ -9,8 +9,6 @@
  *          Implementation of the Intel 8253/8254 Programmable Interval
  *          Timer.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2019 Miran Grca.
@@ -126,6 +124,8 @@ static int
 pitf_read_timer(ctrf_t *ctr)
 {
     if (ctr->using_timer && !(ctr->m == 3 && !ctr->gate) && timer_is_enabled(&ctr->timer)) {
+        if (ctr->pit_const == 0)
+            return 0x10000;
         int read = (int) ((timer_get_remaining_u64(&ctr->timer)) / ctr->pit_const);
         if (ctr->m == 2)
             read++;
@@ -719,7 +719,7 @@ pitf_handler(int set, uint16_t base, int size, void *priv)
 static void *
 pitf_init(const device_t *info)
 {
-    pitf_t *dev = (pitf_t *) malloc(sizeof(pitf_t));
+    pitf_t *dev = (pitf_t *) calloc(1, sizeof(pitf_t));
 
     pitf_reset(dev);
 
@@ -753,6 +753,20 @@ const device_t i8253_fast_device = {
     .reset         = NULL,
     .available     = NULL,
     .speed_changed = pitf_speed_changed,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+const device_t i8253_ext_io_fast_device = {
+    .name          = "Intel 8253 Programmable Interval Timer (External I/O)",
+    .internal_name = "i8253_ext_io_fast",
+    .flags         = DEVICE_ISA,
+    .local         = PIT_8253 | PIT_EXT_IO,
+    .init          = pitf_init,
+    .close         = pitf_close,
+    .reset         = NULL,
+    .available     = NULL,
+    .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
 };

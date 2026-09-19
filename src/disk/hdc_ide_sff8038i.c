@@ -10,8 +10,6 @@
  *            word 0 - base address
  *            word 1 - bits 1-15 = byte count, bit 31 = end of transfer
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *
@@ -42,7 +40,7 @@
 #include <86box/hdc.h>
 #include <86box/hdc_ide.h>
 #include <86box/hdc_ide_sff8038i.h>
-#include <86box/zip.h>
+#include <86box/rdisk.h>
 #include <86box/mo.h>
 #include <86box/plat_unused.h>
 
@@ -117,6 +115,9 @@ sff_bus_master_write(uint16_t port, uint8_t val, void *priv)
 #endif
 
     sff_log("SFF-8038i Bus master BYTE  write: %04X       %02X\n", port, val);
+
+    if (dev->ven_write != NULL)
+        val = dev->ven_write(port, val, dev->priv);
 
     switch (port & 7) {
         case 0:
@@ -254,6 +255,9 @@ sff_bus_master_read(uint16_t port, void *priv)
         default:
             break;
     }
+
+    if (dev->ven_read != NULL)
+        ret= dev->ven_read(port, ret, dev->priv);
 
     sff_log("SFF-8038i Bus master BYTE  read : %04X       %02X\n", port, ret);
 
@@ -489,10 +493,10 @@ sff_reset(void *priv)
             cdrom[i].priv)
             scsi_cdrom_reset((scsi_common_t *) cdrom[i].priv);
     }
-    for (uint8_t i = 0; i < ZIP_NUM; i++) {
-        if ((zip_drives[i].bus_type == ZIP_BUS_ATAPI) && (zip_drives[i].ide_channel < 4) &&
-            zip_drives[i].priv)
-            zip_reset((scsi_common_t *) zip_drives[i].priv);
+    for (uint8_t i = 0; i < RDISK_NUM; i++) {
+        if ((rdisk_drives[i].bus_type == RDISK_BUS_ATAPI) && (rdisk_drives[i].ide_channel < 4) &&
+            rdisk_drives[i].priv)
+            rdisk_reset((scsi_common_t *) rdisk_drives[i].priv);
     }
     for (uint8_t i = 0; i < MO_NUM; i++) {
         if ((mo_drives[i].bus_type == MO_BUS_ATAPI) && (mo_drives[i].ide_channel < 4) &&
@@ -569,6 +573,16 @@ sff_set_mirq(sff8038i_t *dev, uint8_t mirq)
     dev->mirq = mirq;
 }
 
+void
+sff_set_ven_handlers(sff8038i_t *dev, uint8_t (*ven_write)(uint16_t port, uint8_t val, void *priv),
+                     uint8_t (*ven_read)(uint16_t port, uint8_t val, void *priv), void *priv)
+{
+    dev->ven_write = ven_write;
+    dev->ven_read  = ven_read;
+
+    dev->priv      = priv;
+}
+
 static void
 sff_close(void *priv)
 {
@@ -587,7 +601,7 @@ sff_init(UNUSED(const device_t *info))
     sff8038i_t *dev = (sff8038i_t *) calloc(1, sizeof(sff8038i_t));
 
     /* Make sure to only add IDE once. */
-    if (next_id == 0)
+    if ((device_get_instance() < 3) && (next_id == 0))
         device_add(&ide_pci_2ch_device);
 
     ide_set_bus_master(next_id, sff_bus_master_dma, sff_bus_master_set_irq, dev);

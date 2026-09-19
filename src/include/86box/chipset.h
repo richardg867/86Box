@@ -8,8 +8,6 @@
  *
  *          Handling of the emulated chipsets.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2019-2020 Miran Grca.
@@ -18,6 +16,7 @@
 #define EMU_CHIPSET_H
 
 /* ACC */
+extern const device_t acc2036_device;
 extern const device_t acc2168_device;
 
 /* ALi */
@@ -29,6 +28,9 @@ extern const device_t ali1435_device;
 extern const device_t ali1489_device;
 extern const device_t ali1531_device;
 extern const device_t ali1541_device;
+
+#define ALI1543_SIO_370 0x10000ULL
+
 extern const device_t ali1543_device;
 extern const device_t ali1543c_device;
 extern const device_t ali1621_device;
@@ -41,6 +43,8 @@ extern const device_t amd640_device;
 extern const device_t isa486c_device;
 
 /* Compaq */
+extern const device_t compaq_device;
+
 extern const device_t compaq_386_device;
 extern const device_t compaq_genoa_device;
 
@@ -62,6 +66,9 @@ extern const device_t cs4031_device;
 /* G2 */
 extern const device_t gc100_device;
 extern const device_t gc100a_device;
+
+/* GRiDcase */
+extern const device_t grid1520_device;
 
 /* Headland */
 extern const device_t headland_gc10x_device;
@@ -101,10 +108,14 @@ extern const device_t i450kx_device;
 extern const device_t sio_device;
 extern const device_t sio_zb_device;
 
+#define PIIX4_NVR_AMI_1995  0x0000000100000000
+#define PIIX4_NVR_AMI_1995J 0x0000000200000000
+
 extern const device_t piix_device;
 extern const device_t piix_no_mirq_device;
 extern const device_t piix_old_device;
 extern const device_t piix_rev02_device;
+extern void           piix_extsmi_raise(void);
 extern const device_t piix3_device;
 extern const device_t piix3_ioapic_device;
 extern const device_t piix4_device;
@@ -112,6 +123,10 @@ extern const device_t piix4e_device;
 extern const device_t slc90e66_device;
 
 extern const device_t ioapic_device;
+
+/* VTech */
+extern const device_t laserxt_device;
+extern const device_t lxt3_device;
 
 /* Olivetti */
 extern const device_t olivetti_eva_device;
@@ -123,7 +138,10 @@ extern const device_t opti381_device;
 extern const device_t opti391_device;
 extern const device_t opti481_device;
 extern const device_t opti493_device;
-extern const device_t opti495_device;
+extern const device_t opti495slc_device;
+extern const device_t opti495sx_device;
+extern const device_t opti496_device;
+extern const device_t opti498_device;
 extern const device_t opti499_device;
 extern const device_t opti601_device;
 extern const device_t opti602_device;
@@ -134,6 +152,14 @@ extern const device_t opti895_device;
 
 extern const device_t opti5x7_device;
 extern const device_t opti5x7_pci_device;
+extern const device_t opti55x_device;
+extern const device_t opti55x_noide_device;
+
+/* Philips */
+extern const device_t philips_device;
+
+/* Sanyo */
+extern const device_t sanyo_device;
 
 /* SiS */
 extern const device_t rabbit_device;
@@ -151,6 +177,7 @@ extern const device_t sis_5511_device;
 extern const device_t sis_5571_device;
 extern const device_t sis_5581_device;
 extern const device_t sis_5591_1997_device;
+extern const device_t sis_530_device;
 extern const device_t sis_5591_device;
 extern const device_t sis_5600_1997_device;
 extern const device_t sis_5600_device;
@@ -173,6 +200,9 @@ extern const device_t umc_8886bf_device;
 extern const device_t umc_8890_device;
 extern const device_t umc_hb4_device;
 
+/* Utron */
+extern const device_t ut85c50x_device;
+
 /* VIA */
 extern const device_t via_vt82c49x_device;
 extern const device_t via_vt82c49x_pci_device;
@@ -185,6 +215,9 @@ extern const device_t via_apro_device;
 extern const device_t via_apro133_device;
 extern const device_t via_apro133a_device;
 extern const device_t via_vt8601_device;
+
+#define VIA_PIPC_NO_KBC 0x0000000100000000ULL
+
 extern const device_t via_vt82c586b_device;
 extern const device_t via_vt82c596a_device;
 extern const device_t via_vt82c596b_device;
@@ -195,16 +228,33 @@ extern const device_t via_vt8231_device;
 /* VLSI */
 extern const device_t vl82c480_device;
 extern const device_t vl82c486_device;
+extern const device_t vl82c59x_device;
+extern const device_t vl82c59x_compaq_device;
+extern const device_t vl82c59x_wildcat_device;
+extern const device_t vl82c59x_wildcat_compaq_device;
 extern const device_t vlsi_scamp_device;
 
 /* WD */
 extern const device_t wd76c10_device;
 
 /* Miscellaneous Hardware */
+extern const device_t tulip_jumper_device;
+
 extern const device_t dell_jumper_device;
 
 extern const device_t nec_mate_unk_device;
 
 extern const device_t phoenix_486_jumper_device;
 extern const device_t phoenix_486_jumper_pci_device;
+extern const device_t phoenix_486_jumper_pci_pb600_device;
+extern const device_t phoenix_486_jumper_monsoon_device;
+extern const device_t phoenix_486_jumper_pb400_device;
+extern const device_t phoenix_486_jumper_pb430_device;
+
+extern const device_t ast_readout_device;
+extern const device_t ast_nvr_device;
+
+extern const device_t radisys_config_device;
+
+extern const device_t zenith_scratchpad_device;
 #endif /*EMU_CHIPSET_H*/

@@ -34,6 +34,7 @@
 #include <86box/fdc.h>
 #include <86box/keyboard.h>
 #include <86box/sio.h>
+#include <86box/random.h>
 #include <86box/plat_fallthrough.h>
 #include "cpu.h"
 
@@ -42,7 +43,7 @@ typedef struct pc87307_t {
     uint8_t   baddr;
     uint8_t   pm_idx;
     uint8_t   regs[48];
-    uint8_t   ld_regs[256][208];
+    uint8_t   ld_regs[256][256];
     uint8_t   pcregs[16];
     uint8_t   gpio[2][8];
     uint8_t   pm[8];
@@ -54,6 +55,7 @@ typedef struct pc87307_t {
     void     *kbc;
     fdc_t    *fdc;
     serial_t *uart[2];
+    lpt_t    *lpt;
 } pc87307_t;
 
 enum {
@@ -72,7 +74,7 @@ enum {
 #define LD_MAX LD_PM
 
 static void    fdc_handler(pc87307_t *dev);
-static void    lpt1_handler(pc87307_t *dev);
+static void    lpt_handler(pc87307_t *dev);
 static void    serial_handler(pc87307_t *dev, int uart);
 static void    kbc_handler(pc87307_t *dev);
 static void    pc87307_write(uint16_t port, uint8_t val, void *priv);
@@ -107,6 +109,10 @@ pc87307_gpio_write(uint16_t port, uint8_t val, void *priv)
                 CS, cpu_state.pc, port, bank, val);
 
     dev->gpio[bank][port & 0x0007] = val;
+
+    if (bank == 0) {
+        machine_handle_gpio(1, ((dev->gpio[0][5] & dev->gpio[0][4]) << 8) | (dev->gpio[0][0] & dev->gpio[0][1]));
+    }
 }
 
 uint8_t
@@ -117,18 +123,18 @@ pc87307_gpio_read(uint16_t port, void *priv)
     uint8_t          bank = !!(dev->regs[0x22] & 0x80);
     uint8_t          ret  = dev->gpio[bank][port & 0x0007];
 
-    switch (port & 0x0003) {
+    switch (port & 0x0007) {
         case 0x0000:
             if (bank == 0) {
                 uint8_t mask = dev->gpio[0][1];
-                pins = 0x7f;
+                pins = machine_handle_gpio(0, 0xFFFF) & 0xFF;
                 ret  = (ret & mask) | (pins & ~mask);
             }
             break;
         case 0x0004:
             if (bank == 0) {
                 uint8_t mask = dev->gpio[0][5];
-                pins = 0xfb;
+                pins = (machine_handle_gpio(0, 0xFFFF) >> 8) & 0xFF;
                 ret  = (ret & mask) | (pins & ~mask);
             } else
                 ret = 0xff;
@@ -151,13 +157,13 @@ static void
 pc87307_gpio_remove(pc87307_t *dev)
 {
     if (dev->gpio_base != 0xffff) {
-        io_removehandler(dev->gpio_base, 0x0002,
+        io_removehandler(dev->gpio_base, 0x0008,
                          pc87307_gpio_read, NULL, NULL, pc87307_gpio_write, NULL, NULL, dev);
         dev->gpio_base = 0xffff;
     }
 
     if (dev->gpio_base2 != 0xffff) {
-        io_removehandler(dev->gpio_base2, 0x0002,
+        io_removehandler(dev->gpio_base2, 0x0008,
                          pc87307_gpio_read, NULL, NULL, pc87307_gpio_write, NULL, NULL, dev);
         dev->gpio_base2 = 0xffff;
     }
@@ -170,7 +176,7 @@ pc87307_gpio_init(pc87307_t *dev, int bank, uint16_t addr)
 
     *bank_base = addr;
 
-    io_sethandler(*bank_base, 0x0002,
+    io_sethandler(*bank_base, 0x0008,
                   pc87307_gpio_read, NULL, NULL, pc87307_gpio_write, NULL, NULL, dev);
 }
 
@@ -187,7 +193,7 @@ pc87307_pm_write(uint16_t port, uint8_t val, void *priv)
         switch (dev->pm_idx) {
             case 0x00:
                 fdc_handler(dev);
-                lpt1_handler(dev);
+                lpt_handler(dev);
                 serial_handler(dev, 1);
                 serial_handler(dev, 0);
                 break;
@@ -266,6 +272,7 @@ fdc_handler(pc87307_t *dev)
     uint8_t  active = (dev->ld_regs[LD_FDC][0x00] & 0x01) &&
                       (dev->pm[0x00] & 0x08);
     uint8_t  irq    = (dev->ld_regs[LD_FDC][0x40] & 0x0f);
+    uint8_t  dma    = (dev->ld_regs[LD_FDC][0x44] & 0x0f);
     uint16_t addr   = ((dev->ld_regs[LD_FDC][0x30] << 8) |
                       dev->ld_regs[LD_FDC][0x31]) & 0xfff8;
 
@@ -273,25 +280,71 @@ fdc_handler(pc87307_t *dev)
         pc87307_log("Enabling FDC on %04X, IRQ %i...\n", addr, irq);
         fdc_set_base(dev->fdc, addr);
         fdc_set_irq(dev->fdc, irq);
+        fdc_set_dma_ch(dev->fdc, dma);
     }
 }
 
 static void
-lpt1_handler(pc87307_t *dev)
+lpt_handler(pc87307_t *dev)
 {
     uint8_t  active = (dev->ld_regs[LD_LPT][0x00] & 0x01) &&
                       (dev->pm[0x00] & 0x10);
     uint8_t  irq    = (dev->ld_regs[LD_LPT][0x40] & 0x0f);
+    uint8_t  dma    = (dev->ld_regs[LD_LPT][0x44] & 0x0f);
     uint16_t addr   = (dev->ld_regs[LD_LPT][0x30] << 8) |
                       dev->ld_regs[LD_LPT][0x31];
+    uint8_t  mode   = (dev->ld_regs[LD_LPT][0xf0] >> 7);
+    uint16_t mask   = 0xfffc;
 
-    if (active && (addr <= 0xfffc)) {
+    if (irq > 15)
+        irq = 0xff;
+
+    if (dma >= 4)
+        dma = 0xff;
+
+    lpt_port_remove(dev->lpt);
+
+    switch (mode) {
+        default:
+        case 0x00:
+            lpt_set_epp(dev->lpt, 0);
+            lpt_set_ecp(dev->lpt, 0);
+            lpt_set_ext(dev->lpt, 0);
+            break;
+        case 0x01:
+            lpt_set_epp(dev->lpt, 0);
+            lpt_set_ecp(dev->lpt, 0);
+            lpt_set_ext(dev->lpt, 1);
+            break;
+        case 0x02: case 0x03:
+            mask = 0xfff8;
+            lpt_set_epp(dev->lpt, 1);
+            lpt_set_ecp(dev->lpt, 0);
+            lpt_set_ext(dev->lpt, 0);
+            break;
+        case 0x04:
+            lpt_set_epp(dev->lpt, 0);
+            lpt_set_ecp(dev->lpt, 1);
+            lpt_set_ext(dev->lpt, 0);
+            break;
+        case 0x07:
+            mask = 0xfff8;
+            lpt_set_epp(dev->lpt, 1);
+            lpt_set_ecp(dev->lpt, 1);
+            lpt_set_ext(dev->lpt, 0);
+            break;
+    }
+
+    lpt_set_cfg_regs_enabled(dev->lpt, !!(dev->ld_regs[LD_LPT][0xf0] & 0x10));
+
+    if (active && (addr <= (0xfffc & mask))) {
         pc87307_log("Enabling LPT1 on %04X...\n", addr);
-        lpt1_setup(addr);
+        lpt_port_setup(dev->lpt, addr & mask);
     } else
-        lpt1_setup(0xffff);
+        lpt_port_setup(dev->lpt, 0xffff);
 
-    lpt1_irq(irq);
+    lpt_port_irq(dev->lpt, irq);
+    lpt_port_dma(dev->lpt, dma);
 }
 
 static void
@@ -439,7 +492,7 @@ pc87307_write(uint16_t port, uint8_t val, void *priv)
                     break;
                 case LD_LPT:
                     dev->ld_regs[ld][reg] = val;
-                    lpt1_handler(dev);
+                    lpt_handler(dev);
                     break;
                 case LD_UART2:
                     dev->ld_regs[ld][reg] = val;
@@ -488,7 +541,7 @@ pc87307_write(uint16_t port, uint8_t val, void *priv)
                     break;
                 case LD_LPT:
                     dev->ld_regs[ld][reg] = (old & 0xfc) | (val & 0x03);
-                    lpt1_handler(dev);
+                    lpt_handler(dev);
                     break;
                 case LD_UART2:
                     dev->ld_regs[ld][reg] = val;
@@ -526,7 +579,7 @@ pc87307_write(uint16_t port, uint8_t val, void *priv)
                     break;
                 case LD_LPT:
                     dev->ld_regs[ld][reg] = (old & 0x03) | (val & 0xfc);
-                    lpt1_handler(dev);
+                    lpt_handler(dev);
                     break;
                 case LD_UART2:
                     dev->ld_regs[ld][reg] = (old & 0x07) | (val & 0xf8);
@@ -594,7 +647,7 @@ pc87307_write(uint16_t port, uint8_t val, void *priv)
                     break;
                 case LD_LPT:
                     dev->ld_regs[ld][reg] = val;
-                    lpt1_handler(dev);
+                    lpt_handler(dev);
                     break;
                 case LD_UART2:
                     dev->ld_regs[ld][reg] = val;
@@ -630,7 +683,7 @@ pc87307_write(uint16_t port, uint8_t val, void *priv)
                     break;
                 case LD_LPT:
                     dev->ld_regs[ld][reg] = val;
-                    lpt1_handler(dev);
+                    lpt_handler(dev);
                     break;
                 case LD_UART2:
                     dev->ld_regs[ld][reg] = val;
@@ -662,7 +715,7 @@ pc87307_write(uint16_t port, uint8_t val, void *priv)
                     break;
                 case LD_LPT:
                     dev->ld_regs[ld][reg] = val;
-                    lpt1_handler(dev);
+                    lpt_handler(dev);
                     break;
                 case LD_UART2: case LD_UART1:
                     dev->ld_regs[ld][reg] = val;
@@ -822,7 +875,7 @@ pc87307_reset(void *priv)
 
     kbc_handler(dev);
     fdc_handler(dev);
-    lpt1_handler(dev);
+    lpt_handler(dev);
     serial_handler(dev, 0);
     serial_handler(dev, 1);
     gpio_handler(dev);
@@ -850,17 +903,20 @@ pc87307_init(const device_t *info)
     dev->uart[0] = device_add_inst(&ns16550_device, 1);
     dev->uart[1] = device_add_inst(&ns16550_device, 2);
 
+    dev->lpt     = device_add_inst(&lpt_port_device, 1);
+    lpt_set_cnfga_readout(dev->lpt, 0x14);
+
     switch (info->local & PCX730X_KBC) {
-        default:
         case PCX730X_AMI:
-            dev->kbc = device_add(&keyboard_ps2_intel_ami_pci_device);
+        default:
+            dev->kbc = device_add_params(&kbc_at_device, (void *) (KBC_VEN_AMI | 0x00003500));
             break;
         /* Optiplex! */
         case PCX730X_PHOENIX_42:
-            dev->kbc = device_add(&keyboard_ps2_phoenix_device);
+            dev->kbc = device_add_params(&kbc_at_device, (void *) (KBC_VEN_PHOENIX | 0x00013700));
             break;
         case PCX730X_PHOENIX_42I:
-            dev->kbc = device_add(&keyboard_ps2_phoenix_pci_device);
+            dev->kbc = device_add_params(&kbc_at_device, (void *) (KBC_VEN_PHOENIX | 0x00041600));
             break;
     }
 

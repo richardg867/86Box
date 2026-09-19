@@ -8,8 +8,6 @@
  *
  *          Implement I/O ports and their operations.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
@@ -27,6 +25,7 @@
 #include <86box/86box.h>
 #include <86box/io.h>
 #include <86box/timer.h>
+#include <86box/machine.h>
 #include "cpu.h"
 #include "x86.h"
 #include <86box/m_amstrad.h>
@@ -35,33 +34,33 @@
 #define NPORTS 65536 /* PC/AT supports 64K ports */
 
 typedef struct _io_ {
-    uint8_t (*inb)(uint16_t addr, void *priv);
-    uint16_t (*inw)(uint16_t addr, void *priv);
-    uint32_t (*inl)(uint16_t addr, void *priv);
+    uint8_t (*inb)(uint16_t port, void *priv);
+    uint16_t (*inw)(uint16_t port, void *priv);
+    uint32_t (*inl)(uint16_t port, void *priv);
 
-    void (*outb)(uint16_t addr, uint8_t val, void *priv);
-    void (*outw)(uint16_t addr, uint16_t val, void *priv);
-    void (*outl)(uint16_t addr, uint32_t val, void *priv);
+    void (*outb)(uint16_t port, uint8_t val, void *priv);
+    void (*outw)(uint16_t port, uint16_t val, void *priv);
+    void (*outl)(uint16_t port, uint32_t val, void *priv);
 
     void *priv;
 
     struct _io_ *prev, *next;
 } io_t;
 
-typedef struct {
+typedef struct io_trap_s {
     uint8_t   enable;
     uint16_t  base;
     uint16_t  size;
-    void    (*func)(int size, uint16_t addr, uint8_t write, uint8_t val, void *priv);
+    void    (*func)(uint16_t size, uint16_t port, uint8_t write, uint8_t val, void *priv);
     void     *priv;
 } io_trap_t;
 
-int   initialized = 0;
-io_t *io[NPORTS];
-io_t *io_last[NPORTS];
+uint8_t initialized = 0;
+io_t   *io[NPORTS];
+io_t   *io_last[NPORTS];
 
 #ifdef ENABLE_IO_LOG
-int io_do_log = ENABLE_IO_LOG;
+uint8_t io_do_log = ENABLE_IO_LOG;
 
 static void
 io_log(const char *fmt, ...)
@@ -81,17 +80,16 @@ io_log(const char *fmt, ...)
 void
 io_init(void)
 {
-    int   c;
     io_t *p;
     io_t *q;
 
     if (!initialized) {
-        for (c = 0; c < NPORTS; c++)
+        for (uint32_t c = 0; c < NPORTS; c++)
             io[c] = io_last[c] = NULL;
         initialized = 1;
     }
 
-    for (c = 0; c < NPORTS; c++) {
+    for (uint32_t c = 0; c < NPORTS; c++) {
         if (io_last[c]) {
             /* Port c has at least one handler. */
             p = io_last[c];
@@ -110,22 +108,21 @@ io_init(void)
 }
 
 void
-io_sethandler_common(uint16_t base, int size,
-                     uint8_t (*inb)(uint16_t addr, void *priv),
-                     uint16_t (*inw)(uint16_t addr, void *priv),
-                     uint32_t (*inl)(uint16_t addr, void *priv),
-                     void (*outb)(uint16_t addr, uint8_t val, void *priv),
-                     void (*outw)(uint16_t addr, uint16_t val, void *priv),
-                     void (*outl)(uint16_t addr, uint32_t val, void *priv),
-                     void *priv, int step)
+io_sethandler_common(uint16_t base, uint16_t size,
+                     uint8_t (*inb)(uint16_t port, void *priv),
+                     uint16_t (*inw)(uint16_t port, void *priv),
+                     uint32_t (*inl)(uint16_t port, void *priv),
+                     void (*outb)(uint16_t port, uint8_t val, void *priv),
+                     void (*outw)(uint16_t port, uint16_t val, void *priv),
+                     void (*outl)(uint16_t port, uint32_t val, void *priv),
+                     void *priv, uint8_t step)
 {
     io_t *p;
     io_t *q = NULL;
 
-    for (int c = 0; c < size; c += step) {
+    for (uint32_t c = 0; c < size; c += step) {
         p = io_last[base + c];
-        q = (io_t *) malloc(sizeof(io_t));
-        memset(q, 0, sizeof(io_t));
+        q = (io_t *) calloc(1, sizeof(io_t));
         if (p) {
             p->next = q;
             q->prev = p;
@@ -152,19 +149,19 @@ io_sethandler_common(uint16_t base, int size,
 }
 
 void
-io_removehandler_common(uint16_t base, int size,
-                        uint8_t (*inb)(uint16_t addr, void *priv),
-                        uint16_t (*inw)(uint16_t addr, void *priv),
-                        uint32_t (*inl)(uint16_t addr, void *priv),
-                        void (*outb)(uint16_t addr, uint8_t val, void *priv),
-                        void (*outw)(uint16_t addr, uint16_t val, void *priv),
-                        void (*outl)(uint16_t addr, uint32_t val, void *priv),
-                        void *priv, int step)
+io_removehandler_common(uint16_t base, uint16_t size,
+                        uint8_t (*inb)(uint16_t port, void *priv),
+                        uint16_t (*inw)(uint16_t port, void *priv),
+                        uint32_t (*inl)(uint16_t port, void *priv),
+                        void (*outb)(uint16_t port, uint8_t val, void *priv),
+                        void (*outw)(uint16_t port, uint16_t val, void *priv),
+                        void (*outl)(uint16_t port, uint32_t val, void *priv),
+                        void *priv, uint8_t step)
 {
     io_t *p;
     io_t *q;
 
-    for (int c = 0; c < size; c += step) {
+    for (uint32_t c = 0; c < size; c += step) {
         p = io[base + c];
         if (!p)
             continue;
@@ -189,14 +186,14 @@ io_removehandler_common(uint16_t base, int size,
 }
 
 void
-io_handler_common(int set, uint16_t base, int size,
-                  uint8_t (*inb)(uint16_t addr, void *priv),
-                  uint16_t (*inw)(uint16_t addr, void *priv),
-                  uint32_t (*inl)(uint16_t addr, void *priv),
-                  void (*outb)(uint16_t addr, uint8_t val, void *priv),
-                  void (*outw)(uint16_t addr, uint16_t val, void *priv),
-                  void (*outl)(uint16_t addr, uint32_t val, void *priv),
-                  void *priv, int step)
+io_handler_common(uint8_t set, uint16_t base, uint16_t size,
+                  uint8_t (*inb)(uint16_t port, void *priv),
+                  uint16_t (*inw)(uint16_t port, void *priv),
+                  uint32_t (*inl)(uint16_t port, void *priv),
+                  void (*outb)(uint16_t port, uint8_t val, void *priv),
+                  void (*outw)(uint16_t port, uint16_t val, void *priv),
+                  void (*outl)(uint16_t port, uint32_t val, void *priv),
+                  void *priv, uint8_t step)
 {
     if (set)
         io_sethandler_common(base, size, inb, inw, inl, outb, outw, outl, priv, step);
@@ -205,78 +202,78 @@ io_handler_common(int set, uint16_t base, int size,
 }
 
 void
-io_sethandler(uint16_t base, int size,
-              uint8_t (*inb)(uint16_t addr, void *priv),
-              uint16_t (*inw)(uint16_t addr, void *priv),
-              uint32_t (*inl)(uint16_t addr, void *priv),
-              void (*outb)(uint16_t addr, uint8_t val, void *priv),
-              void (*outw)(uint16_t addr, uint16_t val, void *priv),
-              void (*outl)(uint16_t addr, uint32_t val, void *priv),
+io_sethandler(uint16_t base, uint16_t size,
+              uint8_t (*inb)(uint16_t port, void *priv),
+              uint16_t (*inw)(uint16_t port, void *priv),
+              uint32_t (*inl)(uint16_t port, void *priv),
+              void (*outb)(uint16_t port, uint8_t val, void *priv),
+              void (*outw)(uint16_t port, uint16_t val, void *priv),
+              void (*outl)(uint16_t port, uint32_t val, void *priv),
               void *priv)
 {
     io_sethandler_common(base, size, inb, inw, inl, outb, outw, outl, priv, 1);
 }
 
 void
-io_removehandler(uint16_t base, int size,
-                 uint8_t (*inb)(uint16_t addr, void *priv),
-                 uint16_t (*inw)(uint16_t addr, void *priv),
-                 uint32_t (*inl)(uint16_t addr, void *priv),
-                 void (*outb)(uint16_t addr, uint8_t val, void *priv),
-                 void (*outw)(uint16_t addr, uint16_t val, void *priv),
-                 void (*outl)(uint16_t addr, uint32_t val, void *priv),
+io_removehandler(uint16_t base, uint16_t size,
+                 uint8_t (*inb)(uint16_t port, void *priv),
+                 uint16_t (*inw)(uint16_t port, void *priv),
+                 uint32_t (*inl)(uint16_t port, void *priv),
+                 void (*outb)(uint16_t port, uint8_t val, void *priv),
+                 void (*outw)(uint16_t port, uint16_t val, void *priv),
+                 void (*outl)(uint16_t port, uint32_t val, void *priv),
                  void *priv)
 {
     io_removehandler_common(base, size, inb, inw, inl, outb, outw, outl, priv, 1);
 }
 
 void
-io_handler(int set, uint16_t base, int size,
-           uint8_t (*inb)(uint16_t addr, void *priv),
-           uint16_t (*inw)(uint16_t addr, void *priv),
-           uint32_t (*inl)(uint16_t addr, void *priv),
-           void (*outb)(uint16_t addr, uint8_t val, void *priv),
-           void (*outw)(uint16_t addr, uint16_t val, void *priv),
-           void (*outl)(uint16_t addr, uint32_t val, void *priv),
+io_handler(uint8_t set, uint16_t base, uint16_t size,
+           uint8_t (*inb)(uint16_t port, void *priv),
+           uint16_t (*inw)(uint16_t port, void *priv),
+           uint32_t (*inl)(uint16_t port, void *priv),
+           void (*outb)(uint16_t port, uint8_t val, void *priv),
+           void (*outw)(uint16_t port, uint16_t val, void *priv),
+           void (*outl)(uint16_t port, uint32_t val, void *priv),
            void *priv)
 {
     io_handler_common(set, base, size, inb, inw, inl, outb, outw, outl, priv, 1);
 }
 
 void
-io_sethandler_interleaved(uint16_t base, int size,
-                          uint8_t (*inb)(uint16_t addr, void *priv),
-                          uint16_t (*inw)(uint16_t addr, void *priv),
-                          uint32_t (*inl)(uint16_t addr, void *priv),
-                          void (*outb)(uint16_t addr, uint8_t val, void *priv),
-                          void (*outw)(uint16_t addr, uint16_t val, void *priv),
-                          void (*outl)(uint16_t addr, uint32_t val, void *priv),
+io_sethandler_interleaved(uint16_t base, uint16_t size,
+                          uint8_t (*inb)(uint16_t port, void *priv),
+                          uint16_t (*inw)(uint16_t port, void *priv),
+                          uint32_t (*inl)(uint16_t port, void *priv),
+                          void (*outb)(uint16_t port, uint8_t val, void *priv),
+                          void (*outw)(uint16_t port, uint16_t val, void *priv),
+                          void (*outl)(uint16_t port, uint32_t val, void *priv),
                           void *priv)
 {
     io_sethandler_common(base, size, inb, inw, inl, outb, outw, outl, priv, 2);
 }
 
 void
-io_removehandler_interleaved(uint16_t base, int size,
-                             uint8_t (*inb)(uint16_t addr, void *priv),
-                             uint16_t (*inw)(uint16_t addr, void *priv),
-                             uint32_t (*inl)(uint16_t addr, void *priv),
-                             void (*outb)(uint16_t addr, uint8_t val, void *priv),
-                             void (*outw)(uint16_t addr, uint16_t val, void *priv),
-                             void (*outl)(uint16_t addr, uint32_t val, void *priv),
+io_removehandler_interleaved(uint16_t base, uint16_t size,
+                             uint8_t (*inb)(uint16_t port, void *priv),
+                             uint16_t (*inw)(uint16_t port, void *priv),
+                             uint32_t (*inl)(uint16_t port, void *priv),
+                             void (*outb)(uint16_t port, uint8_t val, void *priv),
+                             void (*outw)(uint16_t port, uint16_t val, void *priv),
+                             void (*outl)(uint16_t port, uint32_t val, void *priv),
                              void *priv)
 {
     io_removehandler_common(base, size, inb, inw, inl, outb, outw, outl, priv, 2);
 }
 
 void
-io_handler_interleaved(int set, uint16_t base, int size,
-                       uint8_t (*inb)(uint16_t addr, void *priv),
-                       uint16_t (*inw)(uint16_t addr, void *priv),
-                       uint32_t (*inl)(uint16_t addr, void *priv),
-                       void (*outb)(uint16_t addr, uint8_t val, void *priv),
-                       void (*outw)(uint16_t addr, uint16_t val, void *priv),
-                       void (*outl)(uint16_t addr, uint32_t val, void *priv),
+io_handler_interleaved(uint8_t set, uint16_t base, uint16_t size,
+                       uint8_t (*inb)(uint16_t port, void *priv),
+                       uint16_t (*inw)(uint16_t port, void *priv),
+                       uint32_t (*inl)(uint16_t port, void *priv),
+                       void (*outb)(uint16_t port, uint8_t val, void *priv),
+                       void (*outw)(uint16_t port, uint16_t val, void *priv),
+                       void (*outl)(uint16_t port, uint32_t val, void *priv),
                        void *priv)
 {
     io_handler_common(set, base, size, inb, inw, inl, outb, outw, outl, priv, 2);
@@ -286,10 +283,9 @@ io_handler_interleaved(int set, uint16_t base, int size,
 extern int trap;
 /* Set trap for I/O address breakpoints. */
 void
-io_debug_check_addr(uint16_t addr)
+io_debug_check_addr(uint16_t port)
 {
-    int i = 0;
-    int set_trap = 0;
+    uint8_t set_trap = 0;
 
     if (!(dr[7] & 0xFF))
         return;
@@ -297,32 +293,31 @@ io_debug_check_addr(uint16_t addr)
     if (!(cr4 & 0x8))
         return; /* No I/O debug trap. */
 
-    for (i = 0; i < 4; i++) {
+    for (uint8_t i = 0; i < 4; i++) {
         uint16_t dr_addr = dr[i] & 0xFFFF;
-        int breakpoint_enabled = !!(dr[7] & (0x3 << (2 * i)));
+        uint8_t  breakpoint_enabled = !!(dr[7] & (0x3 << (2 * i)));
         int len_type_pair = ((dr[7] >> 16) & (0xF << (4 * i))) >> (4 * i);
         if (!breakpoint_enabled)
             continue;
         if ((len_type_pair & 3) != 2)
             continue;
         
-        switch ((len_type_pair >> 2) & 3)
-        {
+        switch ((len_type_pair >> 2) & 3) {
             case 0x00:
-                if (dr_addr == addr) {
+                if (dr_addr == port) {
                     set_trap = 1;
                     dr[6] |= (1 << i);
                 }
                 break;
             case 0x01:
-                if ((dr_addr & ~1) == addr || ((dr_addr & ~1) + 1) == (addr + 1)) {
+                if ((dr_addr & ~1) == port || ((dr_addr & ~1) + 1) == (port + 1)) {
                     set_trap = 1;
                     dr[6] |= (1 << i);
                 }
                 break;
             case 0x03:
                 dr_addr &= ~3;
-                if (addr >= dr_addr && addr < (dr_addr + 4)) {
+                if (port >= dr_addr && port < (dr_addr + 4)) {
                     set_trap = 1;
                     dr[6] |= (1 << i);
                 }
@@ -340,9 +335,9 @@ inb(uint16_t port)
     uint8_t ret = 0xff;
     io_t   *p;
     io_t   *q;
-    int     found  = 0;
+    uint8_t found  = 0;
 #ifdef ENABLE_IO_LOG
-    int     qfound = 0;
+    uint8_t qfound = 0;
 #endif
 
     io_port = port;
@@ -387,7 +382,7 @@ inb(uint16_t port)
             amstrad_latch = AMSTRAD_SW9 | 0x80000000;
     }
 
-    if (!found)
+    if (!found || (machines[machine].init == machine_xt_ibm5550_init))
         cycles -= io_delay;
 
     /* TriGem 486-BIOS MHz output. */
@@ -404,11 +399,11 @@ inb(uint16_t port)
 void
 outb(uint16_t port, uint8_t val)
 {
-    io_t *p;
-    io_t *q;
-    int   found  = 0;
+    io_t   *p;
+    io_t   *q;
+    uint8_t found  = 0;
 #ifdef ENABLE_IO_LOG
-    int   qfound = 0;
+    uint8_t qfound = 0;
 #endif
 
     io_port = port;
@@ -464,9 +459,9 @@ inw(uint16_t port)
     io_t    *p;
     io_t    *q;
     uint16_t ret    = 0xffff;
-    int      found  = 0;
+    uint8_t  found  = 0;
 #ifdef ENABLE_IO_LOG
-    int      qfound = 0;
+    uint8_t  qfound = 0;
 #endif
     uint8_t  ret8[2];
 
@@ -530,7 +525,7 @@ inw(uint16_t port)
             amstrad_latch = AMSTRAD_SW9 | 0x80000000;
     }
 
-    if (!found)
+    if (!found || (machines[machine].init == machine_xt_ibm5550_init))
         cycles -= io_delay;
 
     io_log("[%04X:%08X] (%i, %i, %04i) in w(%04X) = %04X\n", CS, cpu_state.pc, in_smm, found, qfound, port, ret);
@@ -541,11 +536,11 @@ inw(uint16_t port)
 void
 outw(uint16_t port, uint16_t val)
 {
-    io_t *p;
-    io_t *q;
-    int   found  = 0;
+    io_t   *p;
+    io_t   *q;
+    uint8_t found  = 0;
 #ifdef ENABLE_IO_LOG
-    int   qfound = 0;
+    uint8_t qfound = 0;
 #endif
 
     io_port = port;
@@ -618,9 +613,9 @@ inl(uint16_t port)
     uint32_t ret = 0xffffffff;
     uint16_t ret16[2];
     uint8_t  ret8[4];
-    int      found  = 0;
+    uint8_t  found  = 0;
 #ifdef ENABLE_IO_LOG
-    int      qfound = 0;
+    uint8_t  qfound = 0;
 #endif
 
     io_port = port;
@@ -714,7 +709,7 @@ inl(uint16_t port)
             amstrad_latch = AMSTRAD_SW9 | 0x80000000;
     }
 
-    if (!found)
+    if (!found || (machines[machine].init == machine_xt_ibm5550_init))
         cycles -= io_delay;
 
     io_log("[%04X:%08X] (%i, %i, %04i) in l(%04X) = %08X\n", CS, cpu_state.pc, in_smm, found, qfound, port, ret);
@@ -725,13 +720,12 @@ inl(uint16_t port)
 void
 outl(uint16_t port, uint32_t val)
 {
-    io_t *p;
-    io_t *q;
-    int   found  = 0;
+    io_t   *p;
+    io_t   *q;
+    uint8_t found  = 0;
 #ifdef ENABLE_IO_LOG
-    int   qfound = 0;
+    uint8_t qfound = 0;
 #endif
-    int   i      = 0;
 
     io_port = port;
     io_val  = val;
@@ -768,7 +762,7 @@ outl(uint16_t port, uint32_t val)
             }
         }
 
-        for (i = 0; i < 4; i += 2) {
+        for (uint8_t i = 0; i < 4; i += 2) {
             p = io[(port + i) & 0xffff];
             while (p) {
                 q = p->next;
@@ -783,7 +777,7 @@ outl(uint16_t port, uint32_t val)
             }
         }
 
-        for (i = 0; i < 4; i++) {
+        for (uint8_t i = 0; i < 4; i++) {
             p = io[(port + i) & 0xffff];
             while (p) {
                 q = p->next;
@@ -813,56 +807,56 @@ outl(uint16_t port, uint32_t val)
 }
 
 static uint8_t
-io_trap_readb(uint16_t addr, void *priv)
+io_trap_readb(uint16_t port, void *priv)
 {
     io_trap_t *trap = (io_trap_t *) priv;
-    trap->func(1, addr, 0, 0, trap->priv);
+    trap->func(1, port, 0, 0, trap->priv);
     return 0xff;
 }
 
 static uint16_t
-io_trap_readw(uint16_t addr, void *priv)
+io_trap_readw(uint16_t port, void *priv)
 {
     io_trap_t *trap = (io_trap_t *) priv;
-    trap->func(2, addr, 0, 0, trap->priv);
+    trap->func(2, port, 0, 0, trap->priv);
     return 0xffff;
 }
 
 static uint32_t
-io_trap_readl(uint16_t addr, void *priv)
+io_trap_readl(uint16_t port, void *priv)
 {
     io_trap_t *trap = (io_trap_t *) priv;
-    trap->func(4, addr, 0, 0, trap->priv);
+    trap->func(4, port, 0, 0, trap->priv);
     return 0xffffffff;
 }
 
 static void
-io_trap_writeb(uint16_t addr, uint8_t val, void *priv)
+io_trap_writeb(uint16_t port, uint8_t val, void *priv)
 {
     io_trap_t *trap = (io_trap_t *) priv;
-    trap->func(1, addr, 1, val, trap->priv);
+    trap->func(1, port, 1, val, trap->priv);
 }
 
 static void
-io_trap_writew(uint16_t addr, uint16_t val, void *priv)
+io_trap_writew(uint16_t port, uint16_t val, void *priv)
 {
     io_trap_t *trap = (io_trap_t *) priv;
-    trap->func(2, addr, 1, val, trap->priv);
+    trap->func(2, port, 1, val, trap->priv);
 }
 
 static void
-io_trap_writel(uint16_t addr, uint32_t val, void *priv)
+io_trap_writel(uint16_t port, uint32_t val, void *priv)
 {
     io_trap_t *trap = (io_trap_t *) priv;
-    trap->func(4, addr, 1, val, trap->priv);
+    trap->func(4, port, 1, val, trap->priv);
 }
 
 void *
-io_trap_add(void (*func)(int size, uint16_t addr, uint8_t write, uint8_t val, void *priv),
+io_trap_add(void (*func)(uint16_t size, uint16_t port, uint8_t write, uint8_t val, void *priv),
             void *priv)
 {
     /* Instantiate new I/O trap. */
-    io_trap_t *trap = (io_trap_t *) malloc(sizeof(io_trap_t));
+    io_trap_t *trap = (io_trap_t *) calloc(1, sizeof(io_trap_t));
     trap->enable    = 0;
     trap->base = trap->size = 0;
     trap->func              = func;
@@ -872,14 +866,14 @@ io_trap_add(void (*func)(int size, uint16_t addr, uint8_t write, uint8_t val, vo
 }
 
 void
-io_trap_remap(void *handle, int enable, uint16_t addr, uint16_t size)
+io_trap_remap(void *handle, uint8_t enable, uint16_t port, uint16_t size)
 {
     io_trap_t *trap = (io_trap_t *) handle;
     if (!trap)
         return;
 
     io_log("I/O: Remapping trap from %04X-%04X (enable %d) to %04X-%04X (enable %d)\n",
-           trap->base, trap->base + trap->size - 1, trap->enable, addr, addr + size - 1, enable);
+           trap->base, trap->base + trap->size - 1, trap->enable, port, port + size - 1, enable);
 
     /* Remove old I/O mapping. */
     if (trap->enable && trap->size) {
@@ -891,7 +885,7 @@ io_trap_remap(void *handle, int enable, uint16_t addr, uint16_t size)
 
     /* Set trap enable flag, base address and size. */
     trap->enable = !!enable;
-    trap->base   = addr;
+    trap->base   = port;
     trap->size   = size;
 
     /* Add new I/O mapping. */

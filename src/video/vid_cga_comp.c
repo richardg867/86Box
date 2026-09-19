@@ -9,8 +9,6 @@
  *          IBM CGA composite filter, borrowed from reenigne's DOSBox
  *          patch and ported to C.
  *
- *
- *
  * Authors: reenigne,
  *          Miran Grca, <mgrca8@gmail.com>
  *
@@ -28,8 +26,11 @@
 #include <86box/mem.h>
 #include <86box/vid_cga.h>
 #include <86box/vid_cga_comp.h>
+#include <86box/thread.h>
 
 int CGA_Composite_Table[1024];
+
+static mutex_t* cga_comp_mutex = NULL;
 
 static double brightness = 0;
 static double contrast   = 100;
@@ -69,25 +70,34 @@ static double intensity[4] = {
 
 #define NEW_CGA(c, i, r, g, b) (((c) / 0.72) * 0.29 + ((i) / 0.28) * 0.32 + ((r) / 0.28) * 0.1 + ((g) / 0.28) * 0.22 + ((b) / 0.28) * 0.07)
 
-double mode_brightness;
-double mode_contrast;
-double mode_hue;
-double min_v;
-double max_v;
+volatile double mode_brightness;
+volatile double mode_contrast;
+volatile double mode_hue;
+volatile double min_v;
+volatile double max_v;
 
-double video_ri;
-double video_rq;
-double video_gi;
-double video_gq;
-double video_bi;
-double video_bq;
-int    video_sharpness;
-int    tandy_mode_control = 0;
+volatile double video_ri;
+volatile double video_rq;
+volatile double video_gi;
+volatile double video_gq;
+volatile double video_bi;
+volatile double video_bq;
+volatile int    video_sharpness;
 
 static bool new_cga = 0;
 
+static uint8_t current_cgamode = 0;
+
+int vid_cga_comp_brightness = 0;
+int vid_cga_comp_sharpness = 0;
+int vid_cga_comp_hue = 0;
+int vid_cga_comp_saturation = 100;
+int vid_cga_comp_contrast = 100;
+
+static uint8_t current_cgacol = 0x00;
+
 void
-update_cga16_color(uint8_t cgamode)
+update_cga16_color(uint8_t cgamode, uint8_t cgacol)
 {
     double c;
     double i;
@@ -102,12 +112,22 @@ update_cga16_color(uint8_t cgamode)
     double i3;
     double mode_saturation;
 
+    current_cgacol = cgacol;
+
     static const double ri = 0.9563;
     static const double rq = 0.6210;
     static const double gi = -0.2721;
     static const double gq = -0.6474;
     static const double bi = -1.1069;
     static const double bq = 1.7046;
+
+    if (!cga_comp_mutex)
+        cga_comp_mutex = thread_create_mutex();
+
+    if (is_cpu_thread)
+        thread_wait_mutex(cga_comp_mutex);
+
+    current_cgamode = cgamode;
 
     if (!new_cga) {
         min_v = chroma_multiplexer[0] + intensity[0];
@@ -135,7 +155,7 @@ update_cga16_color(uint8_t cgamode)
         int left  = (x >> 6) & 15;
         int rc    = right;
         int lc    = left;
-        if ((cgamode & 4) != 0) {
+        if ((cgamode & CGA_MODE_FLAG_BW) != 0) {
             rc = (right & 8) | ((right & 7) != 0 ? 7 : 0);
             lc = (left & 8) | ((left & 7) != 0 ? 7 : 0);
         }
@@ -170,6 +190,9 @@ update_cga16_color(uint8_t cgamode)
     video_bi        = (int) (bi * iq_adjust_i + bq * iq_adjust_q);
     video_bq        = (int) (-bi * iq_adjust_q + bq * iq_adjust_i);
     video_sharpness = (int) (sharpness * 256 / 100);
+
+    if (is_cpu_thread)
+        thread_release_mutex(cga_comp_mutex);
 }
 
 static uint8_t
@@ -240,7 +263,10 @@ Composite_Process(uint8_t cgamode, uint8_t border, uint32_t blocks /*, bool doub
     for (uint8_t x = 0; x < 5; ++x)
         OUT(b[x & 3]);
 
-    if ((cgamode & 4) != 0) {
+    int is_high_res_text = ((cgamode & (CGA_MODE_FLAG_HIGHRES | CGA_MODE_FLAG_GRAPHICS)) == CGA_MODE_FLAG_HIGHRES);
+    int border_ex        = current_cgacol & 0x0f;
+    int motorola_hsync_0 = current_cgacol & 0x80;
+    if (((cgamode & CGA_MODE_FLAG_BW) != 0) || (is_high_res_text && (border_ex == 0x00) && !motorola_hsync_0)) {
         /* Decode */
         i    = temp + 5;
         srgb = TempLine;
@@ -294,7 +320,7 @@ IncreaseHue(uint8_t cgamode)
 {
     hue_offset += 5.0;
 
-    update_cga16_color(cgamode);
+    update_cga16_color(cgamode, current_cgacol);
 }
 
 void
@@ -302,7 +328,7 @@ DecreaseHue(uint8_t cgamode)
 {
     hue_offset -= 5.0;
 
-    update_cga16_color(cgamode);
+    update_cga16_color(cgamode, current_cgacol);
 }
 
 void
@@ -310,7 +336,7 @@ IncreaseSaturation(uint8_t cgamode)
 {
     saturation += 5;
 
-    update_cga16_color(cgamode);
+    update_cga16_color(cgamode, current_cgacol);
 }
 
 void
@@ -318,7 +344,7 @@ DecreaseSaturation(uint8_t cgamode)
 {
     saturation -= 5;
 
-    update_cga16_color(cgamode);
+    update_cga16_color(cgamode, current_cgacol);
 }
 
 void
@@ -326,7 +352,7 @@ IncreaseContrast(uint8_t cgamode)
 {
     contrast += 5;
 
-    update_cga16_color(cgamode);
+    update_cga16_color(cgamode, current_cgacol);
 }
 
 void
@@ -334,7 +360,7 @@ DecreaseContrast(uint8_t cgamode)
 {
     contrast -= 5;
 
-    update_cga16_color(cgamode);
+    update_cga16_color(cgamode, current_cgacol);
 }
 
 void
@@ -342,7 +368,7 @@ IncreaseBrightness(uint8_t cgamode)
 {
     brightness += 5;
 
-    update_cga16_color(cgamode);
+    update_cga16_color(cgamode, current_cgacol);
 }
 
 void
@@ -350,7 +376,7 @@ DecreaseBrightness(uint8_t cgamode)
 {
     brightness -= 5;
 
-    update_cga16_color(cgamode);
+    update_cga16_color(cgamode, current_cgacol);
 }
 
 void
@@ -358,7 +384,7 @@ IncreaseSharpness(uint8_t cgamode)
 {
     sharpness += 10;
 
-    update_cga16_color(cgamode);
+    update_cga16_color(cgamode, current_cgacol);
 }
 
 void
@@ -366,20 +392,44 @@ DecreaseSharpness(uint8_t cgamode)
 {
     sharpness -= 10;
 
-    update_cga16_color(cgamode);
+    update_cga16_color(cgamode, current_cgacol);
+}
+
+void
+cga_comp_reload(int new_brightness, int new_saturation, int new_sharpness, int new_hue, int new_contrast)
+{
+    if (!cga_comp_mutex)
+        cga_comp_mutex = thread_create_mutex();
+
+    if (!is_cpu_thread)
+        thread_wait_mutex(cga_comp_mutex);
+
+    brightness = new_brightness;
+    contrast   = new_contrast;
+    saturation = new_saturation;
+    sharpness  = new_sharpness;
+    hue_offset = new_hue;
+
+    update_cga16_color(current_cgamode, current_cgacol);
+
+    if (!is_cpu_thread)
+        thread_release_mutex(cga_comp_mutex);
 }
 
 void
 cga_comp_init(int revision)
 {
+    if (!cga_comp_mutex)
+        cga_comp_mutex = thread_create_mutex();
+
     new_cga = revision;
 
     /* Making sure this gets reset after reset. */
-    brightness = 0;
-    contrast   = 100;
-    saturation = 100;
-    sharpness  = 0;
-    hue_offset = 0;
+    brightness = vid_cga_comp_brightness;
+    contrast   = vid_cga_comp_contrast;
+    saturation = vid_cga_comp_saturation;
+    sharpness  = vid_cga_comp_sharpness;
+    hue_offset = vid_cga_comp_hue;
 
-    update_cga16_color(0);
+    update_cga16_color(0, 0);
 }

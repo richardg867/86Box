@@ -8,8 +8,6 @@
  *
  *          Definitions for the hard disk image handler.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
  *
@@ -67,14 +65,15 @@ enum {
 };
 #else
 enum {
-    HDD_BUS_DISABLED = 0,
-    HDD_BUS_MFM      = 1,
-    HDD_BUS_XTA      = 2,
-    HDD_BUS_ESDI     = 3,
-    HDD_BUS_IDE      = 4,
-    HDD_BUS_ATAPI    = 5,
-    HDD_BUS_SCSI     = 6,
-    HDD_BUS_USB      = 7
+    HDD_BUS_DISABLED =  0,
+    HDD_BUS_MFM      =  1,
+    HDD_BUS_XTA      =  2,
+    HDD_BUS_ESDI     =  3,
+    HDD_BUS_LPT      =  6,
+    HDD_BUS_IDE      =  7,
+    HDD_BUS_ATAPI    =  8,
+    HDD_BUS_SCSI     =  9,
+    HDD_BUS_USB      = 10
 };
 #endif
 
@@ -90,7 +89,9 @@ enum {
 typedef struct hdd_preset_t {
     const char *name;
     const char *internal_name;
+    const char *vendor;
     const char *model;
+    const char *version;
     uint32_t    zones;
     uint32_t    avg_spt;
     uint32_t    heads;
@@ -156,12 +157,13 @@ typedef struct hard_disk_t {
                                         Bit 1 = DMA supportd. */
     uint8_t            wp;           /* Disk has been mounted
                                         READ-ONLY */
-    uint8_t            pad;
+    uint8_t            raw_device;   /* Path is a raw block device
+                                        (e.g. /dev/sdX, /dev/diskN) */
     uint8_t            pad0;
 
-    void *             priv;
+    void              *priv;
 
-    char               fn[1024];     /* Name of current image file */
+    char               fn[MAX_IMAGE_PATH_LEN];     /* Name of current image file */
     /* Differential VHD parent file */
     char               vhd_parent[1280];
 
@@ -172,6 +174,7 @@ typedef struct hard_disk_t {
     uint32_t           hpc;
     uint32_t           tracks;
     uint32_t           speed_preset;
+    uint32_t           audio_profile;
 
     uint32_t           num_zones;
     uint32_t           phy_cyl;
@@ -185,7 +188,15 @@ typedef struct hard_disk_t {
     uint8_t            max_multiple_block;
     uint8_t            pad1[3];
 
-    const char *       model;
+    const char        *vendor;
+
+    const char        *model;
+
+    const char        *version;
+
+    char               custom_vendor[9];
+    char               custom_model[41];
+    char               custom_version[5];
 
     hdd_zone_t         zones[HDD_MAX_ZONES];
 
@@ -219,6 +230,8 @@ extern uint32_t hdd_image_get_pos(uint8_t id);
 extern uint8_t  hdd_image_get_type(uint8_t id);
 extern void     hdd_image_unload(uint8_t id, int fn_preserve);
 extern void     hdd_image_close(uint8_t id);
+extern void     hdd_image_sync(uint8_t id);
+extern void     hdd_image_sync_all(void);
 extern void     hdd_image_calc_chs(uint32_t *c, uint32_t *h, uint32_t *s, uint32_t size);
 
 extern int image_is_hdi(const char *s);
@@ -231,6 +244,8 @@ extern double      hdd_seek_get_time(hard_disk_t *hdd, uint32_t dst_addr, uint8_
 int                hdd_preset_get_num(void);
 const char        *hdd_preset_getname(int preset);
 extern const char *hdd_preset_get_internal_name(int preset);
+extern int         hdd_preset_is_generic(int preset);
+extern uint32_t    hdd_preset_get_rpm(int preset);
 extern int         hdd_preset_get_from_internal_name(char *s);
 extern void        hdd_preset_apply(int hdd_id);
 

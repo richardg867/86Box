@@ -10,8 +10,6 @@
  *          Adapters made by NCR and later Symbios and LSI. These
  *          controllers were designed for the PCI bus.
  *
- *
- *
  * Authors: Paul Brook (QEMU)
  *          Artyom Tarasenko (QEMU)
  *          TheCollector1995, <mariogplayer@gmail.com>
@@ -745,7 +743,7 @@ ncr53c8xx_do_command(ncr53c8xx_t *dev, uint8_t id)
         return 0;
     }
 
-    dev->current      = (ncr53c8xx_request *) malloc(sizeof(ncr53c8xx_request));
+    dev->current      = (ncr53c8xx_request *) calloc(1, sizeof(ncr53c8xx_request));
     dev->current->tag = id;
 
     sd->buffer_length = -1;
@@ -2285,7 +2283,7 @@ uint8_t ncr53c8xx_pci_regs[256];
 bar_t   ncr53c8xx_pci_bar[4];
 
 static uint8_t
-ncr53c8xx_pci_read(UNUSED(int func), int addr, void *priv)
+ncr53c8xx_pci_read(UNUSED(int func), int addr, UNUSED(int len), void *priv)
 {
     ncr53c8xx_t *dev = (ncr53c8xx_t *) priv;
 
@@ -2389,7 +2387,7 @@ ncr53c8xx_pci_read(UNUSED(int func), int addr, void *priv)
 }
 
 static void
-ncr53c8xx_pci_write(UNUSED(int func), int addr, uint8_t val, void *priv)
+ncr53c8xx_pci_write(UNUSED(int func), int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     ncr53c8xx_t *dev = (ncr53c8xx_t *) priv;
     uint8_t      valxor;
@@ -2700,7 +2698,7 @@ const device_t ncr53c810_onboard_pci_device = {
     .name          = "NCR 53c810 On-Board",
     .internal_name = "ncr53c810_onboard",
     .flags         = DEVICE_PCI,
-    .local         = 0x8001,
+    .local         = CHIP_810 | 0x8000,
     .init          = ncr53c8xx_init,
     .close         = ncr53c8xx_close,
     .reset         = NULL,
@@ -2721,7 +2719,7 @@ const device_t ncr53c815_pci_device = {
     .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
-    ncr53c8xx_pci_config
+    .config        = ncr53c8xx_pci_config
 };
 
 const device_t ncr53c820_pci_device = {
@@ -2778,4 +2776,18 @@ const device_t ncr53c875_pci_device = {
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = ncr53c8xx_pci_config
+};
+
+const device_t ncr53c875_onboard_pci_device = {
+    .name          = "NCR 53c875 On-Board",
+    .internal_name = "ncr53c875_onboard",
+    .flags         = DEVICE_PCI,
+    .local         = CHIP_875 | 0x8000,
+    .init          = ncr53c8xx_init,
+    .close         = ncr53c8xx_close,
+    .reset         = NULL,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
 };

@@ -1,3 +1,9 @@
+#ifdef USE_DEBUG_REGS_486
+#    define CACHE_ON() (!(cr0 & (1 << 30)) && !(cpu_state.flags & T_FLAG) && !dr_blocks_cache())
+#else
+#    define CACHE_ON() (!(cr0 & (1 << 30)) && !(cpu_state.flags & T_FLAG))
+#endif
+
 static uint32_t
 fpu_save_environment(void)
 {
@@ -19,11 +25,6 @@ fpu_save_environment(void)
         case 0x000:
             { /*16-bit real mode*/
                 uint16_t tmp;
-                uint32_t fp_ip;
-                uint32_t fp_dp;
-
-                fp_ip = ((uint32_t) (fpu_state.fcs << 4)) | fpu_state.fip;
-                fp_dp = ((uint32_t) (fpu_state.fds << 4)) | fpu_state.fdp;
 
                 tmp = i387_get_control_word();
                 writememw(easeg, cpu_state.eaaddr + 0x00, tmp);
@@ -31,14 +32,12 @@ fpu_save_environment(void)
                 writememw(easeg, cpu_state.eaaddr + 0x02, tmp);
                 tmp = fpu_state.tag;
                 writememw(easeg, cpu_state.eaaddr + 0x04, tmp);
-                tmp = fp_ip & 0xffff;
-                writememw(easeg, cpu_state.eaaddr + 0x06, tmp);
-                tmp = (uint16_t) ((fp_ip & 0xf0000) >> 4) | fpu_state.foo;
-                writememw(easeg, cpu_state.eaaddr + 0x08, tmp);
-                tmp = fp_dp & 0xffff;
-                writememw(easeg, cpu_state.eaaddr + 0x0a, tmp);
-                tmp = (uint16_t) ((fp_dp & 0xf0000) >> 4);
-                writememw(easeg, cpu_state.eaaddr + 0x0c, tmp);
+                const uint32_t linear_pc = cpu_state.fpu_cs + cpu_state.fpu_pc;
+                writememw(easeg, cpu_state.eaaddr + 0x06, linear_pc & 0xffff);
+                writememw(easeg, cpu_state.eaaddr + 0x08, (((linear_pc >> 16) & 0x0f) << 12) | cpu_state.fpu_op);
+                const uint32_t linear_ea = cpu_state.fpu_ds + cpu_state.fpu_ea;
+                writememw(easeg, cpu_state.eaaddr + 0x0a, linear_ea & 0xffff);
+                writememw(easeg, cpu_state.eaaddr + 0x0c, ((linear_ea >> 16) & 0x0f) << 12);
                 offset = 0x0e;
             }
             break;
@@ -51,25 +50,16 @@ fpu_save_environment(void)
                 writememw(easeg, cpu_state.eaaddr + 0x02, tmp);
                 tmp = fpu_state.tag;
                 writememw(easeg, cpu_state.eaaddr + 0x04, tmp);
-                tmp = (uint16_t) (fpu_state.fip) & 0xffff;
-                writememw(easeg, cpu_state.eaaddr + 0x06, tmp);
-                tmp = fpu_state.fcs;
-                writememw(easeg, cpu_state.eaaddr + 0x08, tmp);
-                tmp = (uint16_t) (fpu_state.fdp) & 0xffff;
-                writememw(easeg, cpu_state.eaaddr + 0x0a, tmp);
-                tmp = fpu_state.fds;
-                writememw(easeg, cpu_state.eaaddr + 0x0c, tmp);
+                writememw(easeg, cpu_state.eaaddr + 0x06, cpu_state.fpu_pc & 0xffff);
+                writememw(easeg, cpu_state.eaaddr + 0x08, cpu_state.fpu_CS);
+                writememw(easeg, cpu_state.eaaddr + 0x0a, cpu_state.fpu_ea & 0xffff);
+                writememw(easeg, cpu_state.eaaddr + 0x0c, cpu_state.fpu_DS);
                 offset = 0x0e;
             }
             break;
         case 0x100:
             { /*32-bit real mode*/
                 uint32_t tmp;
-                uint32_t fp_ip;
-                uint32_t fp_dp;
-
-                fp_ip = ((uint32_t) (fpu_state.fcs << 4)) | fpu_state.fip;
-                fp_dp = ((uint32_t) (fpu_state.fds << 4)) | fpu_state.fdp;
 
                 tmp = 0xffff0000 | i387_get_control_word();
                 writememl(easeg, cpu_state.eaaddr + 0x00, tmp);
@@ -77,14 +67,12 @@ fpu_save_environment(void)
                 writememl(easeg, cpu_state.eaaddr + 0x04, tmp);
                 tmp = 0xffff0000 | fpu_state.tag;
                 writememl(easeg, cpu_state.eaaddr + 0x08, tmp);
-                tmp = 0xffff0000 | (fp_ip & 0xffff);
-                writememl(easeg, cpu_state.eaaddr + 0x0c, tmp);
-                tmp = ((fp_ip & 0xffff0000) >> 4) | fpu_state.foo;
-                writememl(easeg, cpu_state.eaaddr + 0x10, tmp);
-                tmp = 0xffff0000 | (fp_dp & 0xffff);
-                writememl(easeg, cpu_state.eaaddr + 0x14, tmp);
-                tmp = (fp_dp & 0xffff0000) >> 4;
-                writememl(easeg, cpu_state.eaaddr + 0x18, tmp);
+                const uint32_t linear_pc = cpu_state.fpu_cs + cpu_state.fpu_pc;
+                writememl(easeg, cpu_state.eaaddr + 0x0c, 0xffff0000 | (linear_pc & 0xffff));
+                writememl(easeg, cpu_state.eaaddr + 0x10, (((linear_pc >> 16) & 0xffff) << 12) | cpu_state.fpu_op);
+                const uint32_t linear_ea = cpu_state.fpu_ds + cpu_state.fpu_ea;
+                writememl(easeg, cpu_state.eaaddr + 0x14, 0xffff0000 | (linear_ea & 0xffff));
+                writememl(easeg, cpu_state.eaaddr + 0x18, ((linear_ea >> 16) & 0xffff) << 12);
                 offset = 0x1c;
             }
             break;
@@ -97,14 +85,10 @@ fpu_save_environment(void)
                 writememl(easeg, cpu_state.eaaddr + 0x04, tmp);
                 tmp = 0xffff0000 | fpu_state.tag;
                 writememl(easeg, cpu_state.eaaddr + 0x08, tmp);
-                tmp = (uint32_t) (fpu_state.fip);
-                writememl(easeg, cpu_state.eaaddr + 0x0c, tmp);
-                tmp = fpu_state.fcs | (((uint32_t) (fpu_state.foo)) << 16);
-                writememl(easeg, cpu_state.eaaddr + 0x10, tmp);
-                tmp = (uint32_t) (fpu_state.fdp);
-                writememl(easeg, cpu_state.eaaddr + 0x14, tmp);
-                tmp = 0xffff0000 | fpu_state.fds;
-                writememl(easeg, cpu_state.eaaddr + 0x18, tmp);
+                writememl(easeg, cpu_state.eaaddr + 0x0c, cpu_state.fpu_pc);
+                writememl(easeg, cpu_state.eaaddr + 0x10, cpu_state.fpu_CS | (cpu_state.fpu_op << 16));
+                writememl(easeg, cpu_state.eaaddr + 0x14, cpu_state.fpu_ea);
+                writememl(easeg, cpu_state.eaaddr + 0x18, 0xffff0000 | cpu_state.fpu_DS);
                 offset = 0x1c;
             }
             break;
@@ -218,6 +202,13 @@ fpu_load_environment(void)
             }
             break;
     }
+
+    cpu_state.fpu_CS = fpu_state.fcs;
+    cpu_state.fpu_cs = 0x00000000;
+    cpu_state.fpu_pc = fpu_state.fcs;
+    cpu_state.fpu_DS = fpu_state.fds;
+    cpu_state.fpu_ds = 0x00000000;
+    cpu_state.fpu_ea = fpu_state.fdp;
 
     /* always set bit 6 as '1 */
     fpu_state.cwd = (fpu_state.cwd & ~FPU_CW_Reserved_Bits) | 0x0040;
@@ -354,7 +345,11 @@ sf_FI(uint32_t fetchdat)
     fpu_state.cwd &= ~FPU_SW_Summary;
     if (rmdat == 0xe1)
         fpu_state.cwd |= FPU_SW_Summary;
-    wait(3, 0);
+#ifdef FPU_NEC
+    do_cycles(3);
+#else
+    wait_cycs(3, 0);
+#endif
     return 0;
 }
 #else
@@ -518,6 +513,11 @@ sf_FNINIT(UNUSED(uint32_t fetchdat))
     fpu_state.fcs   = 0;
     fpu_state.fip   = 0;
     cpu_state.ismmx = 0;
+    new_ne          = 0;
+    if (is286)
+        picintc(1 << 13);
+    else
+        nmi = 0;
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.finit) : (x87_timings.finit * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.finit) : (x87_concurrency.finit * cpu_multi));
     CPU_BLOCK_END();

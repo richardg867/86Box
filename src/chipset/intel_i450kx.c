@@ -126,7 +126,7 @@ i450kx_vid_buf_recalc(i450kx_t *dev, int bus)
 }
 
 static void
-pb_write(int func, int addr, uint8_t val, void *priv)
+pb_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     i450kx_t *dev = (i450kx_t *) priv;
 
@@ -371,7 +371,7 @@ pb_write(int func, int addr, uint8_t val, void *priv)
 }
 
 static uint8_t
-pb_read(int func, int addr, void *priv)
+pb_read(int func, int addr, UNUSED(int len), void *priv)
 {
     const i450kx_t *dev = (i450kx_t *) priv;
     uint8_t   ret = 0xff;
@@ -400,7 +400,7 @@ mc_fill_drbs(i450kx_t *dev)
 }
 
 static void
-mc_write(int func, int addr, uint8_t val, void *priv)
+mc_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     i450kx_t *dev = (i450kx_t *) priv;
 
@@ -601,7 +601,7 @@ mc_write(int func, int addr, uint8_t val, void *priv)
 }
 
 static uint8_t
-mc_read(int func, int addr, void *priv)
+mc_read(int func, int addr, UNUSED(int len), void *priv)
 {
     const i450kx_t *dev = (i450kx_t *) priv;
     uint8_t   ret = 0xff;
@@ -682,8 +682,10 @@ i450kx_reset(void *priv)
     dev->pb_pci_conf[0xb0] = 0x00;
     dev->pb_pci_conf[0xb1] = 0x00;
 #endif
-    dev->pb_pci_conf[0xb4] = 0xff;
-    dev->pb_pci_conf[0xb5] = 0x00;
+    /* CSCONFV captures the values the PB drives on A[12:5]# out of CONFVR at every
+       rising edge of RESET#. */
+    dev->pb_pci_conf[0xb4] = dev->pb_pci_conf[0xb0];
+    dev->pb_pci_conf[0xb5] = dev->pb_pci_conf[0xb1];
     dev->pb_pci_conf[0xb8] = 0x05;
     dev->pb_pci_conf[0xb9] = 0x00;
     dev->pb_pci_conf[0xba] = 0x00;
@@ -707,9 +709,9 @@ i450kx_reset(void *priv)
 #endif
     i450kx_smram_recalc(dev, 1);
     i450kx_vid_buf_recalc(dev, 1);
-    pb_write(0, 0x59, 0x30, dev);
+    pb_write(0, 0x59, 1, 0x30, dev);
     for (i = 0x5a; i <= 0x5f; i++)
-        pb_write(0, i, 0x33, dev);
+        pb_write(0, i, 1, 0x33, dev);
 
     /* Defaults MC */
     dev->mc_pci_conf[0x00] = 0x86;
@@ -779,9 +781,9 @@ i450kx_reset(void *priv)
 
     i450kx_smram_recalc(dev, 0);
     i450kx_vid_buf_recalc(dev, 0);
-    mc_write(0, 0x59, 0x03, dev);
+    mc_write(0, 0x59, 1, 0x03, dev);
     for (i = 0x5a; i <= 0x5f; i++)
-        mc_write(0, i, 0x00, dev);
+        mc_write(0, i, 1, 0x00, dev);
     for (i = 0x60; i <= 0x6f; i++)
         dev->mc_pci_conf[i] = 0x01;
 }

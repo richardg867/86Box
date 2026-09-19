@@ -9,8 +9,6 @@
  *          Implementation of the Intel 1 Mbit and 2 Mbit, 8-bit and
  *          16-bit flash devices.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *
@@ -29,6 +27,7 @@
 #include <86box/timer.h>
 #include <86box/nvr.h>
 #include <86box/plat.h>
+#include <86box/plat_fallthrough.h>
 
 #define FLAG_WORD    4
 #define FLAG_BXB     2
@@ -44,21 +43,22 @@ enum {
 };
 
 enum {
-    CMD_SET_READ       = 0x00,
-    CMD_READ_SIGNATURE = 0x90,
-    CMD_ERASE          = 0x20,
-    CMD_ERASE_CONFIRM  = 0x20,
-    CMD_ERASE_VERIFY   = 0xA0,
-    CMD_PROGRAM        = 0x40,
-    CMD_PROGRAM_VERIFY = 0xC0,
-    CMD_RESET          = 0xFF
+    CMD_SET_READ         = 0x00,
+    CMD_READ_AUTO_SELECT = 0x80,
+    CMD_READ_SIGNATURE   = 0x90,
+    CMD_ERASE            = 0x20,
+    CMD_ERASE_CONFIRM    = 0x20,
+    CMD_ERASE_VERIFY     = 0xA0,
+    CMD_PROGRAM          = 0x40,
+    CMD_PROGRAM_VERIFY   = 0xC0,
+    CMD_RESET            = 0xFF
 };
 
 typedef struct flash_t {
     uint8_t command;
+    uint8_t is_amd;
+    uint8_t dirty;
     uint8_t pad;
-    uint8_t pad0;
-    uint8_t pad1;
     uint8_t *array;
 
     mem_mapping_t mapping;
@@ -83,11 +83,22 @@ flash_read(uint32_t addr, void *priv)
             ret = dev->array[addr];
             break;
 
+        case CMD_READ_AUTO_SELECT:
+            if (!dev->is_amd)
+                break;
+            fallthrough;
         case CMD_READ_SIGNATURE:
-            if (addr == 0x00000)
-                ret = 0x31; /* CATALYST */
-            else if (addr == 0x00001)
-                ret = 0xB4; /* 28F010 */
+            if (dev->is_amd) {
+                if (addr == 0x00000)
+                    ret = 0x01; /* AMD */
+                else if (addr == 0x00001)
+                    ret = 0xa7; /* Am28F010 */
+            } else {
+                if (addr == 0x00000)
+                    ret = 0x31; /* CATALYST */
+                else if (addr == 0x00001)
+                    ret = 0xb4; /* 28F010 */
+            }
             break;
 
         default:
@@ -132,12 +143,15 @@ flash_write(uint32_t addr, uint8_t val, void *priv)
 
     switch (dev->command) {
         case CMD_ERASE:
-            if (val == CMD_ERASE_CONFIRM)
+            if (val == CMD_ERASE_CONFIRM) {
                 memset(dev->array, 0xff, biosmask + 1);
+                dev->dirty = 1;
+            }
             break;
 
         case CMD_PROGRAM:
             dev->array[addr] = val;
+            dev->dirty = 1;
             break;
 
         default:
@@ -166,16 +180,16 @@ catalyst_flash_add_mappings(flash_t *dev)
     mem_mapping_add(&dev->mapping, 0xe0000, 0x20000,
                     flash_read, flash_readw, flash_readl,
                     flash_write, flash_writew, flash_writel,
-                    dev->array, MEM_MAPPING_EXTERNAL | MEM_MAPPING_ROM | MEM_MAPPING_ROMCS, (void *) dev);
+                    dev->array, MEM_MAPPING_EXTERNAL | MEM_MAPPING_ROM | MEM_MAPPING_ROMCS | MEM_MAPPING_ROM_WS, (void *) dev);
 
     mem_mapping_add(&(dev->mapping_h[0]), 0xfffc0000, 0x20000,
                     flash_read, flash_readw, flash_readl,
                     flash_write, flash_writew, flash_writel,
-                    dev->array, MEM_MAPPING_EXTERNAL | MEM_MAPPING_ROM | MEM_MAPPING_ROMCS, (void *) dev);
+                    dev->array, MEM_MAPPING_EXTERNAL | MEM_MAPPING_ROM | MEM_MAPPING_ROMCS | MEM_MAPPING_ROM_WS, (void *) dev);
     mem_mapping_add(&(dev->mapping_h[1]), 0xfffe0000, 0x20000,
                     flash_read, flash_readw, flash_readl,
                     flash_write, flash_writew, flash_writel,
-                    dev->array, MEM_MAPPING_EXTERNAL | MEM_MAPPING_ROM | MEM_MAPPING_ROMCS, (void *) dev);
+                    dev->array, MEM_MAPPING_EXTERNAL | MEM_MAPPING_ROM | MEM_MAPPING_ROMCS | MEM_MAPPING_ROM_WS, (void *) dev);
 }
 
 static void
@@ -199,18 +213,24 @@ catalyst_flash_init(UNUSED(const device_t *info))
     mem_mapping_disable(&bios_mapping);
     mem_mapping_disable(&bios_high_mapping);
 
-    dev->array = (uint8_t *) malloc(0x20000);
+    dev->array = (uint8_t *) calloc(1, 0x20000);
     memset(dev->array, 0xff, 0x20000);
 
     catalyst_flash_add_mappings(dev);
 
     dev->command = CMD_RESET;
+    dev->is_amd  = info->local;
 
-    fp = nvr_fopen(flash_path, "rb");
-    if (fp) {
-        (void) !fread(dev->array, 0x20000, 1, fp);
-        fclose(fp);
-    }
+    if (strlen(flash_path) > 0) {
+        fp = nvr_fopen(flash_path, "rb");
+        if (fp != NULL) {
+            if (!dump_missing)
+                (void) !fread(dev->array, 0x20000, 1, fp);
+            fclose(fp);
+        } else if (!dump_missing)
+            dev->dirty = 1;
+    } else
+        fatal("Attempting to open the Flash file for reading with an empty invalid name\n");
 
     return dev;
 }
@@ -221,9 +241,18 @@ catalyst_flash_close(void *priv)
     FILE    *fp;
     flash_t *dev = (flash_t *) priv;
 
-    fp = nvr_fopen(flash_path, "wb");
-    fwrite(dev->array, 0x20000, 1, fp);
-    fclose(fp);
+    if (dev->dirty) {
+        if (strlen(flash_path) > 0) {
+            fp = nvr_fopen(flash_path, "wb");
+            if (fp != NULL) {
+                if (!dump_missing)
+                    fwrite(dev->array, 0x20000, 1, fp);
+                fclose(fp);
+            } else if (!dump_missing)
+                warning("Unable to open %s for writing, please make sure your NVR folder is writable\n", flash_path);
+        } else
+            fatal("Attempting to open the Flash file for writing with an empty invalid name\n");
+    }
 
     free(dev->array);
     dev->array = NULL;
@@ -236,6 +265,20 @@ const device_t catalyst_flash_device = {
     .internal_name = "catalyst_flash",
     .flags         = DEVICE_PCI,
     .local         = 0,
+    .init          = catalyst_flash_init,
+    .close         = catalyst_flash_close,
+    .reset         = catalyst_flash_reset,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+const device_t amd_am28f010_flash_device = {
+    .name          = "AMD Am28F010-D Flash BIOS",
+    .internal_name = "amd_am28f010_flash",
+    .flags         = DEVICE_PCI,
+    .local         = 1,
     .init          = catalyst_flash_init,
     .close         = catalyst_flash_close,
     .reset         = catalyst_flash_reset,

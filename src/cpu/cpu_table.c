@@ -55,6 +55,13 @@ FPU fpus_80286[] = {
     { .name = "287XL", .internal_name = "287xl", .type = FPU_287XL },
     { .name = NULL,    .internal_name = NULL,    .type = 0         }
 };
+FPU fpus_80286_80386[] = {
+    { .name = "None",  .internal_name = "none",  .type = FPU_NONE  },
+    { .name = "287",   .internal_name = "287",   .type = FPU_287   },
+    { .name = "287XL", .internal_name = "287xl", .type = FPU_287XL },
+    { .name = "387",   .internal_name = "387",   .type = FPU_387   },
+    { .name = NULL,    .internal_name = NULL,    .type = 0         }
+};
 FPU fpus_80386[] = {
     { .name = "None", .internal_name = "none", .type = FPU_NONE },
     { .name = "387",  .internal_name = "387",  .type = FPU_387  },
@@ -187,6 +194,32 @@ const cpu_family_t cpu_families[] = {
                 .cpu_type           = CPU_8088,
                 .fpus               = fpus_8088,
                 .rspeed             = 16000000,
+                .multi              = 1,
+                .voltage            = 5000,
+                .edx_reset          = 0,
+                .cpuid_model        = 0,
+                .cyrix_id           = 0,
+                .cpu_flags          = 0,
+                .mem_read_cycles    = 0,
+                .mem_write_cycles   = 0,
+                .cache_read_cycles  = 0,
+                .cache_write_cycles = 0,
+                .atclk_div          = 1
+            },
+            { .name = "", 0 }
+        }
+    },
+    {
+        .package       = CPU_PKG_80C88,
+        .manufacturer  = "Intel",
+        .name          = "80C88",
+        .internal_name = "80c88",
+        .cpus          = (const CPU[]) {
+            {
+                .name               = "4.77",
+                .cpu_type           = CPU_80C88,
+                .fpus               = fpus_8088,
+                .rspeed             = 4772728,
                 .multi              = 1,
                 .voltage            = 5000,
                 .edx_reset          = 0,
@@ -419,7 +452,11 @@ const cpu_family_t cpu_families[] = {
     },
     {
         .package       = CPU_PKG_8086_MAZOVIA,
-        .manufacturer  = "Kyiv Research Institute of Microdevices",
+         /*
+            Kyiv Research Institute of Microdevices - Shortening to KRIM so it doesn't
+                                                      make the Machine page too wide.
+          */
+        .manufacturer  = "KRIM",
         .name          = "K1810VM86",
         .internal_name = "8086_mazovia",
         .cpus          = (const CPU[]) {
@@ -689,6 +726,23 @@ const cpu_family_t cpu_families[] = {
                 .atclk_div          = 1
             },
             {
+                .name               = "8",
+                .cpu_type           = CPU_V20,
+                .fpus               = fpus_8088,
+                .rspeed             = 8000000,
+                .multi              = 1,
+                .voltage            = 5000,
+                .edx_reset          = 0,
+                .cpuid_model        = 0,
+                .cyrix_id           = 0,
+                .cpu_flags          = 0,
+                .mem_read_cycles    = 0,
+                .mem_write_cycles   = 0,
+                .cache_read_cycles  = 0,
+                .cache_write_cycles = 0,
+                .atclk_div          = 1
+            },
+            {
                 .name               = "10",
                 .cpu_type           = CPU_V20,
                 .fpus               = fpus_8088,
@@ -911,10 +965,10 @@ const cpu_family_t cpu_families[] = {
         .internal_name = "necv30",
         .cpus          = (const CPU[]) {
             {
-                .name               = "5",
+                .name               = "7.16",
                 .cpu_type           = CPU_V30,
                 .fpus               = fpus_80186,
-                .rspeed             = 5000000,
+                .rspeed             = 7159092,
                 .multi              = 1,
                 .voltage            = 5000,
                 .edx_reset          = 0,
@@ -932,6 +986,23 @@ const cpu_family_t cpu_families[] = {
                 .cpu_type           = CPU_V30,
                 .fpus               = fpus_80186,
                 .rspeed             = 8000000,
+                .multi              = 1,
+                .voltage            = 5000,
+                .edx_reset          = 0,
+                .cpuid_model        = 0,
+                .cyrix_id           = 0,
+                .cpu_flags          = 0,
+                .mem_read_cycles    = 0,
+                .mem_write_cycles   = 0,
+                .cache_read_cycles  = 0,
+                .cache_write_cycles = 0,
+                .atclk_div          = 1
+            },
+            {
+                .name               = "9.54",
+                .cpu_type           = CPU_V30,
+                .fpus               = fpus_80186,
+                .rspeed             = 9545456,
                 .multi              = 1,
                 .voltage            = 5000,
                 .edx_reset          = 0,
@@ -1333,8 +1404,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 3,
                 .mem_write_cycles   = 3,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 2
             },
             {
@@ -1350,8 +1421,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 4,
                 .mem_write_cycles   = 4,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 3
             },
             {
@@ -1367,8 +1438,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 4,
                 .mem_write_cycles   = 4,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 3
             },
             {
@@ -1384,8 +1455,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 6,
                 .mem_write_cycles   = 6,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 4
             },
             {
@@ -1401,8 +1472,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 7,
                 .mem_write_cycles   = 7,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 5
             },
             { .name = "", 0 }
@@ -1417,7 +1488,7 @@ const cpu_family_t cpu_families[] = {
             {
                 .name               = "16",
                 .cpu_type           = CPU_386DX,
-                .fpus               = fpus_80286,
+                .fpus               = fpus_80286_80386,
                 .rspeed             = 16000000,
                 .multi              = 1,
                 .voltage            = 5000,
@@ -1427,8 +1498,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 3,
                 .mem_write_cycles   = 3,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 2
             },
             {
@@ -1444,8 +1515,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 4,
                 .mem_write_cycles   = 4,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 3
             },
             {
@@ -1461,9 +1532,95 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 4,
                 .mem_write_cycles   = 4,
-                .cache_read_cycles  = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
+                .atclk_div          = 3
+            },
+            { .name = "", 0 }
+        }
+    },
+    {
+        .package       = CPU_PKG_386DX_DESKPRO386,
+        .manufacturer  = "Cyrix",
+        .name          = "Cx486DLC",
+        .internal_name = "cx486dlc_deskpro386",
+        .cpus          = (const CPU[]) {
+            {
+                .name               = "25",
+                .cpu_type           = CPU_486DLC,
+                .fpus               = fpus_80386,
+                .rspeed             = 25000000,
+                .multi              = 1,
+                .voltage            = 5000,
+                .edx_reset          = 0x401,
+                .cpuid_model        = 0,
+                .cyrix_id           = 0x0001,
+                .cpu_flags          = 0,
+                .mem_read_cycles    = 4,
+                .mem_write_cycles   = 4,
+                .cache_read_cycles  = 2,
                 .cache_write_cycles = 3,
                 .atclk_div          = 3
+            },
+            { .name = "", 0 }
+        }
+    },
+    {
+        .package       = CPU_PKG_386DX_DESKPRO386,
+        .manufacturer  = "Cyrix",
+        .name          = "Cx486DRx2",
+        .internal_name = "cx486drx2_deskpro386",
+        .cpus          = (const CPU[]) {
+            {
+                .name               = "32",
+                .cpu_type           = CPU_486DLC,
+                .fpus               = fpus_80386,
+                .rspeed             = 32000000,
+                .multi              = 2,
+                .voltage            = 5000,
+                .edx_reset          = 0x407,
+                .cpuid_model        = 0,
+                .cyrix_id           = 0x0007,
+                .cpu_flags          = 0,
+                .mem_read_cycles    = 6,
+                .mem_write_cycles   = 6,
+                .cache_read_cycles  = 6,
+                .cache_write_cycles = 6,
+                .atclk_div          = 4
+            },
+            {
+                .name               = "40",
+                .cpu_type           = CPU_486DLC,
+                .fpus               = fpus_80386,
+                .rspeed             = 40000000,
+                .multi              = 2,
+                .voltage            = 5000,
+                .edx_reset          = 0x407,
+                .cpuid_model        = 0,
+                .cyrix_id           = 0x0007,
+                .cpu_flags          = 0,
+                .mem_read_cycles    = 8,
+                .mem_write_cycles   = 8,
+                .cache_read_cycles  = 6,
+                .cache_write_cycles = 6,
+                .atclk_div          = 6
+            },
+            {
+                .name               = "50",
+                .cpu_type           = CPU_486DLC,
+                .fpus               = fpus_80386,
+                .rspeed             = 50000000,
+                .multi              = 2,
+                .voltage            = 5000,
+                .edx_reset          = 0x407,
+                .cpuid_model        = 0,
+                .cyrix_id           = 0x0007,
+                .cpu_flags          = 0,
+                .mem_read_cycles    = 8,
+                .mem_write_cycles   = 8,
+                .cache_read_cycles  = 6,
+                .cache_write_cycles = 6,
+                .atclk_div          = 6
             },
             { .name = "", 0 }
         }
@@ -1487,8 +1644,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = CPU_SUPPORTS_DYNAREC,
                 .mem_read_cycles    = 4,
                 .mem_write_cycles   = 4,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 3
             },
             {
@@ -1504,8 +1661,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = CPU_SUPPORTS_DYNAREC,
                 .mem_read_cycles    = 6,
                 .mem_write_cycles   = 6,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 4
             },
             {
@@ -1521,8 +1678,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = CPU_SUPPORTS_DYNAREC,
                 .mem_read_cycles    = 7,
                 .mem_write_cycles   = 7,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 5
             },
             { .name = "", 0 }
@@ -1547,8 +1704,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 4,
                 .mem_write_cycles   = 4,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 3
             },
             {
@@ -1564,8 +1721,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 6,
                 .mem_write_cycles   = 6,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 4
             },
             {
@@ -1581,8 +1738,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 7,
                 .mem_write_cycles   = 7,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 5
             },
             { .name = "", 0 }
@@ -2024,6 +2181,36 @@ const cpu_family_t cpu_families[] = {
                 .atclk_div          = 9
             },
             {
+                /* Added for the Intel Inboard 386/PC project's real, physically-modded card:
+                   crystal changed 32MHz->40MHz, but CHECKCPU/CHECKit measure the resulting real
+                   speed at ~83.5MHz (25508 Dhrystones), noticeably above the theoretical
+                   60MHz-stock * 1.25-crystal-ratio = 75MHz the existing "75" entry represents.
+                   Using the measured, real-hardware figure rather than the theoretical one.
+                   mem/cache cycle counts linearly interpolated between the existing 75/100
+                   entries - their precision is secondary here, since the Inboard device itself
+                   (src/device/inboard386.c) overrides the actual consumed CPU-core timing
+                   variables directly for this specific machine. Was present in the codebase this
+                   project's Inboard PR (#7626) was built from, but src/cpu/cpu_table.c was not
+                   part of that PR's file list, so this entry never reached upstream - without it,
+                   requesting 83.5MHz silently rounds up to the "100" step's different (and
+                   untuned, for this CPU) timing constants. */
+                .name               = "83.5",
+                .cpu_type           = CPU_IBM486BL,
+                .fpus               = fpus_80386,
+                .rspeed             = 83500000,
+                .multi              = 3,
+                .voltage            = 5000,
+                .edx_reset          = 0x8439,
+                .cpuid_model        = 0,
+                .cyrix_id           = 0,
+                .cpu_flags          = 0,
+                .mem_read_cycles    = 14,
+                .mem_write_cycles   = 14,
+                .cache_read_cycles  = 9,
+                .cache_write_cycles = 9,
+                .atclk_div          = 10
+            },
+            {
                 .name               = "100",
                 .cpu_type           = CPU_IBM486BL,
                 .fpus               = fpus_80386,
@@ -2062,7 +2249,7 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 4,
                 .mem_write_cycles   = 4,
-                .cache_read_cycles  = 3,
+                .cache_read_cycles  = 2,
                 .cache_write_cycles = 3,
                 .atclk_div          = 3
             },
@@ -2079,8 +2266,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 6,
                 .mem_write_cycles   = 6,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 4
             },
             {
@@ -2096,8 +2283,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 7,
                 .mem_write_cycles   = 7,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 5
             },
             { .name = "", 0 }
@@ -2655,7 +2842,7 @@ const cpu_family_t cpu_families[] = {
     {
         .package       = CPU_PKG_SOCKET3 | CPU_PKG_SOCKET3_PC330,
         .manufacturer  = "Intel",
-        .name          = "Pentium OverDrive",
+        .name          = "Pentium OverDrive (P24T)",
         .internal_name = "pentium_p24t",
         .cpus          = (const CPU[]) {
             {
@@ -2939,7 +3126,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 50000000,
                 .multi              = 2,
-                .voltage            = 5000,
+                .voltage            = 3300,
                 .edx_reset          = 0x432,
                 .cpuid_model        = 0,
                 .cyrix_id           = 0,
@@ -2956,7 +3143,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 66666666,
                 .multi              = 2,
-                .voltage            = 5000,
+                .voltage            = 3300,
                 .edx_reset          = 0x432,
                 .cpuid_model        = 0,
                 .cyrix_id           = 0,
@@ -2973,7 +3160,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 80000000,
                 .multi              = 2,
-                .voltage            = 5000,
+                .voltage            = 3300,
                 .edx_reset          = 0x432,
                 .cpuid_model        = 0,
                 .cyrix_id           = 0,
@@ -2999,7 +3186,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 75000000,
                 .multi              = 3.0,
-                .voltage            = 5000,
+                .voltage            = 3300,
                 .edx_reset          = 0x432,
                 .cpuid_model        = 0,
                 .cyrix_id           = 0,
@@ -3016,7 +3203,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 90000000,
                 .multi              = 3.0,
-                .voltage            = 5000,
+                .voltage            = 3300,
                 .edx_reset          = 0x432,
                 .cpuid_model        = 0,
                 .cyrix_id           = 0,
@@ -3033,7 +3220,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 100000000,
                 .multi              = 3.0,
-                .voltage            = 5000,
+                .voltage            = 3300,
                 .edx_reset          = 0x432,
                 .cpuid_model        = 0,
                 .cyrix_id           = 0,
@@ -3050,7 +3237,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 120000000,
                 .multi              = 3.0,
-                .voltage            = 5000,
+                .voltage            = 3300,
                 .edx_reset          = 0x432,
                 .cpuid_model        = 0,
                 .cyrix_id           = 0,
@@ -3076,7 +3263,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 66666666,
                 .multi              = 2,
-                .voltage            = 5000,
+                .voltage            = 3300,
                 .edx_reset          = 0x435,
                 .cpuid_model        = 0x435,
                 .cyrix_id           = 0,
@@ -3093,7 +3280,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 80000000,
                 .multi              = 2,
-                .voltage            = 5000,
+                .voltage            = 3300,
                 .edx_reset          = 0x435,
                 .cpuid_model        = 0x435,
                 .cyrix_id           = 0,
@@ -3119,7 +3306,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 75000000,
                 .multi              = 3.0,
-                .voltage            = 5000,
+                .voltage            = 3300,
                 .edx_reset          = 0x482,
                 .cpuid_model        = 0x482,
                 .cyrix_id           = 0,
@@ -3136,7 +3323,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 100000000,
                 .multi              = 3.0,
-                .voltage            = 5000,
+                .voltage            = 3300,
                 .edx_reset          = 0x482,
                 .cpuid_model        = 0x482,
                 .cyrix_id           = 0,
@@ -3153,7 +3340,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 120000000,
                 .multi              = 3.0,
-                .voltage            = 5000,
+                .voltage            = 3300,
                 .edx_reset          = 0x482,
                 .cpuid_model        = 0x482,
                 .cyrix_id           = 0,
@@ -3179,7 +3366,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 133333333,
                 .multi              = 4.0,
-                .voltage            = 5000,
+                .voltage            = 3450,
                 .edx_reset          = 0x4e0,
                 .cpuid_model        = 0x4e0,
                 .cyrix_id           = 0,
@@ -3196,7 +3383,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 150000000,
                 .multi              = 3.0,
-                .voltage            = 5000,
+                .voltage            = 3450,
                 .edx_reset          = 0x482,
                 .cpuid_model        = 0x482,
                 .cyrix_id           = 0,
@@ -3213,7 +3400,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 160000000,
                 .multi              = 4.0,
-                .voltage            = 5000,
+                .voltage            = 3450,
                 .edx_reset          = 0x4e0,
                 .cpuid_model        = 0x4e0,
                 .cyrix_id           = 0,
@@ -3402,7 +3589,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 75000000,
                 .multi              = 3.0,
-                .voltage            = 5000,
+                .voltage            = 3450,
                 .edx_reset          = 0x480,
                 .cpuid_model        = 0,
                 .cyrix_id           = 0x361f,
@@ -3419,7 +3606,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 100000000,
                 .multi              = 3.0,
-                .voltage            = 5000,
+                .voltage            = 3450,
                 .edx_reset          = 0x480,
                 .cpuid_model        = 0,
                 .cyrix_id           = 0x361f,
@@ -3445,7 +3632,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 80000000,
                 .multi              = 2.0,
-                .voltage            = 5000,
+                .voltage            = 3450,
                 .edx_reset          = 0x480,
                 .cpuid_model        = 0,
                 .cyrix_id           = 0x002f,
@@ -3462,7 +3649,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 100000000,
                 .multi              = 3.0,
-                .voltage            = 5000,
+                .voltage            = 3450,
                 .edx_reset          = 0x480,
                 .cpuid_model        = 0,
                 .cyrix_id           = 0x002f,
@@ -3479,7 +3666,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 120000000,
                 .multi              = 3.0,
-                .voltage            = 5000,
+                .voltage            = 3450,
                 .edx_reset          = 0x480,
                 .cpuid_model        = 0,
                 .cyrix_id           = 0x002f,
@@ -3496,7 +3683,7 @@ const cpu_family_t cpu_families[] = {
                 .fpus               = fpus_internal,
                 .rspeed             = 133333333,
                 .multi              = 4.0,
-                .voltage            = 5000,
+                .voltage            = 3450,
                 .edx_reset          = 0x480,
                 .cpuid_model        = 0,
                 .cyrix_id           = 0x002f,
@@ -3582,7 +3769,7 @@ const cpu_family_t cpu_families[] = {
     {
         .package       = CPU_PKG_SOCKET4,
         .manufacturer  = "Intel",
-        .name          = "Pentium",
+        .name          = "Pentium (P5)",
         .internal_name = "pentium_p5",
         .cpus          = (const CPU[]) {
             {
@@ -3642,7 +3829,7 @@ const cpu_family_t cpu_families[] = {
     {
         .package       = CPU_PKG_SOCKET4,
         .manufacturer  = "Intel",
-        .name          = "Pentium OverDrive",
+        .name          = "Pentium OverDrive (P54C 5V)",
         .internal_name = "pentium_p54c_od5v",
         .cpus          = (const CPU[]) {
             {
@@ -3702,7 +3889,7 @@ const cpu_family_t cpu_families[] = {
     {
         .package       = CPU_PKG_SOCKET5_7,
         .manufacturer  = "Intel",
-        .name          = "Pentium",
+        .name          = "Pentium (P54C)",
         .internal_name = "pentium_p54c",
         .cpus          = (const CPU[]) {
             {
@@ -4069,7 +4256,7 @@ const cpu_family_t cpu_families[] = {
     {
         .package       = CPU_PKG_SOCKET5_7,
         .manufacturer  = "Intel",
-        .name          = "Pentium OverDrive",
+        .name          = "Pentium OverDrive (P54C 3.3V)",
         .internal_name = "pentium_p54c_od3v",
         .cpus          = (const CPU[]) {
             {
@@ -5284,6 +5471,40 @@ const cpu_family_t cpu_families[] = {
                 .cache_read_cycles  = 17,
                 .cache_write_cycles = 17,
                 .atclk_div          = 66
+            },
+            {
+                .name               = "570",
+                .cpu_type           = CPU_K6_2C,
+                .fpus               = fpus_internal,
+                .rspeed             = 570000000,
+                .multi              = 6.0,
+                .voltage            = 2300,
+                .edx_reset          = 0x58c,
+                .cpuid_model        = 0x58c,
+                .cyrix_id           = 0,
+                .cpu_flags          = CPU_SUPPORTS_DYNAREC | CPU_REQUIRES_DYNAREC,
+                .mem_read_cycles    = 52,
+                .mem_write_cycles   = 52,
+                .cache_read_cycles  = 18,
+                .cache_write_cycles = 18,
+                .atclk_div          = 68
+            },
+            {
+                .name               = "600 (570 OC)",
+                .cpu_type           = CPU_K6_2C,
+                .fpus               = fpus_internal,
+                .rspeed             = 600000000,
+                .multi              = 6.0,
+                .voltage            = 2300,
+                .edx_reset          = 0x58c,
+                .cpuid_model        = 0x58c,
+                .cyrix_id           = 0,
+                .cpu_flags          = CPU_SUPPORTS_DYNAREC | CPU_REQUIRES_DYNAREC,
+                .mem_read_cycles    = 54,
+                .mem_write_cycles   = 54,
+                .cache_read_cycles  = 18,
+                .cache_write_cycles = 18,
+                .atclk_div          = 72
             },
             { .name = "", 0 }
         }

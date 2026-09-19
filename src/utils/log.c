@@ -37,7 +37,7 @@
 #include <86box/log.h>
 
 typedef struct log_t {
-    char     buff[1024];
+    char     buff[LOG_SIZE_BUFFER];
     char     dev_name[1024];
     int      seen;
     int      suppr_seen;
@@ -57,24 +57,23 @@ log_set_dev_name(void *priv, char *dev_name)
 {
     log_t *log = (log_t *) priv;
 
-    memcpy(log->dev_name, dev_name, strlen(dev_name) + 1);
-}
-
-static void
-log_copy(log_t *log, char *dest, const char *src, size_t dest_size)
-{
-    memset(dest, 0x00, dest_size * sizeof(char));
-
-    if ((log != NULL) && strcmp(log->dev_name, "")) {
-        strcat(dest, log->dev_name);
-        strcat(dest, ": ");
-    }
-
-    strcat(dest, src);
+    if (dev_name)
+        memcpy(log->dev_name, dev_name, strlen(dev_name) + 1);
+    else
+        log->dev_name[0] = '\0';
 }
 
 #ifndef RELEASE_BUILD
-void 
+static inline void
+log_print(log_t *log, char *buf)
+{
+    if (log->dev_name[0])
+        fprintf(stdlog, "%s: %s", log->dev_name, buf);
+    else
+        fputs(buf, stdlog);
+}
+
+void
 log_ensure_stdlog_open(void)
 {
     if (stdlog == NULL) {
@@ -106,8 +105,7 @@ void
 log_out(void *priv, const char *fmt, va_list ap)
 {
     log_t *log = (log_t *) priv;
-    char   temp[1024];
-    char   fmt2[1024];
+    char   temp[LOG_SIZE_BUFFER];
 
     if (log == NULL)
         pclog("WARNING: Logging called with a NULL log pointer\n");
@@ -121,21 +119,21 @@ log_out(void *priv, const char *fmt, va_list ap)
             return;
 #endif
 
-        vsprintf(temp, fmt, ap);
+        vsnprintf(temp, sizeof(temp), fmt, ap);
+
         if (log->suppr_seen && !strcmp(log->buff, temp))
             log->seen++;
         else {
-            if (log->suppr_seen && log->seen) {
-                log_copy(log, fmt2, "*** %d repeats ***\n", 1024);
-                fprintf(stdlog, fmt2, log->seen);
-            }
+            if (log->suppr_seen && log->seen)
+                fprintf(stdlog, "*** %d repeats ***\n", log->seen);
             log->seen = 0;
-            strcpy(log->buff, temp);
-            log_copy(log, fmt2, temp, 1024);
-            fprintf(stdlog, fmt2, ap);
-        }
 
-        fflush(stdlog);
+            strncpy(log->buff, temp, sizeof(log->buff) - 1);
+            log->buff[sizeof(log->buff) - 1] = '\0';
+
+            log_print(log, temp);
+            fflush(stdlog);
+        }
     }
 }
 
@@ -171,14 +169,9 @@ log_out_cyclic(void* priv, const char* fmt, va_list ap)
             return;
 #endif
 
-        char temp[LOG_SIZE_BUFFER] = {0};
-
         log->cyclic_last_line %= LOG_SIZE_BUFFER_CYCLIC_LINES;
 
-        vsprintf(temp, fmt, ap);
-
-        log_copy(log, log->cyclic_buff[log->cyclic_last_line], temp,
-                 LOG_SIZE_BUFFER);
+        vsprintf(log->cyclic_buff[log->cyclic_last_line], fmt, ap);
 
         uint32_t hashes[LOG_SIZE_BUFFER_CYCLIC_LINES] = {0};
 
@@ -247,19 +240,11 @@ log_out_cyclic(void* priv, const char* fmt, va_list ap)
                         /* *Very important* to prevent out of bounds index. */
                         uint32_t real_index = index %
                                               LOG_SIZE_BUFFER_CYCLIC_LINES;
-                        log_copy(log, temp, log->cyclic_buff[real_index],
-                                 LOG_SIZE_BUFFER);
-
-                        fprintf(stdlog, "%s", log->cyclic_buff[real_index]);
+                        log_print(log, log->cyclic_buff[real_index]);
                     }
 
-                    /* Restore the original line. */
-                    log_copy(log, temp,
-                             log->cyclic_buff[log->cyclic_last_line],
-                             LOG_SIZE_BUFFER);
-
                     /* Allow normal logging. */
-                    fprintf(stdlog, "%s", temp);
+                    log_print(log, log->cyclic_buff[log->cyclic_last_line]);
                 }
 
                 if (log->log_cycles > 1 && log->log_cycles < 100)
@@ -271,10 +256,8 @@ log_out_cyclic(void* priv, const char* fmt, va_list ap)
             }
         } else {
             log->log_cycles = 0;
-            fprintf(stdlog, "%s", temp);
+            log_print(log, log->cyclic_buff[log->cyclic_last_line]);
         }
-
-        log->cyclic_last_line++;
     }
 }
 #endif
@@ -283,8 +266,7 @@ void
 log_fatal(void *priv, const char *fmt, ...)
 {
     log_t  *log = (log_t *) priv;
-    char    temp[1024];
-    char    fmt2[1024];
+    char    temp[LOG_SIZE_BUFFER];
     va_list ap;
 
     if (log == NULL)
@@ -298,10 +280,12 @@ log_fatal(void *priv, const char *fmt, ...)
     }
 
     va_start(ap, fmt);
-    log_copy(log, fmt2, fmt, 1024);
-    vsprintf(temp, fmt2, ap);
-    fatal_ex(fmt2, ap);
+    vsprintf(temp, fmt, ap);
     va_end(ap);
+    if (log->dev_name[0])
+        fatal("%s: %s", log->dev_name, temp);
+    else
+        fatal("%s", temp);
     exit(-1);
 }
 
@@ -309,8 +293,7 @@ void
 log_warning(void *priv, const char *fmt, ...)
 {
     log_t  *log = (log_t *) priv;
-    char    temp[1024];
-    char    fmt2[1024];
+    char    temp[LOG_SIZE_BUFFER];
     va_list ap;
 
     if (log == NULL)
@@ -324,10 +307,12 @@ log_warning(void *priv, const char *fmt, ...)
     }
 
     va_start(ap, fmt);
-    log_copy(log, fmt2, fmt, 1024);
-    vsprintf(temp, fmt2, ap);
-    warning_ex(fmt2, ap);
+    vsprintf(temp, fmt, ap);
     va_end(ap);
+    if (log->dev_name[0])
+        warning("%s: %s", log->dev_name, temp);
+    else
+        warning("%s", temp);
 }
 
 static void *

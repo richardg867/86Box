@@ -7,8 +7,6 @@
  *          Emulation of ALi M1435 chipset that acts as both the
  *          southbridge.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2020 Miran Grca.
@@ -100,7 +98,7 @@ ali1435_update_irqs(ali1435_t *dev, int set)
 }
 
 static void
-ali1435_pci_write(int func, int addr, uint8_t val, void *priv)
+ali1435_pci_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     ali1435_t *dev = (ali1435_t *) priv;
     int        irq;
@@ -165,7 +163,7 @@ ali1435_pci_write(int func, int addr, uint8_t val, void *priv)
 }
 
 static uint8_t
-ali1435_pci_read(int func, int addr, void *priv)
+ali1435_pci_read(int func, int addr, UNUSED(int len), void *priv)
 {
     const ali1435_t *dev = (ali1435_t *) priv;
     uint8_t          ret;

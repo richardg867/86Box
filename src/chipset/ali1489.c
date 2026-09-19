@@ -8,8 +8,6 @@
  *
  *          Implementation of the ALi M1489 chipset.
  *
- *
- *
  * Authors: Tiseno100,
  *          Miran Grca, <mgrca8@gmail.com>
  *
@@ -28,9 +26,10 @@
 #include <86box/timer.h>
 #include <86box/io.h>
 #include <86box/device.h>
-
+#include <86box/keyboard.h>
 #include <86box/hdc_ide.h>
 #include <86box/hdc.h>
+#include <86box/machine.h>
 #include <86box/mem.h>
 #include <86box/nmi.h>
 #include <86box/pic.h>
@@ -309,7 +308,7 @@ ali1489_write(uint16_t addr, uint8_t val, void *priv)
                                     break;
                             }
                             dev->regs[0x35] |= 0x0e;
-                        } else if (!(val & 0x10))
+                        } else if (!(val & 0x10) && !(val & 0x08))
                             dev->regs[0x35] &= ~0x0f;
                         break;
 
@@ -412,7 +411,7 @@ ali1489_read(uint16_t addr, void *priv)
 }
 
 static void
-ali1489_pci_write(UNUSED(int func), int addr, uint8_t val, void *priv)
+ali1489_pci_write(UNUSED(int func), int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     ali1489_t *dev = (ali1489_t *) priv;
 
@@ -435,7 +434,7 @@ ali1489_pci_write(UNUSED(int func), int addr, uint8_t val, void *priv)
 }
 
 static uint8_t
-ali1489_pci_read(UNUSED(int func), int addr, void *priv)
+ali1489_pci_read(UNUSED(int func), int addr, UNUSED(int len), void *priv)
 {
     const ali1489_t *dev = (ali1489_t *) priv;
     uint8_t          ret = 0xff;
@@ -484,6 +483,9 @@ ali1489_init(UNUSED(const device_t *info))
 
     dev->port_92 = device_add(&port_92_pci_device);
     dev->smram   = smram_add();
+
+    if (machine_get_kbc_device(machine) == NULL)
+        device_add_params(&kbc_at_device, (void *) KBC_VEN_ALI);
 
     ali1489_defaults(dev);
 

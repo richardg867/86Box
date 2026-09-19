@@ -8,8 +8,6 @@
  *
  *          Driver for the ESDI controller (WD1007-vse1) for PC/AT.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
@@ -992,7 +990,7 @@ wd1007vse1_available(void)
 }
 
 const device_t esdi_at_wd1007vse1_device = {
-    .name          = "Western Digital WD1007V-SE1 (ESDI)",
+    .name          = "WD1007V-SE1 (ESDI)",
     .internal_name = "esdi_at",
     .flags         = DEVICE_ISA16,
     .local         = 0,

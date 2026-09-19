@@ -11,8 +11,6 @@
  * Note:    This chipset has no datasheet, everything were done via
  *          reverse engineering the BIOS of various machines using it.
  *
- *
- *
  * Authors: Tiseno100,
  *          Miran Grca, <mgrca8@gmail.com>
  *
@@ -86,6 +84,7 @@
 #include <86box/machine.h>
 #include <86box/pic.h>
 #include <86box/pci.h>
+#include <86box/plat_unused.h>
 #include <86box/port_92.h>
 #include <86box/chipset.h>
 
@@ -189,7 +188,7 @@ umc_8886_irq_recalc(umc_8886_t *dev)
 }
 
 static void
-umc_8886_write(int func, int addr, uint8_t val, void *priv)
+umc_8886_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     umc_8886_t *dev = (umc_8886_t *) priv;
 
@@ -295,7 +294,7 @@ umc_8886_write(int func, int addr, uint8_t val, void *priv)
 }
 
 static uint8_t
-umc_8886_read(int func, int addr, void *priv)
+umc_8886_read(int func, int addr, UNUSED(int len), void *priv)
 {
     const umc_8886_t *dev = (umc_8886_t *) priv;
     uint8_t           ret = 0xff;
@@ -418,6 +417,9 @@ umc_8886_init(const device_t *info)
         /* UM8886AF */
         device_add(&ide_um8673f_device);
     }
+
+    if (machine_get_kbc_device(machine) == NULL)
+        device_add_params(&kbc_at_device, (void *) KBC_VEN_UMC);
 
     umc_8886_reset(dev);
 

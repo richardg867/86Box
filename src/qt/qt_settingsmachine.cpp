@@ -8,12 +8,12 @@
  *
  *          Machine selection and configuration UI module.
  *
- *
- *
  * Authors: Joakim L. Gilje <jgilje@jgilje.net>
  *
  *          Copyright 2021 Joakim L. Gilje
  */
+#include "qt_settings_completer.hpp"
+
 #include "qt_settingsmachine.hpp"
 #include "ui_qt_settingsmachine.h"
 
@@ -22,6 +22,10 @@
 #include <QFrame>
 #include <QVBoxLayout>
 #include <QDialogButtonBox>
+#include <QStandardItem>
+#include <QStandardItemModel>
+#include <QCompleter>
+#include <QTimer>
 
 #include <algorithm>
 
@@ -38,24 +42,46 @@ extern "C" {
 #include "qt_deviceconfig.hpp"
 #include "qt_models_common.hpp"
 
+#include "qt_defs.hpp"
+
 SettingsMachine::SettingsMachine(QWidget *parent)
     : QWidget(parent)
     , ui(new Ui::SettingsMachine)
 {
     ui->setupUi(this);
 
-    switch (time_sync) {
-        case TIME_SYNC_ENABLED:
-            ui->radioButtonLocalTime->setChecked(true);
-            break;
-        case TIME_SYNC_ENABLED | TIME_SYNC_UTC:
-            ui->radioButtonUTC->setChecked(true);
-            break;
-        case TIME_SYNC_DISABLED:
-        default:
-            ui->radioButtonDisabled->setChecked(true);
-            break;
-    }
+    machine_cfg_changed             = 0;
+
+    sc                              = new SettingsCompleter(ui->comboBoxMachine, ui->comboBoxMachineType);
+
+    int         selectedMachineType = 0;
+    auto       *machineTypesModel   = ui->comboBoxMachineType->model();
+    int         i                   = -1;
+    int         j                   = 0;
+    int         cur_j               = 0;
+    const void *miname;
+    do {
+        miname = machine_get_internal_name_ex(j);
+
+        if ((miname == nullptr) || (machine_get_type(j) != i)) {
+            if ((i != -1) && (cur_j != 0)) {
+                int row = Models::AddEntry(machineTypesModel, tr(machine_types[i].name), machine_types[i].id);
+                if (machine_types[i].id == machine_get_type(machine))
+                    selectedMachineType = row;
+            }
+
+            i     = machine_get_type(j);
+            cur_j = 0;
+        }
+
+        if (machine_available(j)) {
+            sc->addMachine(i, j);
+
+            cur_j++;
+        }
+
+        j++;
+    } while (miname != nullptr);
 
     auto warning_icon = QIcon(":/misc/qt/icons/warning.ico");
     ui->softFloatWarningIcon->setPixmap(warning_icon.pixmap(warning_icon.actualSize(QSize(16, 16))));
@@ -69,7 +95,7 @@ SettingsMachine::SettingsMachine(QWidget *parent)
     waitStatesModel->setData(idx, 0, Qt::UserRole);
     for (int i = 0; i < 8; ++i) {
         idx = waitStatesModel->index(i + 1, 0);
-        waitStatesModel->setData(idx, tr("%1 Wait state(s)").arg(i), Qt::DisplayRole);
+        waitStatesModel->setData(idx, tr("%n wait state(s)", "", i), Qt::DisplayRole);
         waitStatesModel->setData(idx, i + 1, Qt::UserRole);
     }
 
@@ -88,34 +114,26 @@ SettingsMachine::SettingsMachine(QWidget *parent)
     ui->comboBoxPitMode->setCurrentIndex(-1);
     ui->comboBoxPitMode->setCurrentIndex(pit_mode + 1);
 
-    int         selectedMachineType = 0;
-    auto *      machineTypesModel   = ui->comboBoxMachineType->model();
-    int         i                   = -1;
-    int         j                   = 0;
-    int         cur_j               = 0;
-    const void *miname;
-    do {
-        miname = machine_get_internal_name_ex(j);
-
-        if ((miname == nullptr) || (machine_get_type(j) != i)) {
-            if ((i != -1) && (cur_j != 0)) {
-                int row = Models::AddEntry(machineTypesModel, machine_types[i].name, machine_types[i].id);
-                if (machine_types[i].id == machine_get_type(machine))
-                    selectedMachineType = row;
-            }
-
-            i = machine_get_type(j);
-            cur_j = 0;
-        }
-
-        if (machine_available(j))
-            cur_j++;
-
-        j++;
-    } while (miname != nullptr);
+    switch (time_sync) {
+        case TIME_SYNC_ENABLED:
+            ui->radioButtonLocalTime->setChecked(true);
+            break;
+        case TIME_SYNC_ENABLED | TIME_SYNC_UTC:
+            ui->radioButtonUTC->setChecked(true);
+            break;
+        case TIME_SYNC_DISABLED:
+        default:
+            ui->radioButtonDisabled->setChecked(true);
+            break;
+    }
 
     ui->comboBoxMachineType->setCurrentIndex(-1);
     ui->comboBoxMachineType->setCurrentIndex(selectedMachineType);
+
+    ui->radioButtonLargerFrames->setChecked(force_10ms);
+    ui->radioButtonSmallerFrames->setChecked(!force_10ms);
+
+    ui->checkBoxOverrideInterpreter->setChecked(cpu_override_interpreter ? true : false);
 
 #ifndef USE_DYNAREC
     ui->checkBoxDynamicRecompiler->setEnabled(false);
@@ -125,18 +143,29 @@ SettingsMachine::SettingsMachine(QWidget *parent)
 
 SettingsMachine::~SettingsMachine()
 {
+    delete sc;
+
     delete ui;
 }
 
-void
-SettingsMachine::save()
+int
+SettingsMachine::changed()
 {
-    machine         = ui->comboBoxMachine->currentData().toInt();
-    cpu_f           = const_cast<cpu_family_t *>(&cpu_families[ui->comboBoxCPU->currentData().toInt()]);
-    cpu             = ui->comboBoxSpeed->currentData().toInt();
-    fpu_type        = ui->comboBoxFPU->currentData().toInt();
-    cpu_use_dynarec = ui->checkBoxDynamicRecompiler->isChecked() ? 1 : 0;
-    fpu_softfloat   = ui->checkBoxFPUSoftfloat->isChecked() ? 1 : 0;
+    int has_changed = 0;
+    int temp;
+
+    has_changed |= (machine                    != ui->comboBoxMachine->currentData().toInt());
+    has_changed |= machine_cfg_changed;
+    has_changed |= (cpu_f                      != const_cast<cpu_family_t *>(&cpu_families[ui->comboBoxCPU->currentData().toInt()]));
+    has_changed |= (cpu                        != ui->comboBoxSpeed->currentData().toInt());
+    has_changed |= (fpu_type                   != ui->comboBoxFPU->currentData().toInt());
+    has_changed |= (cpu_override_interpreter   != (ui->checkBoxOverrideInterpreter->isChecked() ? 1 : 0));
+#ifdef USE_DYNAREC
+    has_changed |= (cpu_use_dynarec            != (ui->checkBoxDynamicRecompiler->isChecked() ? 1 : 0));
+    has_changed |= (cpu_dyn_accurate_fpu_env   != (ui->checkBoxAccurateFPUEnvironment->isChecked() ? 1 : 0));
+#endif
+    has_changed |= (fpu_softfloat              != (ui->checkBoxFPUSoftfloat->isChecked() ? 1 : 0));
+    has_changed |= (force_10ms                 != (ui->radioButtonLargerFrames->isChecked() ? 1 : 0));
 
     int64_t temp_mem_size;
     if (machine_get_ram_granularity(machine) < 1024)
@@ -144,7 +173,67 @@ SettingsMachine::save()
     else
         temp_mem_size = ui->spinBoxRAM->value() * 1024;
 
-    temp_mem_size &= ~(machine_get_ram_granularity(machine) - 1);
+    const int gran = machine_get_ram_granularity(machine);
+    const int min  = machine_get_min_ram(machine);
+    if (temp_mem_size > min)
+        temp_mem_size = min + ((temp_mem_size - min) / gran) * gran;
+    if (temp_mem_size < machine_get_min_ram(machine))
+        temp_mem_size = machine_get_min_ram(machine);
+    else if (temp_mem_size > machine_get_max_ram(machine))
+        temp_mem_size = machine_get_max_ram(machine);
+    has_changed |= (mem_size                   != static_cast<uint32_t>(temp_mem_size));
+
+    if (ui->comboBoxWaitStates->isEnabled())
+        temp = ui->comboBoxWaitStates->currentData().toInt();
+    else
+        temp = 0;
+    has_changed |= (cpu_waitstates             != temp);
+
+    has_changed |= (pit_mode                   !=  ui->comboBoxPitMode->currentData().toInt());
+
+    temp = 0;
+    if (ui->radioButtonLocalTime->isChecked())
+        temp = TIME_SYNC_ENABLED;
+    if (ui->radioButtonUTC->isChecked())
+        temp = TIME_SYNC_ENABLED | TIME_SYNC_UTC;
+    has_changed |= (time_sync                  != temp);
+
+    return has_changed ? (SETTINGS_CHANGED | SETTINGS_REQUIRE_HARD_RESET) : 0;
+}
+
+void
+SettingsMachine::restore()
+{
+}
+
+void
+SettingsMachine::save(int soft)
+{
+    if (soft)
+        return;
+
+    machine                  = ui->comboBoxMachine->currentData().toInt();
+    cpu_f                    = const_cast<cpu_family_t *>(&cpu_families[ui->comboBoxCPU->currentData().toInt()]);
+    cpu                      = ui->comboBoxSpeed->currentData().toInt();
+    fpu_type                 = ui->comboBoxFPU->currentData().toInt();
+    cpu_override_interpreter = ui->checkBoxOverrideInterpreter->isChecked() ? 1 : 0;
+#ifdef USE_DYNAREC
+    cpu_use_dynarec          = ui->checkBoxDynamicRecompiler->isChecked() ? 1 : 0;
+    cpu_dyn_accurate_fpu_env = ui->checkBoxAccurateFPUEnvironment->isChecked() ? 1 : 0;
+#endif
+    fpu_softfloat            = ui->checkBoxFPUSoftfloat->isChecked() ? 1 : 0;
+    force_10ms               = ui->radioButtonLargerFrames->isChecked() ? 1 : 0;
+
+    int64_t temp_mem_size;
+    if (machine_get_ram_granularity(machine) < 1024)
+        temp_mem_size = ui->spinBoxRAM->value();
+    else
+        temp_mem_size = ui->spinBoxRAM->value() * 1024;
+
+    const int gran = machine_get_ram_granularity(machine);
+    const int min  = machine_get_min_ram(machine);
+    if (temp_mem_size > min)
+        temp_mem_size = min + ((temp_mem_size - min) / gran) * gran;
     if (temp_mem_size < machine_get_min_ram(machine))
         temp_mem_size = machine_get_min_ram(machine);
     else if (temp_mem_size > machine_get_max_ram(machine))
@@ -174,8 +263,7 @@ SettingsMachine::on_comboBoxMachineType_currentIndexChanged(int index)
 
         int selectedMachineRow = 0;
         for (int i = 0; i < machine_count(); ++i) {
-            if ((machine_get_type(i) == ui->comboBoxMachineType->currentData().toInt()) &&
-                machine_available(i)) {
+            if ((machine_get_type(i) == ui->comboBoxMachineType->currentData().toInt()) && machine_available(i)) {
                 int row = Models::AddEntry(model, machines[i].name, i);
                 if (i == machine)
                     selectedMachineRow = row - removeRows;
@@ -205,8 +293,7 @@ SettingsMachine::on_comboBoxMachine_currentIndexChanged(int index)
         int selectedCpuFamilyRow = 0;
         while (cpu_families[i].package != 0) {
             if (cpu_family_is_eligible(&cpu_families[i], machineId)) {
-                Models::AddEntry(modelCpu, QString("%1 %2").arg(cpu_families[i].manufacturer,
-                                 cpu_families[i].name), i);
+                Models::AddEntry(modelCpu, QString("%1 %2").arg(cpu_families[i].manufacturer, cpu_families[i].name), i);
                 if (&cpu_families[i] == cpu_f)
                     selectedCpuFamilyRow = eligibleRows;
                 ++eligibleRows;
@@ -277,7 +364,7 @@ SettingsMachine::on_comboBoxSpeed_currentIndexChanged(int index)
         int         cpuId       = ui->comboBoxSpeed->currentData().toInt();
         uint        cpuType     = cpuFamily->cpus[cpuId].cpu_type;
 
-        if ((cpuType >= CPU_286) && (cpuType <= CPU_386DX)) {
+        if ((cpuType >= CPU_286) && (cpuType < CPU_386DX)) {
             ui->comboBoxWaitStates->setEnabled(true);
             ui->comboBoxWaitStates->setCurrentIndex(cpu_waitstates);
         } else {
@@ -290,14 +377,26 @@ SettingsMachine::on_comboBoxSpeed_currentIndexChanged(int index)
         if (!(flags & CPU_SUPPORTS_DYNAREC)) {
             ui->checkBoxDynamicRecompiler->setChecked(false);
             ui->checkBoxDynamicRecompiler->setEnabled(false);
+            ui->checkBoxAccurateFPUEnvironment->setEnabled(false);
         } else if ((flags & CPU_REQUIRES_DYNAREC) && !cpu_override) {
             ui->checkBoxDynamicRecompiler->setChecked(true);
             ui->checkBoxDynamicRecompiler->setEnabled(false);
+            ui->checkBoxAccurateFPUEnvironment->setEnabled(true);
         } else {
             ui->checkBoxDynamicRecompiler->setChecked(cpu_use_dynarec);
             ui->checkBoxDynamicRecompiler->setEnabled(true);
+            ui->checkBoxAccurateFPUEnvironment->setEnabled(cpu_use_dynarec);
         }
 #endif
+
+        ui->checkBoxAccurateFPUEnvironment->setChecked(cpu_dyn_accurate_fpu_env);
+
+        if ((cpuType < CPU_286) || (cpuType == CPU_IBM486SLC) || (cpuType == CPU_IBM486BL) ||
+            !strcmp(cpuFamily->manufacturer, "Cyrix") || !strcmp(cpuFamily->manufacturer, "ST") ||
+            (cpuType > CPU_486DLC))
+            ui->checkBoxOverrideInterpreter->setEnabled(false);
+        else
+            ui->checkBoxOverrideInterpreter->setEnabled(true);
 
         // win_settings_machine_recalc_fpu
         auto *modelFpu   = ui->comboBoxFPU->model();
@@ -305,10 +404,10 @@ SettingsMachine::on_comboBoxSpeed_currentIndexChanged(int index)
 
         int i              = 0;
         int selectedFpuRow = 0;
-        for (const char *fpuName = fpu_get_name_from_index(cpuFamily, cpuId, i);
+        for (const char *fpuName         = fpu_get_name_from_index(cpuFamily, cpuId, i);
              fpuName != nullptr; fpuName = fpu_get_name_from_index(cpuFamily, cpuId, ++i)) {
             auto fpuType = fpu_get_type_from_index(cpuFamily, cpuId, i);
-            Models::AddEntry(modelFpu, tr(QString("%1").arg(fpuName).toUtf8().data()), fpuType);
+            Models::AddEntry(modelFpu, tr(fpuName), fpuType);
             if (fpu_type == fpuType)
                 selectedFpuRow = i;
         }
@@ -333,10 +432,8 @@ SettingsMachine::on_comboBoxFPU_currentIndexChanged(int index)
             ui->checkBoxFPUSoftfloat->setChecked(false);
             ui->checkBoxFPUSoftfloat->setEnabled(false);
         } else {
-            ui->checkBoxFPUSoftfloat->setChecked(machine_has_flags(machineId, MACHINE_SOFTFLOAT_ONLY) ?
-                                                 true : fpu_softfloat);
-            ui->checkBoxFPUSoftfloat->setEnabled(machine_has_flags(machineId, MACHINE_SOFTFLOAT_ONLY) ?
-                                                 false : true);
+            ui->checkBoxFPUSoftfloat->setChecked(machine_has_flags(machineId, MACHINE_SOFTFLOAT_ONLY) ? true : fpu_softfloat);
+            ui->checkBoxFPUSoftfloat->setEnabled(machine_has_flags(machineId, MACHINE_SOFTFLOAT_ONLY) ? false : true);
         }
     }
 }
@@ -347,15 +444,37 @@ SettingsMachine::on_pushButtonConfigure_clicked()
     // deviceconfig_inst_open
     int         machineId = ui->comboBoxMachine->currentData().toInt();
     const auto *device    = machine_get_device(machineId);
-    DeviceConfig::ConfigureDevice(device);
+    machine_cfg_changed |= DeviceConfig::ConfigureDevice(device);
 }
 
-void SettingsMachine::on_checkBoxFPUSoftfloat_stateChanged(int state) {
-    if(state == Qt::Checked) {
+void
+SettingsMachine::on_checkBoxFPUSoftfloat_stateChanged(int state)
+{
+    if (state == Qt::Checked) {
         ui->softFloatWarningIcon->setVisible(true);
         ui->softFloatWarningText->setVisible(true);
     } else {
         ui->softFloatWarningIcon->setVisible(false);
         ui->softFloatWarningText->setVisible(false);
     }
+}
+
+void
+SettingsMachine::on_checkBoxDynamicRecompiler_stateChanged(int state)
+{
+#ifdef USE_DYNAREC
+    ui->checkBoxAccurateFPUEnvironment->setEnabled(state);
+#endif
+}
+
+void
+SettingsMachine::on_radioButtonSmallerFrames_clicked()
+{
+    ui->radioButtonLargerFrames->setChecked(false);
+}
+
+void
+SettingsMachine::on_radioButtonLargerFrames_clicked()
+{
+    ui->radioButtonSmallerFrames->setChecked(false);
 }

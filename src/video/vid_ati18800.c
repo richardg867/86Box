@@ -8,8 +8,6 @@
  *
  *          ATI 18800 emulation (VGA Edge-16)
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *
@@ -109,7 +107,7 @@ ati18800_out(uint16_t addr, uint8_t val, void *priv)
                 if (svga->crtcreg < 0xe || svga->crtcreg > 0x10) {
                     if ((svga->crtcreg == 0xc) || (svga->crtcreg == 0xd)) {
                         svga->fullchange = 3;
-                        svga->ma_latch   = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) + ((svga->crtc[8] & 0x60) >> 5);
+                        svga->memaddr_latch   = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) + ((svga->crtc[8] & 0x60) >> 5);
                     } else {
                         svga->fullchange = changeframecount;
                         svga_recalctimings(svga);
@@ -196,9 +194,27 @@ ati18800_recalctimings(svga_t *svga)
         svga->ati_4color = 0;
 
 
-    if (!svga->scrblank && (svga->crtc[0x17] & 0x80) && svga->attr_palette_enable) {
-         if ((svga->gdcreg[6] & 1) || (svga->attrregs[0x10] & 1)) {
-            svga->clock = (cpuclock * (double) (1ULL << 32)) / svga->getclock(clock_sel, svga->clock_gen);
+    if (!svga->scrblank && svga->attr_palette_enable) {
+        svga->clock = (cpuclock * (double) (1ULL << 32)) / svga->getclock(clock_sel ^ 0x08, svga->clock_gen);
+
+        switch ((ati18800->regs[0xb8] >> 6) & 0x03) {
+            case 0x01:
+                svga->clock *= 2.0;
+                break;
+            case 0x02:
+                svga->clock *= 3.0;
+                break;
+            case 0x03:
+                svga->clock *= 4.0;
+                break;
+            default:
+                break;
+        }
+
+        if (svga->interlace)
+            svga->clock /= 2.0;
+
+        if ((svga->gdcreg[6] & 0x01) || (svga->attrregs[0x10] & 0x01)) {
             switch (svga->gdcreg[5] & 0x60) {
                 case 0x00:
                     if (svga->seqregs[1] & 8) /*Low res (320)*/
@@ -223,7 +239,7 @@ ati18800_recalctimings(svga_t *svga)
                             else {
                                 svga->render = svga_render_8bpp_highres;
                                 if (!svga->packed_4bpp) {
-                                    svga->ma_latch <<= 1;
+                                    svga->memaddr_latch <<= 1;
                                     svga->rowoffset <<= 1;
                                 }
                             }
@@ -236,13 +252,14 @@ ati18800_recalctimings(svga_t *svga)
             }
         }
     }
+
+    svga->hoverride = 1;
 }
 
 static void *
 ati18800_init(const device_t *info)
 {
-    ati18800_t *ati18800 = malloc(sizeof(ati18800_t));
-    memset(ati18800, 0, sizeof(ati18800_t));
+    ati18800_t *ati18800 = calloc(1, sizeof(ati18800_t));
 
     video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_ati18800);
 
@@ -269,13 +286,13 @@ ati18800_init(const device_t *info)
               ati18800_in, ati18800_out,
               NULL,
               NULL);
-    ati18800->svga.clock_gen = device_add(&ati18810_device);
+    ati18800->svga.clock_gen = device_add(&ati18810_28800_device);
     ati18800->svga.getclock  = ics2494_getclock;
 
     io_sethandler(0x01ce, 0x0002, ati18800_in, NULL, NULL, ati18800_out, NULL, NULL, ati18800);
-    io_sethandler(0x03c0, 0x0020, ati18800_in, NULL, NULL, ati18800_out, NULL, NULL, ati18800);
+    io_sethandler(0x03a0, 0x0040, ati18800_in, NULL, NULL, ati18800_out, NULL, NULL, ati18800);
 
-    ati18800->svga.miscout = 1;
+    ati18800->svga.miscout = 0;
     ati18800->svga.bpp = 8;
 
     ati_eeprom_load(&ati18800->eeprom, "ati18800.nvr", 0);

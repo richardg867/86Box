@@ -8,8 +8,6 @@
  *
  *          Common code to handle all sorts of disk controllers.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
  *
@@ -31,6 +29,8 @@
 #include <86box/hdd.h>
 
 int hdc_current[HDC_MAX] = { 0, 0 };
+
+int hdc_onboard_enabled  = 1;
 
 #ifdef ENABLE_HDC_LOG
 int hdc_do_log = ENABLE_HDC_LOG;
@@ -54,38 +54,59 @@ static const struct {
     const device_t *device;
 } controllers[] = {
     // clang-format off
-    { &device_none                 },
-    { &device_internal             },
-    { &st506_xt_xebec_device       },
-    { &st506_xt_wdxt_gen_device    },
-    { &st506_xt_dtc5150x_device    },
-    { &st506_xt_st11_m_device      },
-    { &st506_xt_wd1002a_wx1_device },
-    { &st506_xt_wd1004a_wx1_device },
-    { &st506_at_wd1003_device      },
-    { &st506_xt_st11_r_device      },
-    { &st506_xt_wd1002a_27x_device },
-    { &st506_xt_wd1004_27x_device  },
-    { &st506_xt_wd1004a_27x_device },
-    { &st506_xt_victor_v86p_device },
-    { &esdi_at_wd1007vse1_device   },
-    { &ide_isa_device              },
-    { &ide_isa_2ch_device          },
-    { &xtide_at_device             },
-    { &xtide_at_2ch_device         },
-    { &xtide_at_ps2_device         },
-    { &xtide_at_ps2_2ch_device     },
-    { &xta_wdxt150_device          },
-    { &xtide_acculogic_device      },
-    { &xtide_device                },
-    { &esdi_ps2_device             },
-    { &esdi_integrated_device      },
-    { &ide_pci_device              },
-    { &ide_pci_2ch_device          },
-    { &ide_vlb_device              },
-    { &ide_vlb_2ch_device          },
-    { &mcide_device                },
-    { NULL                         }
+    { &device_none                          },
+    { &device_internal                      },
+    /* ISA */
+    { &xtide_acculogic_device               },
+    { &st506_xt_dtc5150x_device             },
+    { &st506_xt_xebec_device                },
+    { &xtide_device                         },
+    { &jride_device                         },
+    { &st506_xt_st11_m_device               },
+    { &st506_xt_st11_r_device               },
+    { &xta_st50x_device                     },
+    { &st506_xt_victor_v86p_device          },
+    { &st506_xt_wd1002a_27x_device          },
+    { &st506_xt_wd1002a_wx1_device          },
+    { &st506_xt_wd1004_27x_device           },
+    { &st506_xt_wd1004a_27x_device          },
+    { &st506_xt_wd1004a_wx1_device          },
+    { &xta_wdxt150_device                   },
+    { &st506_xt_wdxt_gen_device             },
+    /* ISA16 */
+    { &ide_isa_device                       },
+    { &ide_isa_2ch_device                   },
+    { &xtide_at_device                      },
+    { &xtide_at_2ch_device                  },
+    { &xtide_at_ps2_device                  },
+    { &xtide_at_ps2_2ch_device              },
+    { &ide_ter_device                       },
+    { &ide_qua_device                       },
+    { &st506_at_wd1003_device               },
+    { &esdi_at_wd1007vse1_device            },
+    /* MCA */
+    { &esdi_ps2_device                      },
+    { &st506_ps2_device                     },  
+    { &esdi_integrated_device               },
+    { &mcide_device                         },
+    /* VLB */
+#if 0
+    { &ide_ali5213_device                   }, /* TODO: to add standalone ADI2 HDC */
+#endif
+    { &ide_cmd640_vlb_device                },
+    { &ide_vlb_device                       },
+    { &ide_vlb_2ch_device                   },
+    { &ide_opti611_vlb_device               },
+    { &ide_w83769f_vlb_device               }, /* TODO: to add implement W83759 IDE controller */
+    /* PCI */
+    { &ide_cmd640_pci_device                },
+    { &ide_cmd646_ter_qua_device            },
+    { &ide_cmd648_ter_qua_device            },
+    { &ide_cmd649_ter_qua_device            },
+    { &ide_pci_device                       },
+    { &ide_pci_2ch_device                   },
+    { &ide_w83769f_pci_device               }, /* PCI variant? TODO: to add implement W83759 IDE controller */
+    { NULL                                  }
     // clang-format on
 };
 
@@ -103,18 +124,16 @@ hdc_init(void)
 void
 hdc_reset(void)
 {
-    hdc_log("HDC: reset(current=%d, internal=%d)\n",
-            hdc_current[0], (machines[machine].flags & MACHINE_HDC) ? 1 : 0);
+    hdc_onboard_enabled = 1;
 
-    /* If we have a valid controller, add its device. */
-    if (hdc_current[0] > HDC_INTERNAL)
-        device_add(controllers[hdc_current[0]].device);
+    for (int i = 0; i < HDC_MAX; i++) {
+        hdc_log("HDC %i: reset(current=%d, internal=%d)\n", i,
+                hdc_current[i], hdc_current[i] == HDC_INTERNAL);
 
-    /* Now, add the tertiary and/or quaternary IDE controllers. */
-    if (ide_ter_enabled)
-        device_add(&ide_ter_device);
-    if (ide_qua_enabled)
-        device_add(&ide_qua_device);
+        /* If we have a valid controller, add its device. */
+        if (hdc_current[i] > HDC_INTERNAL)
+            device_add_inst(controllers[hdc_current[i]].device, i + 1);
+    }
 }
 
 const char *
@@ -124,7 +143,7 @@ hdc_get_internal_name(int hdc)
 }
 
 int
-hdc_get_from_internal_name(char *s)
+hdc_get_from_internal_name(const char *s)
 {
     int c = 0;
 

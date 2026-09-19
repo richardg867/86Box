@@ -11,8 +11,6 @@
  * TODO:    Add the Genius bus- and serial mouse.
  *          Remove the '3-button' flag from mouse types.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
  *
@@ -36,11 +34,18 @@
 #include <86box/plat.h>
 #include <86box/plat_unused.h>
 
+#if defined(__APPLE__)
+#define WHEEL_DELTA 1
+#else
+#define WHEEL_DELTA 120
+#endif
+
 typedef struct mouse_t {
     const device_t *device;
 } mouse_t;
 
 int mouse_type = 0;
+int tablet_type = 0;
 int mouse_input_mode;
 int mouse_timed = 1;
 int mouse_tablet_in_proximity = 0;
@@ -52,6 +57,7 @@ double mouse_y_abs;
 double mouse_sensitivity = 1.0;
 
 pc_timer_t mouse_timer; /* mouse event timer */
+pc_timer_t tablet_timer; /* tablet event timer */
 
 static const device_t mouse_none_device = {
     .name          = "None",
@@ -83,43 +89,60 @@ static const device_t mouse_internal_device = {
 
 static mouse_t mouse_devices[] = {
     // clang-format off
-    { &mouse_none_device          },
-    { &mouse_internal_device      },
-    { &mouse_logibus_device       },
-    { &mouse_msinport_device      },
+    { &mouse_none_device               },
+    { &mouse_internal_device           },
+    { &mouse_logibus_device            },
+    { &mouse_msinport_device           },
 #ifdef USE_GENIBUS
-    { &mouse_genibus_device       },
+    { &mouse_genibus_device            },
 #endif
-    { &mouse_mssystems_device     },
-    { &mouse_mssystems_bus_device },
-    { &mouse_msserial_device      },
-    { &mouse_ltserial_device      },
-    { &mouse_ps2_device           },
-#ifdef USE_WACOM
-    { &mouse_wacom_device         },
-    { &mouse_wacom_artpad_device  },
+
+    { &mouse_mssystems_device          },
+    { &mouse_mssystems_bus_device      },
+    { &mouse_msserial_device           },
+    { &mouse_msserial_ballpoint_device },
+    { &mouse_ltserial_device           },
+    { &mouse_ps2_device                },
+#ifdef USE_STANDALONE_QUICKPORT
+    { &mouse_upc_standalone_device     },
 #endif
-    { &mouse_mtouch_device        },
-    { NULL                        }
+    { NULL                             }
     // clang-format on
 };
 
-static _Atomic double  mouse_x;
-static _Atomic double  mouse_y;
-static atomic_int      mouse_z;
-static atomic_int      mouse_w;
-static atomic_int      mouse_buttons;
+static mouse_t tablet_devices[] = {
+    { &mouse_none_device                },
+#ifdef USE_WACOM
+    { &mouse_wacom_tablet_device        },
+    { &mouse_wacom_artpad_tablet_device },
+#endif
+    { &mouse_mtouch_device              },
+    { &mouse_cga_lightpen_device        },
+    { &mouse_pxl_380_device             },
+    { NULL                              }
+};
+
+static ATOMIC_DOUBLE   mouse_x;
+static ATOMIC_DOUBLE   mouse_y;
+static ATOMIC_INT      mouse_z;
+static ATOMIC_INT      mouse_w;
+static ATOMIC_INT      mouse_buttons;
+static ATOMIC_INT      tablet_buttons;
 
 static int             mouse_delta_b;
 static int             mouse_old_b;
 
 static void           *mouse_priv;
+static void           *mouse_ex_priv;
 static int             mouse_nbut;
 static int             mouse_raw;
 static int (*mouse_dev_poll)(void *priv);
-static void (*mouse_poll_ex)(void) = NULL;
+static int (*mouse_poll_ex)(void *priv) = NULL;
 
 static double          sample_rate = 200.0;
+static double          sample_rate_tablet = 200.0;
+
+int mouse_input_mode_initial = 0;
 
 #ifdef ENABLE_MOUSE_LOG
 int mouse_do_log = ENABLE_MOUSE_LOG;
@@ -138,6 +161,28 @@ mouse_log(const char *fmt, ...)
 #else
 #    define mouse_log(fmt, ...)
 #endif
+
+int
+mouse_both_enabled(void)
+{
+    return mouse_type && tablet_type;
+}
+
+void
+tablet_process(void)
+{
+    if ((mouse_input_mode >= 1) && mouse_poll_ex)
+        mouse_poll_ex(mouse_ex_priv);
+}
+
+void
+mouse_process(void)
+{
+    if ((mouse_input_mode >= 1) && mouse_poll_ex && !mouse_both_enabled())
+        mouse_poll_ex(mouse_ex_priv);
+    else if ((mouse_input_mode == 0) && (mouse_dev_poll != NULL))
+        mouse_dev_poll(mouse_priv);
+}
 
 void
 mouse_clear_x(void)
@@ -205,7 +250,7 @@ mouse_scale_coord_y(double y, int mul)
 void
 mouse_subtract_x(int *delta_x, int *o_x, int min, int max, int abs)
 {
-    double real_x = atomic_load(&mouse_x);
+    double real_x = ATOMIC_LOAD(mouse_x);
     double smax_x;
     double rsmin_x;
     double smin_x;
@@ -263,7 +308,7 @@ mouse_subtract_x(int *delta_x, int *o_x, int min, int max, int abs)
     if (abs)
         real_x -= rsmin_x;
 
-    atomic_store(&mouse_x, real_x);
+    ATOMIC_STORE(mouse_x, real_x);
 }
 
 /* It appears all host platforms give us y in the Microsoft format
@@ -272,7 +317,7 @@ mouse_subtract_x(int *delta_x, int *o_x, int min, int max, int abs)
 void
 mouse_subtract_y(int *delta_y, int *o_y, int min, int max, int invert, int abs)
 {
-    double real_y = atomic_load(&mouse_y);
+    double real_y = ATOMIC_LOAD(mouse_y);
     double smax_y;
     double rsmin_y;
     double smin_y;
@@ -336,7 +381,7 @@ mouse_subtract_y(int *delta_y, int *o_y, int min, int max, int invert, int abs)
     if (invert)
         real_y = -real_y;
 
-    atomic_store(&mouse_y, real_y);
+    ATOMIC_STORE(mouse_y, real_y);
 }
 
 /* It appears all host platforms give us y in the Microsoft format
@@ -351,26 +396,10 @@ mouse_subtract_coords(int *delta_x, int *delta_y, int *o_x, int *o_y,
 }
 
 int
-mouse_wheel_moved(void)
-{
-    int ret = !!(atomic_load(&mouse_z));
-
-    return ret;
-}
-
-int
-mouse_hwheel_moved(void)
-{
-    int ret = !!(atomic_load(&mouse_w));
-
-    return ret;
-}
-
-int
 mouse_moved(void)
 {
-    int moved_x = !!((int) floor(ABSD(mouse_scale_coord_x(atomic_load(&mouse_x), 1))));
-    int moved_y = !!((int) floor(ABSD(mouse_scale_coord_y(atomic_load(&mouse_y), 1))));
+    int moved_x = !!((int) floor(ABSD(mouse_scale_coord_x(ATOMIC_LOAD(mouse_x), 1))));
+    int moved_y = !!((int) floor(ABSD(mouse_scale_coord_y(ATOMIC_LOAD(mouse_y), 1))));
 
     /* Convert them to integer so we treat < 1.0 and > -1.0 as 0. */
     int ret = (moved_x || moved_y);
@@ -387,11 +416,12 @@ mouse_state_changed(void)
     int hwheel    = (mouse_nbut >= 6);
     int ret;
 
-    b = atomic_load(&mouse_buttons);
+    b = ATOMIC_LOAD(mouse_buttons);
     mouse_delta_b = (b ^ mouse_old_b);
     mouse_old_b   = b;
 
-    ret = mouse_moved() || ((atomic_load(&mouse_z) != 0) && wheel) || ((atomic_load(&mouse_w) != 0) && hwheel) || (mouse_delta_b & b_mask);
+    ret = mouse_moved() || ((ATOMIC_LOAD(mouse_z) != 0) && wheel) || ((ATOMIC_LOAD(mouse_w) != 0) && hwheel) ||
+          (mouse_delta_b & b_mask);
 
     return ret;
 }
@@ -419,7 +449,23 @@ mouse_timer_poll(UNUSED(void *priv))
 }
 
 static void
-atomic_double_add(_Atomic double *var, double val)
+tablet_timer_poll(UNUSED(void *priv))
+{
+    /* Poll at the specified sample rate. */
+    timer_on_auto(&tablet_timer, 1000000.0 / sample_rate_tablet);
+
+#ifdef USE_GDBSTUB /* avoid a KBC FIFO overflow when CPU emulation is stalled */
+    if (gdbstub_step == GDBSTUB_EXEC) {
+#endif
+        tablet_process();
+#ifdef USE_GDBSTUB /* avoid a KBC FIFO overflow when CPU emulation is stalled */
+    }
+#endif
+}
+
+#if !defined(__x86_64__) && !defined(_M_X64) && !defined(__i386__) && !defined(_M_IX86)
+static void
+atomic_double_add(ATOMIC_DOUBLE *var, double val)
 {
     double temp = atomic_load(var);
 
@@ -427,29 +473,30 @@ atomic_double_add(_Atomic double *var, double val)
 
     atomic_store(var, temp);
 }
+#endif
 
 void
 mouse_scale_fx(double x)
 {
-    atomic_double_add(&mouse_x, ((double) x) * mouse_sensitivity);
+    ATOMIC_DOUBLE_ADD(mouse_x, ((double) x) * mouse_sensitivity);
 }
 
 void
 mouse_scale_fy(double y)
 {
-    atomic_double_add(&mouse_y, ((double) y) * mouse_sensitivity);
+    ATOMIC_DOUBLE_ADD(mouse_y, ((double) y) * mouse_sensitivity);
 }
 
 void
 mouse_scale_x(int x)
 {
-    atomic_double_add(&mouse_x, ((double) x) * mouse_sensitivity);
+    ATOMIC_DOUBLE_ADD(mouse_x, ((double) x) * mouse_sensitivity);
 }
 
 void
 mouse_scale_y(int y)
 {
-    atomic_double_add(&mouse_y, ((double) y) * mouse_sensitivity);
+    ATOMIC_DOUBLE_ADD(mouse_y, ((double) y) * mouse_sensitivity);
 }
 
 void
@@ -478,83 +525,114 @@ mouse_scale_axis(int axis, int val)
 void
 mouse_set_z(int z)
 {
-    atomic_fetch_add(&mouse_z, z);
+    ATOMIC_ADD(mouse_z, z);
 }
 
 void
 mouse_clear_z(void)
 {
-    atomic_store(&mouse_z, 0);
+    ATOMIC_STORE(mouse_z, 0);
 }
 
 void
 mouse_set_w(int w)
 {
-    atomic_fetch_add(&mouse_w, w);
+    ATOMIC_ADD(mouse_w, w);
 }
 
 void
 mouse_clear_w(void)
 {
-    atomic_store(&mouse_w, 0);
+    ATOMIC_STORE(mouse_w, 0);
 }
 
 void
 mouse_subtract_z(int *delta_z, int min, int max, int invert)
 {
-    int z = atomic_load(&mouse_z);
+    int z = ATOMIC_LOAD(mouse_z);
     int real_z = invert ? -z : z;
+    min *= WHEEL_DELTA;
+    max *= WHEEL_DELTA;
 
+#if WHEEL_DELTA > 1
+    if ((real_z > -WHEEL_DELTA) && (real_z < WHEEL_DELTA)) {
+        *delta_z = 0;
+        return;
+    } else
+#endif
     if (real_z > max) {
-        *delta_z = max;
+        *delta_z = max / WHEEL_DELTA;
         real_z -= max;
     } else if (real_z < min) {
-        *delta_z = min;
+        *delta_z = min / WHEEL_DELTA;
         real_z += ABS(min);
     } else {
-        *delta_z = real_z;
+        *delta_z = real_z / WHEEL_DELTA;
+#if WHEEL_DELTA > 1
+        real_z -= ((real_z / WHEEL_DELTA) * WHEEL_DELTA);
+#else
         real_z = 0;
+#endif
     }
 
-    atomic_store(&mouse_z, invert ? -real_z : real_z);
+    ATOMIC_STORE(mouse_z, invert ? -real_z : real_z);
 }
 
 void
 mouse_subtract_w(int *delta_w, int min, int max, int invert)
 {
-    int w = atomic_load(&mouse_w);
+    int w = ATOMIC_LOAD(mouse_w);
     int real_w = invert ? -w : w;
+    min *= WHEEL_DELTA;
+    max *= WHEEL_DELTA;
 
+#if WHEEL_DELTA > 1
+    if ((real_w > -WHEEL_DELTA) && (real_w < WHEEL_DELTA)) {
+        *delta_w = 0;
+        return;
+    } else
+#endif
     if (real_w > max) {
-        *delta_w = max;
+        *delta_w = max / WHEEL_DELTA;
         real_w -= max;
     } else if (real_w < min) {
-        *delta_w = min;
+        *delta_w = min / WHEEL_DELTA;
         real_w += ABS(min);
     } else {
-        *delta_w = real_w;
+        *delta_w = real_w / WHEEL_DELTA;
+#if WHEEL_DELTA > 1
+        real_w -= ((real_w / WHEEL_DELTA) * WHEEL_DELTA);
+#else
         real_w = 0;
+#endif
     }
 
-    atomic_store(&mouse_w, invert ? -real_w : real_w);
+    ATOMIC_STORE(mouse_w, invert ? -real_w : real_w);
 }
 
 void
 mouse_set_buttons_ex(int b)
 {
-    atomic_store(&mouse_buttons, b);
+    ATOMIC_STORE(*(mouse_input_mode >= 1 ? &tablet_buttons : &mouse_buttons), b);
+    ATOMIC_STORE(*(mouse_input_mode >= 1 ? &mouse_buttons : &tablet_buttons), 0);
 }
 
 int
 mouse_get_buttons_ex(void)
 {
-    return atomic_load(&mouse_buttons);
+    return ATOMIC_LOAD(mouse_buttons);
+}
+
+int
+tablet_get_buttons_ex(void)
+{
+    return ATOMIC_LOAD(tablet_buttons);
 }
 
 void
 mouse_set_sample_rate(double new_rate)
 {
-    mouse_timed = (new_rate > 0.0);
+    mouse_timed = !force_constant_mouse && (new_rate > 0.0);
 
     timer_stop(&mouse_timer);
 
@@ -563,11 +641,28 @@ mouse_set_sample_rate(double new_rate)
         timer_on_auto(&mouse_timer, 1000000.0 / sample_rate);
 }
 
+void
+tablet_set_sample_rate(double new_rate)
+{
+    timer_stop(&tablet_timer);
+
+    sample_rate_tablet = new_rate;
+    timer_on_auto(&tablet_timer, 1000000.0 / sample_rate_tablet);
+}
+
+void
+mouse_update_sample_rate(void)
+{
+    mouse_set_sample_rate(sample_rate);
+}
+
 /* Callback from the hardware driver. */
 void
 mouse_set_buttons(int buttons)
 {
-    mouse_nbut = buttons;
+    // Make this an union of minimum required buttons.
+    if (mouse_nbut < buttons)
+        mouse_nbut = buttons;
 }
 
 void
@@ -578,18 +673,10 @@ mouse_get_abs_coords(double *x_abs, double *y_abs)
 }
 
 void
-mouse_process(void)
-{
-    if ((mouse_input_mode >= 1) && mouse_poll_ex)
-        mouse_poll_ex();
-    else if ((mouse_input_mode == 0) && (mouse_dev_poll != NULL))
-        mouse_dev_poll(mouse_priv);
-}
-
-void
-mouse_set_poll_ex(void (*poll_ex)(void))
+mouse_set_poll_ex(int (*poll_ex)(void*), void *arg)
 {
     mouse_poll_ex = poll_ex;
+    mouse_ex_priv = arg;
 }
 
 void
@@ -597,12 +684,6 @@ mouse_set_poll(int (*func)(void *), void *arg)
 {
     mouse_dev_poll = func;
     mouse_priv     = arg;
-}
-
-const char *
-mouse_get_name(int mouse)
-{
-    return (mouse_devices[mouse].device->name);
 }
 
 const char *
@@ -640,10 +721,68 @@ mouse_get_device(int mouse)
     return (mouse_devices[mouse].device);
 }
 
+const char *
+tablet_get_internal_name(int tablet)
+{
+    return device_get_internal_name(tablet_devices[tablet].device);
+}
+
+int
+tablet_get_from_internal_name(char *s)
+{
+    int c = 0;
+
+    while (tablet_devices[c].device != NULL) {
+        if (!strcmp((char *) tablet_devices[c].device->internal_name, s))
+            return c;
+        c++;
+    }
+
+    return 0;
+}
+
+int
+tablet_has_config(int tablet)
+{
+    if (tablet_devices[tablet].device == NULL)
+        return 0;
+
+    return (tablet_devices[tablet].device->config ? 1 : 0);
+}
+
+const device_t *
+tablet_get_device(int tablet)
+{
+    return (tablet_devices[tablet].device);
+}
+
 int
 mouse_get_buttons(void)
 {
     return mouse_nbut;
+}
+
+/*
+   Returns the host mouse buttons that release the mouse capture, as a
+   mouse_get_buttons_ex() mask.
+
+   The middle button is used as long as the guest can not see it. Once it can,
+   the thumb buttons take over, and once the guest can see those as well, there
+   is no button left to spare and only the keyboard shortcut remains.
+
+   The returned masks are mutually exclusive by construction.
+ */
+int
+mouse_get_release_buttons(void)
+{
+    int ret = 0x00;
+
+    if (mouse_nbut < 3)
+        ret = MOUSE_RELEASE_MIDDLE;
+    else if (mouse_nbut < 5)
+        ret = MOUSE_RELEASE_THUMB;
+
+    return ret;
 }
 
 /* Return number of MOUSE types we know about. */
@@ -653,49 +792,101 @@ mouse_get_ndev(void)
     return ((sizeof(mouse_devices) / sizeof(mouse_t)) - 1);
 }
 
+int
+tablet_get_ndev(void)
+{
+    return ((sizeof(tablet_devices) / sizeof(mouse_t)) - 1);
+}
+
 void
 mouse_set_raw(int raw)
 {
     mouse_raw = raw;
 }
 
+static void
+tablet_reset(void)
+{
+    if (mouse_ex_priv != NULL)
+        return; /* Tablet already initialized. */
+
+    mouse_log("TABLET: reset(type=%d, '%s')\n",
+              tablet_type, tablet_devices[tablet_type].device->name);
+
+    /* If no mouse configured, we're done. */
+    if (tablet_type == 0)
+        return;
+
+    timer_add(&tablet_timer, tablet_timer_poll, NULL, 0);
+
+    /* Poll at 100 Hz. */
+    tablet_set_sample_rate(100.0);
+
+    if ((tablet_type > 0) && (tablet_devices[tablet_type].device != NULL))
+        mouse_ex_priv = device_add(tablet_devices[tablet_type].device);
+
+    if (!mouse_both_enabled()) {
+        mouse_dev_poll = mouse_poll_ex;
+        mouse_priv = mouse_ex_priv;
+
+        timer_stop(&tablet_timer);
+
+        timer_add(&mouse_timer, mouse_timer_poll, NULL, 0);
+
+        /* Poll at 100 Hz, the default of a PS/2 mouse. */
+        mouse_set_sample_rate(100.0);
+    }
+}
+
 void
 mouse_reset(void)
 {
+    /* Clear local data. */
+    mouse_clear_coords();
+    mouse_clear_buttons();
+    mouse_input_mode = mouse_input_mode_initial;
+    tablet_reset();
+
     if (mouse_priv != NULL)
         return; /* Mouse already initialized. */
 
     mouse_log("MOUSE: reset(type=%d, '%s')\n",
               mouse_type, mouse_devices[mouse_type].device->name);
 
-    /* Clear local data. */
-    mouse_clear_coords();
-    mouse_clear_buttons();
-    mouse_input_mode                  = 0;
-    mouse_timed                 = 1;
-
     /* If no mouse configured, we're done. */
-    if (mouse_type == 0)
+    if (mouse_type == 0) {
+        if (mouse_input_mode == 0 && tablet_type)
+            mouse_input_mode = 1;
         return;
+    }
 
     timer_add(&mouse_timer, mouse_timer_poll, NULL, 0);
 
     /* Poll at 100 Hz, the default of a PS/2 mouse. */
-    sample_rate = 100.0;
-    timer_on_auto(&mouse_timer, 1000000.0 / sample_rate);
+    mouse_set_sample_rate(100.0);
 
     if ((mouse_type > 1) && (mouse_devices[mouse_type].device != NULL))
         mouse_priv = device_add(mouse_devices[mouse_type].device);
+
+    if (!tablet_type) {
+        if (mouse_input_mode > 0)
+            mouse_input_mode = 0;
+    }
 }
 
 void
 mouse_close(void)
 {
     mouse_priv     = NULL;
+    mouse_ex_priv  = NULL;
     mouse_nbut     = 0;
     mouse_dev_poll = NULL;
+    mouse_poll_ex  = NULL;
 
-    timer_stop(&mouse_timer);
+    if (mouse_type)
+        timer_stop(&mouse_timer);
+    if (tablet_type)
+        timer_stop(&tablet_timer);
 }
 
 /* Initialize the mouse module. */

@@ -8,8 +8,6 @@
  *
  *          Implementation of a port 80h POST diagnostic card.
  *
- *
- *
  * Authors: RichardG, <richardg867@gmail.com>
  *
  *          Copyright 2020 RichardG.
@@ -36,6 +34,7 @@ static uint16_t postcard_port;
 static uint8_t  postcard_written[POSTCARDS_NUM];
 static uint8_t  postcard_ports_num = 1;
 static uint8_t  postcard_prev_codes[POSTCARDS_NUM];
+static uint8_t  postcard_dell_mode = 0;
 static char     postcard_prev_diags[5] = { 0 };
 #define UISTR_LEN 32
 static char postcard_str[UISTR_LEN]; /* UI output string */
@@ -99,30 +98,23 @@ postcard_setui(void)
                         ps[1][0], ps[1][1], ps[1][2], ps[1][3]);
                 break;
         }
-    } else if (strstr(machines[machine].name, " Dell ") &&
-               (machine_get_chipset(machine) >= MACHINE_CHIPSET_INTEL_430FX)) {
-        char dell_diags[10] = { 0 };
-
-        if (!postcard_written[1])
-            snprintf(dell_diags, sizeof(dell_diags), "---- ----");
-        else if (postcard_written[1] == 1)
-            snprintf(dell_diags, sizeof(dell_diags), "%s ----", postcard_diags);
-        else
-            snprintf(dell_diags, sizeof(dell_diags), "%s %s", postcard_diags, postcard_prev_diags);
-
-        if (!postcard_written[0])
-            snprintf(postcard_str, sizeof(postcard_str), "POST: -- -- %s", dell_diags);
-        else if (postcard_written[0] == 1)
-            snprintf(postcard_str, sizeof(postcard_str), "POST: %02X -- %s", postcard_codes[0], dell_diags);
-        else
-            snprintf(postcard_str, sizeof(postcard_str), "POST: %02X %02X %s", postcard_codes[0], postcard_prev_codes[0], dell_diags);
     } else {
+        char dell_diags[11] = { 0 };
+        if (postcard_dell_mode) {
+            if (!postcard_written[1])
+                snprintf(dell_diags, sizeof(dell_diags), " ---- ----");
+            else if (postcard_written[1] == 1)
+                snprintf(dell_diags, sizeof(dell_diags), " %s ----", postcard_diags);
+            else
+                snprintf(dell_diags, sizeof(dell_diags), " %s %s", postcard_diags, postcard_prev_diags);
+        }
+
         if (!postcard_written[0])
-            snprintf(postcard_str, sizeof(postcard_str), "POST: -- --");
+            snprintf(postcard_str, sizeof(postcard_str), "POST: -- --%s", dell_diags);
         else if (postcard_written[0] == 1)
-            snprintf(postcard_str, sizeof(postcard_str), "POST: %02X --", postcard_codes[0]);
+            snprintf(postcard_str, sizeof(postcard_str), "POST: %02X --%s", postcard_codes[0], dell_diags);
         else
-            snprintf(postcard_str, sizeof(postcard_str), "POST: %02X %02X", postcard_codes[0], postcard_prev_codes[0]);
+            snprintf(postcard_str, sizeof(postcard_str), "POST: %02X %02X%s", postcard_codes[0], postcard_prev_codes[0], dell_diags);
     }
 
     ui_sb_bugui(postcard_str);
@@ -150,14 +142,19 @@ postcard_reset(void)
 static void
 postcard_write(uint16_t port, uint8_t val, UNUSED(void *priv))
 {
-    if (postcard_written[port & POSTCARD_MASK] &&
-        (val == postcard_codes[port & POSTCARD_MASK]))
+    /* Index relative to the base port: unlike `port & POSTCARD_MASK`, this
+       also works for ports whose low bits are not zero (e.g. the IBM 5550
+       diagnostics on port A1h). */
+    uint8_t idx = port - postcard_port;
+
+    if (postcard_written[idx] &&
+        (val == postcard_codes[idx]))
         return;
 
-    postcard_prev_codes[port & POSTCARD_MASK] = postcard_codes[port & POSTCARD_MASK];
-    postcard_codes[port & POSTCARD_MASK]      = val;
-    if (postcard_written[port & POSTCARD_MASK] < 2)
-        postcard_written[port & POSTCARD_MASK]++;
+    postcard_prev_codes[idx] = postcard_codes[idx];
+    postcard_codes[idx]      = val;
+    if (postcard_written[idx] < 2)
+        postcard_written[idx]++;
 
     postcard_setui();
 }
@@ -199,10 +196,12 @@ postcard_init(UNUSED(const device_t *info))
     if (machine_has_bus(machine, MACHINE_BUS_MCA))
         postcard_port = 0x680; /* MCA machines */
     else if (strstr(machines[machine].name, " PS/2 ") ||
-             strstr(machine_getname_ex(machine), " PS/1 "))
-        postcard_port = 0x190; /* ISA PS/2 machines */
+             strstr(machine_getname(machine), " PS/1 "))
+        postcard_port = is286 ? 0x190 : 0x90; /* ISA PS/2 machines */
     else if (strstr(machines[machine].name, " IBM XT "))
         postcard_port = 0x60; /* IBM XT */
+    else if (strstr(machines[machine].name, " Multistation "))
+        postcard_port = 0xA1; /* IBM 5550 */
     else if (strstr(machines[machine].name, " IBM PCjr")) {
         postcard_port = 0x10; /* IBM PCjr */
         postcard_ports_num = 3; /* IBM PCjr error ports 11h and 12h */
@@ -212,7 +211,7 @@ postcard_init(UNUSED(const device_t *info))
         postcard_port = 0x84; /* ISA Compaq machines */
     else if (strstr(machines[machine].name, "Olivetti"))
         postcard_port = 0x378; /* Olivetti machines */
-    else if (!strcmp(machines[machine].internal_name, "isa486c"))
+    else if (machines[machine].init == machine_at_isa486c_init)
         postcard_port = 0x5080; /* ASUS ISA-486C */
     else
         postcard_port = 0x80; /* AT and clone machines */
@@ -224,9 +223,10 @@ postcard_init(UNUSED(const device_t *info))
         io_sethandler(postcard_port, postcard_ports_num,
                       NULL, NULL, NULL, postcard_write, NULL, NULL, NULL);
 
-    if (strstr(machines[machine].name, " Dell ") &&
-        (machine_get_chipset(machine) >= MACHINE_CHIPSET_INTEL_430FX))
-        io_sethandler(0x00e0, 0x0001,
+    postcard_dell_mode = strstr(machines[machine].name, " Dell ") &&
+                         (machine_get_chipset(machine) >= MACHINE_CHIPSET_INTEL_430FX);
+    if (postcard_dell_mode)
+        io_sethandler(is486 ? 0x00e0 : 0x00e4, 0x0001,
                       NULL, NULL, NULL, NULL, NULL, postcard_writel, NULL);
 
     return postcard_write;

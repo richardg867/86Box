@@ -8,8 +8,6 @@
  *
  *          Software renderer module.
  *
- *
- *
  * Authors: Joakim L. Gilje <jgilje@jgilje.net>
  *          Cacodemon345
  *          Teemu Korhonen
@@ -21,18 +19,21 @@
 #include "qt_softwarerenderer.hpp"
 #include <QApplication>
 #include <QPainter>
+#include <QResizeEvent>
+#include <QScreen>
+#include <QTimer>
+#include "qt_util.hpp"
+#include "qt_osd.hpp"
 
 extern "C" {
 #include <86box/86box.h>
+#include <86box/path.h>
+#include <86box/plat.h>
 #include <86box/video.h>
 }
 
 SoftwareRenderer::SoftwareRenderer(QWidget *parent)
-#ifdef __HAIKU__
     : QWidget(parent)
-#else
-    : QRasterWindow(parent->windowHandle())
-#endif
 {
     RendererCommon::parentWidget = parent;
 
@@ -42,9 +43,25 @@ SoftwareRenderer::SoftwareRenderer(QWidget *parent)
     buf_usage = std::vector<std::atomic_flag>(2);
     buf_usage[0].clear();
     buf_usage[1].clear();
-#ifdef __HAIKU__
     this->setMouseTracking(true);
-#endif
+
+    /* The OSD animates and reacts to input even when the machine is paused, so
+     * keep refreshing while it is on screen. */
+    connect(new QTimer(this), &QTimer::timeout, this, [this]() {
+        if (dopause && qt_osd_needs_render())
+            this->render();
+
+        if (!qt_osd_needs_render() && was_osd_visible)
+            this->render();
+
+        was_osd_visible = qt_osd_needs_render();
+    });
+}
+
+void
+SoftwareRenderer::finalize()
+{
+    qt_osd_shutdown();
 }
 
 void
@@ -55,34 +72,106 @@ SoftwareRenderer::paintEvent(QPaintEvent *event)
 }
 
 void
+SoftwareRenderer::render()
+{
+#ifdef __HAIKU__
+    if (!isExposed())
+        return;
+#endif
+
+    QRect rect(0, 0, width(), height());
+    m_backingStore->beginPaint(rect);
+
+    QPaintDevice *device = m_backingStore->paintDevice();
+    onPaint(device);
+
+    m_backingStore->endPaint();
+    m_backingStore->flush(rect);
+}
+
+void
+SoftwareRenderer::exposeEvent(QExposeEvent *event)
+{
+    render();
+}
+
+extern void take_screenshot_clipboard_monitor(int sx, int sy, int sw, int sh, int i);
+
+void
 SoftwareRenderer::onBlit(int buf_idx, int x, int y, int w, int h)
 {
     /* TODO: should look into deleteLater() */
-    auto  tval    = this;
-    void *nuldata = 0;
-    if (memcmp(&tval, &nuldata, sizeof(void *)) == 0)
+    auto tval = this;
+    if ((void *) tval == nullptr)
         return;
     auto origSource = source;
 
     cur_image = buf_idx;
-    buf_usage[(buf_idx + 1) % 2].clear();
+    buf_usage[buf_idx ^ 1].clear();
 
     source.setRect(x, y, w, h);
 
     if (source != origSource)
         onResize(this->width(), this->height());
+
     update();
+
+    if (monitors[r_monitor_index].mon_screenshots) {
+        char path[1024];
+        char fn[256];
+
+        memset(fn, 0, sizeof(fn));
+        memset(path, 0, sizeof(path));
+
+        path_append_filename(path, usr_path, SCREENSHOT_PATH);
+
+        if (!plat_dir_check(path))
+            plat_dir_create(path);
+
+        path_slash(path);
+        strcat(path, "Monitor_");
+        snprintf(&path[strlen(path)], 42, "%d_", r_monitor_index + 1);
+
+        plat_tempfile(fn, NULL, (char *) ".png");
+        strcat(path, fn);
+
+        qreal win_scale = util::screenOfWidget(this)->devicePixelRatio();
+        QSize qs = RendererCommon::parentWidget->size();
+        QPixmap pixmap(RendererCommon::parentWidget->size());
+        RendererCommon::parentWidget->render(&pixmap);
+        QImage image;
+        if (win_scale == 1.0)
+            image = pixmap.toImage();
+        else
+            image = pixmap.toImage().scaled(qs * win_scale, Qt::IgnoreAspectRatio,
+                                            Qt::SmoothTransformation);
+        image.save(path, "png");
+        monitors[r_monitor_index].mon_screenshots--;
+    }
+    if (monitors[r_monitor_index].mon_screenshots_clipboard) {
+        qreal win_scale = util::screenOfWidget(this)->devicePixelRatio();
+        QSize qs = RendererCommon::parentWidget->size();
+        QPixmap pixmap(RendererCommon::parentWidget->size());
+        RendererCommon::parentWidget->render(&pixmap);
+        QImage image;
+        if (win_scale == 1.0)
+            image = pixmap.toImage();
+        else
+            image = pixmap.toImage().scaled(qs * win_scale, Qt::IgnoreAspectRatio,
+                                            Qt::SmoothTransformation);
+        util::copyImageToClipboard(image);
+        monitors[r_monitor_index].mon_screenshots_clipboard--;
+    }
+    if (monitors[r_monitor_index].mon_screenshots_raw_clipboard) {
+        take_screenshot_clipboard_monitor(x, y, w, h, r_monitor_index);
+    }
 }
 
 void
 SoftwareRenderer::resizeEvent(QResizeEvent *event)
 {
     onResize(width(), height());
-#ifdef __HAIKU__
     QWidget::resizeEvent(event);
-#else
-    QRasterWindow::resizeEvent(event);
-#endif
 }
 
 bool
@@ -90,18 +179,17 @@ SoftwareRenderer::event(QEvent *event)
 {
     bool res = false;
     if (!eventDelegate(event, res))
-#ifdef __HAIKU__
         return QWidget::event(event);
-#else
-        return QRasterWindow::event(event);
-#endif
     return res;
 }
 
 void
 SoftwareRenderer::onPaint(QPaintDevice *device)
 {
-    if (cur_image == -1)
+    const bool osd = qt_osd_needs_render();
+    /* Repaint when the OSD is up, or once more right after it closes so a
+     * lingering overlay is cleared even while the machine is paused. */
+    if (cur_image == -1 && !osd && !osd_drawn_last)
         return;
 
     QPainter painter(device);
@@ -111,8 +199,26 @@ SoftwareRenderer::onPaint(QPaintDevice *device)
 #else
     painter.fillRect(0, 0, device->width(), device->height(), Qt::black);
 #endif
-    painter.setCompositionMode(QPainter::CompositionMode_Plus);
-    painter.drawImage(destination, *images[cur_image], source);
+    if (cur_image != -1) {
+        painter.setCompositionMode(QPainter::CompositionMode_Plus);
+        painter.drawImage(destination, *images[cur_image], source);
+        painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+    }
+
+    if (osd) {
+        painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
+        qt_osd_set_layout_scale_hint(osdLayoutScaleHint());
+        const QImage *frame = qt_osd_render_software(width(), height(), devicePixelRatioF());
+        if (frame)
+            painter.drawImage(QPointF(0, 0), *frame);
+    }
+    painter.end();
+    osd_drawn_last = osd;
+
+    /* The OSD animates and reacts to input even when the machine is paused, so
+     * keep refreshing while it is on screen. */
+    if (qt_osd_needs_render() && !dopause)
+        QTimer::singleShot(16, this, [this] { update(); });
 }
 
 std::vector<std::tuple<uint8_t *, std::atomic_flag *>>

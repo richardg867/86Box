@@ -8,14 +8,13 @@
  *
  *          Implementation of the OPTi 82C802G/82C895 chipset.
  *
- *
- *
  * Authors: Tiseno100,
  *          Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2008-2020 Tiseno100.
  *          Copyright 2016-2020 Miran Grca.
  */
+#include <math.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -160,6 +159,8 @@ opti895_write(uint16_t addr, uint8_t val, void *priv)
                 ((dev->idx >= 0xe0) && (dev->idx <= 0xef))) {
                 if (dev->idx > 0x2f)
                     dev->regs[dev->idx] = val;
+                else if (dev->idx == 0x28)
+                    dev->regs[dev->idx] = (val & masks[dev->idx - 0x20]) | 0x18;
                 else
                     dev->regs[dev->idx] = val & masks[dev->idx - 0x20];
                 opti895_log("dev->regs[%04x] = %08x\n", dev->idx, val);
@@ -181,6 +182,27 @@ opti895_write(uint16_t addr, uint8_t val, void *priv)
                     case 0x24:
                         smram_state_change(dev->smram, 0, !!(val & 0x80));
                         break;
+
+                    case 0x25: {
+                        double bus_clk;
+                        switch (val & 0x03) {
+                            default:
+                            case 0x00:
+                                 bus_clk = cpu_busspeed / 6.0;
+                                 break;
+                            case 0x01:
+                                 bus_clk = cpu_busspeed / 5.0;
+                                 break;
+                            case 0x02:
+                                 bus_clk = cpu_busspeed / 4.0;
+                                 break;
+                            case 0x03:
+                                 bus_clk = cpu_busspeed / 3.0;
+                                 break;
+                        }
+                        cpu_set_isa_speed((int) round(bus_clk));
+                        break;
+                    }
 
                     case 0xe0:
                         if (!(val & 0x01))
@@ -227,7 +249,9 @@ opti895_read(uint16_t addr, void *priv)
             if (((dev->idx >= 0x20) && (dev->idx <= 0x2f) && (dev->idx != 0x2c)) ||
                 ((dev->idx >= 0xe0) && (dev->idx <= 0xef))) {
                 ret = dev->regs[dev->idx];
-                if (dev->idx == 0xe0)
+                if (dev->idx == 0x28)
+                    ret |= 0x18;
+                else if (dev->idx == 0xe0)
                     ret = (ret & 0xf6) | (in_smm ? 0x00 : 0x08) | !!dev->forced_green;
             }
             break;
@@ -271,7 +295,7 @@ opti895_init(const device_t *info)
 
     dev->regs[0x01] = 0xc0;
 
-    dev->regs[0x22] = 0xc4;
+    dev->regs[0x22] = 0xe4;
     dev->regs[0x25] = 0x7c;
     dev->regs[0x26] = 0x10;
     dev->regs[0x27] = 0xde;
@@ -284,7 +308,7 @@ opti895_init(const device_t *info)
     dev->regs[0xe8] = 0x08;
     dev->regs[0xe9] = 0x08;
     dev->regs[0xeb] = 0xff;
-    dev->regs[0xef] = 0x40;
+    dev->regs[0xef] = 0x41;
 
     opti895_recalc(dev);
 
@@ -293,6 +317,8 @@ opti895_init(const device_t *info)
     dev->smram = smram_add();
 
     smram_enable(dev->smram, 0x00030000, 0x000b0000, 0x00010000, 0, 1);
+
+    cpu_set_isa_speed((int) round(cpu_busspeed / 6.0));
 
     return dev;
 }

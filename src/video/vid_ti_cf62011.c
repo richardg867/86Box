@@ -42,8 +42,6 @@
  *          which are the same as the XGA. It supports up to 1MB of VRAM,
  *          but we lock it down to 512K. The PS/1 2122 had 256K.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
@@ -233,8 +231,7 @@ vid_init(const device_t *info)
     tivga_t *ti;
 
     /* Allocate control block and initialize. */
-    ti = (tivga_t *) malloc(sizeof(tivga_t));
-    memset(ti, 0x00, sizeof(tivga_t));
+    ti = (tivga_t *) calloc(1, sizeof(tivga_t));
 
     /* Set amount of VRAM in KB. */
     if (info->local == 0)
@@ -249,11 +246,11 @@ vid_init(const device_t *info)
               NULL, vid_in, vid_out, NULL, NULL);
 
     io_sethandler(0x0100, 2, vid_in, NULL, NULL, NULL, NULL, NULL, ti);
-    io_sethandler(0x03c0, 32, vid_in, NULL, NULL, vid_out, NULL, NULL, ti);
+    io_sethandler(0x03a0, 64, vid_in, NULL, NULL, vid_out, NULL, NULL, ti);
     io_sethandler(0x2100, 16, vid_in, NULL, NULL, vid_out, NULL, NULL, ti);
 
     ti->svga.bpp     = 8;
-    ti->svga.miscout = 1;
+    ti->svga.miscout = 0;
 
     return ti;
 }

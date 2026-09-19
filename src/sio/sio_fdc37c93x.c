@@ -6,10 +6,7 @@
  *
  *          This file is part of the 86Box distribution.
  *
- *          Implementation of the SMC FDC37C932FR and FDC37C935 Super
- *          I/O Chips.
- *
- *
+ *          Implementation of the SMC FDC37C93x Super I/O Chips.
  *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
@@ -78,6 +75,7 @@ typedef struct fdc37c93x_t {
     acpi_t       *acpi;
     void         *kbc;
     serial_t     *uart[2];
+    lpt_t        *lpt;
 } fdc37c93x_t;
 
 static void    fdc37c93x_write(uint16_t port, uint8_t val, void *priv);
@@ -145,7 +143,7 @@ static __inline uint8_t
 fdc37c93x_do_read_gp(fdc37c93x_t *dev, int reg, int bit)
 {
     /* Update bit 2 on the Acer V35N according to the selected graphics card type. */
-    if ((reg == 2) && (strstr(machine_get_internal_name(), "acer") != NULL))
+    if ((reg == 2) && !strncmp(machine_get_internal_name(), "acer", 4))
         dev->gpio_pulldn[reg] = (dev->gpio_pulldn[reg] & 0xfb) | (video_is_mda() ? 0x00 : 0x04);
 
     return dev->gpio_regs[reg] & dev->gpio_pulldn[reg] & (1 << bit);
@@ -777,7 +775,7 @@ fdc37c93x_fdc_handler(fdc37c93x_t *dev)
 
     dev->fdc_base = 0x0000;
 
-    if (global_enable && local_enable)
+    if (local_enable)
         dev->fdc_base = make_port(dev, 0) & 0xfff8;
 
     if (dev->fdc_base != old_base) {
@@ -787,33 +785,71 @@ fdc37c93x_fdc_handler(fdc37c93x_t *dev)
         if ((dev->fdc_base >= 0x0100) && (dev->fdc_base <= 0x0ff8))
             fdc_set_base(dev->fdc, dev->fdc_base);
     }
+
+    fdc_set_power_down(dev->fdc, !global_enable);
 }
 
 static void
 fdc37c93x_lpt_handler(fdc37c93x_t *dev)
 {
-    const uint8_t  global_enable = !!(dev->regs[0x22] & (1 << 3));
-    const uint8_t  local_enable  = !!dev->ld_regs[3][0x30];
-    uint8_t        lpt_irq       = dev->ld_regs[3][0x70];
-    const uint16_t old_base      = dev->lpt_base;
+    uint16_t ld_port       = 0x0000;
+    uint16_t mask          = 0xfffc;
+    uint8_t  global_enable   = !!(dev->regs[0x22] & (1 << 3));
+    uint8_t  local_enable    = !!dev->ld_regs[3][0x30];
+    uint8_t  lpt_irq         = dev->ld_regs[3][0x70];
+    uint8_t  lpt_dma         = dev->ld_regs[3][0x74];
+    uint8_t  lpt_mode        = dev->ld_regs[3][0xf0] & 0x07;
+    uint8_t  irq_readout[16] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x38, 0x00, 0x08,
+                                 0x00, 0x10, 0x18, 0x20, 0x00, 0x00, 0x28, 0x30 };
 
     if (lpt_irq > 15)
         lpt_irq = 0xff;
 
-    dev->lpt_base = 0x0000;
+    if (lpt_dma >= 4)
+        lpt_dma = 0xff;
 
-    if (global_enable && local_enable)
-        dev->lpt_base = make_port(dev, 3) & 0xfffc;
-
-    if (dev->lpt_base != old_base) {
-        if ((old_base >= 0x0100) && (old_base <= 0x0ffc))
-            lpt1_remove();
-
-        if ((dev->lpt_base >= 0x0100) && (dev->lpt_base <= 0x0ffc))
-            lpt1_setup(dev->lpt_base);
+    lpt_port_remove(dev->lpt);
+    lpt_set_fifo_threshold(dev->lpt, (dev->ld_regs[3][0xf0] & 0x78) >> 3);
+    switch (lpt_mode) {
+        default:
+        case 0x04:
+            lpt_set_epp(dev->lpt, 0);
+            lpt_set_ecp(dev->lpt, 0);
+            lpt_set_ext(dev->lpt, 0);
+            break;
+        case 0x00:
+            lpt_set_epp(dev->lpt, 0);
+            lpt_set_ecp(dev->lpt, 0);
+            lpt_set_ext(dev->lpt, 1);
+            break;
+        case 0x01: case 0x05:
+            mask = 0xfff8;
+            lpt_set_epp(dev->lpt, 1);
+            lpt_set_ecp(dev->lpt, 0);
+            lpt_set_ext(dev->lpt, 0);
+            break;
+        case 0x02:
+            lpt_set_epp(dev->lpt, 0);
+            lpt_set_ecp(dev->lpt, 1);
+            lpt_set_ext(dev->lpt, 0);
+            break;
+        case 0x03: case 0x07:
+            mask = 0xfff8;
+            lpt_set_epp(dev->lpt, 1);
+            lpt_set_ecp(dev->lpt, 1);
+            lpt_set_ext(dev->lpt, 0);
+            break;
     }
+    if (global_enable && local_enable) {
+        ld_port = (make_port(dev, 3) & 0xfffc) & mask;
+        if ((ld_port >= 0x0100) && (ld_port <= (0x0ffc & mask)))
+            lpt_port_setup(dev->lpt, ld_port);
+    }
+    lpt_port_irq(dev->lpt, lpt_irq);
+    lpt_port_dma(dev->lpt, lpt_dma);
 
-    lpt1_irq(lpt_irq);
+    lpt_set_cnfgb_readout(dev->lpt, ((lpt_irq > 15) ? 0x00 : irq_readout[lpt_irq]) |
+                                    ((lpt_dma >= 4) ? 0x00 : lpt_dma));
 }
 
 static void
@@ -823,6 +859,7 @@ fdc37c93x_serial_handler(fdc37c93x_t *dev, const int uart)
     const uint8_t  global_enable = !!(dev->regs[0x22] & (1 << uart_no));
     const uint8_t  local_enable  = !!dev->ld_regs[uart_no][0x30];
     const uint16_t old_base      = dev->uart_base[uart];
+    double         clock_src     = 24000000.0 / 13.0;
 
     dev->uart_base[uart] = 0x0000;
 
@@ -837,13 +874,34 @@ fdc37c93x_serial_handler(fdc37c93x_t *dev, const int uart)
             serial_setup(dev->uart[uart], dev->uart_base[uart], dev->ld_regs[uart_no][0x70]);
     }
 
+    switch (dev->ld_regs[uart_no][0xf0] & 0x03) {
+        case 0x00:
+            clock_src = 24000000.0 / 13.0;
+            break;
+        case 0x01:
+            clock_src = 24000000.0 / 12.0;
+            break;
+        case 0x02:
+            clock_src = 24000000.0 / 1.0;
+            break;
+        case 0x03:
+            clock_src = 24000000.0 / 1.625;
+            break;
+
+        default:
+            break;
+    }
+
+    serial_set_clock_src(dev->uart[uart], clock_src);
+
     /*
        TODO: If UART 2's own IRQ pin is also enabled when shared,
              it should also be asserted.
      */
-    if ((dev->chip_id >= FDC37C93X_FR) && (dev->ld_regs[4][0xf0] & 0x80))
-        serial_irq(dev->uart[uart], dev->ld_regs[4][0x70]);
-    else
+    if ((dev->chip_id >= FDC37C93X_FR) && (dev->ld_regs[4][0xf0] & 0x80)) {
+        serial_irq(dev->uart[0], dev->ld_regs[4][0x70]);
+        serial_irq(dev->uart[1], dev->ld_regs[4][0x70]);
+    } else
         serial_irq(dev->uart[uart], dev->ld_regs[uart_no][0x70]);
 }
 
@@ -855,9 +913,11 @@ fdc37c93x_nvr_pri_handler(const fdc37c93x_t *dev)
     if (dev->chip_id != 0x02)
         local_enable &= ((dev->ld_regs[6][0xf0] & 0x90) != 0x80);
 
-    nvr_at_handler(0, 0x70, dev->nvr);
-    if (local_enable)
-        nvr_at_handler(1, 0x70, dev->nvr);
+    if (dev->has_nvr) {
+        nvr_at_handler(0, 0x70, dev->nvr);
+        if (local_enable)
+            nvr_at_handler(1, 0x70, dev->nvr);
+    }
 }
 
 static void
@@ -875,12 +935,12 @@ fdc37c93x_nvr_sec_handler(fdc37c93x_t *dev)
         dev->nvr_sec_base = make_port_sec(dev, 6) & 0xfffe;
 
     if (dev->nvr_sec_base != old_base) {
-        if ((old_base > 0x0000) && (old_base <= 0x0ffe))
+        if (dev->has_nvr && (old_base > 0x0000) && (old_base <= 0x0ffe))
             nvr_at_sec_handler(0, dev->nvr_sec_base, dev->nvr);
 
         /* Datasheet erratum: First it says minimum address is 0x0100, but later implies that it's 0x0000
                               and that default is 0x0070, same as (unrelocatable) primary NVR. */
-        if ((dev->nvr_sec_base > 0x0000) && (dev->nvr_sec_base <= 0x0ffe))
+        if (dev->has_nvr && (dev->nvr_sec_base > 0x0000) && (dev->nvr_sec_base <= 0x0ffe))
             nvr_at_sec_handler(1, dev->nvr_sec_base, dev->nvr);
     }
 }
@@ -895,6 +955,9 @@ fdc37c93x_kbc_handler(fdc37c93x_t *dev)
 
     if (dev->kbc_base != old_base)
         kbc_at_handler(local_enable, dev->kbc_base, dev->kbc);
+
+    kbc_at_set_irq(0, dev->ld_regs[7][0x70], dev->kbc);
+    kbc_at_set_irq(1, dev->ld_regs[7][0x72], dev->kbc);
 }
 
 static void
@@ -1036,6 +1099,7 @@ fdc37c93x_write(uint16_t port, uint8_t val, void *priv)
                     break;
                 case 0x03:
                     dev->regs[dev->cur_reg] = val & 0x83;
+                    fdc37c93x_gpio_handler(dev);
                     break;
                 case 0x07: case 0x26:
                 case 0x2e ... 0x2f:
@@ -1116,6 +1180,17 @@ fdc37c93x_write(uint16_t port, uint8_t val, void *priv)
 
                             if (valxor & 0x01)
                                 fdc_update_enh_mode(dev->fdc, val & 0x01);
+                            if (valxor & 0x0c) {
+                                fdc_clear_flags(dev->fdc, FDC_FLAG_PS2 | FDC_FLAG_PS2_MCA);
+                                switch (val & 0x0c) {
+                                    case 0x00:
+                                        fdc_set_flags(dev->fdc, FDC_FLAG_PS2);
+                                        break;
+                                    case 0x04:
+                                        fdc_set_flags(dev->fdc, FDC_FLAG_PS2_MCA);
+                                        break;
+                                }
+                            }
                             if (valxor & 0x10)
                                 fdc_set_swap(dev->fdc, (val & 0x10) >> 4);
                             break;
@@ -1194,8 +1269,20 @@ fdc37c93x_write(uint16_t port, uint8_t val, void *priv)
                             if (valxor)
                                 fdc37c93x_lpt_handler(dev);
                             break;
+                        /*
+                           Bits 2:0: Mode:
+                               - 000: Bi-directional (SPP);
+                               - 001: EPP-1.9 and SPP;
+                               - 010: ECP;
+                               - 011: ECP and EPP-1.9;
+                               - 101: EPP-1.7 and SPP;
+                               - 110: ECP and EPP-1.7.
+                           Bits 6:3: ECP FIFO Threshold.
+                         */
                         case 0xf0:
                             dev->ld_regs[dev->regs[7]][dev->cur_reg] = val;
+                            if (valxor & 0x7f)
+                                fdc37c93x_lpt_handler(dev);
                             break;
                         case 0xf1:
                             if (dev->chip_id >= FDC37C93X_FR)
@@ -1215,7 +1302,6 @@ fdc37c93x_write(uint16_t port, uint8_t val, void *priv)
                             if (valxor)
                                 fdc37c93x_serial_handler(dev, 0);
                             break;
-                        /* TODO: Bit 0 = MIDI Mode, Bit 1 = High speed. */
                         case 0xf0:
                             if (dev->chip_id >= FDC37C93X_FR) {
                                 dev->ld_regs[dev->regs[7]][dev->cur_reg] = val & 0x83;
@@ -1246,7 +1332,6 @@ fdc37c93x_write(uint16_t port, uint8_t val, void *priv)
                                     fdc37c93x_serial_handler(dev, 1);
                             }
                             break;
-                        /* TODO: Bit 0 = MIDI Mode, Bit 1 = High speed. */
                         case 0xf0:
                             dev->ld_regs[dev->regs[7]][dev->cur_reg] = val & 0x03;
 
@@ -1288,7 +1373,7 @@ fdc37c93x_write(uint16_t port, uint8_t val, void *priv)
                             else
                                 dev->ld_regs[dev->regs[7]][dev->cur_reg] = val & 0x8f;
 
-                            if (valxor) {
+                            if (dev->has_nvr && valxor) {
                                 nvr_lock_set(0x80, 0x20, !!(dev->ld_regs[6][dev->cur_reg] & 0x01), dev->nvr);
                                 nvr_lock_set(0xa0, 0x20, !!(dev->ld_regs[6][dev->cur_reg] & 0x02), dev->nvr);
                                 nvr_lock_set(0xc0, 0x20, !!(dev->ld_regs[6][dev->cur_reg] & 0x04), dev->nvr);
@@ -1341,14 +1426,15 @@ fdc37c93x_write(uint16_t port, uint8_t val, void *priv)
                             dev->ld_regs[dev->regs[7]][dev->cur_reg] = val;
                             break;
                         case 0xf4:
-                            dev->ld_regs[dev->regs[7]][dev->cur_reg] = val & 0x83;
+                            dev->ld_regs[dev->regs[7]][dev->cur_reg] =
+                                (dev->ld_regs[dev->regs[7]][dev->cur_reg] & 0x73) | (val & 0x80);
                             break;
                     }
                     break;
                 case 0x07:    /* Keyboard */
                     switch (dev->cur_reg) {
                         case 0x30:
-                        case 0x70: case 0x71:
+                        case 0x70: case 0x72:
                             dev->ld_regs[dev->regs[7]][dev->cur_reg] = val;
 
                             if (valxor)
@@ -1521,8 +1607,6 @@ fdc37c93x_read(uint16_t port, void *priv)
                 if ((dev->regs[7] == 0x00) && (dev->cur_reg == 0xf2))
                     ret = (fdc_get_rwc(dev->fdc, 0) | (fdc_get_rwc(dev->fdc, 1) << 2) |
                           (fdc_get_rwc(dev->fdc, 2) << 4) | (fdc_get_rwc(dev->fdc, 3) << 6));
-                else if ((dev->regs[7] != 0x06) || (dev->cur_reg != 0xf3))
-                    ret = dev->ld_regs[dev->regs[7]][dev->cur_reg];
                 else if ((dev->regs[7] == 0x08) && (dev->cur_reg >= 0xf6) &&
                          (dev->cur_reg <= 0xfb) &&
                          (dev->chip_id >= FDC37C93X_FR))  switch (dev->cur_reg) {
@@ -1568,7 +1652,8 @@ fdc37c93x_read(uint16_t port, void *priv)
                                 ret |= fdc37c93x_read_gp(dev, 7, i);
                         }
                         break;
-                }
+                } else if ((dev->regs[7] != 0x06) || (dev->cur_reg != 0xf3))
+                    ret = dev->ld_regs[dev->regs[7]][dev->cur_reg];
             }
         }
     }
@@ -1577,8 +1662,10 @@ fdc37c93x_read(uint16_t port, void *priv)
 }
 
 static void
-fdc37c93x_reset(fdc37c93x_t *dev)
+fdc37c93x_reset(void *priv)
 {
+    fdc37c93x_t *dev = (fdc37c93x_t *) priv;
+
     memset(dev->regs, 0x00, sizeof(dev->regs));
 
     dev->regs[0x03] = 0x03;
@@ -1652,11 +1739,13 @@ fdc37c93x_reset(fdc37c93x_t *dev)
     dev->ld_regs[0x06][0x63] = (dev->has_nvr) ? 0x70 : 0x00;
     dev->ld_regs[0x06][0xf0] = 0x00;
     dev->ld_regs[0x06][0xf4] = 0x03;
+    dev->ld_regs[0x06][0xf6] = 0x01;
 
     /* Logical device 7: Keyboard */
     dev->ld_regs[0x07][0x30] = 0x00;
     dev->ld_regs[0x07][0x61] = 0x60;
     dev->ld_regs[0x07][0x70] = 0x01;
+    dev->ld_regs[0x07][0x72] = 0x0c;
 
     /* Logical device 8: Auxiliary I/O */
     dev->ld_regs[0x08][0x30] = 0x00;
@@ -1701,7 +1790,9 @@ fdc37c93x_reset(fdc37c93x_t *dev)
     if (dev->is_apm)
         fdc37c93x_acpi_handler(dev);
 
+    fdc_clear_flags(dev->fdc, FDC_FLAG_PS2 | FDC_FLAG_PS2_MCA);
     fdc_reset(dev->fdc);
+
     fdc37c93x_fdc_handler(dev);
 
     if (dev->has_nvr) {
@@ -1710,10 +1801,12 @@ fdc37c93x_reset(fdc37c93x_t *dev)
         nvr_bank_set(0, 0, dev->nvr);
         nvr_bank_set(1, 0xff, dev->nvr);
 
-        nvr_lock_set(0x80, 0x20, 0, dev->nvr);
-        nvr_lock_set(0xa0, 0x20, 0, dev->nvr);
-        nvr_lock_set(0xc0, 0x20, 0, dev->nvr);
-        nvr_lock_set(0xe0, 0x20, 0, dev->nvr);
+        if (!dump_missing) {
+            nvr_lock_set(0x80, 0x20, 0, dev->nvr);
+            nvr_lock_set(0xa0, 0x20, 0, dev->nvr);
+            nvr_lock_set(0xc0, 0x20, 0, dev->nvr);
+            nvr_lock_set(0xe0, 0x20, 0, dev->nvr);
+        }
     }
 
     fdc37c93x_kbc_handler(dev);
@@ -1721,16 +1814,12 @@ fdc37c93x_reset(fdc37c93x_t *dev)
     if (dev->chip_id != 0x02)
         fdc37c93x_superio_handler(dev);
 
-    if (dev->chip_id >= FDC37C93X_FR) {
-        serial_set_clock_src(dev->uart[0], 24000000.0);
-        serial_set_clock_src(dev->uart[1], 24000000.0);
-    }
-
     memset(dev->gpio_regs,   0xff, 256);
     memset(dev->gpio_pulldn, 0xff, 8);
 
     /* Acer V62X requires bit 0 to be clear to not be stuck in "clear password" mode. */
-    if (!strcmp(machine_get_internal_name(), "vectra54")) {
+    if ((machines[machine].init == machine_at_vectra54_init) ||
+        (machines[machine].init == machine_at_vectra500mt_init)) {
         dev->gpio_pulldn[1] = 0x40;
 
         /*
@@ -1768,12 +1857,12 @@ fdc37c93x_reset(fdc37c93x_t *dev)
             dev->gpio_pulldn[1] |= 0x00;
         else if (cpu_dmulti > 2.5)
             dev->gpio_pulldn[1] |= 0x80;
-    } else if (!strcmp(machine_get_internal_name(), "acerv62x"))
+    } else if (machines[machine].init == machine_at_acerv62x_init)
         dev->gpio_pulldn[1] = 0xfe;
     else
         dev->gpio_pulldn[1] = (dev->chip_id == 0x30) ? 0xff : 0xfd;
 
-    if (strstr(machine_get_internal_name(), "acer") != NULL)
+    if (!strncmp(machine_get_internal_name(), "acer", 4))
         /* Bit 2 on the Acer V35N is the text/graphics toggle, bits 1 and 3 = ????. */
         dev->gpio_pulldn[2] = 0x10;
 
@@ -1792,23 +1881,26 @@ static void *
 fdc37c93x_init(const device_t *info)
 {
     fdc37c93x_t *dev = (fdc37c93x_t *) calloc(1, sizeof(fdc37c93x_t));
+    int inst = device_get_instance();
 
     dev->fdc = device_add(&fdc_at_smc_device);
 
     dev->uart[0]   = device_add_inst(&ns16550_device, 1);
     dev->uart[1]   = device_add_inst(&ns16550_device, 2);
 
+    dev->lpt       = device_add_inst(&lpt_port_device, inst ? 2 : 1);
+
     dev->chip_id   = info->local & FDC37C93X_CHIP_ID;
-    dev->kbc_type  = info->local & FDC37C93X_KBC;
+    dev->kbc_type  = info->local & FDC37XXXX_KBC;
 
     dev->is_apm    = (dev->chip_id == FDC37C93X_APM);
-    dev->is_compaq = (dev->kbc_type == FDC37C931);
+    dev->is_compaq = (dev->kbc_type == FDC37XXX1);
 
     dev->has_nvr   = !(info->local & FDC37C93X_NO_NVR);
-    dev->port_370  = !!(info->local & FDC37C93X_370);
+    dev->port_370  = !!(info->local & FDC37XXXX_370);
 
     if (dev->has_nvr) {
-        dev->nvr = device_add(&amstrad_megapc_nvr_device);
+        dev->nvr = device_add_params(&nvr_at_device, (void *) (uintptr_t) NVR_AT_ZERO_DEFAULT);
 
         nvr_bank_set(0, 0, dev->nvr);
         nvr_bank_set(1, 0xff, dev->nvr);
@@ -1834,21 +1926,21 @@ fdc37c93x_init(const device_t *info)
     }
 
     switch (dev->kbc_type) {
-        case FDC37C931:
-            dev->kbc = device_add(&keyboard_ps2_compaq_device);
+        case FDC37XXX1:
+            dev->kbc = device_add_params(&kbc_at_device, (void *) KBC_VEN_COMPAQ);
             break;
-        case FDC37C932:
-            dev->kbc = device_add(&keyboard_ps2_intel_ami_pci_device);
+        case FDC37XXX2:
+            dev->kbc = device_add_params(&kbc_at_device, (void *) (KBC_VEN_AMI | 0x00003500));
             break;
-        case FDC37C933:
+        case FDC37XXX3:
         default:
-            dev->kbc = device_add(&keyboard_ps2_pci_device);
+            dev->kbc = device_add(&kbc_at_device);
             break;
-        case FDC37C935:
-            dev->kbc = device_add(&keyboard_ps2_phoenix_device);
+        case FDC37XXX5:
+            dev->kbc = device_add_params(&kbc_at_device, (void *) (KBC_VEN_PHOENIX | 0x00013800));
             break;
-        case FDC37C937:
-            dev->kbc = device_add(&keyboard_ps2_phoenix_pci_device);
+        case FDC37XXX7:
+            dev->kbc = device_add_params(&kbc_at_device, (void *) (KBC_VEN_PHOENIX | 0x00041600));
             break;
     }
 
@@ -1881,7 +1973,7 @@ const device_t fdc37c93x_device = {
     .local         = 0,
     .init          = fdc37c93x_init,
     .close         = fdc37c93x_close,
-    .reset         = NULL,
+    .reset         = fdc37c93x_reset,
     .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,

@@ -8,8 +8,6 @@
  *
  *          Definitions for the common disk controller handler.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
  *
@@ -27,9 +25,10 @@
 #define HDC_NONE     0
 #define HDC_INTERNAL 1
 
-#define HDC_MAX 2
+#define HDC_MAX      4
 
 extern int hdc_current[HDC_MAX];
+extern int hdc_onboard_enabled;
 
 extern const device_t st506_xt_xebec_device;              /* st506_xt_xebec */
 extern const device_t st506_xt_wdxt_gen_device;           /* st506_xt_wdxt_gen */
@@ -45,6 +44,7 @@ extern const device_t st506_xt_wd1004_27x_device;         /* st506_xt_wd1004_27x
 extern const device_t st506_xt_wd1004a_27x_device;        /* st506_xt_wd1004a_27x */
 extern const device_t st506_xt_victor_v86p_device;        /* st506_xt_victor_v86p */
 extern const device_t st506_xt_toshiba_t1200_device;      /* st506_xt_toshiba_t1200 */
+extern const device_t st506_ps2_device;                   /* st506_mca */
 
 extern const device_t esdi_at_wd1007vse1_device; /* esdi_at */
 extern const device_t esdi_ps2_device;           /* esdi_mca */
@@ -75,16 +75,24 @@ extern const device_t ide_cmd640_pci_device;                    /* CMD PCI-640B 
 extern const device_t ide_cmd640_pci_legacy_only_device;        /* CMD PCI-640B PCI (Legacy Mode Only) */
 extern const device_t ide_cmd640_pci_single_channel_device;     /* CMD PCI-640B PCI (Only primary channel) */
 extern const device_t ide_cmd640_pci_single_channel_sec_device; /* CMD PCI-640B PCI (Only secondary channel) */
+extern const device_t ide_cmd640_pci_single_channel_legacy_only_device; /* CMD PCI-640B PCI (Legacy Mode Only/Only primary channel) */
 extern const device_t ide_cmd646_device;                        /* CMD PCI-646 */
 extern const device_t ide_cmd646_legacy_only_device;            /* CMD PCI-646 (Legacy Mode Only) */
 extern const device_t ide_cmd646_single_channel_device;         /* CMD PCI-646 (Only primary channel) */
 extern const device_t ide_cmd646_ter_qua_device;                /* CMD PCI-646 (Tertiary and quaternary channels) */
+extern const device_t ide_cmd648_ter_qua_device;                /* CMD PCI-648 (Tertiary and quaternary channels) */
+extern const device_t ide_cmd648_ter_qua_onboard_device;        /* CMD PCI-648 (Tertiary and quaternary channels, on-board) */
+extern const device_t ide_cmd649_ter_qua_device;                /* CMD PCI-649 (Tertiary and quaternary channels) */
+extern const device_t ide_hpt366_ter_qua_onboard_device;        /* HighPoint HPT366 (Tertiary and quaternary channels, on-board) */
+
+extern const device_t ide_pc87410_device;                       /* National Semiconductor PC87410 PCI */
 
 extern const device_t ide_opti611_vlb_device;                   /* OPTi 82c611/611A VLB */
 extern const device_t ide_opti611_vlb_sec_device;               /* OPTi 82c611/611A VLB (Secondary channel) */
 
 extern const device_t ide_rz1000_pci_device;                    /* PC Technology RZ-1000 PCI */
 extern const device_t ide_rz1000_pci_single_channel_device;     /* PC Technology RZ-1000 PCI (Only primary channel) */
+extern const device_t ide_rz1001_pci_device;                    /* PC Technology RZ-1001 PCI */
 
 extern const device_t ide_um8673f_device;                       /* UMC UM8673F */
 extern const device_t ide_um8886af_device;                      /* UMC UM8886AF */
@@ -102,27 +110,32 @@ extern const device_t ide_qua_pnp_device;
 
 extern const device_t mcide_device;
 
-extern const device_t xta_wdxt150_device; /* xta_wdxt150 */
-extern const device_t xta_hd20_device;    /* EuroPC internal */
+extern const device_t xta_wdxt150_device;         /* xta_wdxt150 */
+extern const device_t xta_wdxt150_pc3086_device;  /* xta_wdxt150 (PC3086) */
+extern const device_t xta_hd20_device;            /* EuroPC internal */
+extern const device_t xta_st50x_device;           /* ST-50X */
+extern const device_t xta_st50x_pc5086_device;    /* ST-50X (PC5086) */
 
 extern const device_t xtide_device;            /* xtide_xt */
+extern const device_t jride_device;            /* jride_pcjr */
 extern const device_t xtide_at_device;         /* xtide_at */
 extern const device_t xtide_at_2ch_device;     /* xtide_at_2ch */
 extern const device_t xtide_acculogic_device;  /* xtide_ps2 */
 extern const device_t xtide_at_ps2_device;     /* xtide_at_ps2 */
 extern const device_t xtide_at_ps2_2ch_device; /* xtide_at_ps2_2ch */
 
-/* Miscellaneous */
-extern const device_t lba_enhancer_device;
-
 extern void hdc_init(void);
 extern void hdc_reset(void);
 
 extern const char     *hdc_get_internal_name(int hdc);
-extern int             hdc_get_from_internal_name(char *s);
+extern int             hdc_get_from_internal_name(const char *s);
 extern int             hdc_has_config(int hdc);
 extern const device_t *hdc_get_device(int hdc);
 extern int             hdc_get_flags(int hdc);
 extern int             hdc_available(int hdc);
+
+extern void            ps1_hdc_handler(void *priv, int set);
+
+extern void xta_handler(void *priv, int set);
 
 #endif /*EMU_HDC_H*/

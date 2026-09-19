@@ -8,8 +8,6 @@
  *
  *          Handling of the emulated machines.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
  *
@@ -39,7 +37,9 @@
 #include <86box/video.h>
 #include <86box/machine.h>
 #include <86box/isamem.h>
+#include <86box/isarom.h>
 #include <86box/pci.h>
+#include <86box/gdbstub.h>
 #include <86box/plat_unused.h>
 
 int bios_only = 0;
@@ -69,17 +69,19 @@ machine_init_ex(int m)
 {
     int ret = 0;
 
+    is_pcjr = !!machine_has_bus(machine, MACHINE_BUS_SIDECAR);
+
     if (!bios_only) {
-        machine_log("Initializing as \"%s\"\n", machine_getname());
+        machine_log("Initializing as \"%s\"\n", machine_getname(machine));
 
         machine_init_p1();
 
         machine_init_gpio();
         machine_init_gpio_acpi();
 
-        machine_snd              = NULL;
+        machine_snd = NULL;
 
-        is_vpc                   = 0;
+        is_vpc = 0;
 
         standalone_gameport_type = NULL;
         gameport_instance_id     = 0;
@@ -94,10 +96,9 @@ machine_init_ex(int m)
         pc_speed_changed();
 
         /* Reset the memory state. */
-        mem_reset();
+        if (!dump_missing)
+            mem_reset();
         smbase = is_am486dxl ? 0x00060000 : 0x00030000;
-
-        lpt_init();
 
         if (cassette_enable)
             device_add(&cassette_device);
@@ -111,10 +112,18 @@ machine_init_ex(int m)
         /* Reset any ISA memory cards. */
         isamem_reset();
 
+#if 0
+        /* Reset any ISA ROM cards. */
+        isarom_reset();
+#endif
+
         /* Reset the fast off stuff. */
         cpu_fast_off_reset();
 
         pci_flags = 0x00000000;
+
+        if (machines[m].nvr_device)
+            device_add_params(machines[m].nvr_device, (void *) (uintptr_t) machines[m].nvr_params);
     }
 
     /* All good, boot the machine! */
@@ -133,6 +142,19 @@ void
 machine_init(void)
 {
     bios_only = 0;
+
+    machine_set_p1_default(machines[machine].kbc_p1);
+    machine_set_ps2();
+
+    /* Create the GDB Stub socket before gdbstub_cpu_init looks for it.
+       This is done outside of machine_init_ex so we only occupy the socket
+       if we're actually starting a machine. */
+    static int gdbstub_started = 0;
+    if (!gdbstub_started) {
+        gdbstub_started = 1;
+        gdbstub_init();
+    }
+
     (void) machine_init_ex(machine);
 }
 
@@ -175,7 +197,7 @@ void
 machine_common_init(UNUSED(const machine_t *model))
 {
     uint8_t cpu_requires_fast_pit = is486 || (!is286 && is8086 && (cpu_s->rspeed >= 8000000));
-    cpu_requires_fast_pit = cpu_requires_fast_pit && !cpu_16bitbus;
+    cpu_requires_fast_pit         = cpu_requires_fast_pit && !cpu_16bitbus;
 
     /* System devices first. */
     pic_init();

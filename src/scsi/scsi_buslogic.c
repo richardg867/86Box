@@ -11,8 +11,6 @@
  *            1 - BT-545S ISA;
  *            2 - BT-958D PCI
  *
- *
- *
  * Authors: TheCollector1995, <mariogplayer@gmail.com>
  *          Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
@@ -606,6 +604,7 @@ BuslogicSCSIBIOSRequestSetup(x54x_t *dev, uint8_t *CmdBuf, uint8_t *DataInBuf, u
     if ((ESCSICmd->TargetId > 15) || (ESCSICmd->LogicalUnit > 7)) {
         DataInBuf[2] = CCB_INVALID_CCB;
         DataInBuf[3] = SCSI_STATUS_OK;
+        dev->DataReplyLeft = DataReply;
         return;
     }
 
@@ -617,6 +616,7 @@ BuslogicSCSIBIOSRequestSetup(x54x_t *dev, uint8_t *CmdBuf, uint8_t *DataInBuf, u
         buslogic_log("SCSI Target ID %i has no device attached\n", ESCSICmd->TargetId);
         DataInBuf[2] = CCB_SELECTION_TIMEOUT;
         DataInBuf[3] = SCSI_STATUS_OK;
+        dev->DataReplyLeft = DataReply;
         return;
     } else {
         buslogic_log("SCSI Target ID %i detected and working\n", ESCSICmd->TargetId);
@@ -1119,7 +1119,7 @@ BuslogicBIOSUpdate(buslogic_data_t *bl)
 }
 
 static uint8_t
-BuslogicPCIRead(UNUSED(int func), int addr, void *priv)
+BuslogicPCIRead(UNUSED(int func), int addr, UNUSED(int len), void *priv)
 {
     const x54x_t *dev = (x54x_t *) priv;
 #ifdef ENABLE_BUSLOGIC_LOG
@@ -1205,7 +1205,7 @@ BuslogicPCIRead(UNUSED(int func), int addr, void *priv)
 }
 
 static void
-BuslogicPCIWrite(UNUSED(int func), int addr, uint8_t val, void *priv)
+BuslogicPCIWrite(UNUSED(int func), int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     x54x_t          *dev = (x54x_t *) priv;
     buslogic_data_t *bl  = (buslogic_data_t *) dev->ven_data;
@@ -1331,7 +1331,7 @@ BuslogicInitializeLocalRAM(buslogic_data_t *bl)
 }
 
 static uint8_t
-buslogic_mca_read(int port, void *priv)
+buslogic_mca_read(const uint16_t port, void *priv)
 {
     const x54x_t *dev = (x54x_t *) priv;
 
@@ -1339,7 +1339,7 @@ buslogic_mca_read(int port, void *priv)
 }
 
 static void
-buslogic_mca_write(int port, uint8_t val, void *priv)
+buslogic_mca_write(const uint16_t port, const uint8_t val, void *priv)
 {
     x54x_t          *dev = (x54x_t *) priv;
     buslogic_data_t *bl  = (buslogic_data_t *) dev->ven_data;
@@ -1669,7 +1669,7 @@ buslogic_init(const device_t *info)
             break;
         case CHIP_BUSLOGIC_ISA_545C_1994_12_01: /*Dated December 1st, 1994*/
             strcpy(dev->name, "BT-545C");
-            bios_rom_name     = "roms/scsi/buslogic/BT-545C_BIOS.rom";
+            bios_rom_name     = "roms/scsi/buslogic/BT-545C_BIOS.ROM";
             bios_rom_size     = 0x4000;
             bios_rom_mask     = 0x3fff;
             has_autoscsi_rom  = 1;
@@ -1709,7 +1709,7 @@ buslogic_init(const device_t *info)
             break;
         case CHIP_BUSLOGIC_VLB_445C_1994_12_01: /*Dated December 1st, 1994*/
             strcpy(dev->name, "BT-445C");
-            bios_rom_name     = "roms/scsi/buslogic/BT-445C_BIOS.rom";
+            bios_rom_name     = "roms/scsi/buslogic/BT-445C_BIOS.ROM";
             bios_rom_size     = 0x4000;
             bios_rom_mask     = 0x3fff;
             has_autoscsi_rom  = 1;
@@ -1874,7 +1874,7 @@ static const device_config_t BT_ISA_Config[] = {
     },
     {
         .name           = "bios_addr",
-        .description    = "BIOS Address",
+        .description    = "BIOS address",
         .type           = CONFIG_HEX20,
         .default_string = NULL,
         .default_int    = 0,

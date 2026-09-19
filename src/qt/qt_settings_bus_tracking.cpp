@@ -8,8 +8,6 @@
  *
  *          Program settings UI module.
  *
- *
- *
  * Authors: Miran Grca <mgrca8@gmail.com>
  *          Cacodemon345
  *
@@ -21,12 +19,22 @@
 #include <cstdlib>
 #include <cstring>
 
+extern "C" {
+#include "86box/86box.h"
 #include "86box/hdd.h"
 #include "86box/scsi.h"
+#include "86box/cdrom.h"
+#include "86box/scsi_device.h"
+#include "86box/scsi_tape.h"
+}
+
 #include "qt_settings_bus_tracking.hpp"
 
 SettingsBusTracking::SettingsBusTracking()
 {
+    mitsumi_tracking = false;
+
+    mke_tracking  = 0x0000000000000000ULL;
     mfm_tracking  = 0x0000000000000000ULL;
     esdi_tracking = 0x0000000000000000ULL;
     xta_tracking  = 0x0000000000000000ULL;
@@ -39,39 +47,75 @@ SettingsBusTracking::SettingsBusTracking()
 }
 
 uint8_t
+SettingsBusTracking::next_free_mke_channel()
+{
+    uint64_t mask;
+    uint8_t  ret = CHANNEL_NONE;
+
+    for (uint8_t i = 0; i < 4; i++) {
+        mask = 0xffULL << ((uint64_t) ((i << 3) & 0x3f));
+
+        if (!(mke_tracking & mask)) {
+            ret = (uint8_t) i;
+            break;
+        }
+    }
+
+    return ret;
+}
+
+uint8_t
 SettingsBusTracking::next_free_mfm_channel()
 {
-    if ((mfm_tracking & 0xff00ULL) && !(mfm_tracking & 0x00ffULL))
-        return 1;
+    uint64_t mask;
+    uint8_t  ret = CHANNEL_NONE;
 
-    if (!(mfm_tracking & 0xff00ULL) && (mfm_tracking & 0x00ffULL))
-        return 0;
+    for (uint8_t i = 0; i < 2; i++) {
+        mask = 0xffULL << ((uint64_t) ((i << 3) & 0x3f));
 
-    return CHANNEL_NONE;
+        if (!(mfm_tracking & mask)) {
+            ret = (uint8_t) i;
+            break;
+        }
+    }
+
+    return ret;
 }
 
 uint8_t
 SettingsBusTracking::next_free_esdi_channel()
 {
-    if ((esdi_tracking & 0xff00ULL) && !(esdi_tracking & 0x00ffULL))
-        return 1;
+    uint64_t mask;
+    uint8_t  ret = CHANNEL_NONE;
 
-    if (!(esdi_tracking & 0xff00ULL) && (esdi_tracking & 0x00ffULL))
-        return 0;
+    for (uint8_t i = 0; i < 2; i++) {
+        mask = 0xffULL << ((uint64_t) ((i << 3) & 0x3f));
 
-    return CHANNEL_NONE;
+        if (!(esdi_tracking & mask)) {
+            ret = (uint8_t) i;
+            break;
+        }
+    }
+
+    return ret;
 }
 
 uint8_t
 SettingsBusTracking::next_free_xta_channel()
 {
-    if ((xta_tracking & 0xff00ULL) && !(xta_tracking & 0x00ffULL))
-        return 1;
+    uint64_t mask;
+    uint8_t  ret = CHANNEL_NONE;
 
-    if (!(xta_tracking & 0xff00ULL) && (xta_tracking & 0x00ffULL))
-        return 0;
+    for (uint8_t i = 0; i < 2; i++) {
+        mask = 0xffULL << ((uint64_t) ((i << 3) & 0x3f));
 
-    return CHANNEL_NONE;
+        if (!(xta_tracking & mask)) {
+            ret = (uint8_t) i;
+            break;
+        }
+    }
+
+    return ret;
 }
 
 uint8_t
@@ -106,6 +150,42 @@ SettingsBusTracking::next_free_scsi_id()
         mask    = 0xffULL << ((uint64_t) ((i << 3) & 0x3f));
 
         if (!(scsi_tracking[element] & mask)) {
+            ret = (uint8_t) i;
+            break;
+        }
+    }
+
+    return ret;
+}
+
+uint8_t
+SettingsBusTracking::next_free_fdc_unit()
+{
+    uint64_t mask;
+    uint8_t  ret = CHANNEL_NONE;
+
+    for (uint8_t i = 0; i < 4; i++) {
+        mask = 0xffULL << ((uint64_t) ((i << 3) & 0x3f));
+
+        if (!(fdc_tracking & mask)) {
+            ret = (uint8_t) i;
+            break;
+        }
+    }
+
+    return ret;
+}
+
+uint8_t
+SettingsBusTracking::next_free_lpt_port()
+{
+    uint64_t mask;
+    uint8_t  ret = CHANNEL_NONE;
+
+    for (uint8_t i = 0; i < 4; i++) {
+        mask = 0xffULL << ((uint64_t) ((i << 3) & 0x3f));
+
+        if (!(lpt_tracking & mask)) {
             ret = (uint8_t) i;
             break;
         }
@@ -198,28 +278,41 @@ SettingsBusTracking::scsi_bus_full()
     return (count == 64);
 }
 
-QList<int> SettingsBusTracking::busChannelsInUse(const int bus) {
+QList<int>
+SettingsBusTracking::busChannelsInUse(const int bus)
+{
 
     QList<int> channelsInUse;
     int        element;
     uint64_t   mask;
     switch (bus) {
+        case CDROM_BUS_MKE:
+            for (uint8_t i = 0; i < 4; i++) {
+                mask = 0xffULL << ((uint64_t) ((i << 3) & 0x3f));
+                if (mke_tracking & mask)
+                    channelsInUse.append(i);
+            }
+            break;
+        case CDROM_BUS_MITSUMI:
+            if (mitsumi_tracking)
+                channelsInUse.append(0);
+            break;
         case HDD_BUS_MFM:
-            for (uint8_t i = 0; i < 32; i++) {
+            for (uint8_t i = 0; i < 2; i++) {
                 mask = 0xffULL << ((uint64_t) ((i << 3) & 0x3f));
                 if (mfm_tracking & mask)
                     channelsInUse.append(i);
             }
             break;
         case HDD_BUS_ESDI:
-            for (uint8_t i = 0; i < 32; i++) {
+            for (uint8_t i = 0; i < 2; i++) {
                 mask = 0xffULL << ((uint64_t) ((i << 3) & 0x3f));
                 if (esdi_tracking & mask)
                     channelsInUse.append(i);
             }
             break;
         case HDD_BUS_XTA:
-            for (uint8_t i = 0; i < 32; i++) {
+            for (uint8_t i = 0; i < 2; i++) {
                 mask = 0xffULL << ((uint64_t) ((i << 3) & 0x3f));
                 if (xta_tracking & mask)
                     channelsInUse.append(i);
@@ -228,7 +321,7 @@ QList<int> SettingsBusTracking::busChannelsInUse(const int bus) {
         case HDD_BUS_IDE:
             for (uint8_t i = 0; i < 32; i++) {
                 element = ((i << 3) >> 6);
-                mask = ((uint64_t) 0xffULL) << ((uint64_t) ((i << 3) & 0x3f));
+                mask    = ((uint64_t) 0xffULL) << ((uint64_t) ((i << 3) & 0x3f));
                 if (ide_tracking[element] & mask)
                     channelsInUse.append(i);
             }
@@ -236,7 +329,7 @@ QList<int> SettingsBusTracking::busChannelsInUse(const int bus) {
         case HDD_BUS_ATAPI:
             for (uint8_t i = 0; i < 32; i++) {
                 element = ((i << 3) >> 6);
-                mask = ((uint64_t) 0xffULL) << ((uint64_t) ((i << 3) & 0x3f));
+                mask    = ((uint64_t) 0xffULL) << ((uint64_t) ((i << 3) & 0x3f));
                 if (ide_tracking[element] & mask)
                     channelsInUse.append(i);
             }
@@ -246,6 +339,20 @@ QList<int> SettingsBusTracking::busChannelsInUse(const int bus) {
                 element = ((i << 3) >> 6);
                 mask    = 0xffULL << ((uint64_t) ((i << 3) & 0x3f));
                 if (scsi_tracking[element] & mask)
+                    channelsInUse.append(i);
+            }
+            break;
+        case TAPE_BUS_FDC:
+            for (uint8_t i = 0; i < 4; i++) {
+                mask = 0xffULL << ((uint64_t) ((i << 3) & 0x3f));
+                if (fdc_tracking & mask)
+                    channelsInUse.append(i);
+            }
+            break;
+        case TAPE_BUS_LPT:
+            for (uint8_t i = 0; i < 4; i++) {
+                mask = 0xffULL << ((uint64_t) ((i << 3) & 0x3f));
+                if (lpt_tracking & mask)
                     channelsInUse.append(i);
             }
             break;
@@ -263,6 +370,17 @@ SettingsBusTracking::device_track(int set, uint8_t dev_type, int bus, int channe
     uint64_t mask;
 
     switch (bus) {
+        case CDROM_BUS_MKE:
+            mask = ((uint64_t) dev_type) << ((uint64_t) ((channel << 3) & 0x3f));
+
+            if (set)
+                mke_tracking |= mask;
+            else
+                mke_tracking &= ~mask;
+            break;
+        case CDROM_BUS_MITSUMI:
+            mitsumi_tracking = set;
+            break;
         case HDD_BUS_MFM:
             mask = ((uint64_t) dev_type) << ((uint64_t) ((channel << 3) & 0x3f));
 
@@ -309,6 +427,23 @@ SettingsBusTracking::device_track(int set, uint8_t dev_type, int bus, int channe
                 scsi_tracking[element] |= mask;
             else
                 scsi_tracking[element] &= ~mask;
+            break;
+        case TAPE_BUS_FDC:
+            mask = ((uint64_t) dev_type) << ((uint64_t) ((channel << 3) & 0x3f));
+
+            if (set)
+                fdc_tracking |= mask;
+            else
+                fdc_tracking &= ~mask;
+            break;
+
+        case TAPE_BUS_LPT:
+            mask = ((uint64_t) dev_type) << ((uint64_t) ((channel << 3) & 0x3f));
+
+            if (set)
+                lpt_tracking |= mask;
+            else
+                lpt_tracking &= ~mask;
             break;
     }
 }

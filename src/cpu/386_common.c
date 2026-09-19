@@ -23,6 +23,7 @@
 #include <86box/pit.h>
 #include <86box/fdd.h>
 #include <86box/fdc.h>
+#include <86box/plat.h>
 #include <86box/keyboard.h>
 #include <86box/timer.h>
 
@@ -1449,8 +1450,14 @@ enter_smm(int in_hlt)
 void
 enter_smm_check(int in_hlt)
 {
-    uint8_t ccr1_check = ((ccr1 & (CCR1_USE_SMI | CCR1_SMAC | CCR1_SM3)) ==
-                          (CCR1_USE_SMI | CCR1_SM3)) && (cyrix.arr[3].size > 0);
+    uint8_t ccr1_check;
+
+    if (is_cx6x86)
+        ccr1_check = ((ccr1 & (CCR1_USE_SMI | CCR1_SMAC | CCR1_SM3)) ==
+                      (CCR1_USE_SMI | CCR1_SM3)) && (cyrix.arr[3].size > 0);
+    else
+        ccr1_check = ((ccr1 & (CCR1_USE_SMI | CCR1_SMAC)) ==
+                      (CCR1_USE_SMI)) && (cyrix.arr[3].size > 0);
 
     if (smi_line) {
         if (!is_cxsmm || ccr1_check)  switch (in_smm) {
@@ -1682,10 +1689,14 @@ x86_int_sw(int num)
         }
     }
 
+#ifdef USE_DEBUG_REGS_486
+    trap &= ~1;
+#else
     if (cpu_use_exec)
         trap = 0;
     else
         trap &= ~1;
+#endif
     CPU_BLOCK_END();
 }
 
@@ -1728,10 +1739,14 @@ x86_int_sw_rm(int num)
 #endif
 
     cycles -= timing_int_rm;
+#ifdef USE_DEBUG_REGS_486
+    trap &= ~1;
+#else
     if (cpu_use_exec)
         trap = 0;
     else
         trap &= ~1;
+#endif
     CPU_BLOCK_END();
 
     return 0;
@@ -1741,39 +1756,6 @@ void
 x86illegal(void)
 {
     x86_int(6);
-}
-
-int
-checkio(uint32_t port, int mask)
-{
-    uint32_t t;
-
-    if (!(tr.access & 0x08)) {
-        if ((CPL) > (IOPL))
-            return 1;
-
-        return 0;
-    }
-
-    cpl_override = 1;
-    t            = readmemw(tr.base, 0x66);
-
-    if (UNLIKELY(cpu_state.abrt)) {
-        cpl_override = 0;
-        return 0;
-    }
-
-    t += (port >> 3UL);
-    mask <<= (port & 7);
-    if (UNLIKELY(mask & 0xff00)) {
-        if (LIKELY(t < tr.limit))
-            mask &= readmemwl(tr.base + t);
-    } else {
-        if (LIKELY(t <= tr.limit))
-            mask &= readmembl(tr.base + t);
-    }
-    cpl_override = 0;
-    return mask;
 }
 
 #ifdef OLD_DIVEXCP
@@ -1925,9 +1907,7 @@ sysenter(UNUSED(uint32_t fetchdat))
     cpu_state.eflags &= ~(RF_FLAG | VM_FLAG);
     cpu_state.flags &= ~I_FLAG;
 
-#ifndef USE_NEW_DYNAREC
     oldcs = CS;
-#endif
     cpu_state.oldpc = cpu_state.pc;
     ESP             = msr.sysenter_esp;
     cpu_state.pc    = msr.sysenter_eip;
@@ -2011,9 +1991,7 @@ sysexit(UNUSED(uint32_t fetchdat))
     x386_common_log("             EFLAGS=%04X%04X/%i 32=%i/%i ECX=%08X EDX=%08X abrt=%02X\n", cpu_state.eflags, cpu_state.flags, !!trap, !!use32, !!stack32, ECX, EDX, cpu_state.abrt);
 #endif
 
-#ifndef USE_NEW_DYNAREC
     oldcs = CS;
-#endif
     cpu_state.oldpc = cpu_state.pc;
     ESP             = ECX;
     cpu_state.pc    = EDX;
@@ -2071,9 +2049,7 @@ syscall_op(UNUSED(uint32_t fetchdat))
     cpu_state.eflags &= ~VM_FLAG;
     cpu_state.flags &= ~I_FLAG;
 
-#ifndef USE_NEW_DYNAREC
     oldcs = CS;
-#endif
     cpu_state.oldpc = cpu_state.pc;
     ECX             = cpu_state.pc;
 
@@ -2131,9 +2107,7 @@ sysret(UNUSED(uint32_t fetchdat))
        there is a pending interrupt, following the STI logic */
     cpu_end_block_after_ins = 2;
 
-#ifndef USE_NEW_DYNAREC
     oldcs = CS;
-#endif
     cpu_state.oldpc = cpu_state.pc;
     cpu_state.pc    = ECX;
 
@@ -2204,8 +2178,14 @@ cpu_fast_off_reset(void)
 void
 smi_raise(void)
 {
-    uint8_t ccr1_check = ((ccr1 & (CCR1_USE_SMI | CCR1_SMAC | CCR1_SM3)) ==
-                          (CCR1_USE_SMI | CCR1_SM3)) && (cyrix.arr[3].size > 0);
+    uint8_t ccr1_check;
+
+    if (is_cx6x86)
+        ccr1_check = ((ccr1 & (CCR1_USE_SMI | CCR1_SMAC | CCR1_SM3)) ==
+                      (CCR1_USE_SMI | CCR1_SM3)) && (cyrix.arr[3].size > 0);
+    else
+        ccr1_check = ((ccr1 & (CCR1_USE_SMI | CCR1_SMAC)) ==
+                      (CCR1_USE_SMI)) && (cyrix.arr[3].size > 0);
 
     if (is_cxsmm && !ccr1_check)
         return;
@@ -2219,8 +2199,13 @@ smi_raise(void)
 void
 nmi_raise(void)
 {
-    if (is486 && (cpu_fast_off_flags & 0x20000000))
+    if (is486 && (cpu_fast_off_flags & 0x20000000)) {
+        if (!is_cpu_thread)
+            startblit();
         cpu_fast_off_advance();
+        if (!is_cpu_thread)
+            endblit();
+    }
 
     nmi = 1;
 }

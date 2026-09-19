@@ -8,15 +8,13 @@
  *
  *          Definitions for Virtual Function I/O PCI passthrough.
  *
- *
- *
  * Authors: RichardG, <richardg867@gmail.com>
  *
- *          Copyright 2021-2023 RichardG.
+ *          Copyright 2021-2025 RichardG.
  */
 #if !defined(EMU_VFIO_H) && defined(USE_VFIO)
 #    define EMU_VFIO_H
 
 extern void vfio_init(void);
 
-#endif
+#endif /*EMU_VFIO_H*/

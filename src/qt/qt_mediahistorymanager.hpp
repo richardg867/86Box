@@ -8,13 +8,10 @@
  *
  *          Header for the media history management module
  *
- *
- *
  * Authors: cold-brewed
  *
  *          Copyright 2022 The 86Box development team
  */
-
 #ifndef QT_MEDIAHISTORYMANAGER_HPP
 #define QT_MEDIAHISTORYMANAGER_HPP
 
@@ -45,10 +42,11 @@ Q_NAMESPACE
 enum class MediaType {
     Floppy,
     Optical,
-    Zip,
+    RDisk,
     Mo,
     Cassette,
-    Cartridge
+    Cartridge,
+    Tape
 };
 // This macro allows us to do a reverse lookup of the enum with `QMetaEnum`
 Q_ENUM_NS(MediaType)
@@ -62,10 +60,11 @@ typedef QHash<ui::MediaType, device_media_history_t> master_list_t;
 static const MediaType AllSupportedMediaHistoryTypes[] = {
     MediaType::Optical,
     MediaType::Floppy,
-    MediaType::Zip,
+    MediaType::RDisk,
     MediaType::Mo,
     MediaType::Cassette,
-    MediaType::Cartridge
+    MediaType::Cartridge,
+    MediaType::Tape
 };
 
 class MediaHistoryManager {

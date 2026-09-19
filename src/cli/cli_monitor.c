@@ -44,7 +44,6 @@
 #include <86box/thread.h>
 #include <86box/version.h>
 #include <86box/video.h>
-#include <86box/zip.h>
 
 #define MONITOR_CMD_EXIT      0x01
 #define MONITOR_CMD_UNBOUNDED 0x02
@@ -546,14 +545,6 @@ static const struct {
      .category = MONITOR_CATEGORY_MEDIALOAD,
      .handler  = cli_monitor_mediaload,
      .priv     = &(const media_cmd_t) { cdrom_mount, CDROM_NUM, 1, "CD-ROM drive" } },
-    { .name     = "zipload",
-     .helptext = "Load ZIP disk image <filename> into drive <id>.\n[wp] enables write protection when set to 1.",
-     .args     = (const char *[]) { "id", "filename", "wp" },
-     .args_min = 2,
-     .args_max = 3,
-     .category = MONITOR_CATEGORY_MEDIALOAD,
-     .handler  = cli_monitor_mediaload,
-     .priv     = &(const media_cmd_t) { zip_load, ZIP_NUM, 0, "ZIP drive" } },
     { .name     = "moload",
      .helptext = "Load MO disk image <filename> into drive <id>.\n[wp] enables write protection when set to 1.",
      .args     = (const char *[]) { "id", "filename", "wp" },
@@ -587,14 +578,6 @@ static const struct {
      .category = MONITOR_CATEGORY_MEDIAEJECT,
      .handler  = cli_monitor_mediaeject_mountblank_nowp,
      .priv     = &(const media_cmd_t) { cdrom_mount, CDROM_NUM, 1, "CD-ROM drive" } },
-    { .name     = "zipeject",
-     .helptext = "Eject disk from ZIP drive <id>.",
-     .args     = (const char *[]) { "id" },
-     .args_min = 1,
-     .args_max = 1,
-     .category = MONITOR_CATEGORY_MEDIAEJECT,
-     .handler  = cli_monitor_mediaeject,
-     .priv     = &(const media_cmd_t) { zip_eject, ZIP_NUM, 0, "ZIP drive" } },
     { .name     = "moeject",
      .helptext = "Eject disk from MO drive <id>.",
      .args     = (const char *[]) { "id" },

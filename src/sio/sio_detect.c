@@ -8,8 +8,6 @@
  *
  *          Super I/O chip detection code.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2016-2018 Miran Grca.
@@ -47,11 +45,12 @@ sio_detect_write(uint16_t port, uint8_t val, void *priv)
 static uint8_t
 sio_detect_read(uint16_t port, void *priv)
 {
-    const sio_detect_t *dev = (sio_detect_t *) priv;
+    /*const sio_detect_t *dev = (sio_detect_t *) priv*/;
+    uint8_t             ret = 0xff /*dev->regs[port & 1]*/;
 
-    pclog("sio_detect_read : port=%04x = %02X\n", port, dev->regs[port & 1]);
+    pclog("sio_detect_read : port=%04x = %02X\n", port, ret);
 
-    return 0xff /*dev->regs[port & 1]*/;
+    return ret;
 }
 
 static void

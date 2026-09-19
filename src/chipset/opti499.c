@@ -8,14 +8,13 @@
  *
  *          Implementation of the OPTi 82C493/82C499 chipset.
  *
- *
- *
  * Authors: Tiseno100,
  *          Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2008-2020 Tiseno100.
  *          Copyright 2016-2020 Miran Grca.
  */
+#include <math.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -29,6 +28,7 @@
 #include <86box/device.h>
 #include <86box/mem.h>
 #include <86box/port_92.h>
+#include <86box/plat_fallthrough.h>
 #include <86box/plat_unused.h>
 #include <86box/chipset.h>
 
@@ -84,7 +84,10 @@ opti499_recalc(opti499_t *dev)
         base = 0xd0000 + (i << 14);
 
         if ((dev->regs[0x22] & ((base >= 0xe0000) ? 0x20 : 0x40)) && (dev->regs[0x23] & (1 << i))) {
-            shflags = MEM_READ_INTERNAL;
+            if (dev->regs[0x2d] & (1 << ((i >> 1) + 2)))
+                shflags = MEM_READ_EXTANY;
+            else
+                shflags = MEM_READ_INTERNAL;
             shflags |= (dev->regs[0x22] & ((base >= 0xe0000) ? 0x08 : 0x10)) ? MEM_WRITE_DISABLED : MEM_WRITE_INTERNAL;
         } else {
             if (dev->regs[0x2d] & (1 << ((i >> 1) + 2)))
@@ -148,9 +151,28 @@ opti499_write(uint16_t addr, uint8_t val, void *priv)
                     default:
                         break;
 
-                    case 0x20:
+                    case 0x20: {
+                        double coeff   = (val & 0x10) ? 1.0 : 2.0;
+                        double bus_clk;
+                        switch (dev->regs[0x25] & 0x03) {
+                            default:
+                            case 0x00:
+                                 bus_clk = (cpu_busspeed * coeff) / 6.0;
+                                 break;
+                            case 0x01:
+                                 bus_clk = (cpu_busspeed * coeff) / 5.0;
+                                 break;
+                            case 0x02:
+                                 bus_clk = (cpu_busspeed * coeff) / 4.0;
+                                 break;
+                            case 0x03:
+                                 bus_clk = (cpu_busspeed * coeff) / 3.0;
+                                 break;
+                        }
+                        cpu_set_isa_speed((int) round(bus_clk));
                         reset_on_hlt = !(val & 0x02);
                         break;
+                    }
 
                     case 0x21:
                         cpu_cache_ext_enabled = !!(dev->regs[0x21] & 0x10);
@@ -158,11 +180,36 @@ opti499_write(uint16_t addr, uint8_t val, void *priv)
                         break;
 
                     case 0x22:
+                        mem_a20_chipset = (val & 0x02);
+                        mem_a20_recalc();
+                        fallthrough;
                     case 0x23:
                     case 0x26:
                     case 0x2d:
                         opti499_recalc(dev);
                         break;
+
+                    case 0x25: {
+                        double coeff   = (dev->regs[0x20] & 0x10) ? 1.0 : 2.0;
+                        double bus_clk;
+                        switch (val & 0x03) {
+                            default:
+                            case 0x00:
+                                 bus_clk = (cpu_busspeed * coeff) / 8.0;
+                                 break;
+                            case 0x01:
+                                 bus_clk = (cpu_busspeed * coeff) / 6.0;
+                                 break;
+                            case 0x02:
+                                 bus_clk = (cpu_busspeed * coeff) / 5.0;
+                                 break;
+                            case 0x03:
+                                 bus_clk = (cpu_busspeed * coeff) / 4.0;
+                                 break;
+                        }
+                        cpu_set_isa_speed((int) round(bus_clk));
+                        break;
+                    }
                 }
             }
 
@@ -229,6 +276,8 @@ opti499_reset(void *priv)
     cpu_update_waitstates();
 
     opti499_recalc(dev);
+
+    cpu_set_isa_speed((int) round((cpu_busspeed * 2.0) / 6.0));
 }
 
 static void

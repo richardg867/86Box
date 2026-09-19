@@ -24,8 +24,9 @@
 #include <86box/io.h>
 #include "cpu.h"
 #include <86box/timer.h>
-
 #include <86box/dma.h>
+#include <86box/lpt.h>
+#include <86box/machine.h>
 #include <86box/mem.h>
 #include <86box/nvr.h>
 #include <86box/hdd.h>
@@ -47,6 +48,7 @@
 #include <86box/smbus.h>
 #include <86box/sis_55xx.h>
 #include <86box/chipset.h>
+#include <86box/sio.h>
 
 #ifdef ENABLE_SIS_5513_PCI_TO_ISA_LOG
 int sis_5513_pci_to_isa_do_log = ENABLE_SIS_5513_PCI_TO_ISA_LOG;
@@ -319,6 +321,8 @@ sis_5513_00_pci_to_isa_write(int addr, uint8_t val, sis_5513_pci_to_isa_t *dev)
 
         case 0x62: /* On-board Device DMA Control Register */
             dev->pci_conf[addr] = val;
+            if (machine_has_jumpered_ecp_dma(machine, MACHINE_DMA_USE_MBDMA))
+                lpt1_dma(((val & 0x08) || ((val & 0x07) == 0x04)) ? 0xff : (val & 0x07));
             break;
 
         case 0x63: /* IDEIRQ Remapping Control Register */
@@ -618,13 +622,49 @@ sis_5513_b0_pci_to_isa_write(int addr, uint8_t val, sis_5513_pci_to_isa_t *dev)
                  pci_set_mirq_routing(PCI_MIRQ3, val & 0xf);
             break;
 
-        case 0x63: /* PCI OutputBuffer Current Strength Register */
+        case 0x63: /* PCI OutputBuffer Current Strength Register */ {
+            const uint8_t reset_before = dev->pci_conf[addr];
+            const int     is_in530     = (machines[machine].init == machine_at_in530_init);
+
             dev->pci_conf[addr] = val;
             if ((dev->apc_regs[0x03] & 0x40) && (val & 0x04)) {
                 plat_power_off();
                 return;
             }
-            if ((val & 0x18) == 0x18) {
+
+            if (is_in530) {
+                const int sw_reset_trigger =
+                    (((val & 0x18) == 0x18) &&
+                     ((reset_before & 0x18) != 0x18));
+
+                if (sw_reset_trigger) {
+                    if (!cpu_cpurst_on_sr) {
+                        w83877_in530_master_reset();
+
+                        softresetx86();
+                        cpu_set_edx();
+
+                        mem_a20_reset_vector_bypass_once();
+                        flushmmucache();
+                    } else {
+                        dma_reset();
+                        dma_set_at(1);
+
+                        device_reset_all(DEVICE_ALL);
+
+                        cpu_alt_reset = 0;
+
+                        pci_reset();
+
+                        mem_a20_alt = 0;
+                        mem_a20_recalc();
+
+                        flushmmucache();
+
+                        resetx86();
+                    }
+                }
+            } else if ((val & 0x18) == 0x18) {
                 dma_reset();
                 dma_set_at(1);
 
@@ -642,6 +682,7 @@ sis_5513_b0_pci_to_isa_write(int addr, uint8_t val, sis_5513_pci_to_isa_t *dev)
                 resetx86();
             }
             break;
+        }
 
         case 0x64: /* INIT Enable Register */
             dev->pci_conf[addr] = val;
@@ -797,6 +838,9 @@ sis_5513_pci_to_isa_write(int addr, uint8_t val, void *priv)
             pci_set_irq_routing(addr & 0x07, (val & 0x80) ? PCI_IRQ_DISABLED : (val & 0x0f));
             break;
         case 0x44: /* INTD# Remapping Control Register */
+            /* The onboard Solo-1 on the IN530 uses this for INTA for IRQ5 */
+            if (!strcmp(machine_get_internal_name(), "in530") && !(val & 0x80))
+                val = (val & 0xf0) | 0x05;
             if (dev->rev == 0x11) {
                 dev->pci_conf[addr] = val & 0xcf;
                 sis_5513_apc_recalc(dev, val & 0x10);
@@ -1235,7 +1279,7 @@ sis_5513_pci_to_isa_init(UNUSED(const device_t *info))
     dev->pit_read_reg = pit_is_fast ? pitf_read_reg : pit_read_reg;
 
     /* NVR */
-    dev->nvr = device_add(&at_mb_nvr_device);
+    dev->nvr = device_add_params(&nvr_at_device, (void *) (uintptr_t) NVR_AT_MB);
 
     switch (dev->rev) {
         case 0x00:
@@ -1289,7 +1333,7 @@ sis_5513_pci_to_isa_init(UNUSED(const device_t *info))
 
             /* Set up the NVR file's name. */
             c       = strlen(machine_get_nvr_name()) + 9;
-            dev->fn = (char *) malloc(c + 1);
+            dev->fn = (char *) calloc(1, c + 1);
             sprintf(dev->fn, "%s_apc.nvr", machine_get_nvr_name());
 
             fp = nvr_fopen(dev->fn, "rb");

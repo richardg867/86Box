@@ -8,8 +8,6 @@
  *
  *          ATI 28800 emulation (VGA Charger and Korean VGA)
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *          greatpsycho,
@@ -36,11 +34,16 @@
 #include <86box/vid_svga.h>
 #include <86box/vid_svga_render.h>
 
-#define VGAWONDERXL               1
-#define VGAWONDERXLPLUS           2
+enum {
+    VGAWONDERXL = 1,
+    VGAWONDERXLPLUS
 #ifdef USE_XL24
-#    define VGAWONDERXL24         3
+    ,
+    VGAWONDERXL24
 #endif /* USE_XL24 */
+    ,
+    USE_CONFIG_BIOS
+};
 
 #define BIOS_ATIKOR_PATH         "roms/video/ati28800/atikorvga.bin"
 #define BIOS_ATIKOR_4620P_PATH_L "roms/machines/spc4620p/31005h.u8"
@@ -206,7 +209,7 @@ ati28800_out(uint16_t addr, uint8_t val, void *priv)
                 if (svga->crtcreg < 0xe || svga->crtcreg > 0x10) {
                     if ((svga->crtcreg == 0xc) || (svga->crtcreg == 0xd)) {
                         svga->fullchange = 3;
-                        svga->ma_latch   = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) + ((svga->crtc[8] & 0x60) >> 5);
+                        svga->memaddr_latch   = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) + ((svga->crtc[8] & 0x60) >> 5);
                     } else {
                         svga->fullchange = changeframecount;
                         svga_recalctimings(svga);
@@ -407,25 +410,29 @@ static void
 ati28800_recalctimings(svga_t *svga)
 {
     ati28800_t       *ati28800 = (ati28800_t *) svga->priv;
-    int               clock_sel;
+    int               clock_sel = 0x00;
 
     if (ati28800->regs[0xad] & 0x08)
         svga->hblankstart    = ((ati28800->regs[0x0d] >> 2) << 8) + svga->crtc[2];
 
-    clock_sel = ((svga->miscout >> 2) & 3) | ((ati28800->regs[0xbe] & 0x10) >> 1) |
-                ((ati28800->regs[0xb9] & 2) << 1);
+    if (svga->miscout & 0x04)
+        clock_sel |= 0x01;
+    if (svga->miscout & 0x08)
+        clock_sel |= 0x02;
+    if (ati28800->regs[0xb9] & 0x02)
+        clock_sel |= 0x04;
+    if (ati28800->regs[0xbe] & 0x10)
+        clock_sel |= 0x08;
+
+    svga->interlace = !!(ati28800->regs[0xbe] & 0x02);
+    if (svga->interlace)
+        svga->dispend >>= 1;
 
     if (ati28800->regs[0xa3] & 0x10)
-        svga->ma_latch |= 0x10000;
+        svga->memaddr_latch |= 0x10000;
 
     if (ati28800->regs[0xb0] & 0x40)
-        svga->ma_latch |= 0x20000;
-
-    if (ati28800->regs[0xb8] & 0x40)
-        svga->clock *= 2;
-
-    if (ati28800->regs[0xa7] & 0x80)
-        svga->clock *= 3;
+        svga->memaddr_latch |= 0x20000;
 
     if ((ati28800->regs[0xb6] & 0x18) >= 0x10) {
         svga->hdisp <<= 1;
@@ -452,9 +459,27 @@ ati28800_recalctimings(svga_t *svga)
     } else
         svga->ati_4color = 0;
 
-    if (!svga->scrblank && (svga->crtc[0x17] & 0x80) && svga->attr_palette_enable) {
-         if ((svga->gdcreg[6] & 1) || (svga->attrregs[0x10] & 1)) {
-            svga->clock = (cpuclock * (double) (1ULL << 32)) / svga->getclock(clock_sel, svga->clock_gen);
+    if (!svga->scrblank && svga->attr_palette_enable) {
+        svga->clock = (cpuclock * (double) (1ULL << 32)) / svga->getclock(clock_sel ^ 0x08, svga->clock_gen);
+
+        switch ((ati28800->regs[0xb8] >> 6) & 0x03) {
+            case 0x01:
+                svga->clock *= 2.0;
+                break;
+            case 0x02:
+                svga->clock *= 3.0;
+                break;
+            case 0x03:
+                svga->clock *= 4.0;
+                break;
+            default:
+                break;
+        }
+
+        if (svga->interlace)
+            svga->clock /= 2.0;
+
+        if ((svga->gdcreg[6] & 0x01) || (svga->attrregs[0x10] & 0x01)) {
             ati28800_log("SEQREG1 bit 3=%x. gdcreg5 bits 5-6=%02x, 4bit pel=%02x, "
                          "planar 16color=%02x, apa mode=%02x, attregs10 bit 7=%02x.\n",
                          svga->seqregs[1] & 8, svga->gdcreg[5] & 0x60,
@@ -483,7 +508,7 @@ ati28800_recalctimings(svga_t *svga)
                             else {
                                 svga->render = svga_render_8bpp_highres;
                                 if (!svga->packed_4bpp) {
-                                    svga->ma_latch <<= 1;
+                                    svga->memaddr_latch <<= 1;
                                     svga->rowoffset <<= 1;
                                 }
                             }
@@ -496,7 +521,7 @@ ati28800_recalctimings(svga_t *svga)
                                 svga->hdisp >>= 1;
                                 svga->dots_per_clock >>= 1;
                                 svga->rowoffset <<= 1;
-                                svga->ma_latch <<= 1;
+                                svga->memaddr_latch <<= 1;
                             }
                             break;
                         default:
@@ -509,6 +534,8 @@ ati28800_recalctimings(svga_t *svga)
             }
         }
     }
+
+    svga->hoverride = 1;
 }
 
 static void
@@ -525,8 +552,7 @@ ati28800k_recalctimings(svga_t *svga)
 void *
 ati28800k_init(const device_t *info)
 {
-    ati28800_t *ati28800 = (ati28800_t *) malloc(sizeof(ati28800_t));
-    memset(ati28800, 0, sizeof(ati28800_t));
+    ati28800_t *ati28800 = (ati28800_t *) calloc(1, sizeof(ati28800_t));
 
     ati28800->type_korean = info->local;
 
@@ -550,16 +576,16 @@ ati28800k_init(const device_t *info)
         default:
         case 0:
             rom_init(&ati28800->bios_rom, BIOS_ATIKOR_PATH, 0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
-            loadfont(FONT_ATIKOR_PATH, 6);
+            video_load_font(FONT_ATIKOR_PATH, FONT_FORMAT_KSC6501, LOAD_FONT_NO_OFFSET);
             break;
         case 1:
             rom_init_interleaved(&ati28800->bios_rom, BIOS_ATIKOR_4620P_PATH_L, BIOS_ATIKOR_4620P_PATH_H, 0xc0000,
                                  0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
-            loadfont(FONT_ATIKOR_4620P_PATH, 6);
+            video_load_font(FONT_ATIKOR_4620P_PATH, FONT_FORMAT_KSC6501, LOAD_FONT_NO_OFFSET);
             break;
         case 2:
             rom_init(&ati28800->bios_rom, BIOS_ATIKOR_6033P_PATH, 0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
-            loadfont(FONT_ATIKOR_6033P_PATH, 6);
+            video_load_font(FONT_ATIKOR_6033P_PATH, FONT_FORMAT_KSC6501,LOAD_FONT_NO_OFFSET);
             break;
     }
 
@@ -568,11 +594,11 @@ ati28800k_init(const device_t *info)
               ati28800k_in, ati28800k_out,
               NULL,
               NULL);
-    ati28800->svga.clock_gen = device_add(&ati18810_device);
+    ati28800->svga.clock_gen = device_add(&ati18811_1_mach32_device);
     ati28800->svga.getclock  = ics2494_getclock;
 
     io_sethandler(0x01ce, 0x0002, ati28800k_in, NULL, NULL, ati28800k_out, NULL, NULL, ati28800);
-    io_sethandler(0x03c0, 0x0020, ati28800k_in, NULL, NULL, ati28800k_out, NULL, NULL, ati28800);
+    io_sethandler(0x03a0, 0x0040, ati28800k_in, NULL, NULL, ati28800k_out, NULL, NULL, ati28800);
 
     ati28800->svga.miscout                   = 1;
     ati28800->svga.bpp                       = 8;
@@ -592,14 +618,23 @@ static void *
 ati28800_init(const device_t *info)
 {
     ati28800_t *ati28800;
-    ati28800 = malloc(sizeof(ati28800_t));
-    memset(ati28800, 0x00, sizeof(ati28800_t));
+    ati28800 = calloc(1, sizeof(ati28800_t));
 
     video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_ati28800);
 
-    ati28800->memory = device_get_config_int("memory");
+    ati28800->type      = (info->local == USE_CONFIG_BIOS) ?
+                          (int) device_get_bios_local(info, device_get_config_bios("bios")) :
+                          (int) info->local;
 
-    ati28800->type = info->local;
+    const uint64_t bios_flags = (info->local == USE_CONFIG_BIOS) ?
+                                device_get_bios_flags(info, device_get_config_bios("bios")) :
+                                0x0000000000000000ULL;
+
+    int vram = device_get_config_int("memory");
+
+    video_clamp_vram(bios_flags, &vram);
+
+    ati28800->memory = vram;
 
     switch (ati28800->type) {
         case VGAWONDERXL:
@@ -646,13 +681,13 @@ ati28800_init(const device_t *info)
               ati28800_in, ati28800_out,
               NULL,
               NULL);
-    ati28800->svga.clock_gen = device_add(&ati18810_device);
+    ati28800->svga.clock_gen = device_add(&ati18811_1_mach32_device);
     ati28800->svga.getclock  = ics2494_getclock;
 
     io_sethandler(0x01ce, 2,
                   ati28800_in, NULL, NULL,
                   ati28800_out, NULL, NULL, ati28800);
-    io_sethandler(0x03c0, 32,
+    io_sethandler(0x03a0, 64,
                   ati28800_in, NULL, NULL,
                   ati28800_out, NULL, NULL, ati28800);
 
@@ -684,21 +719,9 @@ ati28800_init(const device_t *info)
 }
 
 static int
-ati28800_available(void)
-{
-    return (rom_present(BIOS_ROM_PATH));
-}
-
-static int
 ati28800k_available(void)
 {
     return (rom_present(BIOS_ATIKOR_PATH) && rom_present(FONT_ATIKOR_PATH));
-}
-
-static int
-compaq_ati28800_available(void)
-{
-    return (rom_present(BIOS_VGAXL_ROM_PATH));
 }
 
 static int
@@ -742,6 +765,58 @@ ati28800_force_redraw(void *priv)
 }
 
 // clang-format off
+static const device_config_t ati28800_5_config[] = {
+    {
+        .name           = "bios",
+        .description    = "Variant",
+        .type           = CONFIG_BIOS,
+        .default_string = "ati28800",
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .bios           = {
+            {
+                .name          = "ATI VGA Charger",
+                .internal_name = "ati28800",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 32768,
+                .flags         = 0,
+                .files         = { BIOS_ROM_PATH, "" }
+            },
+            {
+                .name          = "ATI VGA Wonder XL",
+                .internal_name = "compaq_ati28800",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = VGAWONDERXL,
+                .size          = 32768,
+                .flags         = 0,
+                .files         = { BIOS_VGAXL_ROM_PATH, "" }
+            },
+            { .files_no = 0 }
+        },
+    },
+    {
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 512,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "256 KB", .value =  256 },
+            { .description = "512 KB", .value =  512 },
+            { .description = "1 MB",   .value = 1024 },
+            { .description = ""                      }
+        },
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+};
+
 static const device_config_t ati28800_config[] = {
     {
         .name           = "memory",
@@ -785,18 +860,18 @@ static const device_config_t ati28800_wonderxl_config[] = {
 #endif /* USE_XL24 */
 // clang-format on
 
-const device_t ati28800_device = {
-    .name          = "ATI 28800-5 (ATI VGA Charger)",
-    .internal_name = "ati28800",
+const device_t ati28800_5_device = {
+    .name          = "ATI 28800-5",
+    .internal_name = "ati28800_5",
     .flags         = DEVICE_ISA,
-    .local         = 0,
+    .local         = USE_CONFIG_BIOS,
     .init          = ati28800_init,
     .close         = ati28800_close,
     .reset         = NULL,
-    .available     = ati28800_available,
+    .available     = NULL,
     .speed_changed = ati28800_speed_changed,
     .force_redraw  = ati28800_force_redraw,
-    .config        = ati28800_config
+    .config        = ati28800_5_config
 };
 
 const device_t ati28800k_device = {
@@ -814,7 +889,7 @@ const device_t ati28800k_device = {
 };
 
 const device_t ati28800k_spc4620p_device = {
-    .name          = "ATI Korean VGA On-Board SPC-4620P",
+    .name          = "ATI Korean VGA On-Board (Samsung SPC-4620P)",
     .internal_name = "ati28800k_spc4620p",
     .flags         = DEVICE_ISA,
     .local         = 1,
@@ -824,11 +899,12 @@ const device_t ati28800k_spc4620p_device = {
     .available     = NULL,
     .speed_changed = ati28800_speed_changed,
     .force_redraw  = ati28800_force_redraw,
+    .machine       = "Samsung SPC-4620P",
     .config        = NULL
 };
 
 const device_t ati28800k_spc6033p_device = {
-    .name          = "ATI Korean VGA On-Board SPC-6033P",
+    .name          = "ATI Korean VGA On-Board (Samsung SPC-6033P)",
     .internal_name = "ati28800k_spc6033p",
     .flags         = DEVICE_ISA,
     .local         = 2,
@@ -838,25 +914,12 @@ const device_t ati28800k_spc6033p_device = {
     .available     = NULL,
     .speed_changed = ati28800_speed_changed,
     .force_redraw  = ati28800_force_redraw,
+    .machine       = "Samsung SPC-6033P",
     .config        = NULL
 };
 
-const device_t compaq_ati28800_device = {
-    .name          = "ATI 28800-5 (ATI VGA Wonder XL)",
-    .internal_name = "compaq_ati28800",
-    .flags         = DEVICE_ISA,
-    .local         = VGAWONDERXL,
-    .init          = ati28800_init,
-    .close         = ati28800_close,
-    .reset         = NULL,
-    .available     = compaq_ati28800_available,
-    .speed_changed = ati28800_speed_changed,
-    .force_redraw  = ati28800_force_redraw,
-    .config        = ati28800_config
-};
-
 const device_t ati28800_wonder1024d_xl_plus_device = {
-    .name          = "ATI 28800-6 (ATI VGA Wonder 1024D XL Plus)",
+    .name          = "ATI 28800-6",
     .internal_name = "ati28800_wonder1024d_xl_plus",
     .flags         = DEVICE_ISA,
     .local         = VGAWONDERXLPLUS,
@@ -866,6 +929,7 @@ const device_t ati28800_wonder1024d_xl_plus_device = {
     .available     = ati28800_wonder1024d_xl_plus_available,
     .speed_changed = ati28800_speed_changed,
     .force_redraw  = ati28800_force_redraw,
+    .alias         = "ATI VGA Wonder 1024D XL Plus",
     .config        = NULL
 };
 

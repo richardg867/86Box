@@ -8,8 +8,6 @@
  *
  *          3DFX Voodoo emulation.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *
  *          Copyright 2008-2020 Sarah Walker.
@@ -965,10 +963,12 @@ voodoo_reg_writel(uint32_t addr, uint32_t val, void *priv)
             if (chip & CHIP_TREX0) {
                 voodoo->params.textureMode[0] = val;
                 voodoo->params.tformat[0]     = (val >> 8) & 0xf;
+                voodoo_recalc_tex(voodoo, 0);
             }
             if (chip & CHIP_TREX1) {
                 voodoo->params.textureMode[1] = val;
                 voodoo->params.tformat[1]     = (val >> 8) & 0xf;
+                voodoo_recalc_tex(voodoo, 1);
             }
             break;
         case SST_tLOD:
@@ -1149,11 +1149,11 @@ voodoo_reg_writel(uint32_t addr, uint32_t val, void *priv)
         case SST_nccTable0_Q2:
             if (!(val & (1 << 31))) {
                 if (chip & CHIP_TREX0) {
-                    voodoo->nccTable[0][0].i[2] = val;
+                    voodoo->nccTable[0][0].q[2] = val;
                     voodoo->ncc_dirty[0]        = 1;
                 }
                 if (chip & CHIP_TREX1) {
-                    voodoo->nccTable[1][0].i[2] = val;
+                    voodoo->nccTable[1][0].q[2] = val;
                     voodoo->ncc_dirty[1]        = 1;
                 }
                 break;

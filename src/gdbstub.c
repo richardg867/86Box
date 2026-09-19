@@ -8,8 +8,6 @@
  *
  *          GDB stub server for remote debugging.
  *
- *
- *
  * Authors: RichardG, <richardg867@gmail.com>
  *
  *          Copyright 2022 RichardG.
@@ -39,7 +37,9 @@
 #define HAVE_STDARG_H
 #include <86box/86box.h>
 #include "cpu.h"
+#include "x86.h"
 #include "x86seg.h"
+#include "x86seg_common.h"
 #include "x87_sf.h"
 #include "x87.h"
 #include "x87_ops_conv.h"
@@ -535,8 +535,8 @@ gdbstub_client_write_reg(int index, uint8_t *buf)
             break;
 
         case GDB_REG_EFLAGS:
-            cpu_state.flags  = *((uint16_t *) &buf[0]);
-            cpu_state.eflags = *((uint16_t *) &buf[2]);
+            cpu_state.flags  = AS_U16(buf[0]);
+            cpu_state.eflags = AS_U16(buf[2]);
             break;
 
         case GDB_REG_CS ... GDB_REG_GS:
@@ -564,8 +564,8 @@ gdbstub_client_write_reg(int index, uint8_t *buf)
         case GDB_REG_ST0 ... GDB_REG_ST7:
             width           = 10;
             x87_conv_t conv = {
-                .eind  = { .ll = *((uint64_t *) &buf[0]) },
-                .begin = *((uint16_t *) &buf[8])
+                .eind  = { .ll = AS_U64(buf[0]) },
+                .begin = AS_U16(buf[8])
             };
             cpu_state.ST[(cpu_state.TOP + (index - GDB_REG_ST0)) & 7] = x87_from80(&conv);
             break;
@@ -671,8 +671,8 @@ gdbstub_client_read_reg(int index, uint8_t *buf)
             break;
 
         case GDB_REG_EFLAGS:
-            *((uint16_t *) &buf[0]) = cpu_state.flags;
-            *((uint16_t *) &buf[2]) = cpu_state.eflags;
+            AS_U16(buf[0]) = cpu_state.flags;
+            AS_U16(buf[2]) = cpu_state.eflags;
             break;
 
         case GDB_REG_CS ... GDB_REG_GS:
@@ -697,8 +697,8 @@ gdbstub_client_read_reg(int index, uint8_t *buf)
             width = 10;
             x87_conv_t conv;
             x87_to80(cpu_state.ST[(cpu_state.TOP + (index - GDB_REG_ST0)) & 7], &conv);
-            *((uint64_t *) &buf[0]) = conv.eind.ll;
-            *((uint16_t *) &buf[8]) = conv.begin;
+            AS_U64(buf[0]) = conv.eind.ll;
+            AS_U16(buf[8]) = conv.begin;
             break;
 
         case GDB_REG_FCTRL ... GDB_REG_FSTAT:
@@ -752,12 +752,15 @@ gdbstub_client_packet(gdbstub_client_t *client)
     uint8_t buf[10] = { 0 };
     char   *p;
 
+    int     orig_cpu_abrt        = cpu_state.abrt;
+    int     orig_cpu_abrt_reason = abrt_error;
+
     /* Validate checksum. */
     client->packet_pos -= 2;
 #ifdef GDBSTUB_CHECK_CHECKSUM
     gdbstub_client_read_hex(client, &rcv_checksum, 1);
 #endif
-    *((uint16_t *) &client->packet[--client->packet_pos]) = 0;
+    AS_U16(client->packet[--client->packet_pos]) = 0;
 #ifdef GDBSTUB_CHECK_CHECKSUM
     for (i = 0; i < client->packet_pos; i++)
         checksum += client->packet[i];
@@ -881,27 +884,73 @@ e22:
 
             /* Read by qwords, then by dwords, then by words, then by bytes. */
             i = 0;
+            cpl_override = 1;
             if (is386) {
                 for (; i < (k & ~7); i += 8) {
+                    orig_cpu_abrt        = cpu_state.abrt;
+                    orig_cpu_abrt_reason = abrt_error;
                     *((uint64_t *) buf) = readmemql(j);
+                    if (cpu_state.abrt != orig_cpu_abrt) {
+                        if (cpu_state.abrt == ABRT_PF) {
+                            cpu_state.abrt = orig_cpu_abrt;
+                            abrt_error     = orig_cpu_abrt_reason;
+                            cpl_override   = 0;
+                            FAST_RESPONSE("E06");
+                            break;
+                        }
+                    }
                     j += 8;
                     gdbstub_client_respond_hex(client, buf, 8);
                 }
                 for (; i < (k & ~3); i += 4) {
+                    orig_cpu_abrt        = cpu_state.abrt;
+                    orig_cpu_abrt_reason = abrt_error;
                     *((uint32_t *) buf) = readmemll(j);
+                    if (cpu_state.abrt != orig_cpu_abrt) {
+                        if (cpu_state.abrt == ABRT_PF) {
+                            cpu_state.abrt = orig_cpu_abrt;
+                            abrt_error     = orig_cpu_abrt_reason;
+                            cpl_override   = 0;
+                            FAST_RESPONSE("E06");
+                            break;
+                        }
+                    }
                     j += 4;
                     gdbstub_client_respond_hex(client, buf, 4);
                 }
             }
             for (; i < (k & ~1); i += 2) {
+                orig_cpu_abrt        = cpu_state.abrt;
+                orig_cpu_abrt_reason = abrt_error;
                 *((uint16_t *) buf) = readmemwl(j);
+                if (cpu_state.abrt != orig_cpu_abrt) {
+                    if (cpu_state.abrt == ABRT_PF) {
+                        cpu_state.abrt = orig_cpu_abrt;
+                        abrt_error     = orig_cpu_abrt_reason;
+                        cpl_override   = 0;
+                        FAST_RESPONSE("E06");
+                        break;
+                    }
+                }
                 j += 2;
                 gdbstub_client_respond_hex(client, buf, 2);
             }
             for (; i < k; i++) {
+                orig_cpu_abrt        = cpu_state.abrt;
+                orig_cpu_abrt_reason = abrt_error;
                 buf[0] = readmembl(j++);
+                if (cpu_state.abrt != orig_cpu_abrt) {
+                    if (cpu_state.abrt == ABRT_PF) {
+                        cpu_state.abrt = orig_cpu_abrt;
+                        abrt_error     = orig_cpu_abrt_reason;
+                        cpl_override   = 0;
+                        FAST_RESPONSE("E06");
+                        break;
+                    }
+                }
                 gdbstub_client_respond_hex(client, buf, 1);
             }
+            cpl_override = 0;
             break;
 
         case 'M': /* write memory */
@@ -936,27 +985,73 @@ e22:
             /* Write by qwords, then by dwords, then by words, then by bytes. */
             p = client->packet;
             i = 0;
+            cpl_override = 1;
             if (is386) {
                 for (; i < (k & ~7); i += 8) {
+                    orig_cpu_abrt        = cpu_state.abrt;
+                    orig_cpu_abrt_reason = abrt_error;
                     writememql(j, *((uint64_t *) p));
+                    if (cpu_state.abrt != orig_cpu_abrt) {
+                        if (cpu_state.abrt == ABRT_PF) {
+                            cpu_state.abrt = orig_cpu_abrt;
+                            abrt_error     = orig_cpu_abrt_reason;
+                            cpl_override   = 0;
+                            FAST_RESPONSE("E06");
+                            break;
+                        }
+                    }
                     j += 8;
                     p += 8;
                 }
                 for (; i < (k & ~3); i += 4) {
+                    orig_cpu_abrt        = cpu_state.abrt;
+                    orig_cpu_abrt_reason = abrt_error;
                     writememll(j, *((uint32_t *) p));
+                    if (cpu_state.abrt != orig_cpu_abrt) {
+                        if (cpu_state.abrt == ABRT_PF) {
+                            cpu_state.abrt = orig_cpu_abrt;
+                            abrt_error     = orig_cpu_abrt_reason;
+                            cpl_override   = 0;
+                            FAST_RESPONSE("E06");
+                            break;
+                        }
+                    }
                     j += 4;
                     p += 4;
                 }
             }
             for (; i < (k & ~1); i += 2) {
+                orig_cpu_abrt        = cpu_state.abrt;
+                orig_cpu_abrt_reason = abrt_error;
                 writememwl(j, *((uint16_t *) p));
+                if (cpu_state.abrt != orig_cpu_abrt) {
+                    if (cpu_state.abrt == ABRT_PF) {
+                        cpu_state.abrt = orig_cpu_abrt;
+                        abrt_error     = orig_cpu_abrt_reason;
+                        cpl_override   = 0;
+                        FAST_RESPONSE("E06");
+                        break;
+                    }
+                }
                 j += 2;
                 p += 2;
             }
             for (; i < k; i++) {
+                orig_cpu_abrt        = cpu_state.abrt;
+                orig_cpu_abrt_reason = abrt_error;
                 writemembl(j++, p[0]);
+                if (cpu_state.abrt != orig_cpu_abrt) {
+                    if (cpu_state.abrt == ABRT_PF) {
+                        cpu_state.abrt = orig_cpu_abrt;
+                        abrt_error     = orig_cpu_abrt_reason;
+                        cpl_override   = 0;
+                        FAST_RESPONSE("E06");
+                        break;
+                    }
+                }
                 p++;
             }
+            cpl_override = 0;
 
             /* Respond positively. */
             goto ok;
@@ -1307,7 +1402,7 @@ unknown:
             /* Insert or remove the breakpoint. */
             if (client->packet[0] != 'z') {
                 /* Allocate a new breakpoint. */
-                breakpoint       = malloc(sizeof(gdbstub_breakpoint_t));
+                breakpoint       = calloc(1, sizeof(gdbstub_breakpoint_t));
                 breakpoint->addr = j;
                 breakpoint->end  = j + k;
                 breakpoint->next = NULL;
@@ -1446,6 +1541,7 @@ gdbstub_cpu_exec(int32_t cycs)
             }
             stop_reason[stop_reason_len++] = ';';
         }
+        stop_reason[stop_reason_len] = '\0';
 
         /* Don't execute the CPU any further if single-stepping. */
         gdbstub_step = GDBSTUB_BREAK;
@@ -1620,7 +1716,7 @@ gdbstub_server_thread(void *priv)
     socklen_t         sl = sizeof(struct sockaddr_in);
     while (1) {
         /* Allocate client structure. */
-        client = malloc(sizeof(gdbstub_client_t));
+        client = calloc(1, sizeof(gdbstub_client_t));
         memset(client, 0, sizeof(gdbstub_client_t));
         client->processed_event = thread_create_event();
         client->response_event  = thread_create_event();
@@ -1791,8 +1887,26 @@ gdbstub_init(void)
         return;
     }
 
+    int yes = 1;
+    if (setsockopt(gdbstub_socket, SOL_SOCKET, SO_REUSEADDR,
+#ifdef _WIN32
+                   (const char *) &yes,
+#else
+                   &yes,
+#endif
+                   sizeof(yes)) == -1) {
+        pclog("GDB Stub: setsockopt SO_REUSEADDR failed\n");
+        return;
+    }
+
+#ifdef _WIN32
+    if (setsockopt(gdbstub_socket, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (const char *) &yes, sizeof(yes)) == -1) {
+        pclog("GDB Stub: setsockopt SO_EXCLUSIVEADDRUSE failed\n");
+    }
+#endif
+
     /* Bind GDB server socket. */
-    int                port      = 12345;
+    int                port      = gdbstub_port;
     struct sockaddr_in bind_addr = {
         .sin_family = AF_INET,
         .sin_addr   = { .s_addr = INADDR_ANY },
@@ -1840,6 +1954,10 @@ gdbstub_close(void)
     int               socket;
     while (client) {
         socket         = client->socket;
+        if (client->waiting_stop) {
+            FAST_RESPONSE("W00");
+            gdbstub_client_respond(client);
+        }
         client->socket = -1;
         close(socket);
         client = client->next;

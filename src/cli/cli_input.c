@@ -1408,10 +1408,10 @@ monitor:
                 cli_input_log("CLI Input: Mouse buttons %d modifiers %02X at %d,%d\n", btn, mod, x, y);
 
                 /* Convert and send coordinates. */
-                int mouse_x_abs = x * ((double) get_actual_size_x() / (cli_term.size_x - 1));
-                cli_input_log("X %d * (%d / %d) = %d\n", x, get_actual_size_x(), cli_term.size_x - 1, mouse_x_abs);
-                int mouse_y_abs = y * ((double) get_actual_size_y() / (cli_term.size_y - 1));
-                cli_input_log("Y %d * (%d / %d) = %d\n", y, get_actual_size_y(), cli_term.size_y - 1, mouse_y_abs);
+                int mouse_x_abs = x * ((double) cli_term.size_x / (cli_term.size_x - 1));
+                cli_input_log("X %d * (%d / %d) = %d\n", x, cli_term.size_x, cli_term.size_x - 1, mouse_x_abs);
+                int mouse_y_abs = y * ((double) cli_term.size_y / (cli_term.size_y - 1));
+                cli_input_log("Y %d * (%d / %d) = %d\n", y, cli_term.size_y, cli_term.size_y - 1, mouse_y_abs);
                 mouse_scale(mouse_x_abs - mouse_x_prev, mouse_y_abs - mouse_y_prev);
                 mouse_x_prev = mouse_x_abs;
                 mouse_y_prev = mouse_y_abs;

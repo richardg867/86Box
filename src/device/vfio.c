@@ -8,11 +8,9 @@
  *
  *          Virtual Function I/O PCI passthrough handler.
  *
- *
- *
  * Authors: RichardG, <richardg867@gmail.com>
  *
- *          Copyright 2021-2023 RichardG.
+ *          Copyright 2021-2025 RichardG.
  */
 #define _FILE_OFFSET_BITS   64
 #define _LARGEFILE64_SOURCE 1
@@ -49,7 +47,7 @@
 /* Just so we don't have to include Linux's pci.h, which
    has some defines that conflict with our own pci.h */
 #define PCI_SLOT(devfn) (((devfn) >> 3) & 0x1f)
-#define PCI_FUNC(devfn) ((devfn) &0x07)
+#define PCI_FUNC(devfn) ((devfn) & 0x07)
 
 enum {
     NVIDIA_3D0_NONE = 0,
@@ -60,12 +58,17 @@ enum {
 };
 
 typedef struct {
-    int      fd;
-    uint64_t precalc_offset, offset, size;
-    uint32_t emulated_offset;
-    uint8_t *mmap_base, *mmap_precalc,
-        type, bar_id,
-        read : 1, write : 1;
+    int                   fd;
+    uint64_t              precalc_offset;
+    uint64_t              offset;
+    uint64_t              size;
+    uint32_t              emulated_offset;
+    uint8_t              *mmap_base;
+    uint8_t              *mmap_precalc;
+    uint8_t               type;
+    uint8_t               bar_id;
+    uint8_t               read  : 1;
+    uint8_t               write : 1;
     mem_mapping_t         mem_mapping;
     char                  name[20];
     struct _vfio_device_ *dev;
@@ -83,7 +86,8 @@ typedef struct {
 
         struct {
             struct {
-                uint32_t start, end;
+                uint32_t start;
+                uint32_t end;
             } offset[2];
             uint32_t index;
         } configwindow;
@@ -92,19 +96,37 @@ typedef struct {
 
 typedef struct {
     struct _vfio_device_ *dev;
-    int                   fd, type, vector;
+    int                   fd;
+    int                   type;
+    int                   vector;
     uint16_t              msix_offset;
 } vfio_irq_t;
 
 typedef struct _vfio_device_ {
-    int     fd;
-    uint8_t mem_enabled : 1, io_enabled : 1, rom_enabled : 1,
-        can_reset : 1, can_flr_reset : 1, can_pm_reset : 1, can_hot_reset : 1,
-        slot, bar_count,
-        pm_cap, msi_cap, msix_cap, pcie_cap, af_cap;
-    char *name, *rom_fn;
+    int      fd;
+    uint8_t  mem_enabled   : 1;
+    uint8_t  io_enabled    : 1;
+    uint8_t  rom_enabled   : 1;
+    uint8_t  can_reset     : 1;
+    uint8_t  can_flr_reset : 1;
+    uint8_t  can_pm_reset  : 1;
+    uint8_t  can_hot_reset : 1;
+    uint8_t  slot;
+    uint8_t  bar_count;
+    uint8_t  pm_cap;
+    uint8_t  msi_cap;
+    uint8_t  msix_cap;
+    uint8_t  pcie_cap;
+    uint8_t  af_cap;
+    char    *name;
+    char    *rom_fn;
 
-    vfio_region_t bars[6], rom, config, vga_io_lo, vga_io_hi, vga_mem;
+    vfio_region_t bars[6];
+    vfio_region_t rom;
+    vfio_region_t config;
+    vfio_region_t vga_io_lo;
+    vfio_region_t vga_io_hi;
+    vfio_region_t vga_mem;
 
     struct {
         uint8_t     type;
@@ -117,16 +139,31 @@ typedef struct _vfio_device_ {
             uint8_t state;
         } intx;
         struct {
-            uint32_t address, address_upper, pending, mask;
-            uint16_t ctl, data, vector_enable_mask;
-            uint8_t  vector_count, vector_enable_count;
+            uint32_t address;
+            uint32_t address_upper;
+            uint32_t pending;
+            uint32_t mask;
+            uint16_t ctl;
+            uint16_t data;
+            uint16_t vector_enable_mask;
+            uint8_t  vector_count;
+            uint8_t  vector_enable_count;
         } msi;
         struct {
-            mem_mapping_t table_mapping, pba_mapping;
-            uint32_t      table_offset, pba_offset,
-                table_offset_precalc, pba_offset_precalc;
-            uint16_t ctl, vector_count, table_size, pba_size;
-            uint8_t  table_bar, pba_bar, *table, *pba;
+            mem_mapping_t table_mapping;
+            mem_mapping_t pba_mapping;
+            uint32_t      table_offset;
+            uint32_t      pba_offset;
+            uint32_t      table_offset_precalc;
+            uint32_t      pba_offset_precalc;
+            uint16_t      ctl;
+            uint16_t      vector_count;
+            uint16_t      table_size;
+            uint16_t      pba_size;
+            uint8_t       table_bar;
+            uint8_t       pba_bar;
+            uint8_t      *table;
+            uint8_t      *pba;
         } msix;
     } irq;
 
@@ -152,24 +189,35 @@ typedef struct _vfio_device_ {
 } vfio_device_t;
 
 typedef struct _vfio_group_ {
-    int id, fd;
+    int id;
+    int fd;
 
-    vfio_device_t *first_device, *current_device;
+    vfio_device_t *first_device;
+    vfio_device_t *current_device;
 
     struct _vfio_group_ *next;
 } vfio_group_t;
 
-static video_timings_t timing_default = { VIDEO_PCI, 8, 16, 32, 8, 16, 32 };
-static int             container_fd = -1, epoll_fd = -1, irq_thread_wake_fd = -1,
-           closing = 0, intx_high = 0,
-           timing_readb = 0, timing_readw = 0, timing_readl = 0,
-           timing_writeb = 0, timing_writew = 0, timing_writel = 0;
-static vfio_group_t  *first_group = NULL, *current_group;
-static thread_t      *irq_thread;
-static event_t       *irq_event, *irq_thread_resume;
-static pc_timer_t     irq_timer;
-static vfio_irq_t    *current_irq = NULL;
-static const device_t vfio_device;
+static video_timings_t timing_default     = { VIDEO_PCI, 8, 16, 32, 8, 16, 32 };
+static int             container_fd       = -1;
+static int             epoll_fd           = -1;
+static int             irq_thread_wake_fd = -1;
+static int             closing            = 0;
+static int             intx_high          = 0;
+static int             timing_readb       = 0;
+static int             timing_readw       = 0;
+static int             timing_readl       = 0;
+static int             timing_writeb      = 0;
+static int             timing_writew      = 0;
+static int             timing_writel      = 0;
+static vfio_group_t   *first_group        = NULL;
+static vfio_group_t   *current_group;
+static thread_t       *irq_thread;
+static event_t        *irq_event;
+static event_t        *irq_thread_resume;
+static pc_timer_t      irq_timer;
+static vfio_irq_t     *current_irq = NULL;
+static const device_t  vfio_device;
 
 #define ENABLE_VFIO_LOG 2
 #ifdef ENABLE_VFIO_LOG
@@ -198,12 +246,12 @@ vfio_log(const char *fmt, ...)
 #endif
 
 static uint8_t  vfio_bar_gettype(vfio_device_t *dev, vfio_region_t *bar);
-static uint8_t  vfio_config_readb(int func, int addr, void *priv);
-static uint16_t vfio_config_readw(int func, int addr, void *priv);
-static uint32_t vfio_config_readl(int func, int addr, void *priv);
-static void     vfio_config_writeb(int func, int addr, uint8_t val, void *priv);
-static void     vfio_config_writew(int func, int addr, uint16_t val, void *priv);
-static void     vfio_config_writel(int func, int addr, uint32_t val, void *priv);
+static uint8_t  vfio_config_readb(int func, int addr, int len, void *priv);
+static uint16_t vfio_config_readw(int func, int addr, int len, void *priv);
+static uint32_t vfio_config_readl(int func, int addr, int len, void *priv);
+static void     vfio_config_writeb(int func, int addr, int len, uint8_t val, void *priv);
+static void     vfio_config_writew(int func, int addr, int len, uint16_t val, void *priv);
+static void     vfio_config_writel(int func, int addr, int len, uint32_t val, void *priv);
 static void     vfio_irq_intx_setpin(vfio_device_t *dev);
 static void     vfio_irq_msi_disable(vfio_device_t *dev);
 static void     vfio_irq_msix_disable(vfio_device_t *dev);
@@ -212,7 +260,7 @@ static void     vfio_irq_enable(vfio_device_t *dev, int type);
 
 #define VFIO_RW(space, length_char, addr_type, addr_slength, val_type, val_slength)                                                                     \
     static val_type                                                                                                                                     \
-        vfio_##space##_read##length_char##_fd(addr_type addr, void *priv)                                                                               \
+    vfio_##space##_read##length_char##_fd(addr_type addr, void *priv)                                                                                   \
     {                                                                                                                                                   \
         register vfio_region_t *region = (vfio_region_t *) priv;                                                                                        \
         val_type                ret;                                                                                                                    \
@@ -225,17 +273,17 @@ static void     vfio_irq_enable(vfio_device_t *dev, int type);
     }                                                                                                                                                   \
                                                                                                                                                         \
     static void                                                                                                                                         \
-        vfio_##space##_write##length_char##_fd(addr_type addr, val_type val, void *priv)                                                                \
+    vfio_##space##_write##length_char##_fd(addr_type addr, val_type val, void *priv)                                                                    \
     {                                                                                                                                                   \
         register vfio_region_t *region = (vfio_region_t *) priv;                                                                                        \
         vfio_log_op("[%04X:%08X] VFIO: " #space "_write" #length_char "_fd(%0" #addr_slength "X, %0" #val_slength "X)\n", CS, cpu_state.pc, addr, val); \
-        pwrite(region->fd, &val, sizeof(val), region->precalc_offset + addr);                                                                           \
+        (void) !pwrite(region->fd, &val, sizeof(val), region->precalc_offset + addr);                                                                  \
         cycles -= timing_write##length_char;                                                                                                            \
         intx_high = 0;                                                                                                                                  \
     }                                                                                                                                                   \
                                                                                                                                                         \
     static val_type                                                                                                                                     \
-        vfio_##space##_read##length_char##_mm(addr_type addr, void *priv)                                                                               \
+    vfio_##space##_read##length_char##_mm(addr_type addr, void *priv)                                                                                   \
     {                                                                                                                                                   \
         register val_type ret = *((val_type *) &((uint8_t *) priv)[addr]);                                                                              \
         vfio_log_op("[%04X:%08X] VFIO: " #space "_read" #length_char "_mm(%0" #addr_slength "X) = %0" #val_slength "X\n", CS, cpu_state.pc, addr, ret); \
@@ -245,7 +293,7 @@ static void     vfio_irq_enable(vfio_device_t *dev, int type);
     }                                                                                                                                                   \
                                                                                                                                                         \
     static void                                                                                                                                         \
-        vfio_##space##_write##length_char##_mm(addr_type addr, val_type val, void *priv)                                                                \
+    vfio_##space##_write##length_char##_mm(addr_type addr, val_type val, void *priv)                                                                    \
     {                                                                                                                                                   \
         vfio_log_op("[%04X:%08X] VFIO: " #space "_write" #length_char "_mm(%0" #addr_slength "X, %0" #val_slength "X)\n", CS, cpu_state.pc, addr, val); \
         *((val_type *) &((uint8_t *) priv)[addr]) = val;                                                                                                \
@@ -323,7 +371,7 @@ vfio_quirk_configmirror_readb(uint32_t addr, void *priv)
     vfio_mem_readb_fd(addr, bar);
 
     /* Read configuration register. */
-    uint8_t ret = vfio_config_readb(0, addr - bar->quirks.configmirror.offset, dev);
+    uint8_t ret = vfio_config_readb(0, addr - bar->quirks.configmirror.offset, 1, dev);
     vfio_log_op("VFIO %s: Config mirror: Read %02X from index %02X\n",
                 dev->name, ret, addr - bar->quirks.configmirror.offset);
 
@@ -340,7 +388,7 @@ vfio_quirk_configmirror_readw(uint32_t addr, void *priv)
     vfio_mem_readw_fd(addr, bar);
 
     /* Read configuration register. */
-    uint16_t ret = vfio_config_readw(0, addr - bar->quirks.configmirror.offset, dev);
+    uint16_t ret = vfio_config_readw(0, addr - bar->quirks.configmirror.offset, 2, dev);
     vfio_log_op("VFIO %s: Config mirror: Read %04X from index %02X\n",
                 dev->name, ret, addr - bar->quirks.configmirror.offset);
 
@@ -357,7 +405,7 @@ vfio_quirk_configmirror_readl(uint32_t addr, void *priv)
     vfio_mem_readl_fd(addr, bar);
 
     /* Read configuration register. */
-    uint32_t ret = vfio_config_readl(0, addr - bar->quirks.configmirror.offset, dev);
+    uint32_t ret = vfio_config_readl(0, addr - bar->quirks.configmirror.offset, 4, dev);
     vfio_log_op("VFIO %s: Config mirror: Read %08X from index %02X\n",
                 dev->name, ret, addr - bar->quirks.configmirror.offset);
 
@@ -373,7 +421,7 @@ vfio_quirk_configmirror_writeb(uint32_t addr, uint8_t val, void *priv)
     /* Write configuration register. */
     vfio_log_op("VFIO %s: Config mirror: Write %02X to index %02X\n",
                 dev->name, val, addr - bar->quirks.configmirror.offset);
-    vfio_config_writeb(0, addr - bar->quirks.configmirror.offset, val, dev);
+    vfio_config_writeb(0, addr - bar->quirks.configmirror.offset, 1, val, dev);
 }
 
 static void
@@ -385,7 +433,7 @@ vfio_quirk_configmirror_writew(uint32_t addr, uint16_t val, void *priv)
     /* Write configuration register. */
     vfio_log_op("VFIO %s: Config mirror: Write %04X to index %02X\n",
                 dev->name, val, addr - bar->quirks.configmirror.offset);
-    vfio_config_writew(0, addr - bar->quirks.configmirror.offset, val, dev);
+    vfio_config_writew(0, addr - bar->quirks.configmirror.offset, 2, val, dev);
 }
 
 static void
@@ -397,7 +445,7 @@ vfio_quirk_configmirror_writel(uint32_t addr, uint32_t val, void *priv)
     /* Write configuration register. */
     vfio_log_op("VFIO %s: Config mirror: Write %08X to index %02X\n",
                 dev->name, val, addr - bar->quirks.configmirror.offset);
-    vfio_config_writel(0, addr - bar->quirks.configmirror.offset, val, dev);
+    vfio_config_writel(0, addr - bar->quirks.configmirror.offset, 4, val, dev);
 }
 
 static void
@@ -493,11 +541,11 @@ vfio_quirk_configwindow_data_readb(uint16_t addr, void *priv)
     /* Read configuration register if part of the main PCI configuration space. */
     uint32_t index = bar->quirks.configwindow.index;
     if ((index >= bar->quirks.configwindow.offset[0].start) && (index <= bar->quirks.configwindow.offset[0].end)) {
-        ret = vfio_config_readb(0, index - bar->quirks.configwindow.offset[0].start, dev);
+        ret = vfio_config_readb(0, index - bar->quirks.configwindow.offset[0].start, 1, dev);
         vfio_log_op("VFIO %s: Config window: Read %02X from primary index %08X\n",
                     dev->name, ret, index);
     } else if ((index >= bar->quirks.configwindow.offset[1].start) && (index <= bar->quirks.configwindow.offset[1].end)) {
-        ret = vfio_config_readb(0, index - bar->quirks.configwindow.offset[1].start, dev);
+        ret = vfio_config_readb(0, index - bar->quirks.configwindow.offset[1].start, 1, dev);
         vfio_log_op("VFIO %s: Config window: Read %02X from secondary index %08X\n",
                     dev->name, ret, index);
     }
@@ -517,11 +565,11 @@ vfio_quirk_configwindow_data_readw(uint16_t addr, void *priv)
     /* Read configuration register if part of the main PCI configuration space. */
     uint32_t index = bar->quirks.configwindow.index;
     if ((index >= bar->quirks.configwindow.offset[0].start) && (index <= bar->quirks.configwindow.offset[0].end)) {
-        ret = vfio_config_readw(0, index - bar->quirks.configwindow.offset[0].start, dev);
+        ret = vfio_config_readw(0, index - bar->quirks.configwindow.offset[0].start, 2, dev);
         vfio_log_op("VFIO %s: Config window: Read %04X from primary index %08X\n",
                     dev->name, ret, index);
     } else if ((index >= bar->quirks.configwindow.offset[1].start) && (index <= bar->quirks.configwindow.offset[1].end)) {
-        ret = vfio_config_readw(0, index - bar->quirks.configwindow.offset[1].start, dev);
+        ret = vfio_config_readw(0, index - bar->quirks.configwindow.offset[1].start, 2, dev);
         vfio_log_op("VFIO %s: Config window: Read %04X from secondary index %08X\n",
                     dev->name, ret, index);
     }
@@ -541,11 +589,11 @@ vfio_quirk_configwindow_data_readl(uint16_t addr, void *priv)
     /* Read configuration register if part of the main PCI configuration space. */
     uint32_t index = bar->quirks.configwindow.index;
     if ((index >= bar->quirks.configwindow.offset[0].start) && (index <= bar->quirks.configwindow.offset[0].end)) {
-        ret = vfio_config_readl(0, index - bar->quirks.configwindow.offset[0].start, dev);
+        ret = vfio_config_readl(0, index - bar->quirks.configwindow.offset[0].start, 4, dev);
         vfio_log_op("VFIO %s: Config window: Read %08X from primary index %08X\n",
                     dev->name, ret, index);
     } else if ((index >= bar->quirks.configwindow.offset[1].start) && (index <= bar->quirks.configwindow.offset[1].end)) {
-        ret = vfio_config_readl(0, index - bar->quirks.configwindow.offset[1].start, dev);
+        ret = vfio_config_readl(0, index - bar->quirks.configwindow.offset[1].start, 4, dev);
         vfio_log_op("VFIO %s: Config window: Read %08X from secondary index %08X\n",
                     dev->name, ret, index);
     }
@@ -564,12 +612,12 @@ vfio_quirk_configwindow_data_writeb(uint16_t addr, uint8_t val, void *priv)
     if ((index >= bar->quirks.configwindow.offset[0].start) && (index <= bar->quirks.configwindow.offset[0].end)) {
         vfio_log_op("VFIO %s: Config window: Write %02X to primary index %08X\n",
                     dev->name, val, index);
-        vfio_config_writeb(0, index - bar->quirks.configwindow.offset[0].start, val, dev);
+        vfio_config_writeb(0, index - bar->quirks.configwindow.offset[0].start, 1, val, dev);
         return;
     } else if ((index >= bar->quirks.configwindow.offset[1].start) && (index <= bar->quirks.configwindow.offset[1].end)) {
         vfio_log_op("VFIO %s: Config window: Write %02X to secondary index %08X\n",
                     dev->name, val, index);
-        vfio_config_writeb(0, index - bar->quirks.configwindow.offset[1].start, val, dev);
+        vfio_config_writeb(0, index - bar->quirks.configwindow.offset[1].start, 1, val, dev);
         return;
     }
 
@@ -588,12 +636,12 @@ vfio_quirk_configwindow_data_writew(uint16_t addr, uint16_t val, void *priv)
     if ((index >= bar->quirks.configwindow.offset[0].start) && (index <= bar->quirks.configwindow.offset[0].end)) {
         vfio_log_op("VFIO %s: Config window: Write %04X to primary index %08X\n",
                     dev->name, val, index);
-        vfio_config_writew(0, index - bar->quirks.configwindow.offset[0].start, val, dev);
+        vfio_config_writew(0, index - bar->quirks.configwindow.offset[0].start, 2, val, dev);
         return;
     } else if ((index >= bar->quirks.configwindow.offset[1].start) && (index <= bar->quirks.configwindow.offset[1].end)) {
         vfio_log_op("VFIO %s: Config window: Write %04X to secondary index %08X\n",
                     dev->name, val, index);
-        vfio_config_writew(0, index - bar->quirks.configwindow.offset[1].start, val, dev);
+        vfio_config_writew(0, index - bar->quirks.configwindow.offset[1].start, 2, val, dev);
         return;
     }
 
@@ -612,12 +660,12 @@ vfio_quirk_configwindow_data_writel(uint16_t addr, uint32_t val, void *priv)
     if ((index >= bar->quirks.configwindow.offset[0].start) && (index <= bar->quirks.configwindow.offset[0].end)) {
         vfio_log_op("VFIO %s: Config window: Write %08X to primary index %08X\n",
                     dev->name, val, index);
-        vfio_config_writel(0, index - bar->quirks.configwindow.offset[0].start, val, dev);
+        vfio_config_writel(0, index - bar->quirks.configwindow.offset[0].start, 4, val, dev);
         return;
     } else if ((index >= bar->quirks.configwindow.offset[1].start) && (index <= bar->quirks.configwindow.offset[1].end)) {
         vfio_log_op("VFIO %s: Config window: Write %08X to secondary index %08X\n",
                     dev->name, val, index);
-        vfio_config_writel(0, index - bar->quirks.configwindow.offset[1].start, val, dev);
+        vfio_config_writel(0, index - bar->quirks.configwindow.offset[1].start, 4, val, dev);
         return;
     }
 
@@ -910,7 +958,7 @@ vfio_quirk_nvidia3d0_state_writew(uint16_t addr, uint16_t val, void *priv)
 {
     vfio_device_t *dev = (vfio_device_t *) priv;
 
-    uint8_t prev_state = dev->quirks.nvidia3d0.state;
+    uint8_t prev_state          = dev->quirks.nvidia3d0.state;
     dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
 
     /* Interpret NVIDIA commands. */
@@ -946,7 +994,7 @@ vfio_quirk_nvidia3d0_state_writel(uint16_t addr, uint32_t val, void *priv)
 {
     vfio_device_t *dev = (vfio_device_t *) priv;
 
-    uint8_t prev_state = dev->quirks.nvidia3d0.state;
+    uint8_t prev_state          = dev->quirks.nvidia3d0.state;
     dev->quirks.nvidia3d0.state = NVIDIA_3D0_NONE;
 
     /* Interpret NVIDIA commands. */
@@ -989,7 +1037,7 @@ vfio_quirk_nvidia3d0_data_readb(uint16_t addr, void *priv)
 
     /* Read configuration register if part of the main PCI configuration space. */
     if ((prev_state == NVIDIA_3D0_READ) && (((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00001800) || ((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00088000))) {
-        ret = vfio_config_readb(0, dev->quirks.nvidia3d0.index, dev);
+        ret = vfio_config_readb(0, dev->quirks.nvidia3d0.index, 1, dev);
         vfio_log_op("VFIO %s: NVIDIA 3D0: Read %02X from index %08X\n", dev->name,
                     ret, dev->quirks.nvidia3d0.index);
     }
@@ -1009,7 +1057,7 @@ vfio_quirk_nvidia3d0_data_readw(uint16_t addr, void *priv)
 
     /* Read configuration register if part of the main PCI configuration space. */
     if ((prev_state == NVIDIA_3D0_READ) && (((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00001800) || ((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00088000))) {
-        ret = vfio_config_readw(0, dev->quirks.nvidia3d0.index, dev);
+        ret = vfio_config_readw(0, dev->quirks.nvidia3d0.index, 2, dev);
         vfio_log_op("VFIO %s: NVIDIA 3D0: Read %04X from index %08X\n", dev->name,
                     ret, dev->quirks.nvidia3d0.index);
     }
@@ -1029,7 +1077,7 @@ vfio_quirk_nvidia3d0_data_readl(uint16_t addr, void *priv)
 
     /* Read configuration register if part of the main PCI configuration space. */
     if ((prev_state == NVIDIA_3D0_READ) && (((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00001800) || ((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00088000))) {
-        ret = vfio_config_readl(0, dev->quirks.nvidia3d0.index, dev);
+        ret = vfio_config_readl(0, dev->quirks.nvidia3d0.index, 4, dev);
         vfio_log_op("VFIO %s: NVIDIA 3D0: Read %08X from index %08X\n", dev->name,
                     ret, dev->quirks.nvidia3d0.index);
     }
@@ -1056,7 +1104,7 @@ vfio_quirk_nvidia3d0_data_writeb(uint16_t addr, uint8_t val, void *priv)
             /* Write configuration register. */
             vfio_log_op("VFIO %s: NVIDIA 3D0: Write %02X to index %08X\n", dev->name,
                         val, dev->quirks.nvidia3d0.index);
-            vfio_config_writeb(0, dev->quirks.nvidia3d0.index, val, dev);
+            vfio_config_writeb(0, dev->quirks.nvidia3d0.index, val, 1, dev);
             return;
         }
     }
@@ -1083,7 +1131,7 @@ vfio_quirk_nvidia3d0_data_writew(uint16_t addr, uint16_t val, void *priv)
         if (((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00001800) || ((dev->quirks.nvidia3d0.index & 0xffffff00) == 0x00088000)) {
             vfio_log_op("VFIO %s: NVIDIA 3D0: Write %04X to index %08X\n", dev->name,
                         val, dev->quirks.nvidia3d0.index);
-            vfio_config_writew(0, dev->quirks.nvidia3d0.index, val, dev);
+            vfio_config_writew(0, dev->quirks.nvidia3d0.index, val, 2, dev);
             return;
         }
     }
@@ -1111,7 +1159,7 @@ vfio_quirk_nvidia3d0_data_writel(uint16_t addr, uint32_t val, void *priv)
             /* Write configuration register. */
             vfio_log_op("VFIO %s: NVIDIA 3D0: Write %08X to index %08X\n", dev->name,
                         val, dev->quirks.nvidia3d0.index);
-            vfio_config_writel(0, dev->quirks.nvidia3d0.index, val, dev);
+            vfio_config_writel(0, dev->quirks.nvidia3d0.index, val, 4, dev);
             return;
         }
     }
@@ -1150,7 +1198,7 @@ vfio_quirk_remap(vfio_device_t *dev, vfio_region_t *bar, uint8_t enable)
             /* BAR 2 configuration space mirror, and BAR 1/4 configuration space window. */
             if (j && !i) {
                 /* QEMU only enables the mirror here if BAR 2 is 64-bit capable. */
-                if ((bar->bar_id == 2) && ((vfio_config_readb(0, 0x18, dev) & 0x07) == 0x04))
+                if ((bar->bar_id == 2) && ((vfio_config_readb(0, 0x18, 1, dev) & 0x07) == 0x04))
                     vfio_quirk_configmirror(dev, bar, 0x4000, 0, enable);
                 else if (bar->bar_id == 4)
                     vfio_quirk_configwindow(dev, bar, 0x00, 4, 0x04, 4, 0x4000, 0x4000, enable);
@@ -1431,7 +1479,7 @@ ceilpow2(uint32_t size)
 }
 
 static uint8_t
-vfio_config_readb(int func, int addr, void *priv)
+vfio_config_readb(int func, int addr, UNUSED(int len), void *priv)
 {
     vfio_device_t *dev = (vfio_device_t *) priv;
     if (func)
@@ -1554,19 +1602,19 @@ end:
 }
 
 static uint16_t
-vfio_config_readw(int func, int addr, void *priv)
+vfio_config_readw(int func, int addr, UNUSED(int len), void *priv)
 {
-    return vfio_config_readb(func, addr, priv) | (vfio_config_readb(func, addr + 1, priv) << 8);
+    return vfio_config_readb(func, addr, 2, priv) | (vfio_config_readb(func, addr + 1, 2, priv) << 8);
 }
 
 static uint32_t
-vfio_config_readl(int func, int addr, void *priv)
+vfio_config_readl(int func, int addr, UNUSED(int len), void *priv)
 {
-    return vfio_config_readb(func, addr, priv) | (vfio_config_readb(func, addr + 1, priv) << 8) | (vfio_config_readb(func, addr + 2, priv) << 16) | (vfio_config_readb(func, addr + 3, priv) << 24);
+    return vfio_config_readb(func, addr, 4, priv) | (vfio_config_readb(func, addr + 1, 4, priv) << 8) | (vfio_config_readb(func, addr + 2, 4, priv) << 16) | (vfio_config_readb(func, addr + 3, 4, priv) << 24);
 }
 
 static void
-vfio_config_writeb(int func, int addr, uint8_t val, void *priv)
+vfio_config_writeb(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     vfio_device_t *dev = (vfio_device_t *) priv;
     if (func)
@@ -1578,13 +1626,16 @@ vfio_config_writeb(int func, int addr, uint8_t val, void *priv)
     intx_high = 0;
 
     /* VFIO should block anything we shouldn't write to, such as BARs. */
-    pwrite(dev->config.fd, &val, 1, dev->config.offset + addr);
+    (void) !pwrite(dev->config.fd, &val, 1, dev->config.offset + addr);
 
     /* Act on some written values. */
-    uint8_t  new_mem_enabled, new_io_enabled, bar_id, offset;
+    uint8_t  new_mem_enabled;
+    uint8_t  new_io_enabled;
+    uint8_t  bar_id;
+    uint8_t  offset;
     uint32_t new_value;
     uint64_t val64;
-    int      i;
+
     switch (addr) {
         case 0x04: /* Command */
             /* Determine new memory and I/O enable states. */
@@ -1600,7 +1651,7 @@ vfio_config_writeb(int func, int addr, uint8_t val, void *priv)
                 dev->mem_enabled = new_mem_enabled;
 
                 /* Remap memory BARs. */
-                for (i = 0; i < 6; i++) {
+                for (uint8_t i = 0; i < 6; i++) {
                     if (vfio_bar_gettype(dev, &dev->bars[i]) == 0x00)
                         vfio_bar_remap(dev, &dev->bars[i], dev->bars[i].emulated_offset);
                 }
@@ -1618,7 +1669,7 @@ vfio_config_writeb(int func, int addr, uint8_t val, void *priv)
                 dev->io_enabled = new_io_enabled;
 
                 /* Remap I/O BARs. */
-                for (i = 0; i < 6; i++) {
+                for (uint8_t i = 0; i < 6; i++) {
                     if (vfio_bar_gettype(dev, &dev->bars[i]) == 0x01)
                         vfio_bar_remap(dev, &dev->bars[i], dev->bars[i].emulated_offset);
                 }
@@ -1751,9 +1802,9 @@ vfio_config_writeb(int func, int addr, uint8_t val, void *priv)
                             if (dev->irq.msi.ctl & 0x0001) {
                                 new_value = ~new_value;
                                 val64     = 1;
-                                for (i = 0; i < dev->irq.msi.vector_enable_count; i++) {
+                                for (uint8_t i = 0; i < dev->irq.msi.vector_enable_count; i++) {
                                     if (dev->irq.msi.pending & ((1 << i) & new_value))
-                                        write(dev->irq.vectors[i].fd, &val64, sizeof(val64));
+                                        (void) !write(dev->irq.vectors[i].fd, &val64, sizeof(val64));
                                 }
                                 dev->irq.msi.pending &= new_value;
                             }
@@ -1787,7 +1838,7 @@ vfio_config_writeb(int func, int addr, uint8_t val, void *priv)
                         /* Service any unmasked pending interrupts if MSI-X
                            is enabled and the global mask bit was cleared. */
                         if ((dev->irq.msix.ctl & 0xc000) == 0x8000) {
-                            for (i = 0x000c; i < dev->irq.msix.table_size; i += 0x0010)
+                            for (uint16_t i = 0x000c; i < dev->irq.msix.table_size; i += 0x0010)
                                 vfio_irq_msix_updatemask(dev, i);
                         }
                         goto end;
@@ -1799,19 +1850,19 @@ end:
 }
 
 static void
-vfio_config_writew(int func, int addr, uint16_t val, void *priv)
+vfio_config_writew(int func, int addr, UNUSED(int len), uint16_t val, void *priv)
 {
-    vfio_config_writeb(func, addr, val, priv);
-    vfio_config_writeb(func, addr | 1, val >> 8, priv);
+    vfio_config_writeb(func, addr, 2, val, priv);
+    vfio_config_writeb(func, addr | 1, 2, val >> 8, priv);
 }
 
 static void
-vfio_config_writel(int func, int addr, uint32_t val, void *priv)
+vfio_config_writel(int func, int addr, UNUSED(int len), uint32_t val, void *priv)
 {
-    vfio_config_writeb(func, addr, val, priv);
-    vfio_config_writeb(func, addr | 1, val >> 8, priv);
-    vfio_config_writeb(func, addr | 2, val >> 16, priv);
-    vfio_config_writeb(func, addr | 3, val >> 24, priv);
+    vfio_config_writeb(func, addr, 4, val, priv);
+    vfio_config_writeb(func, addr | 1, 4, val >> 8, priv);
+    vfio_config_writeb(func, addr | 2, 4, val >> 16, priv);
+    vfio_config_writeb(func, addr | 3, 4, val >> 24, priv);
 }
 
 static void
@@ -1849,13 +1900,13 @@ vfio_irq_thread(void *priv)
             irq = (vfio_irq_t *) events[i].data.ptr;
             if (!irq) {
                 /* Do nothing if this is the wake eventfd, which has no data. */
-                read(irq_thread_wake_fd, &buf, sizeof(buf));
+                (void) !read(irq_thread_wake_fd, &buf, sizeof(buf));
                 continue;
             }
             dev = irq->dev;
 
             /* Reset eventfd counter. */
-            read(irq->fd, &buf, sizeof(buf));
+            (void) !read(irq->fd, &buf, sizeof(buf));
 
             /* Don't hang waiting for the timer if we're closing. */
             if (closing)
@@ -2071,7 +2122,7 @@ vfio_irq_msix_updatemask(vfio_device_t *dev, uint16_t offset)
     /* Service any unmasked pending interrupts. */
     if (((dev->irq.msix.ctl & 0xc000) == 0x8000) && !(dev->irq.msix.table[offset] & 0x01) && (dev->irq.msix.pba[offset >> 7] & (1 << (offset & 0x07)))) {
         uint64_t val = 1;
-        write(dev->irq.vectors[offset >> 4].fd, &val, sizeof(val));
+        (void) !write(dev->irq.vectors[offset >> 4].fd, &val, sizeof(val));
         dev->irq.msix.pba[offset >> 7] &= ~(1 << (offset & 0x07));
     }
 }
@@ -2128,7 +2179,7 @@ vfio_irq_disable(vfio_device_t *dev)
     /* Pause IRQ thread. */
     thread_reset_event(irq_thread_resume);
     uint64_t val = 1;
-    write(irq_thread_wake_fd, &val, sizeof(val));
+    (void) !write(irq_thread_wake_fd, &val, sizeof(val));
 
     /* Always disable INTx after disabling MSI/MSI-X. */
     if (dev->irq.type == VFIO_PCI_MSIX_IRQ_INDEX)
@@ -2183,26 +2234,26 @@ vfio_irq_enable(vfio_device_t *dev, int type)
     }
 
     /* Prepare structure for enabling the interrupt type. */
-    struct vfio_irq_set irq_set = {
-        .argsz = sizeof(irq_set) + (sizeof(int32_t) * dev->irq.vector_count),
-        .flags = VFIO_IRQ_SET_DATA_EVENTFD | VFIO_IRQ_SET_ACTION_TRIGGER,
-        .index = type,
-        .start = 0,
-        .count = dev->irq.vector_count
-    };
-    int32_t           *fd_list = (int32_t *) &irq_set.data;
+    size_t irq_set_size = sizeof(struct vfio_irq_set) + (dev->irq.vector_count * sizeof(int32_t));
+    struct vfio_irq_set *irq_set = (struct vfio_irq_set *) calloc(1, irq_set_size);
+    irq_set->argsz = irq_set_size;
+    irq_set->flags = VFIO_IRQ_SET_DATA_EVENTFD | VFIO_IRQ_SET_ACTION_TRIGGER;
+    irq_set->index = type;
+    irq_set->start = 0;
+    irq_set->count = dev->irq.vector_count;
+    int32_t           *fd_list = (int32_t *) &irq_set->data;
     struct epoll_event event   = { .events = EPOLLIN };
 
     /* Create interrupt vectors with their respective eventfds. */
-    dev->irq.vectors = (vfio_irq_t *) malloc(sizeof(vfio_irq_t) * dev->irq.vector_count);
+    dev->irq.vectors = (vfio_irq_t *) calloc(dev->irq.vector_count, sizeof(vfio_irq_t));
     for (int i = 0; i < dev->irq.vector_count; i++) {
         dev->irq.vectors[i].dev    = dev;
         dev->irq.vectors[i].type   = type;
         dev->irq.vectors[i].vector = i;
         fd_list[i] = dev->irq.vectors[i].fd = eventfd(0, 0);
-        if (fd_list[i] < 0) {
+        if (fd_list[i] < 0)
             pclog("VFIO %s: IRQ eventfd %d failed (%d)\n", dev->name, i, errno);
-        } else {
+        else {
             /* Add eventfd to epoll. */
             event.data.ptr = &dev->irq.vectors[i];
             epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd_list[i], &event);
@@ -2211,9 +2262,10 @@ vfio_irq_enable(vfio_device_t *dev, int type)
     }
 
     /* Enable interrupt type on VFIO. */
-    if (ioctl(dev->fd, VFIO_DEVICE_SET_IRQS, &irq_set))
+    if (ioctl(dev->fd, VFIO_DEVICE_SET_IRQS, irq_set))
         pclog("VFIO %s: SET_IRQS(%d, %d) failed (%d)\n", dev->name,
               type, dev->irq.vector_count, errno);
+    free(irq_set);
     dev->irq.type = type;
 }
 
@@ -2252,18 +2304,18 @@ vfio_region_init(vfio_device_t *dev, struct vfio_region_info *reg, vfio_region_t
         region->fd = -1;
 
         /* Open ROM file if one was given. */
-        FILE *f = NULL;
+        FILE *fp = NULL;
         if (dev->rom_fn) {
             pclog("VFIO %s: Loading ROM from file: %s\n", dev->name, dev->rom_fn);
-            f = fopen(dev->rom_fn, "rb");
-            if (f) {
+            fp = fopen(dev->rom_fn, "rb");
+            if (fp) {
                 /* Determine region size if the device has no ROM region. */
                 if (!region->size) {
-                    fseek(f, 0, SEEK_END);
-                    region->size = ceilpow2(ftell(f));
+                    fseek(fp, 0, SEEK_END);
+                    region->size = ceilpow2(ftell(fp));
                     if (region->size < 2048) /* minimum size for an expansion ROM */
                         region->size = 2048;
-                    fseek(f, 0, SEEK_SET);
+                    fseek(fp, 0, SEEK_SET);
                 }
             } else {
                 /* Fall back to the device's ROM if it has one. */
@@ -2284,7 +2336,7 @@ vfio_region_init(vfio_device_t *dev, struct vfio_region_info *reg, vfio_region_t
         region->bar_id = 0xff;
 
         /* Allocate ROM shadow area. */
-        region->mmap_base = region->mmap_precalc = plat_mmap(region->size, 0);
+        region->mmap_base = region->mmap_precalc = plat_mmap(region->size, 0, NULL);
         if (region->mmap_base == ((void *) -1)) {
             pclog("VFIO %s: ROM mmap(%" PRIu64 ") failed\n", dev->name, region->size);
             region->mmap_base = NULL;
@@ -2293,16 +2345,16 @@ vfio_region_init(vfio_device_t *dev, struct vfio_region_info *reg, vfio_region_t
         memset(region->mmap_base, 0xff, region->size);
 
         int i, j = 0;
-        if (f) {
+        if (fp) {
             /* Read ROM from file. */
             while ((i = fread(region->mmap_precalc, 1,
                               region->size - j,
-                              f))
+                              fp))
                    != 0) {
                 region->mmap_precalc += i;
                 j += i;
             }
-            fclose(f);
+            fclose(fp);
         } else {
             /* Read ROM from device. */
             while ((i = pread(dev->fd, region->mmap_precalc,
@@ -2445,10 +2497,10 @@ vfio_group_get(int id, uint8_t add)
 
     /* Add group if no matches were found. */
     if (group) {
-        group->next = (vfio_group_t *) malloc(sizeof(vfio_group_t));
+        group->next = (vfio_group_t *) calloc(1, sizeof(vfio_group_t));
         group       = group->next;
     } else {
-        group = first_group = (vfio_group_t *) malloc(sizeof(vfio_group_t));
+        group = first_group = (vfio_group_t *) calloc(1, sizeof(vfio_group_t));
     }
     memset(group, 0, sizeof(vfio_group_t));
     group->id = id;
@@ -2498,13 +2550,13 @@ vfio_dev_prereset(vfio_device_t *dev)
     /* Extra steps for devices with power management capability. */
     if (dev->pm_cap) {
         /* Make sure the device is in D0 state. */
-        uint8_t pm_ctrl = vfio_config_readb(0, dev->pm_cap + 4, dev),
+        uint8_t pm_ctrl = vfio_config_readb(0, dev->pm_cap + 4, 1, dev),
                 state   = pm_ctrl & 0x03;
         if (state) {
             pm_ctrl &= ~0x03;
-            vfio_config_writeb(0, dev->pm_cap + 4, pm_ctrl, dev);
+            vfio_config_writeb(0, dev->pm_cap + 4, pm_ctrl, 1, dev);
 
-            pm_ctrl = vfio_config_readb(0, dev->pm_cap + 4, dev);
+            pm_ctrl = vfio_config_readb(0, dev->pm_cap + 4, 1, dev);
             state   = pm_ctrl & 0x03;
             if (state)
                 vfio_log("VFIO %s: Device stuck in D%d state\n", dev->name, state);
@@ -2515,10 +2567,10 @@ vfio_dev_prereset(vfio_device_t *dev)
     }
 
     /* Enable function-level reset if supported. */
-    dev->can_flr_reset = (dev->pcie_cap && (vfio_config_readb(0, dev->pcie_cap + 7, dev) & 0x10)) || (dev->af_cap && (vfio_config_readb(0, dev->af_cap + 3, dev) & 0x02));
+    dev->can_flr_reset = (dev->pcie_cap && (vfio_config_readb(0, dev->pcie_cap + 7, 1, dev) & 0x10)) || (dev->af_cap && (vfio_config_readb(0, dev->af_cap + 3, 1, dev) & 0x02));
 
     /* Disable bus master, BARs, expansion ROM and VGA regions; also enable INTx. */
-    vfio_config_writew(0, 0x04, vfio_config_readw(0, 0x04, dev) & ~0x0407, dev);
+    vfio_config_writew(0, 0x04, 2, vfio_config_readw(0, 0x04, 2, dev) & ~0x0407, dev);
 }
 
 static void
@@ -2532,8 +2584,8 @@ vfio_dev_postreset(vfio_device_t *dev)
 
     /* Reset BARs, whatever this does. */
     uint32_t val = 0;
-    for (int i = 0x10; i < 0x28; i++)
-        pwrite(dev->config.fd, &val, sizeof(val), dev->config.offset + i);
+    for (uint8_t i = 0x10; i < 0x28; i++)
+        (void) !pwrite(dev->config.fd, &val, sizeof(val), dev->config.offset + i);
 }
 
 static int
@@ -2565,8 +2617,7 @@ vfio_dev_init(vfio_device_t *dev)
     dev->can_reset = !!(device_info.flags & VFIO_DEVICE_FLAGS_RESET);
 
     /* Establish region names. */
-    int i;
-    for (i = 0; i < 6; i++) {
+    for (uint8_t i = 0; i < 6; i++) {
         sprintf(dev->bars[i].name, "BAR #%d", dev->bars[i].bar_id = i);
         dev->bars[i].type = 0xff;
     }
@@ -2579,7 +2630,7 @@ vfio_dev_init(vfio_device_t *dev)
     /* Initialize all regions. */
     struct vfio_region_info reg = { .argsz = sizeof(reg) };
     uint8_t                 cls;
-    for (i = 0; i < device_info.num_regions; i++) {
+    for (int i = 0; i < device_info.num_regions; i++) {
         /* Get region information. */
         reg.index = i;
         ioctl(dev->fd, VFIO_DEVICE_GET_REGION_INFO, &reg);
@@ -2614,7 +2665,7 @@ vfio_dev_init(vfio_device_t *dev)
                 vfio_region_init(dev, &reg, &dev->vga_mem);   /* memory [A0000:BFFFF] */
 
                 /* Inform that a PCI VGA video card is attached if no video card is emulated. */
-                if (gfxcard == VID_NONE)
+                if (gfxcard[0] == VID_NONE)
                     video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_default);
                 break;
 
@@ -2643,7 +2694,8 @@ vfio_dev_init(vfio_device_t *dev)
 
     /* Go through PCI capability list if the device declares one. */
     dev->irq.msix.table_bar = dev->irq.msix.pba_bar = 0x07;
-    uint8_t cap_ptr, cap_id;
+    uint8_t cap_ptr;
+    uint8_t cap_id;
     if ((pread(dev->config.fd, &cap_ptr, sizeof(cap_ptr), dev->config.offset + 0x06) == sizeof(cap_ptr)) && (cap_ptr & 0x10)) {
         vfio_log("VFIO %s: Device capabilities:", dev->name);
 
@@ -2713,16 +2765,16 @@ vfio_dev_init(vfio_device_t *dev)
 
                     /* Allocate table and PBA structures. */
                     dev->irq.msix.table_size = dev->irq.msix.vector_count << 4;
-                    dev->irq.msix.table      = malloc(dev->irq.msix.table_size);
+                    dev->irq.msix.table      = calloc(1, dev->irq.msix.table_size);
                     if (!dev->irq.msix.table) {
-                        pclog("VFIO %s: MSI-X table malloc(%d) failed\n", dev->name, dev->irq.msix.table_size);
+                        pclog("VFIO %s: MSI-X table calloc(1, %d) failed\n", dev->name, dev->irq.msix.table_size);
                         dev->irq.msix.table_size = dev->irq.msix.vector_count = 0;
                     }
 
                     dev->irq.msix.pba_size = ((dev->irq.msix.vector_count - 1) >> 3) + 1;
-                    dev->irq.msix.pba      = malloc(dev->irq.msix.pba_size);
+                    dev->irq.msix.pba      = calloc(1, dev->irq.msix.pba_size);
                     if (!dev->irq.msix.pba) {
-                        pclog("VFIO %s: MSI-X PBA malloc(%d) failed\n", dev->name, dev->irq.msix.pba_size);
+                        pclog("VFIO %s: MSI-X PBA calloc(1, %d) failed\n", dev->name, dev->irq.msix.pba_size);
                         dev->irq.msix.pba_size = dev->irq.msix.vector_count = 0;
                     }
 
@@ -2785,7 +2837,7 @@ vfio_dev_close(vfio_device_t *dev)
     vfio_log("VFIO %s: close()\n", dev->name);
 
     /* Close all regions. */
-    for (int i = 0; i < 6; i++)
+    for (uint8_t i = 0; i < 6; i++)
         vfio_region_close(dev, &dev->bars[i]);
     vfio_region_close(dev, &dev->rom);
     vfio_region_close(dev, &dev->config);
@@ -2858,7 +2910,8 @@ vfio_reset(void *priv)
     vfio_log("VFIO: reset()\n");
 
     /* Pre-reset and figure out the reset type for all devices. */
-    int                               size, count, i;
+    int                               size;
+    int                               count;
     struct vfio_pci_hot_reset_info   *hot_reset_info;
     struct vfio_pci_dependent_device *devices;
     char                              name[13];
@@ -2875,9 +2928,9 @@ vfio_reset(void *priv)
 
             /* Get hot reset information for the first time to get the entry count. */
             size           = sizeof(struct vfio_pci_hot_reset_info);
-            hot_reset_info = (struct vfio_pci_hot_reset_info *) malloc(size);
+            hot_reset_info = (struct vfio_pci_hot_reset_info *) calloc(1, size);
             if (!hot_reset_info) {
-                vfio_log("VFIO %s: malloc(hot_reset_info) 1 failed\n", dev->name);
+                vfio_log("VFIO %s: calloc(1, hot_reset_info) 1 failed\n", dev->name);
                 goto next1;
             }
             memset(hot_reset_info, 0, size);
@@ -2891,9 +2944,9 @@ vfio_reset(void *priv)
 
             /* Get hot reset information for the second time to get the actual entries. */
             size           = sizeof(struct vfio_pci_hot_reset) + (sizeof(struct vfio_pci_dependent_device) * count);
-            hot_reset_info = (struct vfio_pci_hot_reset_info *) malloc(size);
+            hot_reset_info = (struct vfio_pci_hot_reset_info *) calloc(1, size);
             if (!hot_reset_info) {
-                vfio_log("VFIO %s: malloc(hot_reset_info) 2 failed\n", dev->name);
+                vfio_log("VFIO %s: calloc(1, hot_reset_info) 2 failed\n", dev->name);
                 goto next1;
             }
             memset(hot_reset_info, 0, size);
@@ -2905,7 +2958,7 @@ vfio_reset(void *priv)
             devices = &hot_reset_info->devices[0];
 
             /* Go through the dependent device entries. */
-            for (i = 0; i < count; i++) {
+            for (int i = 0; i < count; i++) {
                 /* Build this dependent device's name. */
                 snprintf(name, sizeof(name), "%04x:%02x:%02x.%1x",
                          devices[i].segment, devices[i].bus,
@@ -2941,9 +2994,8 @@ next1:
 
     /* Allocate hot reset structure. */
     struct vfio_pci_hot_reset *hot_reset;
-    size      = sizeof(struct vfio_pci_hot_reset) + (sizeof(int32_t) * count);
-    hot_reset = (struct vfio_pci_hot_reset *) malloc(size);
-    memset(hot_reset, 0, size);
+    size             = sizeof(struct vfio_pci_hot_reset) + (sizeof(int32_t) * count);
+    hot_reset        = (struct vfio_pci_hot_reset *) calloc(1, size);
     hot_reset->argsz = size;
     int32_t *fds     = &hot_reset->group_fds[0];
 
@@ -2962,9 +3014,9 @@ next1:
             /* Try function-level reset.
                I don't really understand the !pm_reset check, but QEMU does it. */
             if (dev->can_reset && (!dev->can_pm_reset || dev->can_flr_reset)) {
-                if (ioctl(dev->fd, VFIO_DEVICE_RESET)) {
+                if (ioctl(dev->fd, VFIO_DEVICE_RESET))
                     vfio_log("VFIO %s: DEVICE_RESET 1 failed (%d)\n", dev->name, errno);
-                } else {
+                else {
                     vfio_log("VFIO %s: FLR reset successful\n", dev->name);
                     goto next2;
                 }
@@ -2972,9 +3024,9 @@ next1:
 
             /* Try hot reset. */
             if (dev->can_hot_reset) {
-                if (ioctl(dev->fd, VFIO_DEVICE_PCI_HOT_RESET, hot_reset)) {
+                if (ioctl(dev->fd, VFIO_DEVICE_PCI_HOT_RESET, hot_reset))
                     vfio_log("VFIO %s: PCI_HOT_RESET failed (%d)\n", dev->name, errno);
-                } else {
+                else {
                     vfio_log("VFIO %s: Hot reset successful\n", dev->name);
                     goto next2;
                 }
@@ -2982,9 +3034,9 @@ next1:
 
             /* Try PM reset. */
             if (dev->can_reset && dev->can_pm_reset) {
-                if (ioctl(dev->fd, VFIO_DEVICE_RESET)) {
+                if (ioctl(dev->fd, VFIO_DEVICE_RESET))
                     vfio_log("VFIO %s: DEVICE_RESET 2 failed (%d)\n", dev->name, errno);
-                } else {
+                else {
                     vfio_log("VFIO %s: PM reset successful\n", dev->name);
                     goto next2;
                 }
@@ -3046,10 +3098,19 @@ vfio_init(void)
     }
 
     /* Parse device list. */
-    char *strtok_save, *token = strtok_r(devices, " ", &strtok_save),
-                       *p, *dev_name, *sysfs_device, *config_key;
-    int            i, domain_id, bus_id, dev_id, func_id;
-    vfio_device_t *dev = NULL, *prev_dev;
+    char          *strtok_save;
+    char          *token = strtok_r(devices, " ", &strtok_save);
+    char          *p;
+    char          *dev_name;
+    char          *sysfs_device;
+    char          *config_key;
+    int            i;
+    int            domain_id;
+    int            bus_id;
+    int            dev_id;
+    int            func_id;
+    vfio_device_t *dev = NULL;
+    vfio_device_t *prev_dev;
     vfio_group_t  *group;
     while (token) {
         /* Determine if the device was specified by location or sysfs path. */
@@ -3057,11 +3118,11 @@ vfio_init(void)
         if (token[0] == '/') {
             /* sysfs path: use basename as device name. */
             i        = strlen(token);
-            dev_name = malloc(i + 1);
+            dev_name = calloc(1, i + 1);
             strncpy(dev_name, path_get_basename(token), i);
 
             /* Just append iommu_group to the path. */
-            sysfs_device = malloc(i + 13);
+            sysfs_device = calloc(1, i + 13);
             snprintf(sysfs_device, i + 13,
                      "%s/iommu_group", token);
         } else if (token[0]) {
@@ -3087,12 +3148,12 @@ vfio_init(void)
             }
 
             /* Use dddd:bb:dd.f as device name. */
-            dev_name = malloc(13);
+            dev_name = calloc(1, 13);
             snprintf(dev_name, 13,
                      "%04x:%02x:%02x.%1x", domain_id, bus_id, dev_id, func_id);
 
             /* Generate sysfs path. */
-            sysfs_device = malloc(46);
+            sysfs_device = calloc(1, 46);
             snprintf(sysfs_device, 46,
                      "/sys/bus/pci/devices/%s/iommu_group", dev_name);
         } else {
@@ -3130,8 +3191,7 @@ vfio_init(void)
 
         /* Allocate device structure. */
         prev_dev = group->current_device;
-        dev = group->current_device = (vfio_device_t *) malloc(sizeof(vfio_device_t));
-        memset(dev, 0, sizeof(vfio_device_t));
+        dev = group->current_device = (vfio_device_t *) calloc(1, sizeof(vfio_device_t));
 
         /* Initialize device structure. */
         dev->name     = dev_name;
@@ -3140,7 +3200,7 @@ vfio_init(void)
 
         /* Read device-specific settings. */
         i          = strlen(token) + 8;
-        config_key = malloc(i);
+        config_key = calloc(1, i);
         snprintf(config_key, i, "%s_rom_fn", token);
         dev->rom_fn = config_get_string(category, config_key, NULL);
         free(config_key);
@@ -3170,9 +3230,7 @@ next: /* Clean up. */
     }
 
     /* Map RAM to container for DMA. */
-    vfio_map_dma(ram, 0, 1024UL * MIN(mem_size, 1048576));
-    if (ram2)
-        vfio_map_dma(ram2, 1024UL * 1048576, 1024UL * (mem_size - 1048576));
+    vfio_map_dma(ram, 0, 1024UL * mem_size);
 
     /* Initialize epoll. */
     epoll_fd = epoll_create1(0);

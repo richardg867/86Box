@@ -28,8 +28,13 @@ signals:
     void dropped(QString);
 
 protected:
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    void mousePressEvent(QMouseEvent *event) override { emit clicked(event->globalPosition().toPoint()); }
+    void mouseDoubleClickEvent(QMouseEvent *event) override { emit doubleClicked(event->globalPosition().toPoint()); }
+#else
     void mousePressEvent(QMouseEvent *event) override { emit clicked(event->globalPos()); }
     void mouseDoubleClickEvent(QMouseEvent *event) override { emit doubleClicked(event->globalPos()); }
+#endif
     void dragEnterEvent(QDragEnterEvent *event) override
     {
         if (event->mimeData()->hasUrls() && event->mimeData()->urls().size() == 1) {
@@ -67,13 +72,15 @@ public:
     static bool hasSCSI();
     static void iterateFDD(const std::function<void(int i)> &cb);
     static void iterateCDROM(const std::function<void(int i)> &cb);
-    static void iterateZIP(const std::function<void(int i)> &cb);
+    static void iterateRDisk(const std::function<void(int i)> &cb);
     static void iterateMO(const std::function<void(int i)> &cb);
+    static void iterateTape(const std::function<void(int i)> &cb);
     static void iterateNIC(const std::function<void(int i)> &cb);
 
     QString getMessage();
     void    clearActivity();
-    void    setSoundMenu(QMenu* menu);
+    void    setSoundMenu(QMenu *menu);
+    void    setDynarecMenu(QMenu *menu);
 public slots:
     void refresh(QStatusBar *sbar);
     void message(const QString &msg);
@@ -87,6 +94,7 @@ private:
     std::unique_ptr<States> d;
     QTimer                 *refreshTimer;
     QMenu                  *soundMenu;
+    QMenu                  *dynarecMenu;
 };
 
 #endif // QT_MACHINESTATUS_HPP
