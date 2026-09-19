@@ -12,7 +12,7 @@
  *
  * Authors: RichardG, <richardg867@gmail.com>
  *
- *          Copyright 2021-2025 RichardG.
+ *          Copyright 2021-2026 RichardG.
  */
 #include <math.h>
 #define PNG_DEBUG 0

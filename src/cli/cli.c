@@ -12,7 +12,7 @@
  *
  * Authors: RichardG, <richardg867@gmail.com>
  *
- *          Copyright 2021-2025 RichardG.
+ *          Copyright 2021-2026 RichardG.
  */
 #include <signal.h>
 #include <stdarg.h>
@@ -30,6 +30,7 @@
 #endif
 #define HAVE_STDARG_H
 #include <86box/86box.h>
+#include <86box/keyboard.h>
 #include <86box/cli.h>
 #include <86box/plat.h>
 

@@ -14,7 +14,7 @@
  *          RichardG, <richardg867@gmail.com>
  *
  *          Copyright 2021-2023 Cacodemon345.
- *          Copyright 2021-2025 RichardG.
+ *          Copyright 2021-2026 RichardG.
  */
 #include <errno.h>
 #include <stdint.h>
@@ -60,7 +60,6 @@
 #    endif
 #endif
 
-/* Lookup tables for converting key names to keyboard scan codes. */
 static const struct {
     const char *name;
     uint16_t    code;

@@ -12,10 +12,10 @@
 #          RichardG, <richardg867@gmail.com>
 #
 #          Copyright 2020-2023 David Hrdlička.
-#          Copyright 2021-2023 RichardG.
+#          Copyright 2021-2026 RichardG.
 #
 
 if(CLI)
-    add_library(cli OBJECT cli.c cli_input.c cli_monitor.c cli_render.c)
+    add_library(cli OBJECT cli.c cli_input.c cli_input_common.c cli_monitor.c cli_render.c)
     target_link_libraries(86Box cli)
 endif()

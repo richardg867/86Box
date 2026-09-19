@@ -86,7 +86,7 @@ add_library(ui OBJECT
     sdl_ui.c
 )
 if (NOT CLI)
-    target_sources(ui PRIVATE ../cli/cli_input.c ../cli/cli_monitor.c)
+    target_sources(ui PRIVATE ../cli/cli_input_common.c ../cli/cli_monitor.c)
 endif()
 target_compile_definitions(ui PUBLIC _FILE_OFFSET_BITS=64)
 target_link_libraries(ui ${CMAKE_DL_LIBS})
