@@ -44,6 +44,7 @@
 #include <86box/thread.h>
 #include <86box/version.h>
 #include <86box/video.h>
+#include <86box/rdisk.h>
 
 #define MONITOR_CMD_EXIT      0x01
 #define MONITOR_CMD_UNBOUNDED 0x02
@@ -545,6 +546,14 @@ static const struct {
      .category = MONITOR_CATEGORY_MEDIALOAD,
      .handler  = cli_monitor_mediaload,
      .priv     = &(const media_cmd_t) { cdrom_mount, CDROM_NUM, 1, "CD-ROM drive" } },
+    { .name     = "rdiskload",
+     .helptext = "Load removable disk image <filename> into drive <id>.\n[wp] enables write protection when set to 1.",
+     .args     = (const char *[]) { "id", "filename", "wp" },
+     .args_min = 2,
+     .args_max = 3,
+     .category = MONITOR_CATEGORY_MEDIALOAD,
+     .handler  = cli_monitor_mediaload,
+     .priv     = &(const media_cmd_t) { rdisk_load, RDISK_NUM, 0, "removable disk drive" } },
     { .name     = "moload",
      .helptext = "Load MO disk image <filename> into drive <id>.\n[wp] enables write protection when set to 1.",
      .args     = (const char *[]) { "id", "filename", "wp" },
@@ -578,6 +587,14 @@ static const struct {
      .category = MONITOR_CATEGORY_MEDIAEJECT,
      .handler  = cli_monitor_mediaeject_mountblank_nowp,
      .priv     = &(const media_cmd_t) { cdrom_mount, CDROM_NUM, 1, "CD-ROM drive" } },
+    { .name     = "rdiskeject",
+     .helptext = "Eject disk from removable disk drive <id>.",
+     .args     = (const char *[]) { "id" },
+     .args_min = 1,
+     .args_max = 1,
+     .category = MONITOR_CATEGORY_MEDIAEJECT,
+     .handler  = cli_monitor_mediaeject,
+     .priv     = &(const media_cmd_t) { rdisk_eject, RDISK_NUM, 0, "removable disk drive" } },
     { .name     = "moeject",
      .helptext = "Eject disk from MO drive <id>.",
      .args     = (const char *[]) { "id" },
@@ -634,14 +651,14 @@ static const struct {
      .flags    = MONITOR_CMD_EXIT,
      .category = MONITOR_CATEGORY_EMULATOR,
      .handler  = cli_monitor_exit
-#ifdef USE_CLI
     },
+#ifdef USE_CLI
     { .name     = "back",
      .helptext = "Return to the screen.",
      .flags    = MONITOR_CMD_EXIT,
      .category = MONITOR_CATEGORY_EMULATOR
-#endif
     },
+#endif
 
     { .name     = "help",
      .helptext = "List all commands, or show detailed usage for <command>.",
