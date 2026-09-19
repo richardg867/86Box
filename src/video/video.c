@@ -384,7 +384,6 @@ video_screenshot_monitor(uint32_t *buf, int start_x, int start_y, int row_len, i
     video_take_screenshot_monitor((const char *) path, buf, start_x, start_y, row_len, monitor_index);
     png_destroy_write_struct(&png_ptr[monitor_index], &info_ptr[monitor_index]);
 
-    atomic_fetch_sub(&monitors[monitor_index].mon_screenshots, 1);
     atomic_fetch_sub(&monitors[monitor_index].mon_screenshots_raw, 1);
 
     if (screenshot_hook)

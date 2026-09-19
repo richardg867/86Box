@@ -254,6 +254,7 @@ ega_render_graphics(ega_t *ega)
 
     for (int x = 0; x <= (ega->hdisp + ega->scrollcache); x += charwidth) {
         uint32_t addr = ega->remap_func(ega, ega->memaddr) & ega->vrammask;
+
         uint8_t edat[4];
         if (seqoddeven) {
             // FIXME: Verify the behaviour of planes 1,3 on actual hardware

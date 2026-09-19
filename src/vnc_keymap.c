@@ -39,7 +39,7 @@
 #include <86box/plat.h>
 #include <86box/vnc.h>
 
-const int keysyms_00[] = {
+static int keysyms_00[] = {
     0x0000, /* 0x00 */
     0x0000,
     0x0000,
@@ -329,7 +329,7 @@ const int keysyms_00[] = {
     0x0000  /* 0xff (XK_ydiaeresis) */
 };
 
-const int keysyms_ff[] = {
+static int keysyms_ff[] = {
     0x0000, /* 0x00 */
     0x0000,
     0x0000,

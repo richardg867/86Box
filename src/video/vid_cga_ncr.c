@@ -324,7 +324,8 @@ nga_poll(void *priv)
                     }
 
                     /* for each text column */
-                    for (x = 0; x < nga->cga.crtc[CGA_CRTC_HDISP]; x++) {                        /* video out */
+                    for (x = 0; x < nga->cga.crtc[CGA_CRTC_HDISP]; x++) {
+                        /* video out */
                         if (nga->cga.cgamode & CGA_MODE_FLAG_VIDEO_ENABLE) {
                             /* 640x400x2 */
                             if (nga->cga.cgamode & 0x4 || nga->cga.cgamode & CGA_MODE_FLAG_HIGHRES_GRAPHICS) {

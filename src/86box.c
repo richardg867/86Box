@@ -112,13 +112,6 @@
 #include <86box/cli.h>
 #include <86box/vfio.h>
 
-// Disable c99-designator to avoid the warnings about int ng
-#ifdef __clang__
-#    if __has_warning("-Wunused-but-set-variable")
-#        pragma clang diagnostic ignored "-Wunused-but-set-variable"
-#    endif
-#endif
-
 /* Stuff that used to be globally declared in plat.h but is now extern there
    and declared here instead. */
 int          dopause = 1;  /* system is paused */
@@ -442,12 +435,11 @@ pclog_ex(UNUSED(const char *fmt), UNUSED(va_list ap))
 #    endif
 
     vsprintf(temp, fmt, ap);
-    if (suppr_seen && !strcmp(buff, temp)) {
+    if (suppr_seen && !strcmp(buff, temp))
         seen++;
-    } else {
-        if (suppr_seen && seen) {
+    else {
+        if (suppr_seen && seen)
             fprintf(stdlog, "*** %d repeats ***\n", seen);
-        }
         seen = 0;
         strcpy(buff, temp);
         fprintf(stdlog, "%s", temp);

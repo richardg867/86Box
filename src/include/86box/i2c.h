@@ -50,9 +50,9 @@ extern uint8_t i2c_write(void *bus_handle, uint8_t addr, uint8_t data);
 extern void    i2c_stop(void *bus_handle, uint8_t addr);
 
 /* i2c_eeprom.c */
-extern uint8_t  log2i(uint32_t i);
-extern void    *i2c_eeprom_init(void *i2c, uint8_t addr, uint8_t *data, uint32_t size, uint8_t writable);
-extern void     i2c_eeprom_close(void *dev_handle);
+extern uint8_t log2i(uint32_t i);
+extern void   *i2c_eeprom_init(void *i2c, uint8_t addr, uint8_t *data, uint32_t size, uint8_t writable);
+extern void    i2c_eeprom_close(void *dev_handle);
 
 /* i2c_gpio.c */
 extern void   *i2c_gpio_init(char *bus_name);

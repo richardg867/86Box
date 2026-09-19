@@ -133,10 +133,6 @@ speaker_close(void *priv)
 {
     speaker_t *dev = (speaker_t *) priv;
 
-    if (dev != NULL)
-        memset(dev->buffer, 0, sizeof(dev->buffer));
-    sound_add_handler(speaker_get_buffer, NULL);
-    speaker_mute = 0;
 #ifdef USE_CLI
     speaker_bell = speaker_bell_cycles = 0;
 #endif

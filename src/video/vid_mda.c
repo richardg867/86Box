@@ -166,6 +166,7 @@ mda_poll(void *priv)
                 video_wait_for_buffer();
             }
             mda->lastline = mda->displine;
+
 #ifdef USE_CLI
             if ((mda->displine % 8) == 0)
                 cli_render_mda(mda->crtc[1], mda->crtc[0x09] & 0x1f,

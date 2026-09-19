@@ -364,6 +364,7 @@ cga_render(cga_t *cga, int line)
         else
             buffer32->line[line][column + (cga->crtc[CGA_CRTC_HDISP] * 16) + 8] = overlay_flag ? 0 : ((cga->cgacol & 0b1111) + 16);
     }
+
     if (cga->cgamode & CGA_MODE_FLAG_HIGHRES) { /* 80-column text */
 #ifdef USE_CLI
         if ((cga->displine % 8) == 0)

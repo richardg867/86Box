@@ -14,7 +14,7 @@ add_compile_options(
     "$<$<COMPILE_LANGUAGE:C>:-Werror=implicit-int>"
     "$<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>"
     "$<$<COMPILE_LANGUAGE:C>:-Werror=int-conversion>"
-    "$<$<COMPILE_LANGUAGE:C>:-Wno-error=strict-prototypes>"
+    "$<$<COMPILE_LANGUAGE:C>:-Werror=strict-prototypes>"
     "$<$<COMPILE_LANGUAGE:C>:-Werror=old-style-definition>"
 )
 
