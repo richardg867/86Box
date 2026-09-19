@@ -2104,7 +2104,7 @@ pc_run(void)
 #endif
 #ifdef USE_CLI
         wchar_t temp[256];
-        swprintf(temp, sizeof_w(temp), L"%hs - %i%% - %ls %ls", vm_name, fps, EMU_NAME_W, EMU_VERSION_FULL_W);
+        swprintf(temp, sizeof_w(temp), L"%hs - %i%% - %ls %ls", vm_name, speed_percent, EMU_NAME_W, EMU_VERSION_FULL_W);
         cli_render_write_title(temp);
 #endif
         title_update = 0;
