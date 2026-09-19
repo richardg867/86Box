@@ -961,8 +961,17 @@ cli_render_process_screenshot(char *path, uint32_t *buf, int start_x, int start_
             if (cli_term.gfx_level & TERM_GFX_PNG) {
                 /* Output header. */
                 fputs("\033]1337;File=name=", CLI_RENDER_OUTPUT);
-                path = path_get_basename(path);
-                cli_render_process_base64((uint8_t *) path, strlen(path));
+                char *p = strrchr(path, '/'); /* workaround for nasty scope issues with qt path_get_basename */
+#ifdef _WIN32
+                char *p2 = strrchr(path, '\\');
+                if (p2 && (p2 > p))
+                    p = p2;
+#endif
+                if (p)
+                    p++;
+                else
+                    p = path;
+                cli_render_process_base64((uint8_t *) p, strlen(p));
                 fseek(f, 0, SEEK_END);
                 fprintf(CLI_RENDER_OUTPUT, ";size=%ld:", ftell(f));
                 fseek(f, 0, SEEK_SET);

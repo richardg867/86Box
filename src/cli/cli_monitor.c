@@ -494,10 +494,10 @@ cli_monitor_screenshot(int argc, char **argv, const void *priv)
     screenshot_event = thread_create_event();
     screenshot_hook  = cli_monitor_screenshot_hook;
 
-    /* Take screenshot. */
+    /* Take raw screenshot. */
     startblit();
     for (int i = 0; i < MONITORS_NUM; i++)
-        monitors[i].mon_screenshots++;
+        monitors[i].mon_screenshots_raw++;
     endblit();
     device_force_redraw();
 
