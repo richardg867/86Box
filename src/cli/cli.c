@@ -41,7 +41,7 @@ static const struct {
     const uint8_t ctl;
     const uint8_t gfx;
 } term_types[] = {
-  // clang-format off
+// clang-format off
 #ifdef _WIN32
     { "cmd-nt6",        TERM_COLOR_4BIT,  0,                                    0                            },
     { "cmd-nt10",       TERM_COLOR_24BIT, 0,                                    0                            },
@@ -70,7 +70,7 @@ static const struct {
     { "vt241",          TERM_COLOR_NONE,  0,                                    TERM_GFX_SIXEL               },
     { "vt330",          TERM_COLOR_NONE,  0,                                    TERM_GFX_SIXEL               },
     { NULL,             TERM_COLOR_3BIT,  0,                                    0                            }  /* unknown terminal */
-  // clang-format on
+    // clang-format on
 };
 
 cli_term_t cli_term = {
@@ -240,8 +240,8 @@ cli_term_updatesize(int runtime)
         cli_term.cpr |= 1;
         cli_render_write(
             "\033[999;999H" /* set cursor to an arbitrarily high coordinate */
-            "\033[6n" /* query Cursor Position Report */
-            "\033[1;1H" /* reset cursor */
+            "\033[6n"       /* query Cursor Position Report */
+            "\033[1;1H"     /* reset cursor */
         );
     }
 }
@@ -273,7 +273,7 @@ cmd_nt10:
                 OSVERSIONINFOEX vinfo = {
                     .dwMajorVersion = 10,
                     .dwMinorVersion = 0,
-                    .dwBuildNumber = 14931
+                    .dwBuildNumber  = 14931
                 };
                 DWORDLONG vmask = 0;
                 VER_SET_CONDITION(vmask, VER_MAJORVERSION, VER_GREATER_EQUAL);
@@ -311,7 +311,7 @@ cmd_nt10:
             cli_term.decrqss_color = TERM_COLOR_24BIT;
             cli_render_write(
                 "\033[38;2;255;255;255m" /* set 24-bit color to #ffffff */
-                "\033P$qm\033\\\033[0m" /* query SGR */
+                "\033P$qm\033\\\033[0m"  /* query SGR */
             );
         }
     }
@@ -329,8 +329,8 @@ cmd_nt10:
         cli_term.cpr |= 2;
         cli_render_write(
             "\033[1;1H" /* reset cursor */
-            "\xC2\xA0" /* send UTF-8 non-breaking space */
-            "\033[6n" /* query Cursor Position Report to determine UTF-8 support (begins terminal probe sequence) */
+            "\xC2\xA0"  /* send UTF-8 non-breaking space */
+            "\033[6n"   /* query Cursor Position Report to determine UTF-8 support (begins terminal probe sequence) */
             "\033[1;1H" /* reset cursor again */
         );
     }

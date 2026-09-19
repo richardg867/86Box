@@ -158,13 +158,13 @@ static int(LIBSIXELDLLAPI *sixel_encode)(unsigned char *pixels, int width, int h
                                          int depth, void *dither, void *context);
 
 static dllimp_t libsixel_imports[] = {
-  // clang-format off
+    // clang-format off
     { "sixel_dither_get",     &sixel_dither_get     },
     { "sixel_output_new",     &sixel_output_new     },
     { "sixel_output_destroy", &sixel_output_destroy },
     { "sixel_encode",         &sixel_encode         },
     { NULL,                   NULL                  }
-  // clang-format on
+    // clang-format on
 };
 static void *libsixel_handle = NULL,
             *libsixel_dither = NULL, *libsixel_output = NULL;
@@ -186,7 +186,7 @@ static struct {
     uint8_t mode, block, invalidate_all;
 
     const uint8_t *fb;
-    uint8_t  prev_mode, y, rowcount, prev_rowcount,
+    uint8_t        prev_mode, y, rowcount, prev_rowcount,
         do_render, do_blink, con;
     uint16_t ca;
     uint32_t fb_base, fb_mask, fb_step;
@@ -420,18 +420,18 @@ cli_render_monitorenter(void)
     /* Set up terminal. */
     cursor_x = cursor_y = -1;
     fprintf(CLI_RENDER_OUTPUT,
-            "\033[0m" /* reset formatting */
-            "\033[1;1H" /* move cursor to top left corner */
+            "\033[0m"        /* reset formatting */
+            "\033[1;1H"      /* move cursor to top left corner */
             "\033[2J\033[3J" /* clear screen */
-            "\033[%d q" /* set cursor style to default (from query response, or default 0 which some terminals accept) */
-            "\033[?25h" /* show cursor */
-            "\033>" /* switch to Normal Keypad */
-            "\033[<u" /* disable kitty keyboard protocol */
-            "\033[>4m" /* reset xterm modifyOtherKeys */
-            "\033[?1036l" /* disable xterm metaSendsEscape */
-            "\033[?1039l" /* disable xterm altSendsEscape */
-            "\033[?80l" /* enable sixel scrolling */
-            "\033[?1049l", /* switch to Main Screen Buffer (do it last to prevent consequences of it not being supported) */
+            "\033[%d q"      /* set cursor style to default (from query response, or default 0 which some terminals accept) */
+            "\033[?25h"      /* show cursor */
+            "\033>"          /* switch to Normal Keypad */
+            "\033[<u"        /* disable kitty keyboard protocol */
+            "\033[>4m"       /* reset xterm modifyOtherKeys */
+            "\033[?1036l"    /* disable xterm metaSendsEscape */
+            "\033[?1039l"    /* disable xterm altSendsEscape */
+            "\033[?80l"      /* enable sixel scrolling */
+            "\033[?1049l",   /* switch to Main Screen Buffer (do it last to prevent consequences of it not being supported) */
             cli_term.decrqss_cursor);
 
     if (render_data.block != 2) {
@@ -449,15 +449,15 @@ cli_render_monitorexit(void)
     /* Set up terminal. */
     fprintf(CLI_RENDER_OUTPUT,
             "\033[?1049h" /* switch to Alternate Screen Buffer (do it first to prevent consequences of it not being supported) */
-            "\033[?80h" /* disable sixel scrolling */
+            "\033[?80h"   /* disable sixel scrolling */
             "\033[?1039h" /* enable xterm altSendsEscape (no-op on default config but we can't override this) */
             "\033[?1036h" /* enable xterm metaSendsEscape */
-            "\033[>4;2m" /* enable xterm modifyOtherKeys for all keys */
-            "\033[>11u" /* enable kitty keyboard protocol: disambiguate escape codes, report event types, report all keys as escape codes */
-            "\033=" /* switch to Application Keypad */
-            "%s" /* query current cursor style and kitty keyboard protocol (all saved on response) if input is enabled */
-            "\033[3 q" /* set cursor style to blinking underline */
-            "\033[%%%c", /* set terminal encoding to UTF-8 or ISO-8859-1 */
+            "\033[>4;2m"  /* enable xterm modifyOtherKeys for all keys */
+            "\033[>11u"   /* enable kitty keyboard protocol: disambiguate escape codes, report event types, report all keys as escape codes */
+            "\033="       /* switch to Application Keypad */
+            "%s"          /* query current cursor style and kitty keyboard protocol (all saved on response) if input is enabled */
+            "\033[3 q"    /* set cursor style to blinking underline */
+            "\033[%%%c",  /* set terminal encoding to UTF-8 or ISO-8859-1 */
             cli_term.can_input ? "\033P$q q\033\\\033[?u" : "", cli_term.can_utf8 ? 'G' : '@');
 #ifdef _WIN32
     SetConsoleOutputCP(cli_term.can_utf8 ? 65001 : 1252);
@@ -726,9 +726,9 @@ cli_render_updatescreen(void)
 void
 cli_render_process_base64(uint8_t *buf, int len)
 {
-    char output_buf[257];
-    char *p = output_buf;
-    char *limit = output_buf + (sizeof(output_buf) - 1);
+    char     output_buf[257];
+    char    *p     = output_buf;
+    char    *limit = output_buf + (sizeof(output_buf) - 1);
     uint32_t tri;
     while (len > 0) {
         tri = buf[0] << 16;
@@ -798,8 +798,8 @@ cli_render_process_sixelwrite(char *data, int size, void *priv)
 static void
 cli_render_process_sixel(uint8_t *fb, int sx, int sy)
 {
-    uint8_t            *p = fb;
-    int                 i, j, x;
+    uint8_t *p = fb;
+    int      i, j, x;
 
     /* Render using libsixel instead if available. */
     if (libsixel_dither) {
@@ -920,7 +920,7 @@ cli_render_process_sixel(uint8_t *fb, int sx, int sy)
                     } else {
                         fprintf(CLI_RENDER_OUTPUT, "!%d%c", i, 63 + prev_ch);
                     }
-                    i = 0;
+                    i       = 0;
                     prev_ch = ch;
                 }
                 i++;
@@ -1358,7 +1358,7 @@ cli_render_process(void *priv)
                     /* Finish any SGRs we may have started. */
                     if (sgr_started) {
                         sgr_started = 0;
-                        *p++ = 'm';
+                        *p++        = 'm';
                     }
 
                     /* Add character. */
@@ -1516,9 +1516,7 @@ no_libsixel:
             colors_8bit[i] |= 0x0000aa;
     }
     for (; i < 232; i++) { /* color cube */
-        colors_8bit[i] = ((uint8_t) ((i - 16) / 36 * 85 / 2) << 16) |
-                         ((uint8_t) ((i - 16) / 6 % 6 * 85 / 2) << 8) |
-                         ((uint8_t) ((i - 16) % 6 * 85 / 2));
+        colors_8bit[i] = ((uint8_t) ((i - 16) / 36 * 85 / 2) << 16) | ((uint8_t) ((i - 16) / 6 % 6 * 85 / 2) << 8) | ((uint8_t) ((i - 16) % 6 * 85 / 2));
     }
     for (; i < 256; i++) { /* grayscale ramp */
         colors_8bit[i] = (uint8_t) (i * 10 - 2312);

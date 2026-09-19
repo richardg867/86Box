@@ -66,7 +66,7 @@ static const struct {
     const char *name;
     uint16_t    code;
 } named_seqs[] = {
-  // clang-format off
+    // clang-format off
     {"tab",        0x000f },
     { "enter",           0x001c },
     { "ret",0x001c },
@@ -132,7 +132,7 @@ static const struct {
     { "scrolllk",           0x0046 },
     { "scrolllock",  0x0046 },
     { 0   }
-  // clang-format on
+    // clang-format on
 };
 
 static int      first_run = 1;
@@ -146,13 +146,13 @@ static void (*rl_callback_handler_remove)(void) = NULL;
 static FILE **rl_outstream                      = NULL;
 
 static dllimp_t libedit_imports[] = {
-  // clang-format off
+    // clang-format off
     { "readline",                   &readline                   },
     { "add_history",                &add_history                },
     { "rl_callback_handler_remove", &rl_callback_handler_remove },
     { "rl_outstream",               &rl_outstream               },
     { NULL,                         NULL                        }
-  // clang-format on
+    // clang-format on
 };
 static void *libedit_handle = NULL;
 #endif
@@ -184,7 +184,7 @@ cli_monitor_parsefile(char *path, uint8_t allow_dir, uint8_t wp)
     }
 
     FILE *f = fopen(path, "rb");
-    DIR *dir;
+    DIR  *dir;
     if (f) {
         fclose(f);
         if (!wp) {
@@ -522,30 +522,30 @@ cli_monitor_version(int argc, char **argv, const void *priv)
     fputs(
         EMU_NAME " v" EMU_VERSION_FULL
 #ifdef EMU_GIT_HASH
-        " [" EMU_GIT_HASH "]"
+                 " [" EMU_GIT_HASH "]"
 #endif
-        " ["
+                 " ["
 #if defined(__aarch64__) || defined(_M_ARM64)
-        "arm64, "
+                 "arm64, "
 #elif defined(__x86_64) || defined(__x86_64__) || defined(__amd64) || defined(_M_X64)
-        "x86_64, "
+                 "x86_64, "
 #endif
 #ifdef USE_DYNAREC
 #    ifdef USE_NEW_DYNAREC
-        "new dynarec"
+                 "new dynarec"
 #    else
-        "old dynarec"
+                 "old dynarec"
 #    endif
 #else
-        "no dynarec"
+                 "no dynarec"
 #endif
-        "]\n\n"
-        "An emulator of old computers\n"
-        "Authors: Miran Grča (OBattler), RichardG867, Jasmine Iwanek, TC1995, coldbrewed, Teemu Korhonen (Manaatti), "
-        "Joakim L. Gilje, Adrien Moulin (elyosh), Daniel Balsom (gloriouscow), Cacodemon345, Fred N. van Kempen (waltje), "
-        "Tiseno100, reenigne, and others.\n"
-        "With previous core contributions from Sarah Walker, leilei, JohnElliott, greatpsycho, and others.\n\n"
-        "Released under the GNU General Public License version 2 or later. See LICENSE for more information.\n",
+                 "]\n\n"
+                 "An emulator of old computers\n"
+                 "Authors: Miran Grča (OBattler), RichardG867, Jasmine Iwanek, TC1995, coldbrewed, Teemu Korhonen (Manaatti), "
+                 "Joakim L. Gilje, Adrien Moulin (elyosh), Daniel Balsom (gloriouscow), Cacodemon345, Fred N. van Kempen (waltje), "
+                 "Tiseno100, reenigne, and others.\n"
+                 "With previous core contributions from Sarah Walker, leilei, JohnElliott, greatpsycho, and others.\n\n"
+                 "Released under the GNU General Public License version 2 or later. See LICENSE for more information.\n",
         CLI_RENDER_OUTPUT);
 }
 
@@ -572,7 +572,7 @@ static const struct {
     void (*handler)(int argc, char **argv, const void *priv);
     const void *priv;
 } commands[] = {
-    {.name     = "fddload",
+    { .name     = "fddload",
      .helptext = "Load floppy disk image <filename> into drive <id>.\n[wp] enables write protection when set to 1.",
      .args     = (const char *[]) { "id", "filename", "wp" },
      .args_min = 2,
@@ -716,14 +716,12 @@ static const struct {
      .helptext = "Exit " EMU_NAME ".",
      .flags    = MONITOR_CMD_EXIT,
      .category = MONITOR_CATEGORY_EMULATOR,
-     .handler  = cli_monitor_exit
-    },
+     .handler  = cli_monitor_exit },
 #ifdef USE_CLI
     { .name     = "back",
      .helptext = "Return to the screen.",
      .flags    = MONITOR_CMD_EXIT,
-     .category = MONITOR_CATEGORY_EMULATOR
-    },
+     .category = MONITOR_CATEGORY_EMULATOR },
 #endif
 
     { .name     = "help",
@@ -732,7 +730,7 @@ static const struct {
      .args_max = 1,
      .category = MONITOR_CATEGORY_HIDDEN,
      .handler  = cli_monitor_help },
-    { 0                                                   }
+    { 0 }
 };
 
 static void
@@ -903,7 +901,7 @@ cli_monitor_thread(void *priv)
 
     char buf[4096], *line = NULL, *argv[8],
                     ch, in_quote;
-    int argc, end, i, j, cmd, arg_start;
+    int  argc, end, i, j, cmd, arg_start;
 
     /* Read and process commands. */
     while (!feof(stdin)) {

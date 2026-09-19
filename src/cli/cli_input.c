@@ -206,11 +206,11 @@ static const uint8_t mouse_button_values[] = {
 
 static int  in_raw = 0, param_buf_pos = 0, collect_buf_pos = 0, dcs_buf_pos = 0, osc_buf_pos = 0;
 static char param_buf[32], collect_buf[32], dcs_buf[32], osc_buf[32];
-#    ifdef _WIN32
+#ifdef _WIN32
 static DWORD saved_console_mode = 0;
-#    else
+#else
 static tcflag_t saved_lflag = 0, saved_iflag = 0;
-#    endif
+#endif
 
 #define ENABLE_CLI_INPUT_LOG 1
 #ifdef ENABLE_CLI_INPUT_LOG
@@ -249,7 +249,7 @@ cli_input_raw(void)
         return;
     in_raw = 1;
 
-#    ifdef _WIN32
+#ifdef _WIN32
     /* Enable window events and disable quickedit mode.
        Note that we use ReadConsoleInput instead of ANSI mode. */
     HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
@@ -266,7 +266,7 @@ cli_input_raw(void)
     } else {
         cli_input_log("CLI Input: GetStdHandle failed (%08X)\n", GetLastError());
     }
-#    else
+#else
     /* Enable raw input. */
     struct termios ios;
     if (tcgetattr(STDIN_FILENO, &ios)) {
@@ -283,7 +283,7 @@ cli_input_raw(void)
         if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &ios))
             cli_input_log("CLI Input: tcsetattr failed (%d)\n", errno);
     }
-#    endif
+#endif
 }
 
 static void
@@ -295,7 +295,7 @@ cli_input_unraw(void)
 
     /* Restore saved terminal state. */
     if (in_raw == 2) {
-#    ifdef _WIN32
+#ifdef _WIN32
         HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
         if (h) {
             if (!SetConsoleMode(h, saved_console_mode))
@@ -303,7 +303,7 @@ cli_input_unraw(void)
         } else {
             cli_input_log("CLI Input: GetStdHandle failed (%08X)\n", GetLastError());
         }
-#    else
+#else
         struct termios ios;
         if (tcgetattr(STDIN_FILENO, &ios)) {
             cli_input_log("CLI Input: tcgetattr failed (%d)\n", errno);
@@ -313,7 +313,7 @@ cli_input_unraw(void)
             if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &ios))
                 cli_input_log("CLI Input: tcsetattr failed (%d)\n", errno);
         }
-#    endif
+#endif
     }
 
     in_raw = 0;
@@ -504,7 +504,7 @@ cli_input_csi_dispatch(int c)
                 code = SAFE_INDEX(csi_num_seqs, code);
             break;
 
-        case 'u': /* CSI ascii ; modifier [: kittyevent] u (xterm modifyOtherKeys>0 && formatOtherKeys=1 or kitty) */
+        case 'u':                           /* CSI ascii ; modifier [: kittyevent] u (xterm modifyOtherKeys>0 && formatOtherKeys=1 or kitty) */
             if ((code & ~0x1fff) == 0xe000) /* Unicode PUA (kitty) */
                 code = SAFE_INDEX(csi_pua_seqs, code & 0x1fff);
             else
@@ -515,7 +515,7 @@ cli_input_csi_dispatch(int c)
             }
 kitty_event:
             if (delimiter2 == ':') { /* kitty event types */
-                if (third == 3) /* release */
+                if (third == 3)      /* release */
                     modifier |= VT_KEY_UP;
                 else if ((third != 1) && (third != 2)) /* other events outside of press and repeat */
                     return;
@@ -557,8 +557,8 @@ cli_input_esc_dispatch(int c)
             }
             break;
 
-        case 'O': /* SS3 (VT220 Application Keypad) */
-        case '?': /* (VT52 Application Keypad) */
+        case 'O':                      /* SS3 (VT220 Application Keypad) */
+        case '?':                      /* (VT52 Application Keypad) */
             cli_input_csi_dispatch(c); /* route numpad keys */
             break;
 
@@ -640,7 +640,7 @@ cli_input_unhook(int c)
                             /* Try 8-bit color if we don't explicitly know it's supported. */
                             cli_term.decrqss_color = TERM_COLOR_8BIT;
                             cli_render_write(
-                                "\033[38;5;255m" /* set 8-bit color to the last gray */
+                                "\033[38;5;255m"        /* set 8-bit color to the last gray */
                                 "\033P$qm\033\\\033[0m" /* query SGR */
                             );
                             break;
@@ -655,7 +655,7 @@ cli_input_unhook(int c)
                             /* Try 4-bit color if we don't explicitly know it's supported. */
                             cli_term.decrqss_color = TERM_COLOR_4BIT;
                             cli_render_write(
-                                "\033[97m" /* set foreground to bright white */
+                                "\033[97m"              /* set foreground to bright white */
                                 "\033P$qm\033\\\033[0m" /* query SGR */
                             );
                             break;
@@ -735,9 +735,9 @@ cli_input_process(void *priv)
     int mouse_x_prev = 0;
     int mouse_y_prev = 0;
 #ifdef _WIN32
-    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+    HANDLE       h = GetStdHandle(STD_INPUT_HANDLE);
     INPUT_RECORD ir;
-    int prev_key = 0, prev_ctrl_state = 0;
+    int          prev_key = 0, prev_ctrl_state = 0;
 #endif
 
     /* Run state machine loop. */
@@ -774,11 +774,11 @@ cli_input_process(void *priv)
                     ir.Event.KeyEvent.wVirtualScanCode;
                 if (ir.Event.KeyEvent.bKeyDown) {
                     if ((prev_key == 0x0001) && (c == 0x001c) && (ir.Event.KeyEvent.dwControlKeyState == prev_ctrl_state)) {
-                        prev_key = c;
+                        prev_key        = c;
                         prev_ctrl_state = ir.Event.KeyEvent.dwControlKeyState;
                         goto monitor;
                     }
-                    prev_key = c;
+                    prev_key        = c;
                     prev_ctrl_state = ir.Event.KeyEvent.dwControlKeyState;
                 }
 
@@ -1210,10 +1210,10 @@ monitor:
 
                 /* Interpret mouse tracking data. */
                 int btn = param_buf[0] - ' ';
-                int mod = (btn >> 2) & 0x07; /* modifiers [4:2] */
-                btn = (btn & 0x03) | ((btn & 0xc0) >> 4); /* buttons [7:6,1:0] */
-                int x = param_buf[1] - ' ' - 1;
-                int y = param_buf[2] - ' ' - 1;
+                int mod = (btn >> 2) & 0x07;                  /* modifiers [4:2] */
+                btn     = (btn & 0x03) | ((btn & 0xc0) >> 4); /* buttons [7:6,1:0] */
+                int x   = param_buf[1] - ' ' - 1;
+                int y   = param_buf[2] - ' ' - 1;
                 cli_input_log("CLI Input: Mouse buttons %d modifiers %02X at %d,%d\n", btn, mod, x, y);
 
                 /* Convert and send coordinates. */
