@@ -453,7 +453,7 @@ static const device_config_t ps2_m25_config[] = {
 };
 
 const device_t ps2_m25_device = {
-    .name          = "IBM PS/2 model 25 (8086, color)",
+    .name          = "IBM PS/2 model 25 (color)",
     .internal_name = "ibmps2_m25",
     .flags         = 0,
     .local         = 0,
@@ -526,7 +526,7 @@ static const device_config_t ps2_m30_config[] = {
 };
 
 const device_t ps2_m30_device = {
-    .name          = "IBM PS/2 model 30 (8086)",
+    .name          = "IBM PS/2 model 30",
     .internal_name = "ibmps2_m30",
     .flags         = 0,
     .local         = 0,
@@ -569,7 +569,7 @@ static const device_config_t ibm7690_config[] = {
 };
 
 const device_t ibm7690_device = {
-    .name          = "IBM 7690 Clinical Workstation (8086)",
+    .name          = "IBM 7690 Clinical Workstation",
     .internal_name = "ibm7690",
     .flags         = 0,
     .local         = 0,

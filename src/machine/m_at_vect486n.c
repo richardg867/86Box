@@ -168,7 +168,7 @@ static const device_config_t vect486n_config[] = {
 };
 
 const device_t vect486n_device = {
-    .name          = "HP Vectra 486N",
+    .name          = "HP Vectra 486N (D26xxA)",
     .internal_name = "vect486n",
     .flags         = 0,
     .local         = 0,

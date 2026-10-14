@@ -1329,7 +1329,7 @@ static const device_config_t zida4dps_config[] = {
 };
 
 const device_t zida4dps_device = {
-    .name          = "Zida 4DPS",
+    .name          = "Zida Tomato 4DPS",
     .internal_name = "4dps",
     .flags         = 0,
     .local         = 0,

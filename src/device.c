@@ -208,7 +208,13 @@ device_set_context(device_context_t *ctx, const device_t *dev, int inst)
         { .old = "Intel AN430TX (Anchorage)", .new = "Intel AN430TX" },
         { .old = "Intel VS440FX (Venus)", .new = "Intel VS440FX" },
         { .old = "Advanced Integration Research (AIR) P6KDI", .new = "AIR P6KDI" }, /* 6.0 pre-release */
+        { .old = "IBM PS/2 model 25 (8086, color)", .new = "IBM PS/2 model 25 (color)" }, /* 7.0 pre-release */
+        { .old = "IBM PS/2 model 30 (8086)", .new = "IBM PS/2 model 30" }, /* 7.0 pre-release */
+        { .old = "IBM 7690 Clinical Workstation (8086)", .new = "IBM 7690 Clinical Workstation" }, /* 7.0 pre-release */
+        { .old = "HP Vectra 486N", .new = "HP Vectra 486N (D26xxA)" }, /* 7.0 pre-release */
         { .old = "Micronics M4LI", .new = "Micronics M4Li" }, /* 7.0 pre-release */
+        { .old = "Zida 4DPS", .new = "Zida Tomato 4DPS" }, /* 7.0 pre-release */
+        { .old = "Zida 6DXP", .new = "Zida Tomato 6DXP" }, /* 7.0 pre-release */
         { .old = "DTK PII-151B (MiniMicro) Floppy Drive Controller", .new = "DTK PII-151B (MiniMicro) FDC" },
         { .old = "DTK PII-158B (MiniMicro4) Floppy Drive Controller", .new = "DTK PII-158B (MiniMicro4) FDC" },
         { .old = "Monster FDC Floppy Drive Controller", .new = "Monster FDC" },

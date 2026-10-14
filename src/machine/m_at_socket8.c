@@ -773,7 +773,7 @@ static const device_config_t zida6dxp_config[] = {
 };
 
 const device_t zida6dxp_device = {
-    .name          = "Zida 6DXP",
+    .name          = "Zida Tomato 6DXP",
     .internal_name = "6dxp",
     .flags         = 0,
     .local         = 0,
