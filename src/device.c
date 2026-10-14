@@ -208,6 +208,7 @@ device_set_context(device_context_t *ctx, const device_t *dev, int inst)
         { .old = "Intel AN430TX (Anchorage)", .new = "Intel AN430TX" },
         { .old = "Intel VS440FX (Venus)", .new = "Intel VS440FX" },
         { .old = "Advanced Integration Research (AIR) P6KDI", .new = "AIR P6KDI" }, /* 6.0 pre-release */
+        { .old = "Micronics M4LI", .new = "Micronics M4Li" }, /* 7.0 pre-release */
         { .old = "DTK PII-151B (MiniMicro) Floppy Drive Controller", .new = "DTK PII-151B (MiniMicro) FDC" },
         { .old = "DTK PII-158B (MiniMicro4) Floppy Drive Controller", .new = "DTK PII-158B (MiniMicro4) FDC" },
         { .old = "Monster FDC Floppy Drive Controller", .new = "Monster FDC" },

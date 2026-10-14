@@ -1095,7 +1095,7 @@ static const device_config_t m4li_config[] = {
 };
 
 const device_t m4li_device = {
-    .name          = "Micronics M4LI",
+    .name          = "Micronics M4Li",
     .internal_name = "m4li",
     .flags         = 0,
     .local         = 0,
