@@ -696,7 +696,7 @@ static const device_config_t europc_config[] = {
 };
 
 const device_t europc_device = {
-    .name          = "EuroPC System Board",
+    .name          = "Schneider EuroPC",
     .internal_name = "europc",
     .flags         = 0,
     .local         = 0,

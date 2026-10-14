@@ -2990,7 +2990,7 @@ static const device_config_t epoch_5550_config[] = {
 };
 
 const device_t ibm5550_device = {
-    .name          = "IBM 5551 System Unit",
+    .name          = "IBM Multistation 5550",
     .internal_name = "ibm5550",
     .flags         = DEVICE_ISA,
     .local         = 0,
@@ -3075,7 +3075,7 @@ static const device_config_t epoch_5535_config[] = {
 };
 
 const device_t ibm5535_device = {
-    .name          = "IBM 5535 System Unit",
+    .name          = "IBM Multistation 5535-M",
     .internal_name = "ibm5535",
     .flags         = DEVICE_ISA,
     .local         = 0,
