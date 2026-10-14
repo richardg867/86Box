@@ -1971,6 +1971,14 @@ void codegen_timing_p6_pcem_block_start(void)
                 fpu_st_timestamp[c] = 0;
 
         ifetch_length = 0;
+
+        /*A block that ended on the abort path was never flushed: drop its
+          pending uops and dependency-chain timestamp, or they issue at the
+          old block's timestamps in this one and every aborted recompile
+          pushes the timeline further, until uop_run finds no unit*/
+        decode_buffer.nr_ins  = 0;
+        decode_buffer.nr_uops = 0;
+        last_uop_timestamp    = 0;
 }
 
 void codegen_timing_p6_pcem_start(void)
