@@ -59,6 +59,9 @@ if(DYNAREC)
         codegen_timing_winchip.c
         codegen_timing_winchip2.c
     )
+    if(PCEM_P6_TIMING)
+        target_sources(cgt PRIVATE codegen_timing_p6_pcem.c)
+    endif()
 endif()
 
 add_subdirectory(softfloat3e)

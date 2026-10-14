@@ -179,6 +179,9 @@ int cpu_prefetch_width;
 int cpu_mem_prefetch_cycles;
 int cpu_rom_prefetch_cycles;
 int cpu_waitstates;
+#ifdef USE_PCEM_P6_TIMING
+int cpu_pcem_p6_timing;
+#endif
 int io_waitstates; /* Extra cycles added to IN/OUT instruction timing (x86_ops_io.h) -
                        cpu_waitstates only ever throttles memory bus cycles; this covers
                        I/O port cycles, which real ISA-bus hardware paces at a fixed bus
@@ -1852,7 +1855,12 @@ cpu_set(void)
             }
 
 #ifdef USE_DYNAREC
-            codegen_timing_set(&codegen_timing_p6);
+#    ifdef USE_PCEM_P6_TIMING
+            if (cpu_pcem_p6_timing)
+                codegen_timing_set(&codegen_timing_p6_pcem);
+            else
+#    endif
+                codegen_timing_set(&codegen_timing_p6);
 #endif /* USE_DYNAREC */
             break;
 

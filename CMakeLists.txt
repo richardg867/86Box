@@ -154,6 +154,7 @@ if((ARCH STREQUAL "arm64") OR (ARCH STREQUAL "loongarch64"))
 else()
     option(NEW_DYNAREC "Use the PCem v15 (\"new\") dynamic recompiler" OFF)
 endif()
+option(PCEM_P6_TIMING "Selectable PCem P6 recompiler timing model, for profiling" OFF)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
     option(AUDIO4 "Use audio(4) as sound backend" ON)

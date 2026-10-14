@@ -312,6 +312,9 @@ extern codegen_timing_t codegen_timing_winchip2;
 extern codegen_timing_t codegen_timing_k5;
 extern codegen_timing_t codegen_timing_k6;
 extern codegen_timing_t codegen_timing_p6;
+#ifdef USE_PCEM_P6_TIMING
+extern codegen_timing_t codegen_timing_p6_pcem;
+#endif
 
 void codegen_timing_set(codegen_timing_t *timing);
 

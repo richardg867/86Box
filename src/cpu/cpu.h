@@ -682,6 +682,9 @@ extern int cpu_prefetch_width;
 extern int cpu_mem_prefetch_cycles;
 extern int cpu_rom_prefetch_cycles;
 extern int cpu_waitstates;
+#ifdef USE_PCEM_P6_TIMING
+extern int cpu_pcem_p6_timing;
+#endif
 extern int io_waitstates;
 extern int reg_op_waitstates;
 extern int cpu_flush_pending;

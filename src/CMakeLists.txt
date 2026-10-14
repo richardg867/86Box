@@ -70,6 +70,10 @@ if(NEW_DYNAREC)
     add_compile_definitions(USE_NEW_DYNAREC)
 endif()
 
+if(DYNAREC AND PCEM_P6_TIMING)
+    add_compile_definitions(USE_PCEM_P6_TIMING)
+endif()
+
 if(RELEASE)
     add_compile_definitions(RELEASE_BUILD)
 endif()
