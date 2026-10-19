@@ -358,7 +358,11 @@ RendererStack::mouseMoveEvent(QMouseEvent *event)
         ignoreNextMouseEvent--;
     }
 #    if !defined _WIN32
-    QCursor::setPos(mapToGlobal(QPoint(width() / 2, height() / 2)));
+#        if defined __unix__ && !defined __HAIKU__
+    /* XInput2 warps the pointer itself, only when appropriate for the device. */
+    if (stricmp(mousedata.mouse_type, "xinput2"))
+#        endif
+        QCursor::setPos(mapToGlobal(QPoint(width() / 2, height() / 2)));
 #    endif
     ignoreNextMouseEvent = 2;
     oldPos               = event->pos();
@@ -395,6 +399,12 @@ RendererStack::leaveEvent(QEvent *event)
     }
     if (!mouse_capture)
         return;
+#if defined __unix__ && !defined __HAIKU__
+    if (!stricmp(mousedata.mouse_type, "xinput2")) {
+        event->accept();
+        return;
+    }
+#endif
     QCursor::setPos(mapToGlobal(QPoint(width() / 2, height() / 2)));
     ignoreNextMouseEvent = 2;
     event->accept();

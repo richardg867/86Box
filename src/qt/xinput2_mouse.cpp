@@ -23,14 +23,15 @@
 #include <QWidget>
 #include <QWindow>
 
-#include "qt_mainwindow.hpp"
-extern MainWindow *main_window;
-
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
 
+#include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <cmath>
+#include <unordered_map>
 
 extern "C" {
 #include <X11/Xlib.h>
@@ -44,25 +45,64 @@ extern "C" {
 #include <86box/plat.h>
 }
 
-static Display            *disp       = nullptr;
-static QThread            *procThread = nullptr;
-static QWidget            *grab_widget = nullptr;
-static XIEventMask         ximask;
-static std::atomic<bool>   exitfromthread  = false;
-static std::atomic<double> xi2_mouse_abs_x = 0, xi2_mouse_abs_y = 0;
-static int                 xi2opcode      = 0;
-static double              prev_coords[2] = { 0.0 };
-static Time                prev_time      = 0;
+static Display            *disp         = nullptr;
+static QThread            *procThread   = nullptr;
+static QWidget            *grab_widget  = nullptr;
+static std::atomic<Window> grab_window  = 0;
+static std::atomic<bool>   reset_motion = true;
+static int                 xi2opcode    = 0;
 
-/* Based on SDL2. */
-static void
+/* How a pointing device reports motion, which is not always what it declares. */
+enum class PointerKind {
+    Unknown,  /* not enough events seen yet */
+    Relative, /* raw values are motion deltas */
+    Absolute, /* absolute axes in device units; the position is read from the server */
+    Pixels    /* relative axes, but the raw values are screen positions: XTEST pointers
+                 driven by VNC servers, and the pointer of XWin (VcXsrv, Cygwin/X) */
+};
+struct PointerInfo {
+    PointerKind kind       = PointerKind::Unknown;
+    int         matches    = 0;
+    int         mismatches = 0;
+};
+static std::unordered_map<int, PointerInfo> pointers;
+
+/* Pointer position as last reported by an absolute or pixel device. */
+static struct {
+    int    source = -1; /* device the position came from, or -1 for none */
+    double x      = 0.0;
+    double y      = 0.0;
+
+    /* Warping only moves the pointer of some of these devices: XWin moves the
+       Windows cursor, but a tablet or a VNC client's pointer stays where it is. */
+    bool   no_warp      = false;
+    bool   warp_pending = false; /* warped, outcome not seen yet */
+    bool   warp_echoed  = false; /* the warp came back as an event from the device */
+    int    warp_events  = 0;
+    double warp_x       = 0.0;
+    double warp_y       = 0.0;
+} pos;
+
+/* Server pointer position from the last query, to tell pixel devices apart. */
+static bool   have_query = false;
+static double query_x    = 0.0;
+static double query_y    = 0.0;
+
+/* Centre of the grab window in root coordinates, refreshed periodically. */
+static bool                                  have_center = false;
+static int                                   center_x = 0, center_y = 0, center_radius = 0;
+static std::chrono::steady_clock::time_point center_time;
+
+/* Based on SDL2. Returns a mask of the axes present among the first output_values_len. */
+static int
 parse_valuators(const double        *input_values,
                 const unsigned char *mask, int mask_len,
                 double *output_values, int output_values_len)
 {
-    int i   = 0;
-    int z   = 0;
-    int top = mask_len * 8;
+    int i       = 0;
+    int z       = 0;
+    int top     = mask_len * 8;
+    int present = 0;
     if (top > 16)
         top = 16;
 
@@ -71,42 +111,234 @@ parse_valuators(const double        *input_values,
         if (XIMaskIsSet(mask, i)) {
             output_values[z] = *input_values;
             input_values++;
+            present |= 1 << z;
         }
         z++;
     }
+    return present;
 }
 
 static bool exitthread = false;
 
-static int
-xinput2_get_xtest_pointer()
+static PointerInfo &
+xinput2_pointer_info(int deviceid)
 {
-    /* The XTEST pointer events injected by VNC servers to move the cursor always report
-       absolute coordinates, despite XTEST declaring relative axes (related: SDL issue 1836).
-       This looks for the XTEST pointer so that we can assume it's absolute as a workaround.
+    auto it = pointers.find(deviceid);
+    if (it != pointers.end())
+        return it->second;
 
-       TigerVNC publishes both the XTEST pointer and a TigerVNC pointer, but actual
-       RawMotion events are published using the TigerVNC pointer */
-    int           devs;
-    XIDeviceInfo *info = XIQueryDevice(disp, XIAllDevices, &devs), *dev;
-    for (int i = 0; i < devs; i++) {
-        dev = &info[i];
-        if ((dev->use == XISlavePointer) && !strcmp(dev->name, "TigerVNC pointer"))
-            return dev->deviceid;
+    PointerInfo   info;
+    int           num;
+    XIDeviceInfo *dev = XIQueryDevice(disp, deviceid, &num);
+    if (dev) {
+        for (int i = 0; i < dev->num_classes; i++) {
+            const XIValuatorClassInfo *v = (const XIValuatorClassInfo *) dev->classes[i];
+            if ((v->type == XIValuatorClass) && (v->number <= 1) && (v->mode == XIModeAbsolute))
+                info.kind = PointerKind::Absolute;
+        }
+        XIFreeDeviceInfo(dev);
     }
-    /* Steam Input on SteamOS uses XTEST the intended way for trackpad movement.
-       Hope nobody is remoting into their Steam Deck with a non-TigerVNC server. */
-    for (int i = 0; i < devs; i++) {
-        dev = &info[i];
-        if ((dev->use == XISlavePointer) && !strncmp(dev->name, "Valve Software Steam Deck", 25))
-            return -1;
+    return pointers.emplace(deviceid, info).first->second;
+}
+
+static bool
+xinput2_query_pointer(int master, double *x, double *y)
+{
+    Window          root;
+    Window          child;
+    double          win_x;
+    double          win_y;
+    XIButtonState   buttons = { };
+    XIModifierState mods;
+    XIGroupState    group;
+
+    Bool ret = XIQueryPointer(disp, master, DefaultRootWindow(disp), &root, &child, x, y, &win_x, &win_y, &buttons, &mods, &group);
+    if (buttons.mask)
+        XFree(buttons.mask);
+    return ret;
+}
+
+static bool
+xinput2_update_center()
+{
+    auto now = std::chrono::steady_clock::now();
+    if (have_center && ((now - center_time) < std::chrono::milliseconds(250)))
+        return true;
+
+    Window            win = grab_window;
+    XWindowAttributes attrib { };
+    Window            child;
+    have_center = win && XGetWindowAttributes(disp, win, &attrib) && XTranslateCoordinates(disp, win, attrib.root, attrib.width / 2, attrib.height / 2, &center_x, &center_y, &child);
+    if (have_center) {
+        center_radius = std::max(std::min(attrib.width, attrib.height) / 4, 16);
+        center_time   = now;
     }
-    for (int i = 0; i < devs; i++) {
-        dev = &info[i];
-        if ((dev->use == XISlavePointer) && !strcmp(dev->name, "Virtual core XTEST pointer"))
-            return dev->deviceid;
+    return have_center;
+}
+
+static void
+xinput2_warp()
+{
+    XWarpPointer(disp, None, DefaultRootWindow(disp), 0, 0, 0, 0, center_x, center_y);
+    XFlush(disp);
+}
+
+/* Start over after the mouse is captured. */
+static void
+xinput2_reset()
+{
+    pos         = { };
+    have_query  = false;
+    have_center = false;
+}
+
+/* Motion of a device that reports where the pointer is, rather than how far it moved. */
+static void
+xinput2_position(int source, double x, double y, bool can_warp)
+{
+    if (pos.source != source) {
+        /* First position from this device: just start from it. */
+        pos        = { };
+        pos.source = source;
+        pos.x      = x;
+        pos.y      = y;
+        return;
     }
-    return -1;
+
+    double dx = x - pos.x;
+    double dy = y - pos.y;
+    if (pos.warp_pending) {
+        if ((x == pos.warp_x) && (y == pos.warp_y)) {
+            /* The warp coming back from the device (XWin moving the Windows cursor). */
+            pos.warp_echoed = true;
+            return;
+        }
+
+        if (std::hypot(x - pos.warp_x, y - pos.warp_y) < std::hypot(dx, dy)) {
+            /* The warp moved the device's pointer; carry on from there. */
+            dx               = x - pos.warp_x;
+            dy               = y - pos.warp_y;
+            pos.warp_pending = false;
+        } else if (pos.warp_echoed || (++pos.warp_events >= 4)) {
+            /* The device kept reporting from where it was: stop warping it. */
+            pos.warp_pending = false;
+            pos.no_warp      = true;
+        }
+        /* Otherwise, this was sent before the warp took effect. */
+    }
+
+    mouse_scalef(dx, dy);
+    pos.x = x;
+    pos.y = y;
+
+    /* Keep the pointer within the window, if warping it works and is safe:
+       on Xwayland, a warp locks the Wayland pointer, after which an absolute
+       device stops sending events altogether. */
+    if (can_warp && !pos.no_warp && !pos.warp_pending && xinput2_update_center() && ((std::fabs(x - center_x) > center_radius) || (std::fabs(y - center_y) > center_radius))) {
+        pos.warp_pending = true;
+        pos.warp_echoed  = false;
+        pos.warp_events  = 0;
+        pos.warp_x       = center_x;
+        pos.warp_y       = center_y;
+        xinput2_warp();
+    }
+}
+
+/* Whether raw values are a pointer position: the server's pointer went through
+   them on its way from (from_x, from_y) to where it is now. */
+static bool
+xinput2_is_position(int master, const double *coords, bool have_from, double from_x, double from_y)
+{
+    double x;
+    double y;
+    if (!xinput2_query_pointer(master, &x, &y))
+        return false;
+
+    if (!have_from) {
+        from_x = x;
+        from_y = y;
+    }
+    query_x    = x;
+    query_y    = y;
+    have_query = true;
+
+    return (coords[0] >= (std::min(x, from_x) - 2.0)) && (coords[0] <= (std::max(x, from_x) + 2.0)) && (coords[1] >= (std::min(y, from_y) - 2.0)) && (coords[1] <= (std::max(y, from_y) + 2.0));
+}
+
+static void
+xinput2_raw_motion(const XIRawEvent *rawev)
+{
+    double coords[2];
+    int    present = parse_valuators(rawev->raw_values, rawev->valuators.mask, rawev->valuators.mask_len, coords, 2);
+    if (!present)
+        return;
+
+    PointerInfo &info = xinput2_pointer_info(rawev->sourceid);
+    double       x;
+    double       y;
+    switch (info.kind) {
+        case PointerKind::Absolute:
+            /* Read the position from the server instead of trusting the axis range:
+               Xwayland's pointer declares 0-65535, but reports screen pixels. */
+            if (xinput2_query_pointer(rawev->deviceid, &x, &y))
+                xinput2_position(rawev->sourceid, x, y, false);
+            return;
+
+        case PointerKind::Pixels:
+            /* The same XTEST device can be driven with positions by a VNC server
+               and with relative motion by something else, such as Steam Input.
+               Check jumps, and anything that cannot be a position, with the server. */
+            x = (present & 1) ? coords[0] : pos.x;
+            y = (present & 2) ? coords[1] : pos.y;
+            if ((pos.source == rawev->sourceid) && (x >= 0.0) && (y >= 0.0) && (((std::fabs(x - pos.x) <= 64.0) && (std::fabs(y - pos.y) <= 64.0)) || (pos.warp_pending && (std::fabs(x - pos.warp_x) <= 64.0) && (std::fabs(y - pos.warp_y) <= 64.0)))) {
+                xinput2_position(rawev->sourceid, x, y, true);
+                return;
+            }
+            if ((present == 3) && (x >= 0.0) && (y >= 0.0) && xinput2_is_position(rawev->deviceid, coords, pos.source == rawev->sourceid, pos.x, pos.y)) {
+                xinput2_position(rawev->sourceid, x, y, true);
+                return;
+            }
+            info.kind       = PointerKind::Relative;
+            info.matches    = 0;
+            info.mismatches = 0;
+            break;
+
+        case PointerKind::Relative:
+            /* See above. Steps this large along both axes are rare enough to check. */
+            if ((present == 3) && (coords[0] >= 0.0) && (coords[1] >= 0.0) && ((coords[0] > 64.0) || (coords[1] > 64.0)) && xinput2_is_position(rawev->deviceid, coords, false, 0.0, 0.0)) {
+                info.kind       = PointerKind::Unknown;
+                info.matches    = 1;
+                info.mismatches = 0;
+                xinput2_position(rawev->sourceid, coords[0], coords[1], false);
+                return;
+            }
+            break;
+
+        case PointerKind::Unknown:
+            /* Raw values the server's pointer went through since the last check are
+               positions. Anything else, including motion along one axis only, is
+               relative motion. */
+            if ((present == 3) && xinput2_is_position(rawev->deviceid, coords, have_query, query_x, query_y)) {
+                info.mismatches = 0;
+                if (++info.matches >= 2)
+                    info.kind = PointerKind::Pixels;
+                xinput2_position(rawev->sourceid, coords[0], coords[1], false);
+                return;
+            }
+            info.matches = 0;
+            if (++info.mismatches >= 4)
+                info.kind = PointerKind::Relative;
+            break;
+    }
+
+    mouse_scalef(coords[0], coords[1]);
+
+    /* Keep the pointer in the window, so that it does not run into the edge of
+       the screen or another window. Any absolute device starts over from where
+       it is when it next moves. */
+    pos.source = -1;
+    if (xinput2_update_center())
+        xinput2_warp();
 }
 
 void
@@ -115,121 +347,83 @@ xinput2_proc()
     Window win;
     win = DefaultRootWindow(disp);
 
-    int xtest_pointer = xinput2_get_xtest_pointer();
+    XIEventMask   masks[2];
+    unsigned char master_mask[XIMaskLen(XI_LASTEVENT)] = { };
+    unsigned char all_mask[XIMaskLen(XI_LASTEVENT)]    = { };
 
-    ximask.deviceid = XIAllMasterDevices;
-    ximask.mask_len = XIMaskLen(XI_LASTEVENT);
-    ximask.mask     = (unsigned char *) calloc(ximask.mask_len, sizeof(unsigned char));
+    masks[0].deviceid = XIAllMasterDevices;
+    masks[0].mask_len = sizeof(master_mask);
+    masks[0].mask     = master_mask;
+    XISetMask(master_mask, XI_RawMotion);
+    XISetMask(master_mask, XI_Motion);
 
-    XISetMask(ximask.mask, XI_RawMotion);
-    XISetMask(ximask.mask, XI_Motion);
-    XISetMask(ximask.mask, XI_DeviceChanged);
+    masks[1].deviceid = XIAllDevices;
+    masks[1].mask_len = sizeof(all_mask);
+    masks[1].mask     = all_mask;
+    XISetMask(all_mask, XI_HierarchyChanged);
+    XISetMask(all_mask, XI_DeviceChanged);
 
-    XISelectEvents(disp, win, &ximask, 1);
+    XISelectEvents(disp, win, masks, 2);
 
     XSync(disp, False);
+
+    bool   raw_seen       = false;
+    int    prev_src       = -1;
+    Time   prev_time      = 0;
+    double prev_coords[2] = { 0.0, 0.0 };
     while (true) {
         XEvent               ev;
         XGenericEventCookie *cookie = (XGenericEventCookie *) &ev.xcookie;
         XNextEvent(disp, (XEvent *) &ev);
 
-        if (XGetEventData(disp, cookie) && (cookie->type == GenericEvent) && (cookie->extension == xi2opcode) && mouse_capture) {
-            const XIRawEvent *rawev     = (const XIRawEvent *) cookie->data;
-            double            coords[2] = { 0.0 };
-
+        if (XGetEventData(disp, cookie) && (cookie->type == GenericEvent) && (cookie->extension == xi2opcode)) {
             switch (cookie->evtype) {
-                case XI_Motion:
-                    {
-                        const XIDeviceEvent *devev = (const XIDeviceEvent *) cookie->data;
-                        parse_valuators(devev->valuators.values, devev->valuators.mask, devev->valuators.mask_len, coords, 2);
-
-                        /* XIDeviceEvent and XIRawEvent share the XIEvent base struct, which
-                           doesn't contain deviceid, but that's at the same offset on both. */
-                        goto common_motion;
-                    }
-
                 case XI_RawMotion:
                     {
-                        parse_valuators(rawev->raw_values, rawev->valuators.mask, rawev->valuators.mask_len, coords, 2);
-common_motion:
-                        /* Ignore duplicated events. */
-                        if ((rawev->time == prev_time) && (coords[0] == prev_coords[0]) && (coords[1] == prev_coords[1]))
+                        raw_seen = true;
+                        if (!mouse_capture)
                             break;
+                        const XIRawEvent *rawev = (const XIRawEvent *) cookie->data;
+                        if (reset_motion.exchange(false))
+                            xinput2_reset();
 
-                        /* SDL2 queries the device on every event, so doing that should be fine. */
-                        int           i;
-                        XIDeviceInfo *xidevinfo = XIQueryDevice(disp, rawev->deviceid, &i);
-                        if (xidevinfo) {
-                            /* Process the device's axes. */
-                            int axis = 0;
-                            for (i = 0; i < xidevinfo->num_classes; i++) {
-                                const XIValuatorClassInfo *v = (const XIValuatorClassInfo *) xidevinfo->classes[i];
-                                if (v->type == XIValuatorClass) {
-                                    /* Is this an absolute or relative axis? */
-                                    if ((v->mode == XIModeRelative) && (rawev->sourceid != xtest_pointer)) {
-                                        /* Set relative coordinates. */
-                                        if (axis == 0)
-                                            mouse_scale_x(coords[axis]);
-                                        else
-                                            mouse_scale_y(coords[axis]);
-                                    } else {
-                                        /* Convert absolute value range to pixel granularity, then to relative coordinates. */
-                                        int    disp_screen = XDefaultScreen(disp);
-                                        double abs_div;
-                                        if (axis == 0) {
-                                            if (v->mode == XIModeRelative) {
-                                                /* XTEST axes have dummy min/max values because they're nominally relative,
-                                                   but in practice, the injected absolute coordinates are already in pixels. */
-                                                abs_div = coords[axis];
-                                            } else {
-                                                abs_div = (v->max - v->min) / (double) XDisplayWidth(disp, disp_screen);
-                                                if (abs_div <= 0)
-                                                    abs_div = 1;
-                                                abs_div = (coords[axis] - v->min) / abs_div;
-                                            }
+                        /* Ignore duplicated events. */
+                        double coords[2];
+                        parse_valuators(rawev->raw_values, rawev->valuators.mask, rawev->valuators.mask_len, coords, 2);
+                        if ((rawev->sourceid == prev_src) && (rawev->time == prev_time) && (coords[0] == prev_coords[0]) && (coords[1] == prev_coords[1]))
+                            break;
+                        prev_src       = rawev->sourceid;
+                        prev_time      = rawev->time;
+                        prev_coords[0] = coords[0];
+                        prev_coords[1] = coords[1];
 
-                                            if (xi2_mouse_abs_x != 0)
-                                                mouse_scale_x(abs_div - xi2_mouse_abs_x);
-                                            xi2_mouse_abs_x = abs_div;
-                                        } else {
-                                            if (v->mode == XIModeRelative) {
-                                                /* Same as above. */
-                                                abs_div = coords[axis];
-                                            } else {
-                                                abs_div = (v->max - v->min) / (double) XDisplayHeight(disp, disp_screen);
-                                                if (abs_div <= 0)
-                                                    abs_div = 1;
-                                                abs_div = (coords[axis] - v->min) / abs_div;
-                                            }
-
-                                            if (xi2_mouse_abs_y != 0)
-                                                mouse_scale_y(abs_div - xi2_mouse_abs_y);
-                                            xi2_mouse_abs_y = abs_div;
-                                        }
-                                    }
-                                    prev_coords[axis] = coords[axis];
-                                    if (++axis >= 2) /* stop after X and Y processed */
-                                        break;
-                                }
-                            }
-                        }
-
-                        prev_time = rawev->time;
-                        XWindowAttributes winattrib {};
-                        if (XGetWindowAttributes(disp, main_window->winId(), &winattrib)) {
-                            auto globalPoint = main_window->mapToGlobal(QPoint(main_window->width() / 2, main_window->height() / 2));
-                            XWarpPointer(disp, XRootWindow(disp, XScreenNumberOfScreen(winattrib.screen)), XRootWindow(disp, XScreenNumberOfScreen(winattrib.screen)), 0, 0, 0, 0, globalPoint.x(), globalPoint.y());
-                            XFlush(disp);
-                        }
-
+                        xinput2_raw_motion(rawev);
                         break;
                     }
 
+                case XI_Motion:
+                    {
+                        /* Only reaches the root window if no window selected it, and only
+                           needed on servers without raw events (old VNC servers). */
+                        if (raw_seen || !mouse_capture)
+                            break;
+                        const XIDeviceEvent *devev = (const XIDeviceEvent *) cookie->data;
+                        if (reset_motion.exchange(false))
+                            xinput2_reset();
+
+                        xinput2_position(devev->sourceid, devev->root_x, devev->root_y, true);
+                        break;
+                    }
+
+                case XI_HierarchyChanged:
+                    pointers.clear();
+                    break;
+
                 case XI_DeviceChanged:
                     {
-                        /* Re-scan for XTEST pointer, just in case. */
-                        xtest_pointer = xinput2_get_xtest_pointer();
-
+                        const XIDeviceChangedEvent *changeev = (const XIDeviceChangedEvent *) cookie->data;
+                        if (changeev->reason == XIDeviceChange)
+                            pointers.erase(changeev->sourceid);
                         break;
                     }
             }
@@ -266,8 +460,11 @@ void
 xinput2_mouse_capture(QWindow *window)
 {
     Q_UNUSED(window);
-    if (grab_widget)
+    reset_motion = true;
+    if (grab_widget) {
+        grab_window = grab_widget->winId();
         grab_widget->grabMouse(QCursor(Qt::BlankCursor));
+    }
 }
 
 void
