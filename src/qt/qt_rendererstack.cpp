@@ -147,6 +147,8 @@ RendererStack::RendererStack(QWidget *parent, int monitor_index)
 #    ifdef WAYLAND
     if (!stricmp(mousedata.mouse_type, "wayland")) {
         wl_init();
+        if (monitor_index == 0)
+            wl_set_capture_widget(this);
         this->mouse_capture_func   = wl_mouse_capture;
         this->mouse_uncapture_func = wl_mouse_uncapture;
     }
@@ -229,6 +231,15 @@ RendererStack::mouseReleaseEvent(QMouseEvent *event)
 #endif
         (event->button() == Qt::LeftButton) && !mouse_capture && (isMouseDown & 1) && (kbd_req_capture || (mouse_get_buttons() != 0)) && (mouse_input_mode == 0)) {
         plat_mouse_capture(1);
+#ifdef WAYLAND
+        /* Absolute pointing devices move on from here. */
+        if (mouse_capture && !stricmp(mousedata.mouse_type, "wayland"))
+#    if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            wl_mouse_motion(event->position().x(), event->position().y(), (uint32_t) event->timestamp());
+#    else
+            wl_mouse_motion(event->localPos().x(), event->localPos().y(), (uint32_t) event->timestamp());
+#    endif
+#endif
         this->setCursor(Qt::BlankCursor);
         if (!ignoreNextMouseEvent)
             ignoreNextMouseEvent++; // Avoid jumping cursor when moved.
@@ -329,6 +340,15 @@ void
 RendererStack::mouseMoveEvent(QMouseEvent *event)
 {
     if (QApplication::platformName().contains("wayland")) {
+#ifdef WAYLAND
+        if (mouse_capture && !stricmp(mousedata.mouse_type, "wayland")) {
+#    if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            wl_mouse_motion(event->position().x(), event->position().y(), (uint32_t) event->timestamp());
+#    else
+            wl_mouse_motion(event->localPos().x(), event->localPos().y(), (uint32_t) event->timestamp());
+#    endif
+        }
+#endif
         event->accept();
         return;
     }
@@ -899,4 +919,8 @@ RendererStack::onResize(int width, int height)
         rendererWindow->r_monitor_index = m_monitor_index;
         rendererWindow->onResize(width, height);
     }
+#ifdef WAYLAND
+    if (mouse_capture && (m_monitor_index == 0) && !stricmp(mousedata.mouse_type, "wayland"))
+        wl_mouse_update_region();
+#endif
 }
