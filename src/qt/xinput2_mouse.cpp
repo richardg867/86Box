@@ -64,6 +64,8 @@ struct PointerInfo {
     PointerKind kind       = PointerKind::Unknown;
     int         matches    = 0;
     int         mismatches = 0;
+    double      last_x     = 0.0; /* last position, while still Unknown */
+    double      last_y     = 0.0;
 };
 static std::unordered_map<int, PointerInfo> pointers;
 
@@ -73,9 +75,16 @@ static struct {
     double x      = 0.0;
     double y      = 0.0;
 
+    double vx = 0.0; /* last movement, to tell where the next event should be */
+    double vy = 0.0;
+
     /* Warping only moves the pointer of some of these devices: XWin moves the
-       Windows cursor, but a tablet or a VNC client's pointer stays where it is. */
+       Windows cursor, but a tablet or a VNC client's pointer stays where it is.
+       Having found that it does not, try again after a while, in case it was
+       misjudged; the wait doubles every time. */
     bool   no_warp      = false;
+    int    probe_wait   = 0;
+    int    probe_after  = 32;
     bool   warp_pending = false; /* warped, outcome not seen yet */
     bool   warp_echoed  = false; /* the warp came back as an event from the device */
     int    warp_events  = 0;
@@ -214,22 +223,33 @@ xinput2_position(int source, double x, double y, bool can_warp)
             return;
         }
 
-        if (std::hypot(x - pos.warp_x, y - pos.warp_y) < std::hypot(dx, dy)) {
+        /* Compare with where the pointer would be if it carried on moving as it
+           did, from the warp target or from where it was. A fast flick can move
+           it further in one event than the warp did. */
+        if (std::hypot(x - pos.warp_x - pos.vx, y - pos.warp_y - pos.vy) < std::hypot(dx - pos.vx, dy - pos.vy)) {
             /* The warp moved the device's pointer; carry on from there. */
             dx               = x - pos.warp_x;
             dy               = y - pos.warp_y;
             pos.warp_pending = false;
+            pos.probe_after  = 32;
         } else if (pos.warp_echoed || (++pos.warp_events >= 4)) {
             /* The device kept reporting from where it was: stop warping it. */
             pos.warp_pending = false;
             pos.no_warp      = true;
+            pos.probe_wait   = pos.probe_after;
+            pos.probe_after  = std::min(pos.probe_after * 2, 4096);
         }
         /* Otherwise, this was sent before the warp took effect. */
     }
 
     mouse_scalef(dx, dy);
-    pos.x = x;
-    pos.y = y;
+    pos.x  = x;
+    pos.y  = y;
+    pos.vx = dx;
+    pos.vy = dy;
+
+    if (pos.no_warp && (--pos.probe_wait <= 0))
+        pos.no_warp = false;
 
     /* Keep the pointer within the window, if warping it works and is safe:
        on Xwayland, a warp locks the Wayland pointer, after which an absolute
@@ -265,6 +285,15 @@ xinput2_is_position(int master, const double *coords, bool have_from, double fro
     return (coords[0] >= (std::min(x, from_x) - 2.0)) && (coords[0] <= (std::max(x, from_x) + 2.0)) && (coords[1] >= (std::min(y, from_y) - 2.0)) && (coords[1] <= (std::max(y, from_y) + 2.0));
 }
 
+/* Whether (x, y) is somewhere the pointer could have gone from (from_x, from_y),
+   moving about as fast as it last did. */
+static bool
+xinput2_near(double x, double y, double from_x, double from_y)
+{
+    double reach = 64.0 + std::max(std::fabs(pos.vx), std::fabs(pos.vy));
+    return (std::fabs(x - from_x) <= reach) && (std::fabs(y - from_y) <= reach);
+}
+
 static void
 xinput2_raw_motion(const XIRawEvent *rawev)
 {
@@ -287,16 +316,19 @@ xinput2_raw_motion(const XIRawEvent *rawev)
         case PointerKind::Pixels:
             /* The same XTEST device can be driven with positions by a VNC server
                and with relative motion by something else, such as Steam Input.
-               Check jumps, and anything that cannot be a position, with the server. */
+               Check unexpected jumps with the server, but allow for its pointer
+               having moved on by the time it answers (a remote display), and only
+               give up on positions after a few misses or a negative value. */
             x = (present & 1) ? coords[0] : pos.x;
             y = (present & 2) ? coords[1] : pos.y;
-            if ((pos.source == rawev->sourceid) && (x >= 0.0) && (y >= 0.0) && (((std::fabs(x - pos.x) <= 64.0) && (std::fabs(y - pos.y) <= 64.0)) || (pos.warp_pending && (std::fabs(x - pos.warp_x) <= 64.0) && (std::fabs(y - pos.warp_y) <= 64.0)))) {
-                xinput2_position(rawev->sourceid, x, y, true);
-                return;
-            }
-            if ((present == 3) && (x >= 0.0) && (y >= 0.0) && xinput2_is_position(rawev->deviceid, coords, pos.source == rawev->sourceid, pos.x, pos.y)) {
-                xinput2_position(rawev->sourceid, x, y, true);
-                return;
+            if ((x >= 0.0) && (y >= 0.0)) {
+                if (((pos.source == rawev->sourceid) && (xinput2_near(x, y, pos.x, pos.y) || (pos.warp_pending && xinput2_near(x, y, pos.warp_x, pos.warp_y)))) || ((present == 3) && xinput2_is_position(rawev->deviceid, coords, pos.source == rawev->sourceid, pos.x, pos.y))) {
+                    info.mismatches = 0;
+                    xinput2_position(rawev->sourceid, x, y, true);
+                    return;
+                }
+                if (++info.mismatches < 3)
+                    return; /* the next position covers this one's movement */
             }
             info.kind       = PointerKind::Relative;
             info.matches    = 0;
@@ -309,21 +341,33 @@ xinput2_raw_motion(const XIRawEvent *rawev)
                 info.kind       = PointerKind::Unknown;
                 info.matches    = 1;
                 info.mismatches = 0;
+                info.last_x     = coords[0];
+                info.last_y     = coords[1];
                 xinput2_position(rawev->sourceid, coords[0], coords[1], false);
                 return;
             }
             break;
 
         case PointerKind::Unknown:
-            /* Raw values the server's pointer went through since the last check are
-               positions. Anything else, including motion along one axis only, is
-               relative motion. */
-            if ((present == 3) && xinput2_is_position(rawev->deviceid, coords, have_query, query_x, query_y)) {
-                info.mismatches = 0;
-                if (++info.matches >= 2)
-                    info.kind = PointerKind::Pixels;
-                xinput2_position(rawev->sourceid, coords[0], coords[1], false);
-                return;
+            /* Raw values the server's pointer went through, from where it was when
+               last seen (the previous position, if the previous raw values were
+               one) to where it is now, are positions. Anything else, including
+               motion along one axis only, is relative motion; except that a large
+               positive step may be a position the server's pointer has already
+               moved on from, so that is left undecided. */
+            if (present == 3) {
+                bool is_position = (info.matches > 0) ? xinput2_is_position(rawev->deviceid, coords, true, info.last_x, info.last_y) : xinput2_is_position(rawev->deviceid, coords, have_query, query_x, query_y);
+                if (is_position) {
+                    info.last_x     = coords[0];
+                    info.last_y     = coords[1];
+                    info.mismatches = 0;
+                    if (++info.matches >= 2)
+                        info.kind = PointerKind::Pixels;
+                    xinput2_position(rawev->sourceid, coords[0], coords[1], false);
+                    return;
+                }
+                if ((coords[0] >= 0.0) && (coords[1] >= 0.0) && ((coords[0] > 64.0) || (coords[1] > 64.0)))
+                    return;
             }
             info.matches = 0;
             if (++info.mismatches >= 4)
