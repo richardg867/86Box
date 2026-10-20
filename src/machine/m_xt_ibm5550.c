@@ -2234,7 +2234,7 @@ static int
 epoch_mouse_poll(void *priv)
 {
     epochkbd_t *kbd = (epochkbd_t *) priv;
-    int         dat = mouse_get_buttons_ex();
+    int         dat = mouse_get_sampled_buttons();
     int         dx, dy;
 
     if (!kbd->mouse_enabled)

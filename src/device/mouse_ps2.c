@@ -83,7 +83,7 @@ ps2_report_coordinates(atkbc_dev_t *dev, int main)
     int delta_y;
     int overflow_x;
     int overflow_y;
-    int b = mouse_get_buttons_ex();
+    int b = mouse_get_sampled_buttons();
     int delta_z;
     int delta_w;
 
@@ -221,7 +221,7 @@ ps2_write(void *priv)
 
             case 0xe9: /* status request */
                 mouse_ps2_log("%s: Status request\n", dev->name);
-                b = mouse_get_buttons_ex();
+                b = mouse_get_sampled_buttons();
                 kbc_at_dev_queue_add(dev, 0xfa, 0);
                 temp = (dev->flags & 0x20);
                 if (mouse_scan)

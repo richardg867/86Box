@@ -435,7 +435,7 @@ wacom_poll(void *priv)
     mouse_wacom_t *wacom = (mouse_wacom_t *) priv;
     int delta_x;
     int delta_y;
-    int b = (mouse_input_mode >= 1) ? tablet_get_buttons_ex() : mouse_get_buttons_ex();
+    int b = (mouse_input_mode >= 1) ? tablet_get_buttons_ex() : mouse_get_sampled_buttons();
     double abs_x;
     double abs_y;
 

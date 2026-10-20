@@ -479,7 +479,7 @@ bm_poll(void *priv)
     int delta_x;
     int delta_y;
     int xor;
-    int b = mouse_get_buttons_ex();
+    int b = mouse_get_sampled_buttons();
 
     if (!mouse_capture && !mouse_automation && !(video_fullscreen && !fullscreen_ui_visible))
         return 1;

@@ -203,7 +203,7 @@ sermouse_report_msystems(mouse_t *dev)
 {
     int delta_x = 0;
     int delta_y = 0;
-    int b       = mouse_get_buttons_ex();
+    int b       = mouse_get_sampled_buttons();
 
     mouse_subtract_coords(&delta_x, &delta_y, NULL, NULL, -128, 127, 1, 0);
 
@@ -227,7 +227,7 @@ sermouse_report_3bp(mouse_t *dev)
 {
     int delta_x = 0;
     int delta_y = 0;
-    int b       = mouse_get_buttons_ex();
+    int b       = mouse_get_sampled_buttons();
 
     mouse_subtract_coords(&delta_x, &delta_y, NULL, NULL, -128, 127, 1, 0);
 
@@ -247,7 +247,7 @@ sermouse_report_mmseries(mouse_t *dev)
 {
     int delta_x = 0;
     int delta_y = 0;
-    int b       = mouse_get_buttons_ex();
+    int b       = mouse_get_sampled_buttons();
 
     mouse_subtract_coords(&delta_x, &delta_y, NULL, NULL, -127, 127, 1, 0);
 
@@ -273,7 +273,7 @@ sermouse_report_bp1(mouse_t *dev, int abs)
 {
     int delta_x = 0;
     int delta_y = 0;
-    int b       = mouse_get_buttons_ex();
+    int b       = mouse_get_sampled_buttons();
 
     mouse_subtract_coords(&delta_x, &delta_y, NULL, NULL, -2048, 2047, 1, abs);
 
@@ -297,7 +297,7 @@ sermouse_report_ms(mouse_t *dev)
     int     delta_x = 0;
     int     delta_y = 0;
     int     delta_z = 0;
-    int     b       = mouse_get_buttons_ex();
+    int     b       = mouse_get_sampled_buttons();
 
     mouse_subtract_coords(&delta_x, &delta_y, NULL, NULL, -128, 127, 0, 0);
     mouse_subtract_z(&delta_z, -8, 7, 1);
@@ -355,7 +355,7 @@ sermouse_report_hex(mouse_t *dev)
     uint8_t but     = 0x00;
     int     delta_x = 0;
     int     delta_y = 0;
-    int     b       = mouse_get_buttons_ex();
+    int     b       = mouse_get_sampled_buttons();
 
     mouse_subtract_coords(&delta_x, &delta_y, NULL, NULL, -128, 127, 1, 0);
 
@@ -648,7 +648,7 @@ ltsermouse_process_command(mouse_t *dev)
             break;
         case 0x05:
             /* Diagnostic */
-            b           = mouse_get_buttons_ex();
+            b           = mouse_get_sampled_buttons();
             dev->buf[0] = ((b & 0x01) << 2) | ((b & 0x06) >> 1);
             dev->buf[1] = dev->buf[2] = 0x00;
             sermouse_transmit(dev, 3, 0, 0);

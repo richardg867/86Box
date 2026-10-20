@@ -740,7 +740,7 @@ ms_poll(void *priv)
     int        delta_y;
     int        o_x;
     int        o_y;
-    int        b = mouse_get_buttons_ex();
+    int        b = mouse_get_sampled_buttons();
 
     if (((key_queue_end - key_queue_start) & 0xf) > 14)
         return 0xff;

@@ -122,6 +122,7 @@ extern void            mouse_clear_w(void);
 extern void            mouse_subtract_w(int *delta_w, int min, int max, int invert);
 extern void            mouse_set_buttons_ex(int b);
 extern int             mouse_get_buttons_ex(void);
+extern int             mouse_get_sampled_buttons(void);
 extern int             tablet_get_buttons_ex(void);
 extern int             tablet_take_pressed(void);
 extern void            mouse_set_sample_rate(double new_rate);
