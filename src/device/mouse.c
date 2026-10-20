@@ -32,7 +32,6 @@
 #include <86box/mouse.h>
 #include <86box/video.h>
 #include <86box/plat.h>
-#include <86box/thread.h>
 #include <86box/plat_unused.h>
 
 #if defined(__APPLE__)
@@ -155,17 +154,19 @@ static ATOMIC_INT      tablet_pressed; /* buttons pressed since the last tablet_
 static int             mouse_delta_b;
 static int             mouse_old_b;
 
-/* Button states on their way to the emulated mouse. The frontend can handle a
+/* Button changes on their way to the emulated mouse. The frontend can handle a
    press and its release in the same instant (a busy GUI thread, a remote X
-   display), which the device would never see between two polls; so changes are
-   queued, and handed over one per poll once the device has read the last one. */
-#define MOUSE_BUTTONS_QUEUE 16
-static mutex_t        *mouse_buttons_mutex;
-static int             mouse_buttons_queue[MOUSE_BUTTONS_QUEUE];
-static int             mouse_buttons_queued;
-static int             mouse_buttons_dev;        /* state the device reports */
-static int             mouse_buttons_dev_read;   /* the device has read it */
-static int             mouse_buttons_dev_unread; /* polls without reading it */
+   display), which the device would never see between two polls; so the
+   frontend counts each button's changes (odd: down), and the device is handed
+   one change per button per poll, once it has read the previous state. These
+   are proper atomics, as several threads can set buttons. */
+#define MOUSE_BUTTONS_COUNT 8
+static atomic_int      mouse_buttons_set;                             /* last state set */
+static atomic_uint     mouse_buttons_changes[MOUSE_BUTTONS_COUNT];    /* changes made */
+static uint32_t        mouse_buttons_reported[MOUSE_BUTTONS_COUNT];   /* changes handed over */
+static int             mouse_buttons_dev;                             /* state the device reports */
+static int             mouse_buttons_dev_read;                        /* the device has read it */
+static int             mouse_buttons_dev_unread;                      /* polls without reading it */
 
 static void           *mouse_priv;
 static void           *mouse_ex_priv;
@@ -211,43 +212,41 @@ tablet_process(void)
 }
 
 static void
-mouse_queue_buttons(int b)
+mouse_count_buttons(int b)
 {
-    if (!mouse_buttons_mutex)
-        return;
+    int changed = atomic_exchange(&mouse_buttons_set, b) ^ b;
 
-    thread_wait_mutex(mouse_buttons_mutex);
-    int last = mouse_buttons_queued ? mouse_buttons_queue[mouse_buttons_queued - 1] : mouse_buttons_dev;
-    if (b != last) {
-        if (mouse_buttons_queued < MOUSE_BUTTONS_QUEUE)
-            mouse_buttons_queued++;
-        mouse_buttons_queue[mouse_buttons_queued - 1] = b;
+    for (int i = 0; i < MOUSE_BUTTONS_COUNT; i++) {
+        if (changed & (1 << i))
+            atomic_fetch_add(&mouse_buttons_changes[i], 1);
     }
-    thread_release_mutex(mouse_buttons_mutex);
 }
 
 static void
 mouse_advance_buttons(void)
 {
-    if (!mouse_buttons_mutex)
+    /* The guest is not listening (reporting disabled): rather than replay old
+       clicks once it does, skip to the current state after a while. */
+    const int skip = !mouse_buttons_dev_read && (++mouse_buttons_dev_unread >= 50);
+    if (!mouse_buttons_dev_read && !skip)
         return;
 
-    thread_wait_mutex(mouse_buttons_mutex);
-    if (mouse_buttons_queued) {
-        if (mouse_buttons_dev_read) {
-            mouse_buttons_dev = mouse_buttons_queue[0];
-            mouse_buttons_queued--;
-            memmove(mouse_buttons_queue, &mouse_buttons_queue[1], mouse_buttons_queued * sizeof(mouse_buttons_queue[0]));
-            mouse_buttons_dev_read   = 0;
-            mouse_buttons_dev_unread = 0;
-        } else if (++mouse_buttons_dev_unread >= 50) {
-            /* The guest is not listening (reporting disabled); rather than replay
-               old clicks once it does, skip to the current state. */
-            mouse_buttons_dev    = mouse_buttons_queue[mouse_buttons_queued - 1];
-            mouse_buttons_queued = 0;
-        }
+    int b = 0;
+    for (int i = 0; i < MOUSE_BUTTONS_COUNT; i++) {
+        uint32_t changes = atomic_load(&mouse_buttons_changes[i]);
+        if (skip)
+            mouse_buttons_reported[i] = changes;
+        else if (mouse_buttons_reported[i] != changes)
+            mouse_buttons_reported[i]++;
+        if (mouse_buttons_reported[i] & 1)
+            b |= 1 << i;
     }
-    thread_release_mutex(mouse_buttons_mutex);
+
+    if (b != mouse_buttons_dev) {
+        mouse_buttons_dev        = b;
+        mouse_buttons_dev_read   = skip;
+        mouse_buttons_dev_unread = 0;
+    }
 }
 
 void
@@ -291,14 +290,14 @@ mouse_clear_buttons(void)
 
     mouse_delta_b  = 0x00;
 
-    if (mouse_buttons_mutex)
-        thread_wait_mutex(mouse_buttons_mutex);
-    mouse_buttons_queued     = 0;
+    atomic_store(&mouse_buttons_set, 0);
+    for (int i = 0; i < MOUSE_BUTTONS_COUNT; i++) {
+        atomic_store(&mouse_buttons_changes[i], 0);
+        mouse_buttons_reported[i] = 0;
+    }
     mouse_buttons_dev        = 0x00;
     mouse_buttons_dev_read   = 1;
     mouse_buttons_dev_unread = 0;
-    if (mouse_buttons_mutex)
-        thread_release_mutex(mouse_buttons_mutex);
 }
 
 static double
@@ -703,7 +702,7 @@ mouse_set_buttons_ex(int b)
         ATOMIC_STORE(tablet_pressed, ATOMIC_LOAD(tablet_pressed) | (b & ~ATOMIC_LOAD(tablet_buttons)));
     ATOMIC_STORE(*(mouse_input_mode >= 1 ? &tablet_buttons : &mouse_buttons), b);
     ATOMIC_STORE(*(mouse_input_mode >= 1 ? &mouse_buttons : &tablet_buttons), 0);
-    mouse_queue_buttons(ATOMIC_LOAD(mouse_buttons));
+    mouse_count_buttons(ATOMIC_LOAD(mouse_buttons));
 }
 
 /* The buttons as last set by the frontend. */
@@ -1003,9 +1002,6 @@ mouse_close(void)
 void
 mouse_init(void)
 {
-    if (!mouse_buttons_mutex)
-        mouse_buttons_mutex = thread_create_mutex();
-
     /* Initialize local data. */
     mouse_clear_coords();
     mouse_clear_buttons();
