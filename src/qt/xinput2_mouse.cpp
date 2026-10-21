@@ -82,14 +82,15 @@ static struct {
        Windows cursor, but a tablet or a VNC client's pointer stays where it is.
        Having found that it does not, try again after a while, in case it was
        misjudged; the wait doubles every time. */
-    bool   no_warp      = false;
-    int    probe_wait   = 0;
-    int    probe_after  = 32;
-    bool   warp_pending = false; /* warped, outcome not seen yet */
-    bool   warp_echoed  = false; /* the warp came back as an event from the device */
-    int    warp_events  = 0;
-    double warp_x       = 0.0;
-    double warp_y       = 0.0;
+    bool          no_warp      = false;
+    int           probe_wait   = 0;
+    int           probe_after  = 32;
+    bool          warp_pending = false; /* warped, outcome not seen yet */
+    bool          warp_echoed  = false; /* the warp came back as an event from the device */
+    unsigned long warp_serial  = 0;     /* request number of the warp */
+    int           warp_events  = 0;
+    double        warp_x       = 0.0;
+    double        warp_y       = 0.0;
 } pos;
 
 /* Server pointer position from the last query, to tell pixel devices apart. */
@@ -188,6 +189,7 @@ xinput2_update_center()
 static void
 xinput2_warp()
 {
+    pos.warp_serial = NextRequest(disp);
     XWarpPointer(disp, None, DefaultRootWindow(disp), 0, 0, 0, 0, center_x, center_y);
     XFlush(disp);
 }
@@ -201,9 +203,18 @@ xinput2_reset()
     have_center = false;
 }
 
+/* How far (mx, my) is from continuing the last movement, by anything up to a few times over. */
+static double
+xinput2_motion_score(double mx, double my)
+{
+    double v2 = (pos.vx * pos.vx) + (pos.vy * pos.vy);
+    double t  = (v2 > 0.0) ? std::clamp(((mx * pos.vx) + (my * pos.vy)) / v2, 0.0, 4.0) : 0.0;
+    return std::hypot(mx - (t * pos.vx), my - (t * pos.vy));
+}
+
 /* Motion of a device that reports where the pointer is, rather than how far it moved. */
 static void
-xinput2_position(int source, double x, double y, bool can_warp)
+xinput2_position(int source, double x, double y, bool can_warp, unsigned long serial)
 {
     if (pos.source != source) {
         /* First position from this device: just start from it. */
@@ -216,30 +227,34 @@ xinput2_position(int source, double x, double y, bool can_warp)
 
     double dx = x - pos.x;
     double dy = y - pos.y;
-    if (pos.warp_pending) {
+
+    /* Events carry the number of the last request the server had handled, so
+       anything before the warp is plain motion from where the pointer was, no
+       matter how late it arrives over a slow remote display. */
+    if (pos.warp_pending && ((long) (serial - pos.warp_serial) >= 0)) {
         if ((x == pos.warp_x) && (y == pos.warp_y)) {
-            /* The warp coming back from the device (XWin moving the Windows cursor). */
+            /* The warp coming back from the device (XWin moving the Windows
+               cursor), which a tablet moving it can still undo. */
             pos.warp_echoed = true;
             return;
         }
 
-        /* Compare with where the pointer would be if it carried on moving as it
-           did, from the warp target or from where it was. A fast flick can move
-           it further in one event than the warp did. */
-        if (std::hypot(x - pos.warp_x - pos.vx, y - pos.warp_y - pos.vy) < std::hypot(dx - pos.vx, dy - pos.vy)) {
+        /* Tell whether the pointer carried on from the warp target or from where
+           it was. Several movements can come in as one event, more so when the
+           display is slow, and a fast one can go further than the warp did. */
+        if (xinput2_motion_score(x - pos.warp_x, y - pos.warp_y) < xinput2_motion_score(dx, dy)) {
             /* The warp moved the device's pointer; carry on from there. */
             dx               = x - pos.warp_x;
             dy               = y - pos.warp_y;
             pos.warp_pending = false;
             pos.probe_after  = 32;
-        } else if (pos.warp_echoed || (++pos.warp_events >= 4)) {
+        } else if (pos.warp_echoed || (++pos.warp_events >= 2)) {
             /* The device kept reporting from where it was: stop warping it. */
             pos.warp_pending = false;
             pos.no_warp      = true;
             pos.probe_wait   = pos.probe_after;
             pos.probe_after  = std::min(pos.probe_after * 2, 4096);
         }
-        /* Otherwise, this was sent before the warp took effect. */
     }
 
     mouse_scalef(dx, dy);
@@ -310,21 +325,25 @@ xinput2_raw_motion(const XIRawEvent *rawev)
             /* Read the position from the server instead of trusting the axis range:
                Xwayland's pointer declares 0-65535, but reports screen pixels. */
             if (xinput2_query_pointer(rawev->deviceid, &x, &y))
-                xinput2_position(rawev->sourceid, x, y, false);
+                xinput2_position(rawev->sourceid, x, y, false, rawev->serial);
             return;
 
         case PointerKind::Pixels:
             /* The same XTEST device can be driven with positions by a VNC server
                and with relative motion by something else, such as Steam Input.
-               Check unexpected jumps with the server, but allow for its pointer
-               having moved on by the time it answers (a remote display), and only
-               give up on positions after a few misses or a negative value. */
+               A negative value can only be motion. Small values far from where
+               the pointer was could be either, so check those with the server,
+               and give up on positions after a few misses. Anything else is a
+               position: on a slow remote display, the server's pointer will
+               have moved on by the time it answers, so it cannot tell. */
+            if ((present != 3) && (pos.source != rawev->sourceid))
+                return;
             x = (present & 1) ? coords[0] : pos.x;
             y = (present & 2) ? coords[1] : pos.y;
             if ((x >= 0.0) && (y >= 0.0)) {
-                if (((pos.source == rawev->sourceid) && (xinput2_near(x, y, pos.x, pos.y) || (pos.warp_pending && xinput2_near(x, y, pos.warp_x, pos.warp_y)))) || ((present == 3) && xinput2_is_position(rawev->deviceid, coords, pos.source == rawev->sourceid, pos.x, pos.y))) {
+                if ((x > 64.0) || (y > 64.0) || ((pos.source == rawev->sourceid) && xinput2_near(x, y, pos.x, pos.y)) || ((present == 3) && xinput2_is_position(rawev->deviceid, coords, pos.source == rawev->sourceid, pos.x, pos.y))) {
                     info.mismatches = 0;
-                    xinput2_position(rawev->sourceid, x, y, true);
+                    xinput2_position(rawev->sourceid, x, y, true, rawev->serial);
                     return;
                 }
                 if (++info.mismatches < 3)
@@ -343,7 +362,7 @@ xinput2_raw_motion(const XIRawEvent *rawev)
                 info.mismatches = 0;
                 info.last_x     = coords[0];
                 info.last_y     = coords[1];
-                xinput2_position(rawev->sourceid, coords[0], coords[1], false);
+                xinput2_position(rawev->sourceid, coords[0], coords[1], false, rawev->serial);
                 return;
             }
             break;
@@ -363,7 +382,7 @@ xinput2_raw_motion(const XIRawEvent *rawev)
                     info.mismatches = 0;
                     if (++info.matches >= 2)
                         info.kind = PointerKind::Pixels;
-                    xinput2_position(rawev->sourceid, coords[0], coords[1], false);
+                    xinput2_position(rawev->sourceid, coords[0], coords[1], false, rawev->serial);
                     return;
                 }
                 if ((coords[0] >= 0.0) && (coords[1] >= 0.0) && ((coords[0] > 64.0) || (coords[1] > 64.0)))
@@ -455,7 +474,7 @@ xinput2_proc()
                         if (reset_motion.exchange(false))
                             xinput2_reset();
 
-                        xinput2_position(devev->sourceid, devev->root_x, devev->root_y, true);
+                        xinput2_position(devev->sourceid, devev->root_x, devev->root_y, true, devev->serial);
                         break;
                     }
 
@@ -514,6 +533,10 @@ xinput2_mouse_capture(QWindow *window)
 void
 xinput2_mouse_uncapture()
 {
+    /* Also start over here: mouse_capture is set before xinput2_mouse_capture
+       runs, so the first events of the next capture could otherwise be taken
+       as moving on from where the pointer was during the last one. */
+    reset_motion = true;
     if (grab_widget)
         grab_widget->releaseMouse();
 }
