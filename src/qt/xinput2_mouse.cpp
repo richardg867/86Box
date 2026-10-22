@@ -22,6 +22,7 @@
 #include <QCursor>
 #include <QWidget>
 #include <QWindow>
+#include <qpa/qplatformwindow.h>
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -29,8 +30,8 @@
 
 #include <algorithm>
 #include <atomic>
-#include <chrono>
 #include <cmath>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -49,7 +50,6 @@ extern "C" {
 static Display            *disp         = nullptr;
 static QThread            *procThread   = nullptr;
 static QWidget            *grab_widget  = nullptr;
-static std::atomic<Window> grab_window  = 0;
 static std::atomic<bool>   reset_motion = true;
 static int                 xi2opcode    = 0;
 
@@ -132,10 +132,17 @@ static int    prev_src       = -1;
 static Time   prev_time      = 0;
 static double prev_coords[2] = { 0.0, 0.0 };
 
-/* Centre of the grab window in root coordinates, refreshed periodically. */
-static bool                                  have_center = false;
-static int                                   center_x = 0, center_y = 0, center_radius = 0;
-static std::chrono::steady_clock::time_point center_time;
+/* Centre of the grab window in root coordinates. Asking the server for it
+   takes several round trips, which on a remote display can stall motion for
+   longer than they are apart; so it is worked out on the UI thread from where
+   Qt already knows the window to be, whenever the window moves or resizes. */
+static struct {
+    std::mutex lock;
+    bool       valid = false;
+    int        x = 0, y = 0, radius = 0;
+} shared_center;
+static bool have_center = false;
+static int  center_x = 0, center_y = 0, center_radius = 0;
 
 /* Based on SDL2. Returns a mask of the axes present among the first output_values_len. */
 static int
@@ -202,21 +209,53 @@ xinput2_query_pointer(int master, double *x, double *y)
     return ret;
 }
 
+/* Called on the UI thread. Qt keeps the geometry of its native windows in
+   device pixels, relative to the parent, and that of a top-level window
+   relative to the root window. */
+static void
+xinput2_track_center()
+{
+    QWindow         *window   = grab_widget ? grab_widget->windowHandle() : nullptr;
+    QPlatformWindow *platform = window ? window->handle() : nullptr;
+
+    std::lock_guard<std::mutex> guard(shared_center.lock);
+    shared_center.valid = (platform != nullptr);
+    if (platform) {
+        QSize  size   = platform->geometry().size();
+        QPoint center = platform->mapToGlobal(QPoint(size.width() / 2, size.height() / 2));
+
+        shared_center.x      = center.x();
+        shared_center.y      = center.y();
+        shared_center.radius = std::max(std::min(size.width(), size.height()) / 4, 16);
+    }
+}
+
+class CenterTracker : public QObject {
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        switch (event->type()) {
+            case QEvent::Move:
+            case QEvent::Resize:
+            case QEvent::Show:
+                xinput2_track_center();
+                break;
+            default:
+                break;
+        }
+        return QObject::eventFilter(watched, event);
+    }
+};
+static CenterTracker *center_tracker = nullptr;
+
 static bool
 xinput2_update_center()
 {
-    auto now = std::chrono::steady_clock::now();
-    if (have_center && ((now - center_time) < std::chrono::milliseconds(250)))
-        return true;
-
-    Window            win = grab_window;
-    XWindowAttributes attrib { };
-    Window            child;
-    have_center = win && XGetWindowAttributes(disp, win, &attrib) && XTranslateCoordinates(disp, win, attrib.root, attrib.width / 2, attrib.height / 2, &center_x, &center_y, &child);
-    if (have_center) {
-        center_radius = std::max(std::min(attrib.width, attrib.height) / 4, 16);
-        center_time   = now;
-    }
+    std::lock_guard<std::mutex> guard(shared_center.lock);
+    have_center   = shared_center.valid;
+    center_x      = shared_center.x;
+    center_y      = shared_center.y;
+    center_radius = shared_center.radius;
     return have_center;
 }
 
@@ -233,8 +272,7 @@ xinput2_warp()
 static void
 xinput2_reset()
 {
-    pos         = { };
-    have_center = false;
+    pos = { };
 }
 
 /* How far (mx, my) is from continuing the last movement, by anything up to a few times over. */
@@ -459,10 +497,12 @@ xinput2_raw_motion(const RawMotion &m, const PointerQuery *q)
     mouse_scalef(coords[0], coords[1]);
 
     /* Keep the pointer in the window, so that it does not run into the edge of
-       the screen or another window. Any absolute device starts over from where
-       it is when it next moves. */
+       the screen or another window; but not again before the server has done
+       the last warp, as on a remote display each one is another request
+       waiting behind everything else sent to it. Any absolute device starts
+       over from where it is when it next moves. */
     pos.source = -1;
-    if (xinput2_update_center())
+    if (((long) (m.serial - last_warp_serial) >= 0) && xinput2_update_center())
         xinput2_warp();
     return true;
 }
@@ -635,7 +675,12 @@ xinput2_mouse_capture(QWindow *window)
     Q_UNUSED(window);
     reset_motion = true;
     if (grab_widget) {
-        grab_window = grab_widget->winId();
+        grab_widget->winId();
+        if (!center_tracker)
+            center_tracker = new CenterTracker;
+        grab_widget->installEventFilter(center_tracker);
+        grab_widget->window()->installEventFilter(center_tracker);
+        xinput2_track_center();
         grab_widget->grabMouse(QCursor(Qt::BlankCursor));
     }
 }
