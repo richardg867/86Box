@@ -202,6 +202,18 @@ dp8390_write_cr(dp8390_t *dev, uint32_t val)
                 dev->interrupt(dev->priv, 1);
 
             dev->ISR.pkt_tx = 1;
+
+            /* A loopback transmission still completes, so it reports the
+               same transmit status as one that went out on the wire. */
+            if (dev->flags & DP8390_FLAG_LOOP_TSR) {
+                dev->TSR.tx_ok      = 1;
+                dev->TSR.collided   = 0;
+                dev->TSR.aborted    = 0;
+                dev->TSR.no_carrier = 0;
+                dev->TSR.fifo_ur    = 0;
+                dev->TSR.cd_hbeat   = 0;
+                dev->TSR.ow_coll    = 0;
+            }
         }
     } else if (val & 0x04) {
         if (dev->CR.stop || (!dev->CR.start && (dev->flags & DP8390_FLAG_CHECK_CR))) {
