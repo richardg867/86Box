@@ -83,6 +83,7 @@ typedef struct pe2_t {
     uint8_t pulses;
 
     uint8_t running;
+    uint8_t irq;
 
     uint8_t data;
     uint8_t ctrl;
@@ -226,9 +227,13 @@ pe2_dma_advance(pe2_t *dev)
 }
 
 static void
-pe2_interrupt(UNUSED(void *priv), UNUSED(int set))
+pe2_interrupt(void *priv, int set)
 {
-    /* FPGA does not wire DP8390 interrupt to nAck. */
+    pe2_t *dev = (pe2_t *) priv;
+
+    /* The gate array wires the controller's interrupt to nAck. */
+    dev->irq = !!set;
+    lpt_irq(dev->lpt, dev->irq);
 }
 
 static void
@@ -521,9 +526,13 @@ pe2_write_ctrl(uint8_t val, void *priv)
             return;
     }
 
-    if ((dev->ramop == 2) && dev->running) {
+    if ((dev->ramop == 2) && dev->running && (val & PE2_CTRL_DIR)) {
         /* Reading the buffer back is bidirectional: whole bytes
-           off the data port, with nStrobe stepping to the next one. */
+           off the data port, with nStrobe stepping to the next one.
+           Only while the port is turned around, as the NT driver arms
+           a dummy two-byte read before every remote write and never
+           drains it; owning every control write from then on would
+           swallow the commands that follow. */
         if ((prev ^ val) & PE2_CTRL_STROBE) {
             /* The transfer is as long as the remote byte count said:
                once it runs out, the operation disarms, so the
@@ -645,6 +654,13 @@ static uint8_t
 pe2_read_status(void *priv)
 {
     pe2_t *dev = (pe2_t *) priv;
+
+    /* The port only passes the interrupt on while its enable is set, and
+       the NT driver only opens that window around its critical sections,
+       so a level raised once while it was shut would be lost. Reassert it
+       here, after the port has taken the latest control write. */
+    if (dev->irq)
+        lpt_irq(dev->lpt, 1);
 
     if (dev->ee) /* the EEPROM's data out is status[3] */
         return dev->ee_bit ? 0x08 : 0x00;
