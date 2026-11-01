@@ -85,6 +85,10 @@ typedef struct pe2_t {
     uint8_t running;
     uint8_t irq;
 
+    uint8_t pe1_access;
+    uint8_t pe1_block;
+    uint8_t pe1_irq_cfg;
+
     uint8_t data;
     uint8_t ctrl;
     uint8_t reg;
@@ -156,8 +160,11 @@ pe2_read_reg(pe2_t *dev, uint8_t reg)
 {
     if (!reg) {
         /* DP8390 command register. Reads back the last byte given for it,
-           that is the command register once the controller is being driven. */
-        return dev->cr_seen ? dev->cr : dev->latch;
+           that is the command register once the controller is being driven,
+           except for TXP, which the controller clears when it is done. */
+        if (dev->cr_seen)
+            return (dev->cr & ~0x04) | (dev->dp8390->CR.tx_packet ? 0x04 : 0x00);
+        return dev->latch;
     }
 
     /* DP8390 paged registers. */
@@ -226,6 +233,18 @@ pe2_dma_advance(pe2_t *dev)
     }
 }
 
+static int
+pe2_irq_level(const pe2_t *dev)
+{
+    /* PE1 commands 00-03 set up the line: [1] passes the controller's
+       interrupt through and [0] inverts it, which with [1] clear drives
+       nAck by hand. The driver probes for its IRQ that way. */
+    if (dev->is_pe1)
+        return (dev->pe1_irq_cfg & 0x01) ^ ((dev->pe1_irq_cfg & 0x02) && dev->irq);
+
+    return dev->irq;
+}
+
 static void
 pe2_interrupt(void *priv, int set)
 {
@@ -233,7 +252,7 @@ pe2_interrupt(void *priv, int set)
 
     /* The gate array wires the controller's interrupt to nAck. */
     dev->irq = !!set;
-    lpt_irq(dev->lpt, dev->irq);
+    lpt_irq(dev->lpt, pe2_irq_level(dev));
 }
 
 static void
@@ -251,6 +270,10 @@ pe2_reset(pe2_t *dev)
     dev->counting = 0;
     dev->pulses   = 0;
     dev->running  = 0;
+
+    dev->pe1_access  = 0;
+    dev->pe1_block   = 0;
+    dev->pe1_irq_cfg = 0;
 
     dev->data       = 0;
     dev->ctrl       = 0;
@@ -279,6 +302,50 @@ pe2_reset(pe2_t *dev)
 }
 
 static void
+pe1_command(pe2_t *dev, uint8_t val)
+{
+    /* The command byte only addresses: [5] is a single byte access and [6]
+       picks register 40, the block data register, over [4:0]. Which way the
+       byte moves is up to nStrobe during the operand strobe, so 20|reg and
+       A0|reg are the same access; [7] only says the driver will turn the
+       port around to read it byte-wide. With [5] clear, [6] starts a block
+       transfer, and the rest drive the EEPROM (08/18) or the interrupt. */
+    dev->ee         = 0;
+    dev->pe1_access = 0;
+    dev->pe1_block  = 0;
+
+    if (val & 0x60) {
+        dev->reg = (val & 0x40) ? 0x40 : (val & 0x1f);
+        if (val & 0x20) {
+            dev->pe1_access = 1;
+        } else {
+            /* Remote DMA streamed through the port, in the direction the
+               command register last asked for and as long as RBCR says. A
+               read has the first byte waiting before the first strobe. */
+            dev->pe1_block = 1;
+            if (dev->dp8390->CR.rdma_cmd == 1)
+                dev->status = dp8390_chipmem_read(dev->dp8390, dev->dp8390->remote_dma, 1);
+        }
+        pe2_log(dev->log, "command(%02X) %s register %02X\n", val,
+                dev->pe1_block ? "block" : "access", dev->reg);
+    } else if (val & 0x08) {
+        dev->ee = (val & 0x10) ? 1 : 2;
+        if (dev->ee == 1) { /* selecting starts a fresh command */
+            dev->ee_sr    = 0;
+            dev->ee_cnt   = 0;
+            dev->ee_obits = 0;
+            dev->ee_bit   = 0;
+        }
+        pe2_log(dev->log, "command(%02X) EEPROM chip select %s\n", val, (val & 0x10) ? "on" : "off");
+    } else {
+        dev->pe1_irq_cfg = val & 0x03;
+        lpt_irq(dev->lpt, pe2_irq_level(dev));
+        pe2_log(dev->log, "command(%02X) interrupt %s%s\n", val,
+                (val & 0x02) ? "enabled" : "disabled", (val & 0x01) ? ", inverted" : "");
+    }
+}
+
+static void
 pe2_command(pe2_t *dev, uint8_t val)
 {
     /* 1x and Dx both pick strobe line x and restart the pulse counter. The
@@ -288,20 +355,8 @@ pe2_command(pe2_t *dev, uint8_t val)
     if (!select)
         dev->counting = 0; /* any other command ends the measurement */
 
-    /* PE1 encodes differently: 2x writes a register and Ax reads one back. */
     if (dev->is_pe1 && dev->running) {
-        dev->pend_read  = 0;
-        dev->pend_write = 0;
-        dev->reg        = val & 0x1f;
-        if ((val & 0xe0) == 0x20) {
-            dev->pend_write = 1;
-            dev->wr_reg     = 1;
-        } else if ((val & 0xe0) == 0xa0) {
-            dev->pend_read = 1;
-            dev->rd_phase  = 1;
-            dev->status    = pe2_read_reg(dev, dev->reg & 0x0f);
-        }
-        pe2_log(dev->log, "command(%02X) register %X\n", val, val & 0x1f);
+        pe1_command(dev, val);
         return;
     }
 
@@ -386,7 +441,7 @@ pe2_write_data(uint8_t val, void *priv)
 {
     pe2_t *dev = (pe2_t *) priv;
 
-    if ((dev->ramop == 1) && dev->running) {
+    if ((dev->ramop == 1) && dev->running && !dev->is_pe1) {
         /* The running mode writes the buffer by walking the
            data port with no strobe at all, one byte per write. */
         dp8390_chipmem_write(dev->dp8390, dev->dp8390->remote_dma, val, 1);
@@ -422,6 +477,11 @@ pe2_write_data(uint8_t val, void *priv)
         return;
     }
 
+    if (dev->is_pe1 && dev->running) { /* everything else happens on the control lines */
+        dev->data = val;
+        return;
+    }
+
     if (dev->pend_read && !dev->counting) {
         dev->rd_phase++; /* a data write picks the other half of the byte */
         if (!dev->running) /* a running mode already latched its own byte */
@@ -448,8 +508,10 @@ pe2_firmware_write_ctrl(pe2_t *dev, uint8_t prev, uint8_t val)
 {
     /* Dropping every line resets the gate array and starts a new upload, which
        the driver does for each transfer mode it tries, since each has its own
-       bitstream. Miss this and the next 22000 clocks are read as commands. */
-    if (!val) {
+       bitstream. Miss this and the next 22000 clocks are read as commands.
+       Only control bits 3:0 reach the adapter; the direction and interrupt
+       enable bits are the port's own, so they do not matter here. */
+    if (!(val & 0x0f)) {
         if (dev->fw_bits || dev->fw_done)
             pe2_log(dev->log, "gate array reset after %u bits, reconfiguring\n", dev->fw_bits);
         dev->fw_bits  = 0;
@@ -495,6 +557,52 @@ pe2_firmware_write_ctrl(pe2_t *dev, uint8_t prev, uint8_t val)
 }
 
 static void
+pe1_write_ctrl(pe2_t *dev, uint8_t prev, uint8_t val)
+{
+    dp8390_t *dp = dev->dp8390;
+
+    /* The command is latched as nSelectIn rises, with the byte already on
+       the data lines; its operand is then strobed with nAutoFeed. */
+    if (((prev ^ val) & PE2_CTRL_SELECT) && (val & PE2_CTRL_SELECT)) {
+        pe2_command(dev, dev->data);
+        return;
+    }
+
+    if ((prev ^ val) & PE2_CTRL_AUTOFEED) {
+        if (dev->pe1_block) {
+            /* Every nAutoFeed edge, either way, moves one byte. A read
+               presents the next byte as soon as the edge asking for it
+               lands, as the driver reads it with no further writes. */
+            if (dp->CR.rdma_cmd == 2) {
+                dp8390_chipmem_write(dp, dp->remote_dma, dev->data, 1);
+                pe2_dma_advance(dev);
+            } else if (dp->CR.rdma_cmd == 1) {
+                pe2_dma_advance(dev);
+                dev->status = dp8390_chipmem_read(dp, dp->remote_dma, 1);
+            }
+        } else if (dev->pe1_access && (val & PE2_CTRL_AUTOFEED)) {
+            /* nStrobe held through the operand strobe makes it a read, which
+               loads the output byte the status lines show. Outside a block,
+               register 40 writes straight into that byte, a loopback the
+               driver's presence test reads back with no read cycle at all.
+               Only a write may load it that way, as the driver parks the
+               command byte or FF on the lines around a read. */
+            dev->pe1_access = 0;
+            if (val & PE2_CTRL_STROBE) {
+                if (dev->reg != 0x40)
+                    dev->status = pe2_read_reg(dev, dev->reg & 0x0f);
+            } else if (dev->reg == 0x40)
+                dev->status = dev->data;
+            else
+                pe2_write_reg(dev, dev->reg & 0x0f, dev->data);
+        }
+    }
+
+    if (val & PE2_CTRL_DIR) /* a byte-wide read takes it straight off the data lines */
+        lpt_write_to_dat(dev->lpt, dev->status);
+}
+
+static void
 pe2_write_ctrl(uint8_t val, void *priv)
 {
     pe2_t *dev = (pe2_t *) priv;
@@ -504,6 +612,11 @@ pe2_write_ctrl(uint8_t val, void *priv)
 
     if (pe2_firmware_write_ctrl(dev, prev, val))
         return;
+
+    if (dev->is_pe1 && dev->running) {
+        pe1_write_ctrl(dev, prev, val);
+        return;
+    }
 
     /* The driver reads a whole byte back by turning the port around and reading
        the data port, rather than through the status lines; four variants of that
@@ -545,27 +658,6 @@ pe2_write_ctrl(uint8_t val, void *priv)
             pe2_dma_advance(dev);
         }
         lpt_write_to_dat(dev->lpt, dp8390_chipmem_read(dev->dp8390, dev->dp8390->remote_dma, 1));
-        return;
-    }
-
-    if (dev->is_pe1 && dev->running) {
-        /* PE1 latches its command as nSelectIn *rises*, with the
-           byte already on the data lines, and strobes the operand
-           with nAutoFeed afterwards. Opposite behavior from PE2. */
-        if (((prev ^ val) & PE2_CTRL_SELECT) && (val & PE2_CTRL_SELECT)) {
-            pe2_command(dev, dev->data);
-            return;
-        }
-        if (((prev ^ val) & PE2_CTRL_AUTOFEED) && (val & PE2_CTRL_AUTOFEED)) {
-            if (dev->pend_write) {
-                dev->pend_write = 0;
-                if (dev->wr_reg)
-                    pe2_write_reg(dev, dev->reg & 0x0f, dev->data);
-                dev->wr_reg = 0;
-            }
-            return;
-        }
-        dev->latch = dev->data;
         return;
     }
 
@@ -659,22 +751,34 @@ pe2_read_status(void *priv)
        the NT driver only opens that window around its critical sections,
        so a level raised once while it was shut would be lost. Reassert it
        here, after the port has taken the latest control write. */
-    if (dev->irq)
+    if (pe2_irq_level(dev))
         lpt_irq(dev->lpt, 1);
+
+    /* PE1 reads a byte back as a nibble pair like everything else, but
+       picks the half with data[7] instead of counting reads. nAck carries
+       the EEPROM's data out, block transfer pacing (high when the next byte
+       may move) or the interrupt; both halves of a read mask it off. */
+    if (dev->is_pe1 && dev->running) {
+        uint8_t v = dev->status;
+        uint8_t ack;
+        uint8_t ret;
+
+        if (dev->ee)
+            ack = dev->ee_bit;
+        else if (dev->pe1_block)
+            ack = 1;
+        else
+            ack = pe2_irq_level(dev);
+
+        if (dev->data & 0x80) /* [7] [ ] [5] [4] [3] [ ] [ ] [ ] */
+            ret = v & 0xb8;
+        else /* [6] [ ] [2] [1] [0] [ ] [ ] [ ] */
+            ret = ((v & 0x07) << 3) | ((v & 0x40) << 1);
+        return ret | (ack ? 0x40 : 0x00);
+    }
 
     if (dev->ee) /* the EEPROM's data out is status[3] */
         return dev->ee_bit ? 0x08 : 0x00;
-
-    /* PE1 reads a register back as a nibble pair like everything
-       else, but it picks the half by changing data[7] instead of
-       counting reads, without re-addressing the register to do so. */
-    if (dev->is_pe1 && dev->running) {
-        uint8_t v = pe2_read_reg(dev, dev->reg & 0x0f);
-        if (dev->data & 0x80) /* [7] [ ] [5] [4] [3] [ ] [ ] [ ] */
-            return (v & 0x38) | (v & 0x80);
-        else /* [6] [ ] [2] [1] [0] [ ] [ ] [ ] */
-            return ((v & 0x07) << 3) | ((v & 0x40) << 1);
-    }
 
     /* While profiling, the counter comes back as a plain
        nibble pair on status[6:3], half selected by data[7]. */
@@ -745,10 +849,17 @@ pe2_init(const device_t *info)
     dev->eeprom_data[9]  = dev->mac[5] | (dev->mac[4] << 8); /* serial */
     dev->eeprom_data[8]  = dev->mac[3];
 
-    dev->eeprom_data[15] = 'P' | ('E' << 8); /* PE2-10BT (twisted pair only model) */
-    dev->eeprom_data[14] = '2' | ('-' << 8);
-    dev->eeprom_data[13] = '1' | ('0' << 8);
-    dev->eeprom_data[12] = 'B' | ('T' << 8);
+    if (dev->is_pe1) {
+        dev->eeprom_data[15] = 'P' | ('E' << 8); /* PE-10BT (twisted pair only model) */
+        dev->eeprom_data[14] = '-' | ('1' << 8);
+        dev->eeprom_data[13] = '0' | ('B' << 8);
+        dev->eeprom_data[12] = 'T';
+    } else {
+        dev->eeprom_data[15] = 'P' | ('E' << 8); /* PE2-10BT (twisted pair only model) */
+        dev->eeprom_data[14] = '2' | ('-' << 8);
+        dev->eeprom_data[13] = '1' | ('0' << 8);
+        dev->eeprom_data[12] = 'B' | ('T' << 8);
+    }
 
     for (uint8_t i = 1; i < 16; i++) /* checksum */
         dev->eeprom_data[0] -= dev->eeprom_data[i];
