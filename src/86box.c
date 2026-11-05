@@ -55,6 +55,7 @@
 #include <86box/rom.h>
 #include <86box/dma.h>
 #include <86box/pci.h>
+#include <86box/hypervisor.h>
 #include <86box/timer.h>
 #include <86box/device.h>
 #include <86box/pit.h>
@@ -367,6 +368,10 @@ extern int mmuflush;
 int fps;
 int framecount;
 static uint32_t fps_sample_elapsed_ms = 1000;
+#ifdef USE_HYPERVISOR
+static uint64_t fps_sample_tsc; /* emulated time over the last sample */
+static int      fps_sample_tsc_valid;
+#endif
 
 extern int output;
 int        atfullspeed;
@@ -2285,6 +2290,13 @@ pc_run(void)
         numerator     = (int64_t) fps * 100000LL;
         speed_percent = (int) ((numerator + ((int64_t) elapsed_ms * target_fps / 2)) /
                                ((int64_t) elapsed_ms * target_fps));
+#ifdef USE_HYPERVISOR
+        /* A block of the hypervisor's is a millisecond of the host's time,
+           and its time between blocks is given back to the guest later:
+           its speed is how far its clock went. */
+        if (hv_active && fps_sample_tsc_valid)
+            speed_percent = (int) (((double) fps_sample_tsc * 100.0) / (cpuclock * ((double) elapsed_ms / 1000.0)) + 0.5);
+#endif
 
 #ifdef __APPLE__
         /* Needed due to modifying the UI on the non-main thread is a big no-no. */
@@ -2310,6 +2322,16 @@ pc_onesec(void)
 
     fps        = framecount;
     framecount = 0;
+
+#ifdef USE_HYPERVISOR
+    {
+        static uint64_t last_tsc = 0;
+
+        fps_sample_tsc       = tsc - last_tsc;
+        fps_sample_tsc_valid = !!last_tsc;
+        last_tsc             = tsc;
+    }
+#endif
 
     title_update = 1;
 }

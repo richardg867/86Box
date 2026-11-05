@@ -47,6 +47,7 @@
 #include <pthread.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <linux/kvm.h>
 #define HAVE_STDARG_H
 #include <86box/86box.h>
@@ -2239,6 +2240,54 @@ hv_close(void)
     hv_nslots[0] = hv_nslots[1] = 0;
 }
 
+/* A run of the guest that ended well past the signal meant to stop it: the
+   vCPU stood still for that long inside KVM_RUN, and the guest's clocks all
+   jumped by as much (Linux: "hrtimer: interrupt took ... ns"). Said, with
+   what the host was doing meanwhile, as far as this call of hv_exec() shows
+   it: another thread on the CPU (involuntary switches, little CPU time), a
+   page of the guest's memory read back from swap (major faults), or the
+   kernel or guest on the CPU all along (CPU time close to the wall time). */
+#define HV_STALL_NS 2000000ULL
+static uint64_t        hv_call_ns;
+static struct timespec hv_call_cpu;
+static struct rusage   hv_call_ru;
+static uint64_t        hv_stat_stalls;
+static uint64_t        hv_stat_stalls_next = 10;
+
+static void
+hv_stall_begin(void)
+{
+    hv_call_ns = hv_ns_last;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &hv_call_cpu);
+    getrusage(RUSAGE_THREAD, &hv_call_ru);
+}
+
+static void
+hv_stall_check(uint64_t deadline)
+{
+    struct timespec cpu;
+    struct rusage   ru;
+    int64_t         late = (int64_t) (hv_ns_last - deadline);
+    int64_t         cpu_ns;
+
+    if (late < (int64_t) HV_STALL_NS)
+        return;
+
+    hv_stat_stalls++;
+    if ((hv_stat_stalls > 4) && (hv_stat_stalls != hv_stat_stalls_next))
+        return;
+    if (hv_stat_stalls >= hv_stat_stalls_next)
+        hv_stat_stalls_next *= 10;
+
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu);
+    getrusage(RUSAGE_THREAD, &ru);
+    cpu_ns = ((int64_t) (cpu.tv_sec - hv_call_cpu.tv_sec) * 1000000000LL) + (cpu.tv_nsec - hv_call_cpu.tv_nsec);
+    pclog("KVM: the guest stood still for %.1f ms (%" PRIu64 " so far); this call: %.1f ms, %.1f ms of it on a CPU, "
+          "%ld involuntary context switches, %ld major page faults\n",
+          late / 1000000.0, hv_stat_stalls, (hv_ns_last - hv_call_ns) / 1000000.0, cpu_ns / 1000000.0,
+          ru.ru_nivcsw - hv_call_ru.ru_nivcsw, ru.ru_majflt - hv_call_ru.ru_majflt);
+}
+
 static void
 hv_stats(void)
 {
@@ -2277,6 +2326,7 @@ hv_exec(UNUSED(int32_t cycs))
     /* The time since the last call, in the main loop or paused, is lag. */
     hv_account_out();
     end = hv_ns_last + (force_10ms ? (10 * HV_QUANTUM_NS) : HV_QUANTUM_NS);
+    hv_stall_begin();
 
     /* What the guest wrote into a device's memory since the last call, for
        the device to see before its timers next look. */
@@ -2323,6 +2373,7 @@ hv_exec(UNUSED(int32_t cycs))
 
         ret = ioctl(cpu_fd, KVM_RUN, 0);
         hv_account_run(0);
+        hv_stall_check(deadline);
         hv_drain();
 
         if (ret < 0) {
