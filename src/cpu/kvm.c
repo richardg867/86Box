@@ -2266,14 +2266,14 @@ hv_close(void)
    the kernel, for tens of milliseconds the guest's clocks then jump by
    (stalls with CPU time close to the wall time, during POST's memory
    test). */
-#ifdef MADV_POPULATE_WRITE
-static uint8_t *hv_populated;
+#ifndef MADV_POPULATE_WRITE
+#    define MADV_POPULATE_WRITE 23 /* Linux 5.14; older headers lack it, an older kernel refuses it */
 #endif
+static uint8_t *hv_populated;
 
 static void
 hv_populate(void)
 {
-#ifdef MADV_POPULATE_WRITE
     uint64_t t;
     size_t   size;
 
@@ -2286,7 +2286,6 @@ hv_populate(void)
         pclog("KVM: allocating the guest's RAM up front failed: %s\n", strerror(errno));
     else
         pclog("KVM: allocated %zu MB of guest RAM up front in %.1f ms\n", size >> 20, (hv_clock_ns() - t) / 1000000.0);
-#endif
 }
 static uint64_t        hv_call_ns;
 static struct timespec hv_call_cpu;
