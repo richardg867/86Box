@@ -29,6 +29,7 @@
 #include <86box/timer.h>
 #include <86box/video.h>
 #include <86box/vid_svga.h>
+#include <86box/hypervisor.h>
 #include <86box/vid_svga_render.h>
 #include <86box/pci.h>
 #include <86box/thread.h>
@@ -2760,6 +2761,18 @@ chips_69000_readl_linear(uint32_t addr, void *priv)
     return svga_readl_linear(addr & 0x1FFFFF, priv);
 }
 
+/* The first 2 MB of the linear frame buffer are the memory as it is, in
+   the fast modes; the registers are at 4 MB and the byte swapping copy at
+   8 MB. */
+static void
+chips_69000_direct_update(svga_t *svga, int fast)
+{
+    chips_69000_t *chips = (chips_69000_t *) svga->priv;
+    mem_mapping_t *map   = &chips->linear_mapping;
+
+    svga_direct_map(svga, map, 0, (fast && map->enable) ? MIN(map->size, 0x200000) : 0);
+}
+
 void
 chips_69000_writeb_linear(uint32_t addr, uint8_t val, void *priv)
 {
@@ -3233,6 +3246,7 @@ chips_69000_init(const device_t *info)
     chips->svga.conv_16to32      = chips_69000_conv_16to32;
     chips->svga.line_compare     = chips_69000_line_compare;
 
+    chips->svga.direct_update = chips_69000_direct_update;
     mem_mapping_add(&chips->linear_mapping, 0, 0, chips_69000_readb_linear, chips_69000_readw_linear, chips_69000_readl_linear, chips_69000_writeb_linear, chips_69000_writew_linear, chips_69000_writel_linear, NULL, MEM_MAPPING_EXTERNAL, chips);
 
     chips->quit            = 0;

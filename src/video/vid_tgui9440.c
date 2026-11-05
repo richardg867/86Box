@@ -72,6 +72,7 @@
 #include <86box/vid_ddc.h>
 #include <86box/vid_xga.h>
 #include <86box/vid_svga.h>
+#include <86box/hypervisor.h>
 #include <86box/vid_svga_render.h>
 
 #define ROM_TGUI_9400CXI          "roms/video/tgui9440/9400CXI.VBI"
@@ -974,6 +975,22 @@ tgui_recalctimings(svga_t *svga)
 
     if (tgui->type == TGUI_9680)
         tgui_overlay_update((tgui_t *) tgui);
+}
+
+/* The linear frame buffer goes through svga_write_linear() and friends,
+   but to the blitter while it takes its source from the processor. Such a
+   blit stops it at once, and it comes back at the next frame, not at the
+   end of the blit: each change of the memory map makes the hypervisor
+   wait. */
+static void
+tgui_direct_update(svga_t *svga, int fast)
+{
+    tgui_t        *tgui = (tgui_t *) svga->priv;
+    mem_mapping_t *map  = &tgui->linear_mapping;
+    int            ok   = fast && map->enable && !tgui->write_blitter &&
+                        ((map->write_b == tgui_accel_write_fb_b) || (map->write_b == svga_write_linear));
+
+    svga_direct_map(svga, map, map->base & svga->decode_mask, ok ? map->size : 0);
 }
 
 static void
@@ -2660,8 +2677,11 @@ tgui_accel_command(int count, uint32_t cpu_dat, tgui_t *tgui)
             switch (tgui->accel.flags & (TGUI_SRCMONO | TGUI_SRCDISP)) {
                 case TGUI_SRCCPU:
                     if (count == -1) {
-                        if (svga->crtc[0x21] & 0x20)
+                        if (svga->crtc[0x21] & 0x20) {
                             tgui->write_blitter = 1;
+                            if (hv_active)
+                                svga_direct_map(svga, &tgui->linear_mapping, 0, 0);
+                        }
                         if (tgui->accel.use_src)
                             return;
                     } else
@@ -2739,8 +2759,11 @@ tgui_accel_command(int count, uint32_t cpu_dat, tgui_t *tgui)
 
                 case TGUI_SRCMONO | TGUI_SRCCPU:
                     if (count == -1) {
-                        if (svga->crtc[0x21] & 0x20)
+                        if (svga->crtc[0x21] & 0x20) {
                             tgui->write_blitter = 1;
+                            if (hv_active)
+                                svga_direct_map(svga, &tgui->linear_mapping, 0, 0);
+                        }
                         if (tgui->accel.use_src)
                             return;
                     }
@@ -4327,6 +4350,7 @@ tgui_init(const device_t *info)
     if (tgui->type == TGUI_9400CXI)
         svga->ramdac = device_add(&tkd8001_ramdac_device);
 
+    svga->direct_update = tgui_direct_update;
     mem_mapping_add(&tgui->linear_mapping, 0, 0, svga_read_linear, svga_readw_linear, svga_readl_linear, tgui_accel_write_fb_b, tgui_accel_write_fb_w, tgui_accel_write_fb_l, NULL, MEM_MAPPING_EXTERNAL, svga);
     mem_mapping_add(&tgui->accel_mapping, 0, 0, tgui_accel_read, tgui_accel_read_w, tgui_accel_read_l, tgui_accel_write, tgui_accel_write_w, tgui_accel_write_l, NULL, MEM_MAPPING_EXTERNAL, tgui);
     if (tgui->type >= TGUI_9440)

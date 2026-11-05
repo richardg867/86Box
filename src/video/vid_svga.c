@@ -805,6 +805,22 @@ svga_direct_dirty(uint8_t *page, void *priv)
         svga->changedvram[offset >> 12] = svga->monitor->mon_changeframecount;
 }
 
+/* Map size bytes of a linear frame buffer mapping straight in, as the
+   memory from off on: no more than the memory there is, and none if the
+   card would wrap round inside them. size 0 maps none. */
+void
+svga_direct_map(svga_t *svga, mem_mapping_t *map, uint32_t off, uint32_t size)
+{
+    if (off >= svga->vram_max)
+        size = 0;
+    else if (size > (svga->vram_max - off))
+        size = svga->vram_max - off;
+    if (((uint64_t) off + size) > ((uint64_t) svga->decode_mask + 1))
+        size = 0;
+
+    mem_mapping_set_direct(map, size ? (svga->vram + off) : NULL, size, svga_direct_dirty, svga);
+}
+
 /* The linear frame buffer mappings that use the handlers here are, in the
    fast modes (packed pixels, every plane written as it comes, no logical
    operation), the memory itself: a hypervisor can map them in directly
@@ -816,8 +832,6 @@ svga_direct_update(svga_t *svga)
 #ifdef USE_HYPERVISOR
     mem_mapping_t *map;
     int            ok;
-    uint32_t       off;
-    uint32_t       size;
 
     if (!hv_active || (svga->vram == NULL))
         return;
@@ -837,18 +851,12 @@ svga_direct_update(svga_t *svga)
         mem_mapping_set_defer_writes(map, 1);
 
         /* The frame buffer is at the mapping's address within the decoded
-           range, which must not wrap around inside the mapping. */
-        off  = map->base & svga->decode_mask;
-        size = map->size;
-        if (off >= svga->vram_max)
-            size = 0;
-        else if (size > (svga->vram_max - off))
-            size = svga->vram_max - off;
-        if ((off + size) > (svga->decode_mask + 1))
-            size = 0;
-
-        mem_mapping_set_direct(map, (ok && size) ? (svga->vram + off) : NULL, ok ? size : 0, svga_direct_dirty, svga);
+           range. */
+        svga_direct_map(svga, map, map->base & svga->decode_mask, ok ? map->size : 0);
     }
+
+    if (svga->direct_update)
+        svga->direct_update(svga, ok);
 #endif
 }
 

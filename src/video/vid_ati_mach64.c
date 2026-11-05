@@ -22,6 +22,7 @@
  */
 
 #include "vid_ati_mach64.h"
+#include <86box/hypervisor.h>
 
 video_timings_t timing_mach64_isa = { .type = VIDEO_ISA, .write_b = 3, .write_w = 3, .write_l = 6, .read_b = 5, .read_w = 5, .read_l = 10 };
 /* In an 8-bit slot every access is an 8-bit ISA cycle, a word two of them:
@@ -731,6 +732,32 @@ mach64_sync_ap_loc(mach64_t *mach64)
         mach64->config_cntl = (mach64->config_cntl & ~3) | 2;
 }
 
+/* The little-endian aperture is the memory as it is, but for the half of
+   the address space the scaler's YUV aperture takes over (SCALER_YUV_APER),
+   whose dword writes are spread over the planes. */
+static void
+mach64_direct_update(svga_t *svga, UNUSED(int fast))
+{
+    mach64_t      *mach64   = (mach64_t *) svga->priv;
+    mem_mapping_t *map      = &mach64->linear_mapping;
+    uint32_t       hole     = 0;
+    uint32_t       hole_end = 0;
+
+    svga_direct_map(svga, map, map->base & svga->decode_mask, map->enable ? map->size : 0);
+
+    if (map->enable && ((mach64->scaler_yuv_aper >> 4) & 0xc)) {
+        uint64_t yuv = (map->base & ~0xffffffULL) + ((mach64->scaler_yuv_aper & 0x20) ? 0 : 0x800000);
+        uint64_t lo  = MAX(yuv, (uint64_t) map->base);
+        uint64_t hi  = MIN(yuv + 0x800000, (uint64_t) map->base + map->size);
+
+        if (hi > lo) {
+            hole     = (uint32_t) (lo - map->base);
+            hole_end = (uint32_t) (hi - map->base);
+        }
+    }
+    mem_mapping_set_direct_hole(map, hole, hole_end);
+}
+
 void
 mach64_updatemapping(mach64_t *mach64)
 {
@@ -854,6 +881,9 @@ mach64_updatemapping(mach64_t *mach64)
         else
             mach64_mapping_off(&mach64->aux_mapping);
     }
+
+    if (hv_active)
+        mach64_direct_update(svga, 0);
 }
 
 /* CRTC_INT_CNTL (RRG 3-21): each interrupt's status bit sits one above its
@@ -2031,6 +2061,8 @@ mach64_ext_writeb(uint32_t addr, uint8_t val, void *priv)
                     break;
                 case 0x4b:
                     mach64->scaler_yuv_aper = val;
+                    if (hv_active)
+                        mach64_direct_update(&mach64->svga, 0);
                     break;
                 case 0x58 ... 0x5b:
                     WRITE8(addr, mach64->overlay_exclusive_horz, val);
@@ -3473,6 +3505,9 @@ mach64_common_init(const device_t *info)
                   mach64_in, mach64_out,
                   NULL,
                   mach64_overlay_draw);
+
+    svga->direct_update    = mach64_direct_update;
+    svga->deferrable_write = mach64_write;
 
     mem_mapping_add(&mach64->linear_mapping, 0, 0, mach64_read_linear, mach64_readw_linear, mach64_readl_linear, mach64_write_linear, mach64_writew_linear, mach64_writel_linear, NULL, MEM_MAPPING_EXTERNAL, svga);
     mem_mapping_add(&mach64->linear_mapping_big_endian, 0, 0, mach64_readb_be, mach64_readw_be, mach64_readl_be, mach64_writeb_be, mach64_writew_be, mach64_writel_be, NULL, MEM_MAPPING_EXTERNAL, svga);

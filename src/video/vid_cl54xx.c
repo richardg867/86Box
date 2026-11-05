@@ -39,6 +39,7 @@
 #include <86box/vid_xga.h>
 #include <86box/vid_svga.h>
 #include <86box/vid_svga_render.h>
+#include <86box/hypervisor.h>
 #include <86box/plat_fallthrough.h>
 #include <86box/plat_unused.h>
 #include <86box/bswap.h>
@@ -1826,8 +1827,52 @@ gd54xx_recalc_banking(gd54xx_t *gd54xx)
     }
 }
 
+/* The first aperture is the memory as it is in the packed pixel modes, but
+   for the registers in its last 256 bytes and while the blitter takes the
+   data written there or gives the data read. A blit that does stops it at
+   once, and it comes back at the next frame, not at the end of the blit:
+   text is drawn a glyph a blit, and each change of the memory map makes the
+   hypervisor wait. The other apertures swap the bytes. */
+static void
+gd54xx_direct_update(svga_t *svga, int fast)
+{
+    gd54xx_t      *gd54xx   = (gd54xx_t *) svga->local;
+    mem_mapping_t *map      = &gd54xx->linear_mapping;
+    uint32_t       size     = 0;
+    uint32_t       hole     = 0;
+    uint32_t       hole_end = 0;
+
+    if (fast && map->enable && (svga->seqregs[0x07] & CIRRUS_SR7_BPP_SVGA) && !gd54xx->countminusone)
+        size = MIN(map->size, gd54xx->linear_mask + 1);
+    svga_direct_map(svga, map, 0, size);
+
+    if ((svga->seqregs[0x17] & CIRRUS_MMIO_ENABLE) && (svga->seqregs[0x17] & CIRRUS_MMIO_USE_PCIADDR)) {
+        hole     = svga->vram_max - 256;
+        hole_end = svga->vram_max;
+    }
+    mem_mapping_set_direct_hole(map, hole, hole_end);
+}
+
+/* A blit with system memory as its source or destination started. */
+static void
+gd54xx_direct_off(gd54xx_t *gd54xx)
+{
+    if (hv_active)
+        svga_direct_map(&gd54xx->svga, &gd54xx->linear_mapping, 0, 0);
+}
+
+static void gd543x_recalc_mapping_do(gd54xx_t *gd54xx);
+
 static void
 gd543x_recalc_mapping(gd54xx_t *gd54xx)
+{
+    gd543x_recalc_mapping_do(gd54xx);
+    if (hv_active)
+        svga_direct_update(&gd54xx->svga);
+}
+
+static void
+gd543x_recalc_mapping_do(gd54xx_t *gd54xx)
 {
     svga_t  *svga = &gd54xx->svga;
     xga_t   *xga  = (xga_t *) svga->xga;
@@ -4224,6 +4269,7 @@ gd54xx_mem_sys_src(gd54xx_t *gd54xx, uint32_t cpu_dat, uint32_t count)
         gd54xx->blt.x_count = gd54xx->blt.xx_count = 0;
         gd54xx->blt.y_count                        = 0;
         gd54xx->countminusone                      = 1;
+        gd54xx_direct_off(gd54xx);
         gd54xx->blt.sys_src32                      = 0x00000000;
         gd54xx->blt.sys_cnt                        = 0;
         if ((svga->crtc[0x27] == CIRRUS_ID_CLGD5480) &&
@@ -4725,6 +4771,7 @@ gd54xx_mem_sys_dest(uint32_t count, gd54xx_t *gd54xx, svga_t *svga)
             gd54xx->blt.x_count = gd54xx->blt.xx_count = 0;
             gd54xx->blt.y_count                        = 0;
             gd54xx->countminusone                      = 1;
+            gd54xx_direct_off(gd54xx);
             count                                      = 32;
         }
 
@@ -5469,7 +5516,9 @@ gd54xx_init(const device_t *info)
 
     gd54xx->overlay.colorkeycompare = 0xff;
 
-    svga->local = gd54xx;
+    svga->local            = gd54xx;
+    svga->direct_update    = gd54xx_direct_update;
+    svga->deferrable_write = gd54xx_write;
 
     return gd54xx;
 }

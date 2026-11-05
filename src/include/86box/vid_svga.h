@@ -239,6 +239,12 @@ typedef struct svga_t {
     /* A card's own handler for byte writes to the window at A0000 that, like
        svga_write(), only writes the memory: a hypervisor may queue its writes. */
     void (*deferrable_write)(uint32_t addr, uint8_t val, void *priv);
+    /* For a card whose linear frame buffer has handlers of its own: map the
+       parts of it that are plain memory right now straight in, with
+       svga_direct_map(). fast is whether svga_write_linear() and friends are
+       plain memory too, for the parts that go through them. Called where
+       the mode can change and once a frame, only with a hypervisor. */
+    void (*direct_update)(struct svga_t *svga, int fast);
 
     /* The VGA vertical retrace interrupt (CRTC 11 bits 4 and 5, Input Status 0
        bit 7). A card that wires it up sets this, and it is called when the
@@ -411,6 +417,7 @@ extern int  svga_init(const device_t *info, svga_t *svga, void *priv, int memsiz
                       void (*overlay_draw)(struct svga_t *svga, int displine));
 extern void svga_recalctimings(svga_t *svga);
 extern void svga_direct_update(svga_t *svga);
+extern void svga_direct_map(svga_t *svga, mem_mapping_t *map, uint32_t off, uint32_t size);
 extern void svga_vert_int_crtc_write(svga_t *svga);
 extern int  svga_vert_int_active(const svga_t *svga);
 extern void svga_close(svga_t *svga);

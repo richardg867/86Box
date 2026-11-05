@@ -36,6 +36,7 @@
 #include <86box/vid_ddc.h>
 #include <86box/vid_xga.h>
 #include <86box/vid_svga.h>
+#include <86box/hypervisor.h>
 #include <86box/vid_svga_render.h>
 
 #define ROM_MILLENNIUM        "roms/video/matrox/matrox2064wr2.BIN"
@@ -1193,6 +1194,18 @@ mystique_recalc_mapping(mystique_t *mystique)
         }
     } else
         mem_mapping_disable(&svga->mapping);
+}
+
+/* The linear frame buffer is the memory as it is, but for byte accesses
+   in the VGA's chain 2 modes. */
+static void
+mystique_direct_update(svga_t *svga, UNUSED(int fast))
+{
+    mystique_t    *mystique = (mystique_t *) svga->priv;
+    mem_mapping_t *map      = &mystique->lfb_mapping;
+    int            ok       = svga->fast || (!svga->chain2_write && !svga->chain2_read);
+
+    svga_direct_map(svga, map, map->base & svga->decode_mask, (ok && map->enable) ? map->size : 0);
 }
 
 static void
@@ -6870,6 +6883,7 @@ mystique_init(const device_t *info)
                     NULL, 0, mystique);
     mem_mapping_disable(&mystique->ctrl_mapping);
 
+    mystique->svga.direct_update = mystique_direct_update;
     mem_mapping_add(&mystique->lfb_mapping, 0, 0,
                     mystique_readb_linear, mystique_readw_linear, mystique_readl_linear,
                     mystique_writeb_linear, mystique_writew_linear, mystique_writel_linear,

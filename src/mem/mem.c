@@ -3119,6 +3119,16 @@ mem_mapping_set_handler(mem_mapping_t *map,
                         void (*write_w)(uint32_t addr, uint16_t val, void *priv),
                         void (*write_l)(uint32_t addr, uint32_t val, void *priv))
 {
+    /* Direct memory and deferred writes are claims about the handlers
+       (mem_mapping_set_direct, MEM_MAPPING_DEFER_WRITES): new ones have to
+       make them again. */
+    if ((map->read_b != read_b) || (map->read_w != read_w) || (map->read_l != read_l) ||
+        (map->write_b != write_b) || (map->write_w != write_w) || (map->write_l != write_l)) {
+        map->direct      = NULL;
+        map->direct_size = 0;
+        map->flags &= ~MEM_MAPPING_DEFER_WRITES;
+    }
+
     map->read_b  = read_b;
     map->read_w  = read_w;
     map->read_l  = read_l;
