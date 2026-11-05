@@ -2266,7 +2266,9 @@ hv_close(void)
    the kernel, for tens of milliseconds the guest's clocks then jump by
    (stalls with CPU time close to the wall time, during POST's memory
    test). */
+#ifdef MADV_POPULATE_WRITE
 static uint8_t *hv_populated;
+#endif
 
 static void
 hv_populate(void)
