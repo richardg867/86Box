@@ -1943,12 +1943,29 @@ dma16_write(uint16_t addr, uint8_t val, UNUSED(void *priv))
         8, 2, 3, 1, 8, 8, 8, 0 \
     }
 
+/* The page registers sit on the ISA side of the bus, behind the chipset
+   on later machines, so every access to them takes a full ISA I/O cycle,
+   like the PIT, the RTC or port 61h. BIOSes rely on that: the Compaq
+   Mustang-S BIOS's diskette timeout is 62500 calls of a routine that does
+   nothing but IN AX,84h 22 times, about 32 us per call on real hardware.
+   Without the cycle the timeout came to about 47 ms instead of 2 s, so
+   any read where the sector was more than about 47 ms away from the head
+   was abandoned. */
+static void
+dma_page_isa_cycle(void)
+{
+    if (is286)
+        cycles -= ISA_CYCLES(8);
+}
+
 static void
 dma_page_write(uint16_t addr, uint8_t val, UNUSED(void *priv))
 {
     uint8_t convert[8] = CHANNELS;
 
     dma_log("DMA: [W] %04X = %02X\n", addr, val);
+
+    dma_page_isa_cycle();
 
 #ifdef USE_DYNAREC
     if ((addr == 0x84) && cpu_use_dynarec)
@@ -1997,6 +2014,8 @@ dma_page_read(uint16_t addr, UNUSED(void *priv))
 {
     uint8_t convert[8] = CHANNELS;
     uint8_t ret        = 0xff;
+
+    dma_page_isa_cycle();
 
     if (((addr & 0xfffc) == 0x80) && (CS == 0xf000) &&
         ((cpu_state.pc & 0xfffffff8) == 0x00007278) &&
