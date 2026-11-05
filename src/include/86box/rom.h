@@ -85,6 +85,7 @@ extern int bios_load_quad(const char *fn1, const char *fn2, const char *fn3,
                           const char *fn4, uint32_t addr, int sz, int off);
 extern int bios_load_intel(const char *fn1, const char *fn2, int sz, int invert);
 
+extern void rom_free(rom_t *rom);
 extern int rom_init(rom_t *rom, const char *fn, uint32_t address, int size,
                     int mask, int file_offset, uint32_t flags);
 extern int rom_init_oddeven(rom_t *rom, const char *fn, uint32_t address, int size,

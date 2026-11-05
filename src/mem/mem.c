@@ -3279,23 +3279,20 @@ mem_mapping_set_trap_reads(uint8_t *mem, uint32_t size, int trap)
     }
 }
 
-/* Memory a mapping executes from. A hypervisor can only map memory that
-   starts on a page boundary and runs in whole pages; free() releases it. */
+/* Memory a mapping executes from, cleared. A hypervisor or VFIO can only
+   map memory that starts on a page boundary and runs in whole pages, as
+   plat_mmap() gives. mem_free_exec() releases it, with the same size. */
 void *
 mem_alloc_exec(size_t size)
 {
-#if defined(USE_HYPERVISOR) && !defined(_WIN32)
-    void  *ret;
-    size_t pages = (size + 4095) & ~((size_t) 4095);
+    return plat_mmap((size + 4095) & ~((size_t) 4095), 0, NULL);
+}
 
-    if (posix_memalign(&ret, 4096, pages))
-        return NULL;
-    memset(ret, 0x00, pages);
-
-    return ret;
-#else
-    return calloc(1, size);
-#endif
+void
+mem_free_exec(void *ptr, size_t size)
+{
+    if (ptr != NULL)
+        plat_munmap(ptr, (size + 4095) & ~((size_t) 4095));
 }
 
 /* See MEM_MAPPING_DEFER_WRITES. */

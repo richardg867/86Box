@@ -695,7 +695,7 @@ sst_flash_destroy(sst_t *dev)
             warning("Unable to open %s for writing, please make sure your NVR folder is writable\n", dev->nvr_path);
     }
 
-    free(dev->array);
+    mem_free_exec(dev->array, dev->mask + 1);
     dev->array = NULL;
 
     free(dev);

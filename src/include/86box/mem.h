@@ -444,6 +444,7 @@ extern mem_mapping_t *mem_mapping_next(mem_mapping_t *map);
 extern void           mem_mapping_set_defer_writes(mem_mapping_t *map, int defer);
 extern uint8_t *mem_granule_direct(uint32_t granule, int *writable, mem_mapping_t **dirty);
 extern void *mem_alloc_exec(size_t size);
+extern void  mem_free_exec(void *ptr, size_t size);
 extern void mem_mapping_set_mask(mem_mapping_t *, uint32_t mask);
 extern void mem_mapping_disable(mem_mapping_t *);
 extern void mem_mapping_enable(mem_mapping_t *);

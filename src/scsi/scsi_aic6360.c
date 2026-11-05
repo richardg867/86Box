@@ -682,7 +682,7 @@ aic6360_close(void *priv)
                      aic6360_write, aic6360_writew, aic6360_writel, dev);
     if (dev->bios.rom)
         mem_mapping_disable(&dev->bios.mapping);
-    free(dev->bios.rom);
+    rom_free(&dev->bios);
     free(dev);
 }
 

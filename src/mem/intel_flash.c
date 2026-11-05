@@ -648,7 +648,7 @@ intel_flash_destroy(intel_flash_t *dev)
             warning("Unable to open %s for writing, please make sure your NVR folder is writable\n", dev->nvr_path);
     }
 
-    free(dev->array);
+    mem_free_exec(dev->array, dev->size);
     dev->array = NULL;
 
     free(dev);

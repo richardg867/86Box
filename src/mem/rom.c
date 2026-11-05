@@ -648,6 +648,8 @@ bios_normalize(int n, int up)
     return temp_n;
 }
 
+static uint32_t rom_size; /* of the BIOS buffer, rom */
+
 static uint8_t *
 rom_reset(uint32_t addr, int sz)
 {
@@ -661,11 +663,12 @@ rom_reset(uint32_t addr, int sz)
     /* If not done yet, allocate a 128KB buffer for the BIOS ROM. */
     if (rom != NULL) {
         rom_log("ROM allocated, freeing...\n");
-        free(rom);
+        mem_free_exec(rom, rom_size);
         rom = NULL;
     }
     rom_log("Allocating ROM...\n");
-    rom = (uint8_t *) mem_alloc_exec(biosmask + 1);
+    rom_size = biosmask + 1;
+    rom      = (uint8_t *) mem_alloc_exec(rom_size);
     rom_log("Filling ROM with FF's...\n");
     memset(rom, 0xff, biosmask + 1);
 
@@ -1112,6 +1115,14 @@ bios_load_intel(const char *fn1, const char *fn2, const int sz, const int invert
     return ret;
 }
 
+/* The buffer of a ROM that rom_init() and friends loaded. */
+void
+rom_free(rom_t *rom)
+{
+    mem_free_exec(rom->rom, rom->sz);
+    rom->rom = NULL;
+}
+
 int
 rom_init(rom_t *rom, const char *fn, uint32_t addr, int sz, int mask, int off, uint32_t flags)
 {
@@ -1124,7 +1135,7 @@ rom_init(rom_t *rom, const char *fn, uint32_t addr, int sz, int mask, int off, u
     /* Load the image file into the buffer. */
     if (!rom_load_linear(fn, addr, sz, off, rom->rom)) {
         /* Nope.. clean up. */
-        free(rom->rom);
+        mem_free_exec(rom->rom, sz);
         rom->rom = NULL;
         return (-1);
     }
@@ -1153,7 +1164,7 @@ rom_init_oddeven(rom_t *rom, const char *fn, uint32_t addr, int sz, int mask, in
     /* Load the image file into the buffer. */
     if (!rom_load_linear_oddeven(fn, addr, sz, off, rom->rom)) {
         /* Nope.. clean up. */
-        free(rom->rom);
+        mem_free_exec(rom->rom, sz);
         rom->rom = NULL;
         return (-1);
     }
@@ -1180,7 +1191,7 @@ rom_init_interleaved(rom_t *rom, const char *fnl, const char *fnh, uint32_t addr
     /* Load the image file into the buffer. */
     if (!rom_load_interleaved(fnl, fnh, addr, sz, off, rom->rom)) {
         /* Nope.. clean up. */
-        free(rom->rom);
+        mem_free_exec(rom->rom, sz);
         rom->rom = NULL;
         return (-1);
     }
