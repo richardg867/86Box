@@ -53,6 +53,9 @@
 #include "cpu.h"
 #include "x86.h"
 #include "x86_interrupt.h"
+#include "x87_sf.h"
+#include "x87.h"
+#include "x86seg.h"
 #include <86box/io.h>
 #include <86box/mem.h>
 #include <86box/nmi.h>
@@ -161,6 +164,9 @@ static int                             hv_nzones;
 static uint64_t                        hv_stat_coalesced;
 /* How often each 16 KB below 1 MB went between read only and writable. */
 static uint8_t   hv_ro_flips[2][0x100000 >> 14];
+#define HV_PIN_FLIPS 4    /* flips before it is kept read only */
+#define HV_PIN_NEVER 0xff /* KVM could not deliver an event into it */
+static int       hv_pin_ok;
 static int       hv_in_recalc;
 
 static int       hv_sig;
@@ -184,11 +190,15 @@ static int64_t  hv_tsc_applied; /* the lag the offset holds, in TSC ticks */
 static int hv_halted;
 static int hv_reset_pending;
 static int hv_smi_entering;
+static int hv_smi_halted; /* the SMI ended a HLT */
 
 /* Statistics, logged every few seconds with ENABLE_KVM_LOG. */
 static uint64_t hv_stat_exits[64];
 static uint64_t hv_stat_intr;
 static uint64_t hv_stat_slot_ops;
+static uint64_t hv_stat_emulated;
+static uint64_t hv_stat_emulated_next = 10;
+static uint64_t hv_stat_ferr;
 
 extern double      cpuclock;
 extern pc_timer_t *timer_head;
@@ -380,6 +390,63 @@ hv_drain_signal(void)
         ;
 }
 
+/* The high memory area follows A20 (DOS toggles it around every call into
+   its kernel there, a thousand times a second as it boots) without slot
+   changes, each of which costs some 40 us: its slot maps a window of host
+   memory that is made to show either the first 64 KB of RAM or its own, by
+   remapping. Both have to be shared memory for that, so the first 1088 KB
+   of RAM are replaced with shared memory. */
+#define HV_HMA      0x100000
+#define HV_HMA_SIZE 0x10000
+static uint8_t *hv_hma_win  = NULL;
+static uint8_t *hv_hma_ram  = NULL; /* the RAM block it was made for */
+static int      hv_hma_low  = -1;   /* it shows the first 64 KB */
+
+static void
+hv_hma_point(int low)
+{
+    if (low == hv_hma_low)
+        return;
+    if (mremap(hv_hma_ram + (low ? 0 : HV_HMA), 0, HV_HMA_SIZE, MREMAP_MAYMOVE | MREMAP_FIXED, hv_hma_win) == MAP_FAILED)
+        fatal("KVM: remapping the high memory area failed: %s\n", strerror(errno));
+    hv_hma_low = low;
+}
+
+static int
+hv_hma_setup(void)
+{
+    uint8_t *save;
+    void    *p;
+
+    if (hv_hma_ram == ram)
+        return hv_hma_win != NULL;
+
+    hv_hma_ram = ram;
+    hv_hma_low = -1;
+    if (hv_hma_win != NULL) {
+        munmap(hv_hma_win, HV_HMA_SIZE);
+        hv_hma_win = NULL;
+    }
+    if ((ram == NULL) || ((uintptr_t) ram & 0xfff) || (((uint64_t) mem_size << 10) < (HV_HMA + HV_HMA_SIZE)))
+        return 0;
+
+    save = malloc(HV_HMA + HV_HMA_SIZE);
+    memcpy(save, ram, HV_HMA + HV_HMA_SIZE);
+    p = mmap(ram, HV_HMA + HV_HMA_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+    if (p == MAP_FAILED)
+        fatal("KVM: making low memory shared failed: %s\n", strerror(errno));
+    memcpy(ram, save, HV_HMA + HV_HMA_SIZE);
+    free(save);
+
+    hv_hma_win = mmap(NULL, HV_HMA_SIZE, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (hv_hma_win == MAP_FAILED) {
+        hv_hma_win = NULL;
+        return 0;
+    }
+    hv_hma_point(!mem_a20_state);
+    return 1;
+}
+
 /* Memory slots. */
 static uint8_t *
 hv_resolve(int as, uint32_t g, int *ro, mem_mapping_t **dirty)
@@ -389,9 +456,23 @@ hv_resolve(int as, uint32_t g, int *ro, mem_mapping_t **dirty)
     uint8_t *ret;
 
     /* With A20 masked, the high memory area is the first 64 KB again. Only
-       that, which real mode code can reach, is followed. */
-    if (!a20 && (g >= (0x100000 >> MEM_GRANULARITY_BITS)) && (g < (0x110000 >> MEM_GRANULARITY_BITS)))
-        g -= (0x100000 >> MEM_GRANULARITY_BITS);
+       that, which real mode code can reach, is followed: the rest of memory
+       would be thousands of slot changes at every toggle. */
+    if ((g >= (HV_HMA >> MEM_GRANULARITY_BITS)) && (g < ((HV_HMA + HV_HMA_SIZE) >> MEM_GRANULARITY_BITS))) {
+        uint32_t lo = g - (HV_HMA >> MEM_GRANULARITY_BITS);
+        int      lo_writable;
+        uint8_t *lo_ret = mem_granule_direct(lo, &lo_writable, dirty);
+
+        ret = mem_granule_direct(g, &writable, dirty);
+        /* Both RAM, as they are: the window, whichever it shows. */
+        if (!(as && unmask_a20_in_smm) && hv_hma_setup() && ret && lo_ret && writable && lo_writable && !*dirty &&
+            (ret == (ram + (g << MEM_GRANULARITY_BITS))) && (lo_ret == (ram + (lo << MEM_GRANULARITY_BITS)))) {
+            *ro = 0;
+            return hv_hma_win + (lo << MEM_GRANULARITY_BITS);
+        }
+        if (!a20)
+            g = lo;
+    }
 
     ret = mem_granule_direct(g, &writable, dirty);
     *ro = !writable;
@@ -463,6 +544,7 @@ static void
 hv_drain(void)
 {
     struct kvm_coalesced_mmio *ent;
+
 
     if (!hv_ring)
         return;
@@ -650,16 +732,20 @@ hv_apply_range(int as, uint32_t lo, uint32_t hi)
             /* Shadow RAM that the BIOS keeps opening for writes and closing
                again stays read only: writes to it then go through the
                mappings, slower, but no slot changes, which cost far more.
-               Read only is always right; writable is only faster. */
+               Only while paging is off, before an operating system takes
+               over memory: KVM cannot push an exception frame, switch tasks
+               or run every instruction on memory that is not mapped
+               writable, and an operating system may use that RAM for
+               anything (hv_pin_poll(), hv_pin_failed()). */
             if (host && (g < (0x100000 >> MEM_GRANULARITY_BITS))) {
                 uint8_t       *flips = &hv_ro_flips[as][g >> (14 - MEM_GRANULARITY_BITS)];
                 int            old_ro;
                 mem_mapping_t *old_dirty;
 
-                if (*flips >= 4)
+                if (hv_pin_ok && (*flips >= HV_PIN_FLIPS) && (*flips != HV_PIN_NEVER))
                     ro = 1;
                 else if (!(g & ((0x4000 >> MEM_GRANULARITY_BITS) - 1)) && (hv_slot_at(as, g, &old_ro, &old_dirty) == host) &&
-                         (old_ro != ro))
+                         (old_ro != ro) && (*flips < HV_PIN_FLIPS))
                     (*flips)++;
             }
         } else
@@ -852,7 +938,11 @@ hv_a20_changed(void)
     if (vm_fd < 0)
         return;
 
-    mem_mapping_recalc(0x100000, 0x10000, 0);
+    /* The window is pointed at what A20 makes the area; if it is not in use
+       the slots there change. */
+    if (hv_hma_win && (hv_hma_ram == ram))
+        hv_hma_point(!mem_a20_state);
+    mem_mapping_recalc(HV_HMA, HV_HMA_SIZE, 0);
 }
 
 /* State. */
@@ -962,18 +1052,121 @@ hv_cpu_reset(int hard)
         hv_reset_pending = hard ? 2 : 1;
 }
 
-static inline void
-hv_get_segment(x86seg *dest, const struct kvm_segment *src)
+/* A segment register as KVM holds it, into the CPU emulation's form: the
+   bounds an access is checked against, and a null selector's mark. */
+static void
+hv_get_segment(x86seg *dest, const struct kvm_segment *src, int pm)
 {
     uint32_t limit20 = src->g ? (src->limit >> 12) : src->limit;
 
-    dest->base       = src->base;
-    dest->limit      = src->limit;
-    dest->seg        = src->selector;
-    dest->access     = (src->type & 0x0f) | (src->s ? 0x10 : 0x00) | ((src->dpl & 0x03) << 5) | (src->present ? 0x80 : 0);
-    dest->limit_low  = limit20 & 0xffff;
-    dest->limit_high = (limit20 >> 16) & 0xf;
-    dest->ar_high    = (src->avl ? 0x10 : 0x00) | (src->l ? 0x20 : 0x00) | (src->db ? 0x40 : 0x00) | (src->g ? 0x80 : 0x00) | ((limit20 >> 16) & 0xf);
+    dest->base    = src->base;
+    dest->limit   = src->limit;
+    dest->seg     = src->selector;
+    dest->access  = (src->type & 0x0f) | (src->s ? 0x10 : 0x00) | ((src->dpl & 0x03) << 5) | (src->present ? 0x80 : 0);
+    dest->ar_high = (src->avl ? 0x10 : 0x00) | (src->db ? 0x40 : 0x00) | (src->g ? 0x80 : 0x00) | ((limit20 >> 16) & 0xf);
+    dest->checked = 1;
+    if (src->s && ((src->type & 0x0c) == 0x04)) {
+        /* Expand-down data. */
+        dest->limit_low  = src->limit + 1;
+        dest->limit_high = src->db ? 0xffffffff : 0xffff;
+    } else {
+        dest->limit_low  = 0;
+        dest->limit_high = src->limit;
+    }
+    if (pm && src->unusable && !(src->selector & 0xfffc)) {
+        dest->access  = 0x80;
+        dest->ar_high = 0x10;
+        dest->base    = 0xffffffff;
+        dest->checked = 0;
+    }
+}
+
+/* And back: a segment register the CPU emulation loaded. */
+static void
+hv_put_segment(struct kvm_segment *dest, const x86seg *src, int pm)
+{
+    memset(dest, 0, sizeof(struct kvm_segment));
+    dest->selector = src->seg;
+    dest->type     = src->access & 0x0f;
+    dest->s        = !!(src->access & 0x10);
+    dest->dpl      = (src->access >> 5) & 3;
+    dest->present  = !!(src->access & 0x80);
+    dest->avl      = !!(src->ar_high & 0x10);
+    dest->db       = !!(src->ar_high & 0x40);
+    dest->g        = !!(src->ar_high & 0x80);
+    if (pm && (src->base == 0xffffffff) && !(src->seg & 0xfffc)) {
+        dest->unusable = 1;
+        dest->present  = 0;
+        return;
+    }
+    dest->base  = src->base;
+    dest->limit = src->limit;
+}
+
+static inline int
+hv_segment_same(const x86seg *a, const x86seg *b)
+{
+    return (a->base == b->base) && (a->limit == b->limit) && (a->seg == b->seg) && (a->access == b->access) &&
+           (a->ar_high == b->ar_high);
+}
+
+/* The CPU emulation's state, the segment registers' mode dependent forms
+   with it, from KVM's. */
+static void
+hv_load_state(const struct kvm_regs *regs, const struct kvm_sregs *sregs)
+{
+    int pm;
+    int v86;
+
+    EAX              = regs->rax;
+    EBX              = regs->rbx;
+    ECX              = regs->rcx;
+    EDX              = regs->rdx;
+    ESI              = regs->rsi;
+    EDI              = regs->rdi;
+    ESP              = regs->rsp;
+    EBP              = regs->rbp;
+    cpu_state.pc     = regs->rip;
+    cpu_state.flags  = regs->rflags & 0xffff;
+    cpu_state.eflags = (regs->rflags >> 16) & 0xffff;
+
+    cpu_state.CR0.l = sregs->cr0;
+    cr2             = sregs->cr2;
+    cr3             = sregs->cr3;
+    cr4             = sregs->cr4;
+    pm              = sregs->cr0 & 1;
+    v86             = pm && (cpu_state.eflags & VM_FLAG);
+
+    hv_get_segment(&cpu_state.seg_cs, &sregs->cs, pm && !v86);
+    hv_get_segment(&cpu_state.seg_ds, &sregs->ds, pm && !v86);
+    hv_get_segment(&cpu_state.seg_es, &sregs->es, pm && !v86);
+    hv_get_segment(&cpu_state.seg_ss, &sregs->ss, pm && !v86);
+    hv_get_segment(&cpu_state.seg_fs, &sregs->fs, pm && !v86);
+    hv_get_segment(&cpu_state.seg_gs, &sregs->gs, pm && !v86);
+    hv_get_segment(&tr, &sregs->tr, 0);
+    hv_get_segment(&ldt, &sregs->ldt, 0);
+    gdt.base  = sregs->gdt.base;
+    gdt.limit = sregs->gdt.limit;
+    idt.base  = sregs->idt.base;
+    idt.limit = sregs->idt.limit;
+
+    /* VMX takes the privilege level from SS, as a conforming code segment's
+       DPL is not it; the CPU emulation from CS. */
+    cpu_state.seg_cs.access = (cpu_state.seg_cs.access & ~0x60) | ((sregs->ss.dpl & 3) << 5);
+
+    cpu_cur_status = (pm ? CPU_STATUS_PMODE : 0) | (v86 ? CPU_STATUS_V86 : 0) | (in_smm ? CPU_STATUS_SMM : 0);
+    if (!pm || v86 || cpu_state.seg_ds.base || cpu_state.seg_ds.limit_low || (cpu_state.seg_ds.limit_high != 0xffffffff))
+        cpu_cur_status |= CPU_STATUS_NOTFLATDS | CPU_STATUS_NOTWIDEDS;
+    if (!pm || v86 || cpu_state.seg_es.base || cpu_state.seg_es.limit_low || (cpu_state.seg_es.limit_high != 0xffffffff))
+        cpu_cur_status |= CPU_STATUS_NOTFLATES;
+    if (!pm || v86 || cpu_state.seg_ss.base || cpu_state.seg_ss.limit_low || (cpu_state.seg_ss.limit_high != 0xffffffff))
+        cpu_cur_status |= CPU_STATUS_NOTFLATSS | CPU_STATUS_NOTWIDESS;
+    use32   = (pm && !v86 && sregs->cs.db) ? 0x300 : 0;
+    stack32 = pm && !v86 && sregs->ss.db;
+    if (use32)
+        cpu_cur_status |= CPU_STATUS_USE32;
+    if (stack32)
+        cpu_cur_status |= CPU_STATUS_STACK32;
 }
 
 void
@@ -985,35 +1178,448 @@ hv_sync_regs(void)
     if ((cpu_fd < 0) || (ioctl(cpu_fd, KVM_GET_REGS, &regs) < 0) || (ioctl(cpu_fd, KVM_GET_SREGS, &sregs) < 0))
         return;
 
-    EAX              = regs.rax;
-    EBX              = regs.rbx;
-    ECX              = regs.rcx;
-    EDX              = regs.rdx;
-    ESI              = regs.rsi;
-    EDI              = regs.rdi;
-    ESP              = regs.rsp;
-    EBP              = regs.rbp;
-    cpu_state.pc     = regs.rip;
-    cpu_state.flags  = regs.rflags;
-    cpu_state.eflags = regs.rflags >> 16;
+    hv_load_state(&regs, &sregs);
+}
 
-    hv_get_segment(&cpu_state.seg_cs, &sregs.cs);
-    hv_get_segment(&cpu_state.seg_ds, &sregs.ds);
-    hv_get_segment(&cpu_state.seg_es, &sregs.es);
-    hv_get_segment(&cpu_state.seg_ss, &sregs.ss);
-    hv_get_segment(&cpu_state.seg_fs, &sregs.fs);
-    hv_get_segment(&cpu_state.seg_gs, &sregs.gs);
-    hv_get_segment(&tr, &sregs.tr);
-    hv_get_segment(&ldt, &sregs.ldt);
-    gdt.base  = sregs.gdt.base;
-    gdt.limit = sregs.gdt.limit;
-    idt.base  = sregs.idt.base;
-    idt.limit = sregs.idt.limit;
+/* KVM's processor state, loaded into the CPU emulation's to work on, and
+   what changed of it put back. */
+typedef struct hv_state_t {
+    struct kvm_regs  regs;
+    struct kvm_sregs sregs;
+    struct kvm_fpu   fpu;
+    x86seg           old[8];
+    uint32_t         old_cr[4];
+    uint32_t         old_dt[4];
+} hv_state_t;
 
-    cpu_state.CR0.l = sregs.cr0;
-    cr2             = sregs.cr2;
-    cr3             = sregs.cr3;
-    cr4             = sregs.cr4;
+static x86seg *const hv_state_segs[8] = { &cpu_state.seg_cs, &cpu_state.seg_ds, &cpu_state.seg_es, &cpu_state.seg_ss,
+                                          &cpu_state.seg_fs, &cpu_state.seg_gs, &tr, &ldt };
+
+static void
+hv_state_begin(hv_state_t *st)
+{
+    if ((ioctl(cpu_fd, KVM_GET_REGS, &st->regs) < 0) || (ioctl(cpu_fd, KVM_GET_SREGS, &st->sregs) < 0) ||
+        (ioctl(cpu_fd, KVM_GET_FPU, &st->fpu) < 0))
+        fatal("KVM: getting the processor state failed: %s\n", strerror(errno));
+
+    hv_load_state(&st->regs, &st->sregs);
+    for (int i = 0; i < 8; i++)
+        st->old[i] = *hv_state_segs[i];
+    st->old_cr[0] = cpu_state.CR0.l;
+    st->old_cr[1] = cr2;
+    st->old_cr[2] = cr3;
+    st->old_cr[3] = cr4;
+    st->old_dt[0] = gdt.base;
+    st->old_dt[1] = gdt.limit;
+    st->old_dt[2] = idt.base;
+    st->old_dt[3] = idt.limit;
+
+    /* The softfloat FPU's registers are KVM's as they are. */
+    fpu_state.cwd = st->fpu.fcw;
+    fpu_state.swd = st->fpu.fsw;
+    fpu_state.tos = (st->fpu.fsw >> 11) & 7;
+    fpu_state.foo = st->fpu.last_opcode & 0x7ff;
+    fpu_state.fip = st->fpu.last_ip;
+    fpu_state.fdp = st->fpu.last_dp;
+    for (int i = 0; i < 8; i++) {
+        floatx80 *r = &fpu_state.st_space[(fpu_state.tos + i) & 7];
+
+        memcpy(&r->signif, &st->fpu.fpr[i][0], 8);
+        memcpy(&r->signExp, &st->fpu.fpr[i][8], 2);
+    }
+    fpu_state.tag = unpack_FPU_TW(st->fpu.ftwx);
+
+    /* The guest's page tables, not those the last lookups were of. */
+    flushmmucache();
+}
+
+static void
+hv_state_end(hv_state_t *st)
+{
+    struct kvm_segment *ksegs[8] = { &st->sregs.cs, &st->sregs.ds, &st->sregs.es, &st->sregs.ss,
+                                     &st->sregs.fs, &st->sregs.gs, &st->sregs.tr, &st->sregs.ldt };
+    int                 pm       = cpu_state.CR0.l & 1;
+    int                 changed  = 0;
+
+    st->regs.rax    = EAX;
+    st->regs.rbx    = EBX;
+    st->regs.rcx    = ECX;
+    st->regs.rdx    = EDX;
+    st->regs.rsi    = ESI;
+    st->regs.rdi    = EDI;
+    st->regs.rsp    = ESP;
+    st->regs.rbp    = EBP;
+    st->regs.rip    = cpu_state.pc;
+    st->regs.rflags = cpu_state.flags | ((uint32_t) cpu_state.eflags << 16) | 2;
+
+    /* The segments and system registers only where they changed. */
+    for (int i = 0; i < 8; i++) {
+        if (!hv_segment_same(hv_state_segs[i], &st->old[i])) {
+            hv_put_segment(ksegs[i], hv_state_segs[i], pm && !(cpu_state.eflags & VM_FLAG) && (i < 6));
+            changed = 1;
+        }
+    }
+    if ((st->old_cr[0] != cpu_state.CR0.l) || (st->old_cr[1] != cr2) || (st->old_cr[2] != cr3) ||
+        (st->old_cr[3] != cr4) || (st->old_dt[0] != gdt.base) || (st->old_dt[1] != gdt.limit) ||
+        (st->old_dt[2] != idt.base) || (st->old_dt[3] != idt.limit)) {
+        st->sregs.cr0       = cpu_state.CR0.l;
+        st->sregs.cr2       = cr2;
+        st->sregs.cr3       = cr3;
+        st->sregs.cr4       = cr4;
+        st->sregs.gdt.base  = gdt.base;
+        st->sregs.gdt.limit = gdt.limit;
+        st->sregs.idt.base  = idt.base;
+        st->sregs.idt.limit = idt.limit;
+        changed             = 1;
+    }
+
+    st->fpu.fcw         = fpu_state.cwd;
+    st->fpu.fsw         = (fpu_state.swd & ~0x3800) | ((fpu_state.tos & 7) << 11);
+    st->fpu.ftwx        = pack_FPU_TW(fpu_state.tag);
+    st->fpu.last_opcode = fpu_state.foo;
+    st->fpu.last_ip     = fpu_state.fip;
+    st->fpu.last_dp     = fpu_state.fdp;
+    for (int i = 0; i < 8; i++) {
+        const floatx80 *r = &fpu_state.st_space[(fpu_state.tos + i) & 7];
+
+        memset(st->fpu.fpr[i], 0, 16);
+        memcpy(&st->fpu.fpr[i][0], &r->signif, 8);
+        memcpy(&st->fpu.fpr[i][8], &r->signExp, 2);
+    }
+
+    if ((ioctl(cpu_fd, KVM_SET_REGS, &st->regs) < 0) || (changed && (ioctl(cpu_fd, KVM_SET_SREGS, &st->sregs) < 0)) ||
+        (ioctl(cpu_fd, KVM_SET_FPU, &st->fpu) < 0))
+        fatal("KVM: setting the processor state failed: %s\n", strerror(errno));
+}
+
+/* An instruction KVM could not emulate, an MMX or x87 one whose memory
+   operand is a device's, run by the CPU interpreter on KVM's state. */
+static void
+hv_emulate(void)
+{
+    hv_state_t st;
+
+    hv_state_begin(&st);
+    /* The first few, and how many there have been every power of ten. */
+    hv_stat_emulated++;
+    if ((hv_stat_emulated <= 4) || (hv_stat_emulated == hv_stat_emulated_next)) {
+        pclog("KVM: interpreting the instruction at %04X:%08X, which KVM could not emulate (%" PRIu64 " so far)\n",
+              CS, cpu_state.pc, hv_stat_emulated);
+        if (hv_stat_emulated >= hv_stat_emulated_next)
+            hv_stat_emulated_next *= 10;
+    }
+    exec386_hv_step();
+    hv_state_end(&st);
+}
+
+/* Guest memory by linear address, through its page tables as KVM has them
+   (no PAE), the CPU's view of the memory map. Returns 0 if not present. */
+static int
+hv_lin_readl(const struct kvm_sregs *sr, uint32_t lin, uint32_t *val)
+{
+    uint32_t phys = lin;
+    uint32_t e;
+
+    if (sr->cr0 & 0x80000000) {
+        if (sr->cr4 & 0x20)
+            return 0;
+        e = mem_view_read(MEM_VIEW_CPU, (sr->cr3 & 0xfffff000) + ((lin >> 22) << 2), 4);
+        if (!(e & 1))
+            return 0;
+        if ((e & 0x80) && (sr->cr4 & 0x10))
+            phys = (e & 0xffc00000) | (lin & 0x003fffff);
+        else {
+            e = mem_view_read(MEM_VIEW_CPU, (e & 0xfffff000) + (((lin >> 12) & 0x3ff) << 2), 4);
+            if (!(e & 1))
+                return 0;
+            phys = (e & 0xfffff000) | (lin & 0xfff);
+        }
+    }
+    *val = mem_view_read(MEM_VIEW_CPU, phys, 4);
+    return 1;
+}
+
+/* Instruction breakpoints of KVM's own (KVM_GUESTDBG_USE_HW_BP), which stop
+   the guest at a linear address. The guest's own debug registers do not
+   work while one is set, nor does its single stepping, which is handed
+   back to it (KVM_GUESTDBG_INJECT_DB). */
+#define HV_BP_FERR    0 /* the vector 16 handler while CR0.NE is clear */
+#define HV_BP_SMM     1 /* the SMM handler's entry, an SMI taken halted */
+#define HV_BP_SMM_RET 2 /* where its RSM returns */
+static uint32_t hv_bp_addr[4];
+static uint8_t  hv_bp_on[4];
+static int      hv_bp_dirty;
+
+static void
+hv_bp(int n, int on, uint32_t addr)
+{
+    if ((hv_bp_on[n] != on) || (on && (hv_bp_addr[n] != addr))) {
+        hv_bp_on[n]   = on;
+        hv_bp_addr[n] = addr;
+        hv_bp_dirty   = 1;
+    }
+}
+
+static void
+hv_bp_apply(int inject_db)
+{
+    struct kvm_guest_debug dbg;
+    int                    any = 0;
+
+    if (!hv_bp_dirty && !inject_db)
+        return;
+
+    memset(&dbg, 0, sizeof(dbg));
+    dbg.arch.debugreg[7] = 0x400;
+    for (int i = 0; i < 4; i++) {
+        if (hv_bp_on[i]) {
+            dbg.arch.debugreg[i] = hv_bp_addr[i];
+            dbg.arch.debugreg[7] |= 2ULL << (i * 2); /* Gn, an instruction breakpoint */
+            any = 1;
+        }
+    }
+    if (any || inject_db)
+        dbg.control = KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_USE_HW_BP | (inject_db ? KVM_GUESTDBG_INJECT_DB : 0);
+    if (ioctl(cpu_fd, KVM_SET_GUEST_DEBUG, &dbg) < 0)
+        fatal("KVM: SET_GUEST_DEBUG failed: %s\n", strerror(errno));
+    hv_bp_dirty = 0;
+}
+
+/* Go on past a breakpoint the guest is stopped at. */
+static void
+hv_bp_resume(void)
+{
+    struct kvm_regs regs;
+
+    if ((ioctl(cpu_fd, KVM_GET_REGS, &regs) == 0)) {
+        regs.rflags |= 0x10000; /* RF */
+        ioctl(cpu_fd, KVM_SET_REGS, &regs);
+    }
+}
+
+/* Pinned shadow RAM goes back to what the chipset makes it as the guest
+   turns paging on. */
+static void
+hv_pin_poll(const struct kvm_sregs *sr)
+{
+    int ok = !(sr->cr0 & 0x80000000);
+
+    if (ok == hv_pin_ok)
+        return;
+    hv_pin_ok = ok;
+    if (!ok)
+        hv_mem_changed(0, 0x100000, 0);
+}
+
+/* KVM could not deliver an event (an exception's frame, a task switch)
+   into memory at gpa. Returns 1 if it was pinned shadow RAM, which is
+   mapped as it is from now on and the event delivered again. */
+static int
+hv_pin_failed(uint64_t gpa)
+{
+    uint32_t chunk = (uint32_t) gpa >> 14;
+
+    if ((gpa >= 0x100000) || ((hv_ro_flips[0][chunk] < HV_PIN_FLIPS) && (hv_ro_flips[1][chunk] < HV_PIN_FLIPS)) ||
+        ((hv_ro_flips[0][chunk] == HV_PIN_NEVER) && (hv_ro_flips[1][chunk] == HV_PIN_NEVER)))
+        return 0;
+
+    hv_ro_flips[0][chunk] = hv_ro_flips[1][chunk] = HV_PIN_NEVER;
+    hv_mem_changed(chunk << 14, 0x4000, 0);
+    return 1;
+}
+
+/* FERR#. With CR0.NE clear, the x87 reports an error on FERR#, which the
+   board turns into IRQ 13 (x87_ferr.c), and IGNNE# lets it go on past it;
+   VMX keeps CR0.NE set, so the processor raises #MF instead, the guest's
+   vector 16, a BIOS's INT 10h or Windows 9x's reflection of it. The guest
+   is stopped where it enters that handler, the #MF undone, and the
+   instruction run by the CPU interpreter, which reports the error as the
+   board does, or with IGNNE# runs it. Until the error is taken, the
+   processor waits at the instruction for an interrupt. */
+static void
+hv_poll(void)
+{
+    struct kvm_sregs sr;
+    struct kvm_fpu   fpu;
+    uint32_t         lo;
+    uint32_t         hi;
+    uint32_t         d0;
+    uint32_t         d1;
+    uint32_t         sel;
+    uint32_t         base;
+    uint32_t         off;
+    uint32_t         lin = 0;
+    int              on  = 0;
+
+    /* FERR# goes down, IGNNE# with it, as ES clears. */
+    if (fpu_ferr && (ioctl(cpu_fd, KVM_GET_FPU, &fpu) == 0) && !(fpu.fsw & 0x80))
+        x87_ferr_clear();
+
+    if (ioctl(cpu_fd, KVM_GET_SREGS, &sr) < 0)
+        goto done;
+    hv_pin_poll(&sr);
+    if ((fpu_type == FPU_NONE) || (sr.cr0 & 0x20))
+        goto done;
+
+    if (!(sr.cr0 & 1)) {
+        if ((sr.idt.limit >= 0x43) && hv_lin_readl(&sr, sr.idt.base + 0x40, &lo)) {
+            lin = ((lo >> 16) << 4) + (lo & 0xffff);
+            on  = 1;
+        }
+        goto done;
+    }
+
+    if ((sr.idt.limit < 0x87) || !hv_lin_readl(&sr, sr.idt.base + 0x80, &lo) || !hv_lin_readl(&sr, sr.idt.base + 0x84, &hi))
+        goto done;
+    if (!(hi & 0x8000) || (((hi >> 8) & 0x16) != 0x06)) /* present interrupt or trap gate */
+        goto done;
+    sel = lo >> 16;
+    off = (lo & 0xffff) | ((hi & 0x800) ? (hi & 0xffff0000) : 0);
+    if (sel & 4) {
+        if (((sel & ~7) + 7) > sr.ldt.limit)
+            goto done;
+        base = sr.ldt.base;
+    } else {
+        if (((sel & ~7) + 7) > sr.gdt.limit)
+            goto done;
+        base = sr.gdt.base;
+    }
+    if (!hv_lin_readl(&sr, base + (sel & ~7), &d0) || !hv_lin_readl(&sr, base + (sel & ~7) + 4, &d1))
+        goto done;
+    lin = ((d0 >> 16) | ((d1 & 0xff) << 16) | (d1 & 0xff000000)) + off;
+    on  = 1;
+
+done:
+    hv_bp(HV_BP_FERR, on, lin);
+}
+
+/* The FPU as FERR# last went up or an error was let by (IGNNE#). ES
+   clears without stopping the guest (FNCLEX, FNINIT, FNSAVE), which lowers
+   FERR# and the board's IGNNE# latch; with ES set no waiting instruction
+   runs, so an FPU that is no longer as it was then has had its error
+   cleared since, and the one it now has is a new one. */
+static struct kvm_fpu hv_ferr_snap;
+
+static int
+hv_ferr_same(const struct kvm_fpu *a, const struct kvm_fpu *b)
+{
+    if ((a->fcw != b->fcw) || (a->fsw != b->fsw) || (a->ftwx != b->ftwx) || (a->last_opcode != b->last_opcode) ||
+        (a->last_ip != b->last_ip) || (a->last_dp != b->last_dp))
+        return 0;
+    for (int i = 0; i < 8; i++) {
+        if (memcmp(a->fpr[i], b->fpr[i], 10))
+            return 0;
+    }
+    return 1;
+}
+
+/* At the vector 16 handler: an #MF, if the instruction it was raised at is
+   an x87 or MMX one with an error pending, not a software INT 10h. */
+static void
+hv_ferr_hit(void)
+{
+    hv_state_t st;
+    uint32_t   sp = 0;
+    uint32_t   ip = 0;
+    uint32_t   rcs = 0;
+    uint32_t   fl = 0;
+    uint32_t   ret = 0;
+    uint32_t   pc;
+    uint8_t    b = 0;
+    int        is32 = 0;
+    int        n;
+
+    if (in_smm) {
+        hv_bp_resume();
+        return;
+    }
+
+    hv_state_begin(&st);
+    if (!(st.fpu.fsw & 0x80) || !(st.fpu.fsw & ~st.fpu.fcw & 0x3f))
+        goto not_mf;
+    if (fpu_ferr && !hv_ferr_same(&st.fpu, &hv_ferr_snap))
+        x87_ferr_clear();
+
+    /* The frame it pushed. */
+    sp = stack32 ? ESP : SP;
+    if (!(cpu_state.CR0.l & 1)) {
+        ip  = readmemwl(cpu_state.seg_ss.base + sp);
+        rcs = readmemwl(cpu_state.seg_ss.base + sp + 2);
+        fl  = readmemwl(cpu_state.seg_ss.base + sp + 4);
+        ret = (rcs << 4) + ip;
+    } else {
+        uint32_t hi;
+
+        if (!hv_lin_readl(&st.sregs, st.sregs.idt.base + 0x84, &hi))
+            goto not_mf;
+        is32 = !!(hi & 0x800);
+        ip  = is32 ? readmemll(cpu_state.seg_ss.base + sp) : readmemwl(cpu_state.seg_ss.base + sp);
+        rcs = (is32 ? readmemll(cpu_state.seg_ss.base + sp + 4) : readmemwl(cpu_state.seg_ss.base + sp + 2)) & 0xffff;
+        fl  = is32 ? readmemll(cpu_state.seg_ss.base + sp + 8) : readmemwl(cpu_state.seg_ss.base + sp + 4);
+        if (fl & 0x20000)
+            ret = (rcs << 4) + (ip & 0xffff);
+        else {
+            uint32_t d0 = readmemll(((rcs & 4) ? ldt.base : gdt.base) + (rcs & ~7));
+            uint32_t d1 = readmemll(((rcs & 4) ? ldt.base : gdt.base) + (rcs & ~7) + 4);
+
+            ret = ((d0 >> 16) | ((d1 & 0xff) << 16) | (d1 & 0xff000000)) + ip;
+        }
+    }
+    if (cpu_state.abrt)
+        goto not_mf;
+
+    /* A software INT 10h returns past its CD 10. */
+    if ((readmembl(ret - 2) == 0xcd) && (readmembl(ret - 1) == 0x10))
+        goto not_mf;
+    for (n = 0, pc = ret; n < 15; n++, pc++) {
+        b = readmembl(pc);
+        if ((b != 0x26) && (b != 0x2e) && (b != 0x36) && (b != 0x3e) && (b != 0x64) && (b != 0x65) && (b != 0x66) &&
+            (b != 0x67) && (b != 0xf0) && (b != 0xf2) && (b != 0xf3))
+            break;
+    }
+    if (!((b >= 0xd8) && (b <= 0xdf)) && (b != 0x9b) && (b != 0x0f))
+        goto not_mf;
+    if (b == 0x0f) {
+        b = readmembl(pc + 1);
+        if (!(((b >= 0x60) && (b <= 0x7f)) || (b >= 0xd0)))
+            goto not_mf;
+    }
+    if (cpu_state.abrt)
+        goto not_mf;
+
+    /* Undo the #MF. */
+    if (!(cpu_state.CR0.l & 1)) {
+        SP = (SP + 6) & 0xffff;
+        cpu_state.pc          = ip;
+        cpu_state.seg_cs.seg  = rcs;
+        cpu_state.seg_cs.base = rcs << 4;
+        cpu_state.flags       = (fl & 0xffff) | 2;
+    } else {
+        pmodeiret(is32);
+        if (cpu_state.abrt) {
+            cpu_state.abrt = 0;
+            hv_state_begin(&st);
+            goto not_mf;
+        }
+    }
+
+    /* The instruction, as the board takes its error: it runs with IGNNE#,
+       or FERR# goes up, and it waits for the IRQ 13 handler. */
+    pc = cpu_state.pc;
+    exec386_hv_step();
+    if ((cpu_state.pc == pc) && !(cpu_state.CR0.l & 0x20)) {
+        hv_halted    = 2;
+        run->if_flag = !!(cpu_state.flags & I_FLAG);
+    }
+    hv_state_end(&st);
+    hv_ferr_snap = st.fpu;
+    if (++hv_stat_ferr <= 4)
+        pclog("KVM: x87 error at %04X:%08X reported on FERR#%s\n", CS, pc, (cpu_state.pc == pc) ? "" : ", ignored (IGNNE#)");
+    return;
+
+not_mf:
+    cpu_state.abrt = 0;
+    hv_bp_resume();
 }
 
 static void
@@ -1166,6 +1772,83 @@ hv_mmio(void)
     }
 }
 
+/* Auto HALT restart. An SMI taken in the HALT state returns to it, unless
+   the SMM handler clears bit 0 of the state save map's auto HALT restart
+   field, which KVM, halting in 86Box rather than in the kernel, neither
+   sets nor reads. The guest is stopped at the handler's entry to set it,
+   and where RSM returns to, to see whether it was left set. */
+#define HV_SMRAM_AUTOHALT 0xff02 /* KVM's 32-bit state save map, Intel's */
+#define HV_SMRAM_CS_BASE  0xff98
+#define HV_SMRAM_EIP      0xfff0
+static uint32_t hv_smm_smbase;
+
+static void
+hv_smm_halt_arm(void)
+{
+    struct {
+        struct kvm_msrs      hdr;
+        struct kvm_msr_entry e;
+    } msrs;
+
+    memset(&msrs, 0, sizeof(msrs));
+    msrs.hdr.nmsrs = 1;
+    msrs.e.index   = 0x9e; /* MSR_IA32_SMBASE, the host's to read */
+    if (ioctl(cpu_fd, KVM_GET_MSRS, &msrs) != 1)
+        return;
+    hv_smm_smbase = (uint32_t) msrs.e.data;
+    hv_bp(HV_BP_SMM, 1, hv_smm_smbase + 0x8000);
+}
+
+/* In SMM, at the handler's entry. */
+static void
+hv_smm_halt_entry(void)
+{
+    uint32_t ret;
+
+    hv_bp(HV_BP_SMM, 0, 0);
+    if (!in_smm)
+        return;
+    mem_view_write(MEM_VIEW_CPU, hv_smm_smbase + HV_SMRAM_AUTOHALT, 1, 2);
+    ret = mem_view_read(MEM_VIEW_CPU, hv_smm_smbase + HV_SMRAM_CS_BASE, 4) +
+          mem_view_read(MEM_VIEW_CPU, hv_smm_smbase + HV_SMRAM_EIP, 4);
+    hv_bp(HV_BP_SMM_RET, 1, ret);
+}
+
+/* Out of SMM, where it returned to, past the HLT. */
+static void
+hv_smm_halt_return(void)
+{
+    uint32_t       addr = hv_smm_smbase + HV_SMRAM_AUTOHALT;
+    int            ro;
+    mem_mapping_t *dirty;
+    uint8_t       *host;
+
+    hv_bp(HV_BP_SMM_RET, 0, 0);
+    if (in_smm) {
+        hv_bp_resume();
+        return;
+    }
+    host = hv_slot_at(1, addr >> MEM_GRANULARITY_BITS, &ro, &dirty);
+    if (host && (*(uint16_t *) (host + (addr & MEM_GRANULARITY_MASK)) & 1))
+        hv_halted = 1;
+}
+
+/* A breakpoint of ours, or the guest's own debug exception. */
+static void
+hv_debug_exit(void)
+{
+    uint64_t dr6 = run->debug.arch.dr6;
+
+    if ((run->debug.arch.exception == 1) && (dr6 & 1) && hv_bp_on[HV_BP_FERR])
+        hv_ferr_hit();
+    else if ((run->debug.arch.exception == 1) && (dr6 & 2) && hv_bp_on[HV_BP_SMM])
+        hv_smm_halt_entry();
+    else if ((run->debug.arch.exception == 1) && (dr6 & 4) && hv_bp_on[HV_BP_SMM_RET])
+        hv_smm_halt_return();
+    else
+        hv_bp_apply(1);
+}
+
 static inline int
 hv_nmi_pending(void)
 {
@@ -1188,7 +1871,10 @@ hv_events(void)
             }
             if (ioctl(cpu_fd, KVM_SMI, 0) < 0)
                 fatal("KVM: SMI failed: %s\n", strerror(errno));
+            if (hv_smi_halted)
+                hv_smm_halt_arm();
         }
+        hv_smi_halted = 0;
         smi_line = 0;
     }
 
@@ -1229,7 +1915,9 @@ hv_halt(uint64_t end)
 
     while (1) {
         if (hv_reset_pending || smi_line || hv_nmi_pending() || (run->if_flag && x86_external_interrupt_pending())) {
-            hv_halted = 0;
+            /* An SMI ends a HLT for its stay in SMM only (auto HALT restart). */
+            hv_smi_halted = smi_line && (hv_halted == 1) && !hv_reset_pending;
+            hv_halted     = 0;
             return 1;
         }
 
@@ -1410,12 +2098,32 @@ hv_init(void)
     cap.args[0] = 1;
     ioctl(vm_fd, KVM_ENABLE_CAP, &cap);
 
-    /* MSRs that KVM does not know are the emulated processor's. */
+    /* MSRs that KVM does not know are the emulated processor's, and so are
+       a few that it answers with a made up value where the emulated one
+       has the board's: EBL_CR_POWERON, the bus ratio straps, which P6 BIOSes
+       divide by (a zero hangs the P2B-LS's POST on #DE, and has the 6VIA90AP
+       show 221x5.0 MHz), and the platform ID that selects microcode. */
     memset(&cap, 0, sizeof(cap));
     cap.cap     = KVM_CAP_X86_USER_SPACE_MSR;
-    cap.args[0] = KVM_MSR_EXIT_REASON_UNKNOWN;
+    cap.args[0] = KVM_MSR_EXIT_REASON_UNKNOWN | KVM_MSR_EXIT_REASON_FILTER;
     if (ioctl(vm_fd, KVM_ENABLE_CAP, &cap) < 0)
         fatal("KVM: ENABLE_CAP X86_USER_SPACE_MSR failed: %s\n", strerror(errno));
+    {
+        static uint8_t         deny = 0x00;
+        struct kvm_msr_filter  filter;
+        static const uint32_t  own[] = { 0x00000017, 0x0000002a };
+
+        memset(&filter, 0, sizeof(filter));
+        filter.flags = KVM_MSR_FILTER_DEFAULT_ALLOW;
+        for (uint32_t i = 0; i < (sizeof(own) / sizeof(own[0])); i++) {
+            filter.ranges[i].flags  = KVM_MSR_FILTER_READ;
+            filter.ranges[i].nmsrs  = 1;
+            filter.ranges[i].base   = own[i];
+            filter.ranges[i].bitmap = &deny;
+        }
+        if (ioctl(vm_fd, KVM_X86_SET_MSR_FILTER, &filter) < 0)
+            pclog("KVM: MSR filter not set (%s), the bus ratio MSR reads 0\n", strerror(errno));
+    }
 
     cpu_fd = ioctl(vm_fd, KVM_CREATE_VCPU, 0);
     if (cpu_fd < 0)
@@ -1446,6 +2154,7 @@ hv_init(void)
     hv_npending    = 0;
     hv_pending_all = 1;
     memset(hv_ro_flips, 0, sizeof(hv_ro_flips));
+    hv_pin_ok = 1;
 
     /* The signal that stops the guest: blocked in this thread except while
        the guest runs, so it stays pending until KVM_RUN sees it. */
@@ -1573,6 +2282,10 @@ hv_exec(UNUSED(int32_t cycs))
        the device to see before its timers next look. */
     hv_dirty_all();
 
+    /* What the guest changes without stopping, every call: paging (for
+       pinned shadow RAM), CR0.NE and its vector 16 handler (FERR#). */
+    hv_poll();
+
     while (1) {
         hv_account_out();
         hv_timers();
@@ -1603,6 +2316,7 @@ hv_exec(UNUSED(int32_t cycs))
             deadline = end;
         hv_arm(deadline);
         hv_tsc_sync();
+        hv_bp_apply(0);
 
         /* Only cycles of devices, not of the processor, are counted now. */
         cycles = 0;
@@ -1630,6 +2344,17 @@ hv_exec(UNUSED(int32_t cycs))
         if (run->exit_reason < 64)
             hv_stat_exits[run->exit_reason]++;
 
+        /* RSM went somewhere else than it was to return to. */
+        if (hv_bp_on[HV_BP_SMM_RET] && !in_smm && (run->exit_reason != KVM_EXIT_DEBUG))
+            hv_bp(HV_BP_SMM_RET, 0, 0);
+        /* FERR# down as the IRQ 13 handler clears the error. */
+        if (fpu_ferr) {
+            struct kvm_fpu fpu;
+
+            if ((ioctl(cpu_fd, KVM_GET_FPU, &fpu) == 0) && !(fpu.fsw & 0x80))
+                x87_ferr_clear();
+        }
+
         switch (run->exit_reason) {
             case KVM_EXIT_IO:
                 hv_io();
@@ -1641,6 +2366,10 @@ hv_exec(UNUSED(int32_t cycs))
 
             case KVM_EXIT_HLT:
                 hv_halted = 1;
+                break;
+
+            case KVM_EXIT_DEBUG:
+                hv_debug_exit();
                 break;
 
             case KVM_EXIT_IRQ_WINDOW_OPEN:
@@ -1663,6 +2392,13 @@ hv_exec(UNUSED(int32_t cycs))
                 break;
 
             case KVM_EXIT_INTERNAL_ERROR:
+                if (run->internal.suberror == KVM_INTERNAL_ERROR_EMULATION) {
+                    hv_emulate();
+                    break;
+                }
+                if ((run->internal.suberror == KVM_INTERNAL_ERROR_DELIVERY_EV) && (run->internal.ndata >= 4) &&
+                    hv_pin_failed(run->internal.data[3]))
+                    break;
                 hv_dump("internal error");
                 for (uint32_t i = 0; i < run->internal.ndata; i++)
                     pclog("KVM: data[%d] = %016" PRIx64 "\n", i, (uint64_t) run->internal.data[i]);

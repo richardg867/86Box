@@ -45,6 +45,7 @@
 #define HAVE_STDARG_H
 #include <86box/86box.h>
 #include "cpu.h"
+#include <86box/hypervisor.h>
 #include <86box/device.h>
 #include <86box/timer.h>
 #include <86box/cassette.h>
@@ -3617,7 +3618,11 @@ save_machine(void)
     else
         ini_section_set_int(cat, "cpu_use_hypervisor", cpu_use_hypervisor);
 
-    if (fpu_softfloat == 0)
+    if ((fpu_softfloat == 0)
+#ifdef USE_HYPERVISOR
+        || hv_fpu_softfloat_forced
+#endif
+    )
         ini_section_delete_var(cat, "fpu_softfloat");
     else
         ini_section_set_int(cat, "fpu_softfloat", fpu_softfloat);

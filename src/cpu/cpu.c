@@ -318,6 +318,9 @@ int fpu_ignne;
 int fpu_ferr_timing;
 /* FERR# asserted for the error ES holds (x87_ferr_assert) */
 int fpu_ferr;
+#ifdef USE_HYPERVISOR
+int hv_fpu_softfloat_forced = 0; /* not the configuration's */
+#endif
 
 void
 fpu_int_set(int level)
@@ -667,6 +670,18 @@ cpu_set(void)
 {
     if (cpu_f == NULL)
         return;
+
+#ifdef USE_HYPERVISOR
+    /* The hypervisor's FPU registers are the softfloat FPU's, as they are
+       (exec386_hv_step()). */
+    if (cpu_use_hypervisor && !fpu_softfloat && hv_available()) {
+        fpu_softfloat           = 1;
+        hv_fpu_softfloat_forced = 1;
+    } else if (hv_fpu_softfloat_forced && !cpu_use_hypervisor) {
+        fpu_softfloat           = 0;
+        hv_fpu_softfloat_forced = 0;
+    }
+#endif
 
     cpu_inited = 1;
     cpu_lapic_reset_all();

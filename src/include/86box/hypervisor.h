@@ -22,6 +22,8 @@
    emulation. The CPU state in cpu_state is then not current: only the
    hypervisor holds it. */
 extern int hv_active;
+/* fpu_softfloat set by the hypervisor, not the configuration. */
+extern int hv_fpu_softfloat_forced;
 
 extern int  hv_available(void);
 extern void hv_exec(int32_t cycs);

@@ -1731,3 +1731,89 @@ exec386(int32_t cycs)
     else
         exec386_common(cycs, 0);
 }
+
+#ifdef USE_HYPERVISOR
+/* One instruction, interpreted, for a hypervisor that could not run it (an
+   MMX or x87 instruction whose memory operand is a device's, which KVM's
+   instruction emulator does not know). The processor state is the
+   hypervisor's, loaded into cpu_state, and goes back to it after. An
+   exception the instruction raises is delivered here, as the interpreter
+   delivers them. */
+void
+exec386_hv_step(void)
+{
+    uint32_t fetchdat;
+    int      tempi;
+
+    cpu_state.abrt          = 0;
+    cpu_state.flags_op      = FLAGS_UNKNOWN; /* the flags are the loaded ones */
+    x86_was_reset           = 0;
+    cpu_end_block_after_ins = 0;
+    new_ne                  = 0;
+
+    oldcs            = CS;
+    oldcpl           = CPL;
+    cpu_state.oldpc  = cpu_state.pc;
+    cpu_state.op32   = use32;
+    cpu_state.ea_seg = &cpu_state.seg_ds;
+    cpu_state.ssegs  = 0;
+    trap             = 0;
+
+    fetchdat = fastreadl_fetch(cs + cpu_state.pc);
+    if (!cpu_state.abrt) {
+        cpu_state.temp_CS = CS;
+        cpu_state.temp_cs = cs;
+        cpu_state.temp_pc = cpu_state.pc;
+
+        opcode = fetchdat & 0xff;
+        fetchdat >>= 8;
+        trap = cpu_state.flags & T_FLAG;
+
+        cpu_state.pc++;
+        x86_opcodes[(opcode | cpu_state.op32) & 0x3ff](fetchdat);
+    }
+
+    if (cpu_flush_pending) {
+        cpu_flush_pending = 0;
+        flushmmucache_pc();
+    }
+
+    if (x86_was_reset) {
+        cpu_state.abrt = 0;
+        trap           = 0;
+    } else if (cpu_state.abrt) {
+        flags_rebuild();
+        tempi          = cpu_state.abrt & ABRT_MASK;
+        cpu_state.abrt = 0;
+        x86_doabrt(tempi);
+        if (cpu_state.abrt) {
+            int second_abrt = cpu_state.abrt & ABRT_MASK;
+
+            cpu_state.abrt = 0;
+            cpu_state.pc   = cpu_state.oldpc;
+            x86_fault_in_delivery(tempi, second_abrt);
+            if (cpu_state.abrt) {
+                cpu_state.abrt = 0;
+                softresetx86();
+                cpu_set_edx();
+            }
+        }
+    } else if (new_ne) {
+        flags_rebuild();
+        new_ne          = 0;
+        oldcs           = CS;
+        cpu_state.oldpc = cpu_state.pc;
+        x86_int(16);
+    } else if (trap) {
+        flags_rebuild();
+        trap = 0;
+        dr[6] |= 0x4000;
+        oldcs           = CS;
+        cpu_state.oldpc = cpu_state.pc;
+        x86_int(1);
+    }
+
+    cpu_end_block_after_ins = 0;
+    flags_rebuild();
+}
+#endif

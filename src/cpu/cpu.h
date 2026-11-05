@@ -860,6 +860,9 @@ extern int  inboard386_present;
 extern void inboard_post_fixups(void);
 extern void exec386(int32_t cycs);
 extern void exec386_dynarec(int32_t cycs);
+#ifdef USE_HYPERVISOR
+extern void exec386_hv_step(void);
+#endif
 extern int  is_dynarec_active(void);
 extern int  idivl(int32_t val);
 extern void resetmcr(void);
