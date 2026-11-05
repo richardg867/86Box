@@ -2944,7 +2944,7 @@ machine_ps2_common_init(const machine_t *model)
     ps2_dma_init();
     pic2_init();
 
-    int pit_type = ((pit_mode == -1 && is486) || pit_mode == 1) ? PIT_8254_FAST : PIT_8254;
+    int pit_type = ((pit_mode == -1 && is486) || pit_mode == 1 || cpu_use_hypervisor) ? PIT_8254_FAST : PIT_8254;
     pit_ps2_init(pit_type);
 
     nmi_mask = 0x80;

@@ -33,7 +33,8 @@ static smram_t *base_smram;
 static smram_t *last_smram;
 
 static uint8_t use_separate_smram = 0;
-static uint8_t smram[0x40000];
+/* Page aligned, for a hypervisor to map. */
+static uint8_t smram[0x40000] __attribute__((aligned(4096)));
 
 #ifdef ENABLE_SMRAM_LOG
 int smram_do_log = ENABLE_SMRAM_LOG;
@@ -175,7 +176,6 @@ smram_recalc_all(int ret)
     temp_smram = base_smram;
 
     while (temp_smram != NULL) {
-pclog("ret %d smram %p size %d\n", ret, temp_smram, (unsigned int) temp_smram->size);
         if (temp_smram->size != 0x00000000)
             mem_mapping_recalc(temp_smram->host_base, temp_smram->size, 0x00000000);
 
@@ -277,7 +277,7 @@ smram_add(void)
     mem_mapping_add(&(temp_smram->mapping), 0x00000000, 0x00000000,
                     smram_read, smram_readw, smram_readl,
                     smram_write, smram_writew, smram_writel,
-                    ram, MEM_MAPPING_SMRAM, temp_smram);
+                    ram, MEM_MAPPING_SMRAM | MEM_MAPPING_DIRECT_RW, temp_smram);
 
     smram_set_separate_smram(0);
 

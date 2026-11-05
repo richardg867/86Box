@@ -1250,7 +1250,7 @@ static void *
 sis_5513_pci_to_isa_init(UNUSED(const device_t *info))
 {
     sis_5513_pci_to_isa_t *dev = (sis_5513_pci_to_isa_t *) calloc(1, sizeof(sis_5513_pci_to_isa_t));
-    uint8_t pit_is_fast = (((pit_mode == -1) && is486) || (pit_mode == 1));
+    uint8_t pit_is_fast = (((pit_mode == -1) && is486) || (pit_mode == 1) || cpu_use_hypervisor);
     FILE      *fp = NULL;
     int        c;
 

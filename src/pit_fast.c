@@ -764,6 +764,9 @@ pitf_init(const device_t *info)
             ctrf_t *ctr = &dev->counters[i];
             ctr->priv = dev;
             timer_add(&ctr->timer, pitf_timer_over, (void *) ctr, 0);
+            /* IRQ 0: refresh (1) and the speaker (2) can wait. */
+            if (i == 0)
+                timer_set_precise(&ctr->timer);
         }
     }
 

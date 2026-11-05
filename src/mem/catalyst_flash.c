@@ -148,8 +148,16 @@ catalyst_readl(uint32_t addr, void *priv)
     return *q;
 }
 
+/* Reads are of the array only in read array mode: out of it, a hypervisor
+   must stop mapping the array straight in (mem_mapping_set_trap_reads). */
 static void
-catalyst_write(uint32_t addr, uint8_t val, void *priv)
+catalyst_trap_update(catalyst_t *dev)
+{
+    mem_mapping_set_trap_reads(dev->array, dev->size, (dev->command != CMD_ERASE_VERIFY) && (dev->command != CMD_PROGRAM_VERIFY) && (dev->command != CMD_RESET) && (dev->command != CMD_SET_READ));
+}
+
+static void
+catalyst_write_cmd(uint32_t addr, uint8_t val, void *priv)
 {
     catalyst_t *dev = (catalyst_t *) priv;
 
@@ -175,6 +183,13 @@ catalyst_write(uint32_t addr, uint8_t val, void *priv)
             dev->command = val;
             break;
     }
+}
+
+static void
+catalyst_write(uint32_t addr, uint8_t val, void *priv)
+{
+    catalyst_write_cmd(addr, val, priv);
+    catalyst_trap_update((catalyst_t *) priv);
 }
 
 static void
@@ -262,6 +277,8 @@ void
 catalyst_flash_reset(catalyst_t *dev)
 {
     dev->command = CMD_RESET;
+
+    catalyst_trap_update(dev);
 }
 
 catalyst_t *
@@ -274,7 +291,7 @@ catalyst_flash_create(const device_t *model, const flash_cfg_t *cfg)
     dev->mask   = dev->size - 1;
     dev->is_amd = model->local;
 
-    dev->array = (uint8_t *) calloc(1, dev->size);
+    dev->array = (uint8_t *) mem_alloc_exec(dev->size);
     memset(dev->array, 0xff, dev->size);
 
     if (cfg->image != NULL)

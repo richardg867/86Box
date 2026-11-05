@@ -41,7 +41,7 @@ struct am29f016d_t {
 
     uint32_t size;
 
-    uint8_t array[AM29F016D_SIZE];
+    uint8_t *array;
 
     char nvr_path[1024];
 };
@@ -250,8 +250,16 @@ am29f016d_readl(uint32_t addr, void *priv)
     return ret;
 }
 
+/* Reads are of the array only in read array mode: out of it, a hypervisor
+   must stop mapping the array straight in (mem_mapping_set_trap_reads). */
 static void
-am29f016d_write(uint32_t addr, uint8_t val, void *priv)
+am29f016d_trap_update(am29f016d_t *dev)
+{
+    mem_mapping_set_trap_reads(dev->array, dev->size, dev->state != AMD_STATE_READ_ARRAY);
+}
+
+static void
+am29f016d_write_cmd(uint32_t addr, uint8_t val, void *priv)
 {
     am29f016d_t   *dev  = (am29f016d_t *) priv;
     const uint32_t calc = addr & (AM29F016D_SIZE - 1);
@@ -379,7 +387,14 @@ am29f016d_write(uint32_t addr, uint8_t val, void *priv)
 }
 
 static void
-am29f016d_writew(uint32_t addr, uint16_t val, void *priv)
+am29f016d_write(uint32_t addr, uint8_t val, void *priv)
+{
+    am29f016d_write_cmd(addr, val, priv);
+    am29f016d_trap_update((am29f016d_t *) priv);
+}
+
+static void
+am29f016d_writew_cmd(uint32_t addr, uint16_t val, void *priv)
 {
     am29f016d_t   *dev  = (am29f016d_t *) priv;
     const uint32_t calc = addr & (AM29F016D_SIZE - 1);
@@ -397,7 +412,14 @@ am29f016d_writew(uint32_t addr, uint16_t val, void *priv)
 }
 
 static void
-am29f016d_writel(uint32_t addr, uint32_t val, void *priv)
+am29f016d_writew(uint32_t addr, uint16_t val, void *priv)
+{
+    am29f016d_writew_cmd(addr, val, priv);
+    am29f016d_trap_update((am29f016d_t *) priv);
+}
+
+static void
+am29f016d_writel_cmd(uint32_t addr, uint32_t val, void *priv)
 {
     am29f016d_t   *dev  = (am29f016d_t *) priv;
     const uint32_t calc = addr & (AM29F016D_SIZE - 1);
@@ -412,6 +434,13 @@ am29f016d_writel(uint32_t addr, uint32_t val, void *priv)
         am29f016d_writew(addr, val & 0xffff, priv);
         am29f016d_writew(addr + 2, val >> 16, priv);
     }
+}
+
+static void
+am29f016d_writel(uint32_t addr, uint32_t val, void *priv)
+{
+    am29f016d_writel_cmd(addr, val, priv);
+    am29f016d_trap_update((am29f016d_t *) priv);
 }
 
 /*
@@ -489,6 +518,8 @@ am29f016d_reset(am29f016d_t *dev)
 {
     dev->state = AMD_STATE_READ_ARRAY;
     dev->cycle = 0;
+
+    am29f016d_trap_update(dev);
 }
 
 am29f016d_t *
@@ -496,7 +527,8 @@ am29f016d_create(UNUSED(const device_t *model), const flash_cfg_t *cfg)
 {
     am29f016d_t *dev = calloc(1, sizeof(am29f016d_t));
 
-    dev->size = AM29F016D_SIZE;
+    dev->size  = AM29F016D_SIZE;
+    dev->array = (uint8_t *) mem_alloc_exec(dev->size);
 
     memset(dev->array, 0xff, dev->size);
 
@@ -534,6 +566,7 @@ am29f016d_destroy(am29f016d_t *dev)
             warning("Unable to open %s for writing, please make sure your NVR folder is writable\n", dev->nvr_path);
     }
 
+    free(dev->array);
     free(dev);
 }
 

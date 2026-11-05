@@ -374,8 +374,16 @@ sst_buf_write(sst_t *dev, uint32_t addr, uint8_t val)
         timer_on_auto(&dev->page_write_timer, 210.0);
 }
 
+/* Reads are of the array only in read array mode: out of it, a hypervisor
+   must stop mapping the array straight in (mem_mapping_set_trap_reads). */
 static void
-sst_write(uint32_t addr, uint8_t val, void *priv)
+sst_trap_update(sst_t *dev)
+{
+    mem_mapping_set_trap_reads(dev->array, dev->mask + 1, dev->id_mode);
+}
+
+static void
+sst_write_cmd(uint32_t addr, uint8_t val, void *priv)
 {
     sst_t *dev = (sst_t *) priv;
     uint32_t mask = 0x7fff;
@@ -461,6 +469,13 @@ sst_write(uint32_t addr, uint8_t val, void *priv)
         default:
             break;
     }
+}
+
+static void
+sst_write(uint32_t addr, uint8_t val, void *priv)
+{
+    sst_write_cmd(addr, val, priv);
+    sst_trap_update((sst_t *) priv);
 }
 
 static uint8_t
@@ -595,6 +610,8 @@ sst_flash_reset(sst_t *dev)
 {
     dev->command_state = 0;
     dev->id_mode       = 0;
+
+    sst_trap_update(dev);
 }
 
 sst_t *
@@ -632,7 +649,7 @@ sst_flash_create(const device_t *model, const sst_flash_cfg_t *cfg)
     dev->sdp          = 1;
     dev->bbp_first_8k = dev->bbp_last_8k = 0xfe;
 
-    dev->array = (uint8_t *) malloc(dev->mask + 1);
+    dev->array = (uint8_t *) mem_alloc_exec(dev->mask + 1);
     memset(dev->array, 0xff, dev->mask + 1);
 
     /* The image covers the address space from 0, like the BIOS image in rom[]. */

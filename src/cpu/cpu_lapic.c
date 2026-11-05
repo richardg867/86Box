@@ -1947,6 +1947,7 @@ cpu_lapic_timer_host_add_index(uint8_t lapic_index, void (*callback)(void *priv)
         return;
 
     timer_add(&cpu_lapic_timer_hosts[lapic_index], callback, priv, 0);
+    timer_set_precise(&cpu_lapic_timer_hosts[lapic_index]);
 }
 
 void

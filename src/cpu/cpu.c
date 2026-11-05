@@ -2097,10 +2097,12 @@ cpu_set(void)
     cpu_use_exec = 0;
 
     if (is386) {
-#if defined(USE_HYPERVISOR) && !defined(USE_GDBSTUB)
-        if (1) {
-            cpu_exec = hv_exec;
+#ifdef USE_HYPERVISOR
+        hv_active = 0;
+        if (cpu_use_hypervisor && hv_available()) {
+            cpu_exec     = hv_exec;
             cpu_use_exec = 1;
+            hv_active    = 1;
         } else
 #endif
 #if defined(USE_DYNAREC) && !defined(USE_GDBSTUB)

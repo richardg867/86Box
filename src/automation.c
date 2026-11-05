@@ -64,6 +64,7 @@ typedef int sock_t;
 #include "x87_ops_conv.h"
 #include <86box/device.h>
 #include <86box/timer.h>
+#include <86box/hypervisor.h>
 #include <86box/fdd.h>
 #include <86box/cdrom.h>
 #include <86box/hdd.h>
@@ -2386,6 +2387,10 @@ handle_request(char *line)
         }
     } else if (!strcmp(argv[0], "regs")) {
         static const char *names[8] = { "eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi" };
+#ifdef USE_HYPERVISOR
+        if (hv_active)
+            hv_sync_regs();
+#endif
         resp.len                    = 0;
         sb_printf(&resp, "{\"ok\":true");
         for (int i = 0; i < 8; i++)

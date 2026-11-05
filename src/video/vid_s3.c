@@ -10938,6 +10938,7 @@ s3_init(const device_t *info)
     svga->writew = s3_writew;
     svga->writel = s3_writel;
     mem_mapping_set_handler(&svga->mapping, s3_read, s3_readw, s3_readl, s3_write, s3_writew, s3_writel);
+    svga->deferrable_write = s3_write;
     mem_debug_add(s3_read, s3_write, s3_debug_ptr);
     mem_mapping_set_p(&svga->mapping, s3);
 

@@ -18,12 +18,26 @@
 #define EMU_HYPERVISOR_H
 
 #ifdef USE_HYPERVISOR
-extern void hv_get_regs(void);
-extern void hv_apply_regs(void);
-extern void hv_recalc_mappings(uint32_t base, uint32_t size);
-extern void hv_init(void);
-extern void hv_close(void);
+/* Set while the guest is executed by the hypervisor instead of the CPU
+   emulation. The CPU state in cpu_state is then not current: only the
+   hypervisor holds it. */
+extern int hv_active;
+
+extern int  hv_available(void);
 extern void hv_exec(int32_t cycs);
+extern void hv_close(void);
+
+/* The CPU's view of the memory map changed in this range: the memory
+   regions the hypervisor maps directly have to follow. */
+extern void hv_mem_changed(uint64_t base, uint64_t size, uint32_t base_ignore);
+/* The A20 gate changed. */
+extern void hv_a20_changed(void);
+/* The CPU was reset (reset_common()). */
+extern void hv_cpu_reset(int hard);
+/* Copy the guest's registers into cpu_state, for the debugging tools. */
+extern void hv_sync_regs(void);
+#else
+#    define hv_active 0
 #endif
 
 #endif

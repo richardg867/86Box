@@ -179,8 +179,16 @@ e28f0xx_readl(uint32_t addr, void *priv)
     return *q;
 }
 
+/* Reads are of the array only in read array mode: out of it, a hypervisor
+   must stop mapping the array straight in (mem_mapping_set_trap_reads). */
 static void
-e28f0xx_write(uint32_t addr, uint8_t val, void *priv)
+e28f0xx_trap_update(e28f0xx_t *dev)
+{
+    mem_mapping_set_trap_reads(dev->array, dev->size, (dev->command == CMD_IID) || (dev->command == CMD_READ_STATUS));
+}
+
+static void
+e28f0xx_write_cmd(uint32_t addr, uint8_t val, void *priv)
 {
     e28f0xx_t *dev = (e28f0xx_t *) priv;
 
@@ -265,7 +273,14 @@ e28f0xx_write(uint32_t addr, uint8_t val, void *priv)
 }
 
 static void
-e28f0xx_writew(uint32_t addr, uint16_t val, void *priv)
+e28f0xx_write(uint32_t addr, uint8_t val, void *priv)
+{
+    e28f0xx_write_cmd(addr, val, priv);
+    e28f0xx_trap_update((e28f0xx_t *) priv);
+}
+
+static void
+e28f0xx_writew_cmd(uint32_t addr, uint16_t val, void *priv)
 {
     e28f0xx_t *dev = (e28f0xx_t *) priv;
 
@@ -351,6 +366,13 @@ e28f0xx_writew(uint32_t addr, uint16_t val, void *priv)
 }
 
 static void
+e28f0xx_writew(uint32_t addr, uint16_t val, void *priv)
+{
+    e28f0xx_writew_cmd(addr, val, priv);
+    e28f0xx_trap_update((e28f0xx_t *) priv);
+}
+
+static void
 e28f0xx_writel(UNUSED(uint32_t addr), UNUSED(uint32_t val), UNUSED(void *priv))
 {
     //
@@ -430,6 +452,8 @@ e28f0xx_reset(e28f0xx_t *dev)
 {
     dev->command = CMD_READ_ARRAY;
     dev->status  = 0;
+
+    e28f0xx_trap_update(dev);
 }
 
 e28f0xx_t *
@@ -445,7 +469,7 @@ e28f0xx_create(const device_t *model, const flash_cfg_t *cfg)
     dev->size  = cfg->size;
     dev->mask  = cfg->size - 1;
 
-    dev->array = (uint8_t *) calloc(1, dev->size);
+    dev->array = (uint8_t *) mem_alloc_exec(dev->size);
     memset(dev->array, 0xff, dev->size);
 
     if (cfg->image != NULL)

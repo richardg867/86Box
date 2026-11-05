@@ -325,6 +325,7 @@ banshee_log(const char *fmt, ...)
 #endif
 
 static uint32_t banshee_status(banshee_t *banshee);
+static void     banshee_update_direct(banshee_t *banshee);
 
 static int
 banshee_vga_vsync_enabled(banshee_t *banshee)
@@ -829,6 +830,7 @@ banshee_ext_outl(uint16_t addr, uint32_t val, void *priv)
             voodoo->tile_stride_shift = 10 + ((val >> 13) & 7);
             voodoo->tile_x            = ((val >> 16) & 0x7f) * 128;
             voodoo->tile_x_real       = ((val >> 16) & 0x7f) * 128 * 32;
+            banshee_update_direct(banshee);
             break;
 
         case Init_miscInit0:
@@ -1932,6 +1934,30 @@ banshee_reg_writel(uint32_t addr, uint32_t val, void *priv)
         default:
             break;
     }
+}
+
+/* A page of the linear frame buffer that the guest wrote with the memory
+   mapped straight in (mem_mapping_set_direct). */
+static void
+banshee_lfb_dirty(uint8_t *page, void *priv)
+{
+    svga_t  *svga   = (svga_t *) priv;
+    uint32_t offset = page - svga->vram;
+
+    if (offset < svga->vram_max)
+        svga->changedvram[offset >> 12] = changeframecount;
+}
+
+/* Below the tiled region, the linear frame buffer is the memory as it is. */
+static void
+banshee_update_direct(banshee_t *banshee)
+{
+    uint32_t size = banshee->voodoo ? banshee->voodoo->tile_base : 0;
+
+    if (size > banshee->svga.vram_max)
+        size = banshee->svga.vram_max;
+
+    mem_mapping_set_direct(&banshee->linear_mapping, banshee->svga.vram, size, banshee_lfb_dirty, &banshee->svga);
 }
 
 static uint8_t

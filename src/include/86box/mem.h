@@ -128,6 +128,14 @@
                                      by a bus master's (mem_*_phys). */
 #define MEM_MAPPING_NO_CODEGEN 512 /* Code in it is interpreted: writes to its memory are
                                       not tracked at its own address. */
+#define MEM_MAPPING_DIRECT_RW 1024 /* Reads and writes go straight to its exec memory, with
+                                      no side effects: a hypervisor can map it as RAM. */
+#define MEM_MAPPING_TRAP_READS 2048 /* Reads do not come from its exec memory right now (a
+                                      flash chip out of read array mode): a hypervisor must
+                                      not map it directly. */
+#define MEM_MAPPING_DEFER_WRITES 4096 /* Nothing a write does can be seen before the next
+                                        access to the device or its next timer: a hypervisor
+                                        may queue the writes, in order, until then. */
 
 /* #define's for memory granularity, currently 4k, less does
    not work because of internal 4k pages. */
@@ -205,6 +213,15 @@ typedef struct _mem_mapping_ {
     /* There is never a needed to pass a pointer to the mapping itself, it is much preferable to
        prepare a structure with the requires data (usually, the base address and mask) instead. */
     void *priv; /* backpointer to device */
+
+    /* The first direct_size bytes of the mapping are, right now, plain memory at direct:
+       its handlers read and write it and do nothing else, but note the writes. A
+       hypervisor maps it straight in and reports the pages written to direct_dirty,
+       by their address in direct. Not for the CPU emulation, which uses the handlers. */
+    uint8_t *direct;
+    uint32_t direct_size;
+    void   (*direct_dirty)(uint8_t *page, void *priv);
+    void    *direct_priv;
 } mem_mapping_t;
 
 /* For the memory viewer, on a video card's memory: where the byte the
@@ -416,6 +433,13 @@ extern void mem_mapping_set_addr(mem_mapping_t *,
                                  uint32_t base, uint32_t size);
 extern void mem_mapping_set_base_ignore(mem_mapping_t *, uint32_t base_ignore);
 extern void mem_mapping_set_exec(mem_mapping_t *, uint8_t *exec);
+extern void mem_mapping_set_trap_reads(uint8_t *mem, uint32_t size, int trap);
+extern void mem_mapping_set_direct(mem_mapping_t *map, uint8_t *mem, uint32_t size,
+                                   void (*dirty)(uint8_t *page, void *priv), void *priv);
+extern mem_mapping_t *mem_mapping_next(mem_mapping_t *map);
+extern void           mem_mapping_set_defer_writes(mem_mapping_t *map, int defer);
+extern uint8_t *mem_granule_direct(uint32_t granule, int *writable, mem_mapping_t **dirty);
+extern void *mem_alloc_exec(size_t size);
 extern void mem_mapping_set_mask(mem_mapping_t *, uint32_t mask);
 extern void mem_mapping_disable(mem_mapping_t *);
 extern void mem_mapping_enable(mem_mapping_t *);

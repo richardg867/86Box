@@ -2916,9 +2916,6 @@ mem_mapping_recalc(uint64_t base, uint64_t size, uint32_t base_ignore)
     }
 
     flushmmucache_nopc();
-#ifdef USE_HYPERVISOR
-    hv_recalc_mappings(base, size);
-#endif
 
 #ifdef ENABLE_MEM_LOG
     pclog("\nMemory map:\n");
@@ -2971,6 +2968,12 @@ mem_mapping_recalc(uint64_t base, uint64_t size, uint32_t base_ignore)
 #endif
 
     thread_release_mutex(mem_mapping_mutex);
+
+#ifdef USE_HYPERVISOR
+    /* After the lock: the hypervisor recalculates the range again for the
+       other SMM state. */
+    hv_mem_changed(base, size, base_ignore & mask);
+#endif
 }
 
 /* For a reader that must see the map between rebuilds, not during one. */
@@ -3089,6 +3092,11 @@ mem_mapping_add(mem_mapping_t *map,
         last_mapping->next = map;
     }
     last_mapping = map;
+
+    map->direct       = NULL;
+    map->direct_size  = 0;
+    map->direct_dirty = NULL;
+    map->direct_priv  = NULL;
 
     mem_mapping_set(map, base, size, read_b, read_w, read_l,
                     write_b, write_w, write_l, exec, fl, priv);
@@ -3231,6 +3239,146 @@ mem_mapping_set_p(mem_mapping_t *map, void *priv)
     map->priv = priv;
 }
 
+/* Reads of every mapping that executes from this memory stop or start coming
+   from it: a flash chip leaving or entering read array mode. The CPU emulation
+   reads through the handlers anyway; a hypervisor, which maps the memory
+   directly, has to stop doing so while the reads are the chip's. */
+void
+mem_mapping_set_trap_reads(uint8_t *mem, uint32_t size, int trap)
+{
+    mem_mapping_t *map;
+
+    if (mem == NULL)
+        return;
+
+    for (map = base_mapping; map != NULL; map = map->next) {
+        if ((map->exec == NULL) || (map->exec < mem) || (map->exec >= (mem + size)) || (!!(map->flags & MEM_MAPPING_TRAP_READS) == !!trap))
+            continue;
+
+        if (trap)
+            map->flags |= MEM_MAPPING_TRAP_READS;
+        else
+            map->flags &= ~MEM_MAPPING_TRAP_READS;
+
+#ifdef USE_HYPERVISOR
+        if (hv_active && map->enable)
+            mem_mapping_recalc(map->base, map->size, map->base_ignore);
+#endif
+    }
+}
+
+/* Memory a mapping executes from. A hypervisor can only map memory that
+   starts on a page boundary and runs in whole pages; free() releases it. */
+void *
+mem_alloc_exec(size_t size)
+{
+#if defined(USE_HYPERVISOR) && !defined(_WIN32)
+    void  *ret;
+    size_t pages = (size + 4095) & ~((size_t) 4095);
+
+    if (posix_memalign(&ret, 4096, pages))
+        return NULL;
+    memset(ret, 0x00, pages);
+
+    return ret;
+#else
+    return calloc(1, size);
+#endif
+}
+
+/* See MEM_MAPPING_DEFER_WRITES. */
+void
+mem_mapping_set_defer_writes(mem_mapping_t *map, int defer)
+{
+    if (!!(map->flags & MEM_MAPPING_DEFER_WRITES) == !!defer)
+        return;
+
+    if (defer)
+        map->flags |= MEM_MAPPING_DEFER_WRITES;
+    else
+        map->flags &= ~MEM_MAPPING_DEFER_WRITES;
+
+#ifdef USE_HYPERVISOR
+    if (hv_active && map->enable && map->size)
+        mem_mapping_recalc(map->base, map->size, map->base_ignore);
+#endif
+}
+
+/* The mapping after map in the list, or the first with NULL. */
+mem_mapping_t *
+mem_mapping_next(mem_mapping_t *map)
+{
+    return map ? map->next : base_mapping;
+}
+
+/* A device's memory that its handlers only read and write, noting the writes
+   (a linear frame buffer in a packed pixel mode), for a hypervisor to map
+   straight in. size 0 ends it. */
+void
+mem_mapping_set_direct(mem_mapping_t *map, uint8_t *mem, uint32_t size,
+                       void (*dirty)(uint8_t *page, void *priv), void *priv)
+{
+    if (((uintptr_t) mem & 0xfff) || !dirty)
+        size = 0;
+    size &= ~0xfff;
+    if (size > map->size)
+        size = map->size & ~0xfff;
+    if (!size)
+        mem = NULL;
+
+    if ((map->direct == mem) && (map->direct_size == size) && (map->direct_dirty == dirty) && (map->direct_priv == priv))
+        return;
+
+    map->direct       = mem;
+    map->direct_size  = size;
+    map->direct_dirty = dirty;
+    map->direct_priv  = priv;
+
+#ifdef USE_HYPERVISOR
+    if (hv_active && map->enable && map->size)
+        mem_mapping_recalc(map->base, map->size, map->base_ignore);
+#endif
+}
+
+/* The memory a hypervisor can map directly at this granule of the CPU's view,
+   or NULL if accesses to it have to go through the mapping's handlers. It is
+   readable directly when its reads are of the memory it executes from, and
+   writable as well when its writes go to that memory too, with nothing else
+   to them. A mapping's direct memory is writable, and its writes are to be
+   reported to the mapping returned in dirty. */
+uint8_t *
+mem_granule_direct(uint32_t granule, int *writable, mem_mapping_t **dirty)
+{
+    uint8_t             *exec = _mem_exec[granule];
+    const mem_mapping_t *rm   = read_mapping[granule];
+    const mem_mapping_t *wm   = write_mapping[granule];
+    uint32_t             off;
+
+    *writable = 0;
+    *dirty    = NULL;
+
+    if (rm && (rm == wm) && rm->direct && !rm->base_ignore) {
+        off = (granule << MEM_GRANULARITY_BITS) - rm->base;
+        if (off < rm->direct_size) {
+            *writable = 1;
+            *dirty    = (mem_mapping_t *) rm;
+            return rm->direct + off;
+        }
+    }
+
+    if ((exec == NULL) || (rm == NULL) || (rm->exec == NULL) || (rm->flags & MEM_MAPPING_TRAP_READS) ||
+        ((uintptr_t) exec & 0xfff))
+        return NULL;
+
+    /* The code fetches must be of the mapping that the reads are of. */
+    if (exec != mem_mapping_exec_granule(rm, (uint64_t) granule << MEM_GRANULARITY_BITS))
+        return NULL;
+
+    *writable = (wm == rm) && ((rm->flags & MEM_MAPPING_DIRECT_RW) || (rm->write_b == mem_write_ram));
+
+    return exec;
+}
+
 void
 mem_mapping_disable(mem_mapping_t *map)
 {
@@ -3368,7 +3516,7 @@ mem_add_ram_mapping(mem_mapping_t *mapping, uint32_t base, uint32_t size)
     mem_mapping_add(mapping, base, size,
                     mem_read_ram, mem_read_ramw, mem_read_raml,
                     mem_write_ram, mem_write_ramw, mem_write_raml,
-                    ram + base, MEM_MAPPING_INTERNAL, NULL);
+                    ram + base, MEM_MAPPING_INTERNAL | MEM_MAPPING_DIRECT_RW, NULL);
 }
 
 static void
@@ -3751,5 +3899,12 @@ mem_a20_recalc(void)
         flushmmucache();
     }
 
+#ifdef USE_HYPERVISOR
+    if (state != mem_a20_state) {
+        mem_a20_state = state;
+        hv_a20_changed();
+    }
+#else
     mem_a20_state = state;
+#endif
 }

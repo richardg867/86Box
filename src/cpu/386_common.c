@@ -12,6 +12,7 @@
 #include <86box/86box.h>
 #include "cpu.h"
 #include <86box/timer.h>
+#include <86box/hypervisor.h>
 #include "x86.h"
 #include "x86seg_common.h"
 #include "x87_sf.h"
@@ -26,7 +27,6 @@
 #include <86box/plat.h>
 #include <86box/keyboard.h>
 #include <86box/timer.h>
-#include <86box/hypervisor.h>
 
 #include "x86seg.h"
 #include "386_common.h"
@@ -1484,10 +1484,6 @@ enter_smm(int in_hlt)
     if (!is_am486 && !is_pentium && !is_k5 && !is_k6 && !is_p6 && !is_cxsmm)
         return;
 
-#ifdef USE_HYPERVISOR
-    hv_get_regs();
-#endif
-
     if (smm_rsm_restart) {
         cpu_state.pc++;
         in_hlt          = 1;
@@ -1688,10 +1684,6 @@ enter_smm(int in_hlt)
        memory at the same physical addresses. */
     cpu_cur_status |= CPU_STATUS_SMM;
     CPU_BLOCK_END();
-
-#ifdef USE_HYPERVISOR
-    hv_apply_regs();
-#endif
 }
 
 void
@@ -1747,13 +1739,19 @@ leave_smm(void)
     uint32_t restart     = 0;
     int      nested      = 0;
 
+#ifdef USE_HYPERVISOR
+    /* The hypervisor holds the processor's state: only the bus leaves SMM
+       (a reset in SMM). */
+    if (hv_active) {
+        in_smm = 0;
+        smram_recalc_all(1);
+        return;
+    }
+#endif
+
     /* If it's a CPU on which SMM is not supported (or not implemented in 86Box), do nothing. */
     if (!is_am486 && !is_pentium && !is_k5 && !is_k6 && !is_p6 && !is_cxsmm)
         return;
-
-#ifdef USE_HYPERVISOR
-    hv_get_regs();
-#endif
 
     memset(saved_state, 0x00, SMM_SAVE_STATE_MAP_SIZE * sizeof(uint32_t));
 
@@ -1892,10 +1890,6 @@ leave_smm(void)
     x386_common_log("EAX = %08X, EBX = %08X, ECX = %08X, EDX = %08X, ESI = %08X, EDI = %08X, ESP = %08X, EBP = %08X\n",
                     EAX, EBX, ECX, EDX, ESI, EDI, ESP, EBP);
     x386_common_log("leave_smm()\n");
-
-#ifdef USE_HYPERVISOR
-    hv_apply_regs();
-#endif
 }
 
 /* #NM delivered while a block was being recorded (an x87 or MMX

@@ -1326,8 +1326,10 @@ nvr_at_init(const device_t *info)
     if (nvr_at_inited == 0) {
         /* Start the timers. */
         timer_add(&local->update_timer, timer_update, nvr, 0);
+        timer_set_precise(&local->update_timer);
 
         timer_add(&local->rtc_timer, timer_intr, nvr, 0);
+        timer_set_precise(&local->rtc_timer);
         /* On power on, if the oscillator is disabled, it's reenabled. */
         if ((nvr->regs[RTC_REGA] & 0x70) == 0x00)
             nvr->regs[RTC_REGA] = (nvr->regs[RTC_REGA] & 0x8f) | 0x20;

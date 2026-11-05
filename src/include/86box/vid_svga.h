@@ -236,6 +236,9 @@ typedef struct svga_t {
 
     /*Called at the start of vertical sync*/
     void (*vsync_callback)(struct svga_t *svga);
+    /* A card's own handler for byte writes to the window at A0000 that, like
+       svga_write(), only writes the memory: a hypervisor may queue its writes. */
+    void (*deferrable_write)(uint32_t addr, uint8_t val, void *priv);
 
     /* The VGA vertical retrace interrupt (CRTC 11 bits 4 and 5, Input Status 0
        bit 7). A card that wires it up sets this, and it is called when the
@@ -407,6 +410,7 @@ extern int  svga_init(const device_t *info, svga_t *svga, void *priv, int memsiz
                       void (*hwcursor_draw)(struct svga_t *svga, int displine),
                       void (*overlay_draw)(struct svga_t *svga, int displine));
 extern void svga_recalctimings(svga_t *svga);
+extern void svga_direct_update(svga_t *svga);
 extern void svga_vert_int_crtc_write(svga_t *svga);
 extern int  svga_vert_int_active(const svga_t *svga);
 extern void svga_close(svga_t *svga);

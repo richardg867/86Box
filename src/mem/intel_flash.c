@@ -183,8 +183,16 @@ intel_flash_readl(uint32_t addr, void *priv)
     return *q;
 }
 
+/* Reads are of the array only in read array mode: out of it, a hypervisor
+   must stop mapping the array straight in (mem_mapping_set_trap_reads). */
 static void
-intel_flash_write(uint32_t addr, uint8_t val, void *priv)
+intel_flash_trap_update(intel_flash_t *dev)
+{
+    mem_mapping_set_trap_reads(dev->array, dev->size, (dev->command == CMD_IID) || (dev->command == CMD_READ_STATUS));
+}
+
+static void
+intel_flash_write_cmd(uint32_t addr, uint8_t val, void *priv)
 {
     intel_flash_t *dev = (intel_flash_t *) priv;
 
@@ -242,7 +250,14 @@ intel_flash_write(uint32_t addr, uint8_t val, void *priv)
 }
 
 static void
-intel_flash_writew(uint32_t addr, uint16_t val, void *priv)
+intel_flash_write(uint32_t addr, uint8_t val, void *priv)
+{
+    intel_flash_write_cmd(addr, val, priv);
+    intel_flash_trap_update((intel_flash_t *) priv);
+}
+
+static void
+intel_flash_writew_cmd(uint32_t addr, uint16_t val, void *priv)
 {
     intel_flash_t *dev = (intel_flash_t *) priv;
 
@@ -298,6 +313,13 @@ intel_flash_writew(uint32_t addr, uint16_t val, void *priv)
                         break;
                 }
         }
+}
+
+static void
+intel_flash_writew(uint32_t addr, uint16_t val, void *priv)
+{
+    intel_flash_writew_cmd(addr, val, priv);
+    intel_flash_trap_update((intel_flash_t *) priv);
 }
 
 static void
@@ -389,6 +411,8 @@ intel_flash_reset(intel_flash_t *dev)
 {
     dev->command = CMD_READ_ARRAY;
     dev->status  = 0;
+
+    intel_flash_trap_update(dev);
 }
 
 /* The backing file holds the main and data blocks, in that order, but not the boot block. */
@@ -429,7 +453,7 @@ intel_flash_create(const device_t *model, const flash_cfg_t *cfg)
     if ((dev->mask == 0x3ffff) || (dev->mask == 0x7ffff))
         dev->bb_mask &= 0xffffc000;
 
-    dev->array = (uint8_t *) calloc(1, dev->size);
+    dev->array = (uint8_t *) mem_alloc_exec(dev->size);
     memset(dev->array, 0xff, dev->size);
 
     /* The image is what the CPU sees, so with A16 inverted, each 64k goes in the other half. */

@@ -645,7 +645,7 @@ static void *
 sis_85c50x_init(UNUSED(const device_t *info))
 {
     sis_85c50x_t *dev = (sis_85c50x_t *) calloc(1, sizeof(sis_85c50x_t));
-    uint8_t pit_is_fast = (((pit_mode == -1) && is486) || (pit_mode == 1));
+    uint8_t pit_is_fast = (((pit_mode == -1) && is486) || (pit_mode == 1) || cpu_use_hypervisor);
 
     dev->type = info->local;
 

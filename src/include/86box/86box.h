@@ -106,7 +106,6 @@
     /* Use volatile for performance, as the original code did */
     #define ATOMIC_INT volatile int
     #define ATOMIC_UINT volatile uint32_t
-    #define ATOMIC_UINT64 volatile uint64_t
     #define ATOMIC_DOUBLE volatile double
     #define ATOMIC_LOAD(var) (var)
     #define ATOMIC_STORE(var, val) ((var) = (val))
@@ -133,7 +132,6 @@
     
     #define ATOMIC_INT atomic_int
     #define ATOMIC_UINT atomic_uint
-    #define ATOMIC_UINT64 atomic_ullong
     #define ATOMIC_DOUBLE _Atomic double
     #define ATOMIC_LOAD(var) atomic_load(&(var))
     #define ATOMIC_STORE(var, val) atomic_store(&(var), (val))
@@ -224,6 +222,7 @@ extern uint32_t mem_size;                   /* (C) memory size (Installed on sys
 extern uint32_t isa_mem_size;               /* (C) memory size (ISA Memory Cards) */
 extern int      cpu;                        /* (C) cpu type */
 extern int      cpu_use_dynarec;            /* (C) cpu uses/needs Dyna */
+extern int      cpu_use_hypervisor;         /* (C) cpu runs on the host's hypervisor */
 extern int      fpu_type;                   /* (C) fpu type */
 extern int      fpu_softfloat;              /* (C) fpu uses softfloat */
 extern int      time_sync;                  /* (C) enable time sync */

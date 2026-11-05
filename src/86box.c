@@ -203,6 +203,7 @@ uint32_t mem_size                               = 0;              /* (C) memory 
                                                                          system board)*/
 uint32_t isa_mem_size                           = 0;              /* (C) memory size (ISA Memory Cards) */
 int      cpu_use_dynarec                        = 0;              /* (C) cpu uses/needs Dyna */
+int      cpu_use_hypervisor                     = 0;              /* (C) cpu runs on the host's hypervisor */
 int      cpu                                    = 0;              /* (C) cpu type */
 int      fpu_type                               = 0;              /* (C) fpu type */
 int      fpu_softfloat                          = 0;              /* (C) fpu uses softfloat */

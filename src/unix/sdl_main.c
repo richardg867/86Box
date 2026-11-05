@@ -30,6 +30,7 @@
 #endif
 
 #include <86box/86box.h>
+#include <86box/hypervisor.h>
 #include <86box/keyboard.h>
 #include <86box/mouse.h>
 #include <86box/plat.h>
@@ -228,10 +229,10 @@ main_thread(UNUSED(void *param))
         old_time = new_time;
         automation_poll();
         const int automation = automation_run_state();
-        if ((drawits > 0 || fast_forward || (automation == AUTOMATION_RUN)) && !dopause && (automation != AUTOMATION_HOLD)) {
+        if ((drawits > 0 || fast_forward || (automation == AUTOMATION_RUN) || hv_active) && !dopause && (automation != AUTOMATION_HOLD)) {
             /* Yes, so do one frame now. */
             drawits -= force_10ms ? 10 : 1;
-            if (drawits > 50 || fast_forward || (automation == AUTOMATION_RUN))
+            if (drawits > 50 || fast_forward || (automation == AUTOMATION_RUN) || hv_active)
                 drawits = 0;
 
             /* Run a block of code. */

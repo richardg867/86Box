@@ -26,6 +26,7 @@
 #include <86box/nmi.h>
 #include <86box/pic.h>
 #include <86box/timer.h>
+#include <86box/hypervisor.h>
 #include <86box/fdd.h>
 #include <86box/fdc.h>
 #include <86box/machine.h>
@@ -489,6 +490,13 @@ update_tsc(void)
 {
     int      cycdiff;
     uint64_t delta;
+
+#ifdef USE_HYPERVISOR
+    /* Not counted in cycles: under the hypervisor the time is that of the
+       exit being handled (kvm.c). */
+    if (hv_active)
+        return;
+#endif
 
     cycdiff = cycles_old - cycles;
 
@@ -1123,102 +1131,6 @@ exec386_dynarec_dyn(const int dbg)
    the copy without it carries no debug register test per block. */
 __attribute__((always_inline)) static inline void
 exec386_dynarec_common(int32_t cycs, const int dbg)
-{
-    int      vector;
-    int      tempi;
-    uint64_t start = timer_get_clock_ns();
-    uint64_t current;
-    do {
-#    ifndef USE_NEW_DYNAREC
-        oldcs           = CS;
-        cpu_state.oldpc = cpu_state.pc;
-        oldcpl          = CPL;
-        cpu_state.op32  = use32;
-
-#    endif
-        if (cpu_force_interpreter || cpu_override_dynarec ||  (!CACHE_ON())) /*Interpret block*/
-        {
-            exec386_dynarec_int();
-        } else {
-            exec386_dynarec_dyn();
-        }
-
-        if (cpu_init) {
-            cpu_init = 0;
-            resetx86();
-        }
-
-        if (cpu_state.abrt) {
-            flags_rebuild();
-            tempi          = cpu_state.abrt & ABRT_MASK;
-            cpu_state.abrt = 0;
-            x86_doabrt(tempi);
-            if (cpu_state.abrt) {
-                cpu_state.abrt = 0;
-                cpu_state.pc   = cpu_state.oldpc;
-#    ifndef USE_NEW_DYNAREC
-                CS = oldcs;
-#    endif
-                pmodeint(8, 0);
-                if (cpu_state.abrt) {
-                    cpu_state.abrt = 0;
-                    softresetx86();
-                    cpu_set_edx();
-#    ifdef ENABLE_386_DYNAREC_LOG
-                    x386_dynarec_log("Triple fault - reset\n");
-#    endif
-                }
-            }
-        }
-
-        if (new_ne) {
-#    ifndef USE_NEW_DYNAREC
-            oldcs = CS;
-#    endif
-            cpu_state.oldpc = cpu_state.pc;
-            new_ne = 0;
-            x86_int(16);
-        }
-
-        if (smi_line)
-            enter_smm_check(0);
-        else if (nmi && nmi_enable && nmi_mask) {
-#    ifndef USE_NEW_DYNAREC
-            oldcs = CS;
-#    endif
-            cpu_state.oldpc = cpu_state.pc;
-            x86_int(2);
-            nmi_enable = 0;
-#    ifdef OLD_NMI_BEHAVIOR
-            if (nmi_auto_clear) {
-                nmi_auto_clear = 0;
-                nmi            = 0;
-            }
-#    else
-            nmi = 0;
-#    endif
-        } else if ((cpu_state.flags & I_FLAG) && pic.int_pending) {
-            vector = picinterrupt();
-            if (vector != -1) {
-#    ifndef USE_NEW_DYNAREC
-                oldcs = CS;
-#    endif
-                cpu_state.oldpc = cpu_state.pc;
-                x86_int(vector);
-            }
-        }
-
-        current = timer_get_clock_ns();
-        extern double cpuclock;
-        tsc += (__uint128_t) (current - timer_clock_last) * cpuclock / 1000000000ULL;
-        timer_clock_last = current;
-        if ((int64_t) (timer_realtime_target - current) <= 0)
-            timer_process();
-    } while ((current - start) < 1000000ULL);
-}
-
-void
-exec386_dynarec_orig(int32_t cycs)
 {
     int      vector;
     int      tempi;

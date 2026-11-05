@@ -40,6 +40,7 @@
 #include <86box/pci.h>
 #include <86box/ppi.h>
 #include <86box/timer.h>
+#include <86box/hypervisor.h>
 #include <86box/video.h>
 #include <86box/vid_svga.h>
 
@@ -498,6 +499,10 @@ reset_common(int hard)
     cpu_cpurst_on_sr = 0;
 
     cpu_force_interpreter = 0;
+
+#ifdef USE_HYPERVISOR
+    hv_cpu_reset(hard);
+#endif
 }
 
 /* Hard reset. */

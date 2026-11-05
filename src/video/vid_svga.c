@@ -38,6 +38,7 @@
 #include <86box/plat.h>
 #include <86box/ui.h>
 #include <86box/video.h>
+#include <86box/hypervisor.h>
 #include <86box/vid_8514a.h>
 #include <86box/vid_xga.h>
 #include <86box/vid_svga.h>
@@ -340,6 +341,7 @@ svga_out(uint16_t addr, uint8_t val, void *priv)
                     svga->fast         = (svga->gdcreg[8] == 0xff && !(svga->gdcreg[3] & 0x18) && !svga->gdcreg[1]) &&
                                         ((svga->chain4 && (svga->packed_chain4 || svga->force_old_addr)) || svga->fb_only) &&
                                         !(svga->adv_flags & FLAG_ADDR_BY8);
+                    svga_direct_update(svga);
                     break;
 
                 default:
@@ -452,6 +454,7 @@ svga_out(uint16_t addr, uint8_t val, void *priv)
             svga->fast                       = (svga->gdcreg[8] == 0xff && !(svga->gdcreg[3] & 0x18) && !svga->gdcreg[1]) &&
                                                ((svga->chain4 && (svga->packed_chain4 || svga->force_old_addr)) || svga->fb_only) &&
                                                 !(svga->adv_flags & FLAG_ADDR_BY8);;
+            svga_direct_update(svga);
             if (((svga->gdcaddr & 15) == 5 && (val ^ o) & 0x70) || ((svga->gdcaddr & 15) == 6 && (val ^ o) & 1)) {
                 svga_log("GDCADDR%02x recalc.\n", svga->gdcaddr & 0x0f);
                 svga_recalctimings(svga);
@@ -789,6 +792,64 @@ int
 svga_vert_int_active(const svga_t *svga)
 {
     return svga->vert_int && !(svga->crtc[0x11] & 0x20);
+}
+
+/* A page of the frame buffer written with the memory mapped straight in. */
+static void
+svga_direct_dirty(uint8_t *page, void *priv)
+{
+    svga_t  *svga   = (svga_t *) priv;
+    uint32_t offset = page - svga->vram;
+
+    if (offset < svga->vram_max)
+        svga->changedvram[offset >> 12] = svga->monitor->mon_changeframecount;
+}
+
+/* The linear frame buffer mappings that use the handlers here are, in the
+   fast modes (packed pixels, every plane written as it comes, no logical
+   operation), the memory itself: a hypervisor can map them in directly
+   (mem_mapping_set_direct). Called where the mode can change, and once a
+   frame for cards that work out svga->fast themselves. */
+void
+svga_direct_update(svga_t *svga)
+{
+#ifdef USE_HYPERVISOR
+    mem_mapping_t *map;
+    int            ok;
+    uint32_t       off;
+    uint32_t       size;
+
+    if (!hv_active || (svga->vram == NULL))
+        return;
+
+    ok = svga->fast && !svga->translate_address && (svga->writemode == 0);
+
+    /* Writes to the window at A0000 through the handlers here, whatever the
+       mode, only change the memory and what the next reads see: they can be
+       queued until then. */
+    mem_mapping_set_defer_writes(&svga->mapping, (svga->mapping.write_b == svga_write) ||
+                                 (svga->deferrable_write && (svga->mapping.write_b == svga->deferrable_write)));
+
+    for (map = mem_mapping_next(NULL); map != NULL; map = mem_mapping_next(map)) {
+        if ((map->priv != svga) || ((map->write_b != svga_write_linear) && (map->write_b != svga_writeb_linear)))
+            continue;
+
+        mem_mapping_set_defer_writes(map, 1);
+
+        /* The frame buffer is at the mapping's address within the decoded
+           range, which must not wrap around inside the mapping. */
+        off  = map->base & svga->decode_mask;
+        size = map->size;
+        if (off >= svga->vram_max)
+            size = 0;
+        else if (size > (svga->vram_max - off))
+            size = svga->vram_max - off;
+        if ((off + size) > (svga->decode_mask + 1))
+            size = 0;
+
+        mem_mapping_set_direct(map, (ok && size) ? (svga->vram + off) : NULL, ok ? size : 0, svga_direct_dirty, svga);
+    }
+#endif
 }
 
 void
@@ -1446,6 +1507,8 @@ svga_recalctimings(svga_t *svga)
      */
     if (svga->y_add > 240)
         svga->y_add = 240;
+
+    svga_direct_update(svga);
 }
 
 static void
@@ -1782,6 +1845,9 @@ svga_poll(void *priv)
             if (svga->vsync_callback)
                 svga->vsync_callback(svga);
 
+            /* Cards that work out svga->fast themselves. */
+            svga_direct_update(svga);
+
             video_lightpen_vsync();
 
             svga->start_retrace_latch = svga->crtc[0x4];
@@ -1883,7 +1949,7 @@ svga_init(const device_t *info, svga_t *svga, void *priv, int memsize,
     svga->dispontime        = 1000ULL << 32;
     svga->dispofftime       = 1000ULL << 32;
     svga->bpp               = 8;
-    svga->vram              = calloc(memsize + 4096, 1);
+    svga->vram              = mem_alloc_exec(memsize + 4096);
     svga->vram_max          = memsize;
     svga->vram_display_mask = svga->vram_mask = memsize - 1;
     svga->decode_mask                         = 0x7fffff;

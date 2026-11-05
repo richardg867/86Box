@@ -204,8 +204,9 @@ machine_common_init(UNUSED(const machine_t *model))
     dma_init();
 
     int pit_type = IS_AT(machine) ? PIT_8254 : PIT_8253;
-    /* Select fast PIT if needed */
-    if (((pit_mode == -1) && cpu_requires_fast_pit) || (pit_mode == 1))
+    /* Select fast PIT if needed. A hypervisor cannot stop the guest at every
+       PIT clock, which the slow PIT's timer runs at. */
+    if (((pit_mode == -1) && cpu_requires_fast_pit) || (pit_mode == 1) || cpu_use_hypervisor)
         pit_type += 2;
 
     pit_common_init(pit_type, pit_irq0_timer, NULL);
