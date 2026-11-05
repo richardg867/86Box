@@ -1963,8 +1963,15 @@ pit_set_clock(uint32_t clock)
 
     xt_cpu_multi <<= 32ULL;
 
-    /* Delay for empty I/O ports. */
-    io_delay = (int) round(((double) cpu_s->rspeed) / 3000000.0);
+    /* Delay for empty I/O ports. From the AT on, an access that no device
+       claims still runs on the ISA bus as an 8-bit I/O cycle, taking as long
+       as one to a device register. BIOSes time things with it: the Compaq
+       ProLinea MT's diskette interrupt timeout is 62500 calls of a routine
+       that does IN AX,0FEh six times. */
+    if (cpu_s->cpu_type >= CPU_286)
+        io_delay = 8 * cpu_s->atclk_div;
+    else
+        io_delay = (int) round(((double) cpu_s->rspeed) / 3000000.0);
     if ((machines[machine].init == machine_xt_ibm5550_init) || (machines[machine].init == machine_xt_ibm5535_init))
         io_delay = 8;
 

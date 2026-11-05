@@ -401,6 +401,19 @@ io_debug_check_addr(uint16_t port)
         trap |= 4;
 }
 
+/* An access that no device claims goes out on the ISA bus, and from the AT
+   on, the bus controller splits a word or a doubleword into one 8-bit cycle
+   per byte. The IBM 5550 family keeps its own fixed delay. */
+static int
+io_empty_delay(int bytes)
+{
+    if (!is286 || (machines[machine].init == machine_xt_ibm5550_init) ||
+        (machines[machine].init == machine_xt_ibm5535_init))
+        return io_delay;
+
+    return io_delay * bytes;
+}
+
 uint8_t
 inb(uint16_t port)
 {
@@ -620,7 +633,9 @@ inw(uint16_t port)
             amstrad_latch = AMSTRAD_SW9 | 0x80000000;
     }
 
-    if (!found || (machines[machine].init == machine_xt_ibm5550_init) || (machines[machine].init == machine_xt_ibm5535_init))
+    if (!found)
+        cycles -= io_empty_delay(2);
+    else if ((machines[machine].init == machine_xt_ibm5550_init) || (machines[machine].init == machine_xt_ibm5535_init))
         cycles -= io_delay;
 
     io_cycle = 0;
@@ -699,7 +714,7 @@ outw(uint16_t port, uint16_t val)
     }
 
     if (!found) {
-        cycles -= io_delay;
+        cycles -= io_empty_delay(2);
 #ifdef USE_DYNAREC
         if (cpu_use_dynarec && ((port == 0xeb) || (port == 0xed)))
             update_tsc();
@@ -824,7 +839,9 @@ inl(uint16_t port)
             amstrad_latch = AMSTRAD_SW9 | 0x80000000;
     }
 
-    if (!found || (machines[machine].init == machine_xt_ibm5550_init) || (machines[machine].init == machine_xt_ibm5535_init))
+    if (!found)
+        cycles -= io_empty_delay(4);
+    else if ((machines[machine].init == machine_xt_ibm5550_init) || (machines[machine].init == machine_xt_ibm5535_init))
         cycles -= io_delay;
 
     io_cycle = 0;
@@ -920,7 +937,7 @@ outl(uint16_t port, uint32_t val)
     }
 
     if (!found) {
-        cycles -= io_delay;
+        cycles -= io_empty_delay(4);
 #ifdef USE_DYNAREC
         if (cpu_use_dynarec && ((port == 0xeb) || (port == 0xed)))
             update_tsc();
