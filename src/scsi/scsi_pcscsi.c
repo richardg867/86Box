@@ -1574,6 +1574,14 @@ esp_reg_write(esp_t *dev, uint32_t saddr, uint32_t val)
                     break;
                 case CMD_TI:
                     esp_log("Transfer Information val=%02X\n", val);
+                    /* The transfer runs from the callback: without DMA nothing
+                       else starts it, and the one a FIFO flush set may have
+                       gone off already if the FIFO took longer than its 10 us
+                       to fill. */
+                    if (!dev->dma) {
+                        timer_stop(&dev->timer);
+                        timer_on_auto(&dev->timer, 10.0);
+                    }
                     break;
                 case CMD_ICCS:
                     esp_log("ESP SCSI ICCS\n");
