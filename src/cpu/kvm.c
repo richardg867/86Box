@@ -2287,6 +2287,7 @@ hv_populate(void)
     else
         pclog("KVM: allocated %zu MB of guest RAM up front in %.1f ms\n", size >> 20, (hv_clock_ns() - t) / 1000000.0);
 }
+
 static uint64_t        hv_call_ns;
 static struct timespec hv_call_cpu;
 static struct rusage   hv_call_ru;
