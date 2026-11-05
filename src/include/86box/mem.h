@@ -222,6 +222,9 @@ typedef struct _mem_mapping_ {
     uint32_t direct_size;
     void   (*direct_dirty)(uint8_t *page, void *priv);
     void    *direct_priv;
+    /* Except for [direct_hole, direct_hole_end), which goes through the handlers. */
+    uint32_t direct_hole;
+    uint32_t direct_hole_end;
 } mem_mapping_t;
 
 /* For the memory viewer, on a video card's memory: where the byte the
@@ -436,6 +439,7 @@ extern void mem_mapping_set_exec(mem_mapping_t *, uint8_t *exec);
 extern void mem_mapping_set_trap_reads(uint8_t *mem, uint32_t size, int trap);
 extern void mem_mapping_set_direct(mem_mapping_t *map, uint8_t *mem, uint32_t size,
                                    void (*dirty)(uint8_t *page, void *priv), void *priv);
+extern void mem_mapping_set_direct_hole(mem_mapping_t *map, uint32_t start, uint32_t end);
 extern mem_mapping_t *mem_mapping_next(mem_mapping_t *map);
 extern void           mem_mapping_set_defer_writes(mem_mapping_t *map, int defer);
 extern uint8_t *mem_granule_direct(uint32_t granule, int *writable, mem_mapping_t **dirty);

@@ -1826,8 +1826,21 @@ banshee_reg_writel(uint32_t addr, uint32_t val, void *priv)
         case 0x0000000: /*IO remap*/
             if (!(addr & 0x80000))
                 banshee_ext_outl(addr & 0xff, val, banshee);
-            else
+            else {
                 banshee_cmd_write(banshee, addr, val);
+                /* A command FIFO moved or switched (not from the FIFO
+                   thread: the memory map is the CPU thread's). */
+                switch (addr & 0x1fc) {
+                    case cmdBaseAddr0:
+                    case cmdBaseSize0:
+                    case cmdBaseAddr1:
+                    case cmdBaseSize1:
+                        banshee_update_direct(banshee);
+                        break;
+                    default:
+                        break;
+                }
+            }
 #if 0
             banshee_log("CMD!!! write %08x %08x\n", addr, val);
 #endif
@@ -1948,16 +1961,28 @@ banshee_lfb_dirty(uint8_t *page, void *priv)
         svga->changedvram[offset >> 12] = changeframecount;
 }
 
-/* Below the tiled region, the linear frame buffer is the memory as it is. */
+/* Below the tiled region, the linear frame buffer is the memory as it is,
+   but for a command FIFO kept in it, whose writes the FIFO has to see. */
 static void
 banshee_update_direct(banshee_t *banshee)
 {
-    uint32_t size = banshee->voodoo ? banshee->voodoo->tile_base : 0;
+    const voodoo_t *voodoo = banshee->voodoo;
+    uint32_t        size   = voodoo ? voodoo->tile_base : 0;
+    uint32_t        hole   = 0;
+    uint32_t        hole_end = 0;
 
     if (size > banshee->svga.vram_max)
         size = banshee->svga.vram_max;
+    if (voodoo && voodoo->cmdfifo_enabled && !voodoo->cmdfifo_in_agp && (voodoo->cmdfifo_base < size)) {
+        hole     = voodoo->cmdfifo_base;
+        hole_end = voodoo->cmdfifo_end;
+    }
+    /* A second FIFO there as well (rare): nothing direct from it up. */
+    if (voodoo && voodoo->cmdfifo_enabled_2 && !voodoo->cmdfifo_in_agp_2 && (voodoo->cmdfifo_base_2 < size))
+        size = voodoo->cmdfifo_base_2;
 
     mem_mapping_set_direct(&banshee->linear_mapping, banshee->svga.vram, size, banshee_lfb_dirty, &banshee->svga);
+    mem_mapping_set_direct_hole(&banshee->linear_mapping, hole, hole_end);
 }
 
 static uint8_t

@@ -3093,10 +3093,12 @@ mem_mapping_add(mem_mapping_t *map,
     }
     last_mapping = map;
 
-    map->direct       = NULL;
-    map->direct_size  = 0;
-    map->direct_dirty = NULL;
-    map->direct_priv  = NULL;
+    map->direct          = NULL;
+    map->direct_size     = 0;
+    map->direct_dirty    = NULL;
+    map->direct_priv     = NULL;
+    map->direct_hole     = 0;
+    map->direct_hole_end = 0;
 
     mem_mapping_set(map, base, size, read_b, read_w, read_l,
                     write_b, write_w, write_l, exec, fl, priv);
@@ -3340,6 +3342,29 @@ mem_mapping_set_direct(mem_mapping_t *map, uint8_t *mem, uint32_t size,
 #endif
 }
 
+/* A range of the direct memory, offsets into the mapping, that is not plain
+   memory (a command FIFO in a frame buffer): its accesses go through the
+   handlers. start = end has none. */
+void
+mem_mapping_set_direct_hole(mem_mapping_t *map, uint32_t start, uint32_t end)
+{
+    start &= ~MEM_GRANULARITY_MASK;
+    end = (end + MEM_GRANULARITY_MASK) & ~MEM_GRANULARITY_MASK;
+    if (end <= start)
+        start = end = 0;
+
+    if ((map->direct_hole == start) && (map->direct_hole_end == end))
+        return;
+
+    map->direct_hole     = start;
+    map->direct_hole_end = end;
+
+#ifdef USE_HYPERVISOR
+    if (hv_active && map->enable && map->size && map->direct)
+        mem_mapping_recalc(map->base, map->size, map->base_ignore);
+#endif
+}
+
 /* The memory a hypervisor can map directly at this granule of the CPU's view,
    or NULL if accesses to it have to go through the mapping's handlers. It is
    readable directly when its reads are of the memory it executes from, and
@@ -3359,7 +3384,7 @@ mem_granule_direct(uint32_t granule, int *writable, mem_mapping_t **dirty)
 
     if (rm && (rm == wm) && rm->direct && !rm->base_ignore) {
         off = (granule << MEM_GRANULARITY_BITS) - rm->base;
-        if (off < rm->direct_size) {
+        if ((off < rm->direct_size) && ((off < rm->direct_hole) || (off >= rm->direct_hole_end))) {
             *writable = 1;
             *dirty    = (mem_mapping_t *) rm;
             return rm->direct + off;
