@@ -2095,6 +2095,17 @@ hv_init(void)
     }
     pclog("KVM: initializing, SMM %s\n", hv_has_smm ? "supported" : "not supported");
 
+    /* A memory slot change drops only that slot's mappings, not all of the
+       guest's to be faulted back in: the chipset changes slots often. */
+#ifdef KVM_X86_QUIRK_SLOT_ZAP_ALL
+    if (ioctl(vm_fd, KVM_CHECK_EXTENSION, KVM_CAP_DISABLE_QUIRKS2) & KVM_X86_QUIRK_SLOT_ZAP_ALL) {
+        memset(&cap, 0, sizeof(cap));
+        cap.cap     = KVM_CAP_DISABLE_QUIRKS2;
+        cap.args[0] = KVM_X86_QUIRK_SLOT_ZAP_ALL;
+        ioctl(vm_fd, KVM_ENABLE_CAP, &cap);
+    }
+#endif
+
     cap.cap = KVM_CAP_EXIT_ON_EMULATION_FAILURE;
     cap.args[0] = 1;
     ioctl(vm_fd, KVM_ENABLE_CAP, &cap);
@@ -2248,11 +2259,39 @@ hv_close(void)
    page of the guest's memory read back from swap (major faults), or the
    kernel or guest on the CPU all along (CPU time close to the wall time). */
 #define HV_STALL_NS 2000000ULL
+
+/* The guest's RAM, allocated by the host up front. Left to the guest's
+   first touch, each page is allocated inside KVM_RUN, where finding a huge
+   page on a host whose memory is full of cache can mean compacting it, in
+   the kernel, for tens of milliseconds the guest's clocks then jump by
+   (stalls with CPU time close to the wall time, during POST's memory
+   test). */
+static uint8_t *hv_populated;
+
+static void
+hv_populate(void)
+{
+#ifdef MADV_POPULATE_WRITE
+    uint64_t t;
+    size_t   size;
+
+    if ((ram == NULL) || (ram == hv_populated))
+        return;
+    hv_populated = ram;
+    size         = ((size_t) mem_size << 10) & ~(size_t) 0xfff;
+    t            = hv_clock_ns();
+    if (madvise(ram, size, MADV_POPULATE_WRITE) < 0)
+        pclog("KVM: allocating the guest's RAM up front failed: %s\n", strerror(errno));
+    else
+        pclog("KVM: allocated %zu MB of guest RAM up front in %.1f ms\n", size >> 20, (hv_clock_ns() - t) / 1000000.0);
+#endif
+}
 static uint64_t        hv_call_ns;
 static struct timespec hv_call_cpu;
 static struct rusage   hv_call_ru;
 static uint64_t        hv_stat_stalls;
 static uint64_t        hv_stat_stalls_next = 10;
+static uint64_t        hv_stall_logged;
 
 static void
 hv_stall_begin(void)
@@ -2273,19 +2312,23 @@ hv_stall_check(uint64_t deadline)
     if (late < (int64_t) HV_STALL_NS)
         return;
 
+    /* The first few, every power of ten, and any of 5 ms or more, once a
+       second at most. */
     hv_stat_stalls++;
-    if ((hv_stat_stalls > 4) && (hv_stat_stalls != hv_stat_stalls_next))
+    if ((hv_stat_stalls > 4) && (hv_stat_stalls != hv_stat_stalls_next) &&
+        ((late < 5000000LL) || ((int64_t) (hv_ns_last - hv_stall_logged) < 1000000000LL)))
         return;
     if (hv_stat_stalls >= hv_stat_stalls_next)
         hv_stat_stalls_next *= 10;
+    hv_stall_logged = hv_ns_last;
 
     clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu);
     getrusage(RUSAGE_THREAD, &ru);
     cpu_ns = ((int64_t) (cpu.tv_sec - hv_call_cpu.tv_sec) * 1000000000LL) + (cpu.tv_nsec - hv_call_cpu.tv_nsec);
     pclog("KVM: the guest stood still for %.1f ms (%" PRIu64 " so far); this call: %.1f ms, %.1f ms of it on a CPU, "
-          "%ld involuntary context switches, %ld major page faults\n",
+          "%ld involuntary context switches, %ld major and %ld minor page faults\n",
           late / 1000000.0, hv_stat_stalls, (hv_ns_last - hv_call_ns) / 1000000.0, cpu_ns / 1000000.0,
-          ru.ru_nivcsw - hv_call_ru.ru_nivcsw, ru.ru_majflt - hv_call_ru.ru_majflt);
+          ru.ru_nivcsw - hv_call_ru.ru_nivcsw, ru.ru_majflt - hv_call_ru.ru_majflt, ru.ru_minflt - hv_call_ru.ru_minflt);
 }
 
 static void
@@ -2324,6 +2367,7 @@ hv_exec(UNUSED(int32_t cycs))
     hv_rate_update();
 
     /* The time since the last call, in the main loop or paused, is lag. */
+    hv_populate();
     hv_account_out();
     end = hv_ns_last + (force_10ms ? (10 * HV_QUANTUM_NS) : HV_QUANTUM_NS);
     hv_stall_begin();
