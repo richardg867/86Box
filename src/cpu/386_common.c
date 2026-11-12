@@ -1741,8 +1741,8 @@ leave_smm(void)
 
 #ifdef USE_HYPERVISOR
     /* The hypervisor holds the processor's state: only the bus leaves SMM
-       (a reset in SMM). */
-    if (hv_active) {
+       (a reset in SMM), unless this is an RSM run on that state. */
+    if (hv_active && !hv_rsm) {
         in_smm = 0;
         smram_recalc_all(1);
         return;

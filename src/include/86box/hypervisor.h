@@ -24,6 +24,9 @@
 extern int hv_active;
 /* fpu_softfloat set by the hypervisor, not the configuration. */
 extern int hv_fpu_softfloat_forced;
+/* Set while the CPU emulation runs an RSM on the hypervisor's processor
+   state (a hypervisor without SMM of its own, whose SMM is 86Box's). */
+extern int hv_rsm;
 
 extern int  hv_available(void);
 extern void hv_exec(int32_t cycs);

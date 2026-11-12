@@ -79,6 +79,7 @@ hv_log(const char *fmt, ...)
 #endif
 
 int hv_active = 0;
+int hv_rsm    = 0;
 
 int       hv_as_count; /* 2 with the hypervisor's SMM */
 hv_slot_t hv_slots[2][HV_MAX_SLOTS];
@@ -92,6 +93,7 @@ int     hv_in_recalc;
 int     hv_npending;
 int     hv_pending_all;
 
+uint64_t hv_min_run_ns = HV_MIN_RUN_NS;
 uint64_t hv_ns_last;    /* host clock at the last accounting */
 uint64_t hv_lag_ns;     /* host time held back from the guest */
 uint64_t hv_behind_ns;  /* the guest's time behind the host's since the start */
@@ -195,7 +197,7 @@ hv_timer_deadline(void)
 }
 
 /* When the guest is to be stopped for its timers: the next one, but no
-   sooner than HV_MIN_RUN_NS from now unless it is a precise one (see
+   sooner than hv_min_run_ns from now unless it is a precise one (see
    TIMER_PRECISE), which is never run late. */
 uint64_t
 hv_stop_deadline(void)
@@ -203,17 +205,17 @@ hv_stop_deadline(void)
     uint64_t         deadline = hv_timer_deadline();
     const pc_timer_t *t;
 
-    if ((int64_t) (deadline - (hv_ns_last + HV_MIN_RUN_NS)) >= 0)
+    if ((int64_t) (deadline - (hv_ns_last + hv_min_run_ns)) >= 0)
         return deadline;
 
     for (t = timer_head; t != NULL; t = t->next) {
         if (t->flags & TIMER_PRECISE)
-            return MIN(hv_ts_to_host(t->ts_integer), hv_ns_last + HV_MIN_RUN_NS);
-        if ((int64_t) (hv_ts_to_host(t->ts_integer) - (hv_ns_last + HV_MIN_RUN_NS)) >= 0)
+            return MIN(hv_ts_to_host(t->ts_integer), hv_ns_last + hv_min_run_ns);
+        if ((int64_t) (hv_ts_to_host(t->ts_integer) - (hv_ns_last + hv_min_run_ns)) >= 0)
             break;
     }
 
-    return hv_ns_last + HV_MIN_RUN_NS;
+    return hv_ns_last + hv_min_run_ns;
 }
 
 /* Memory slots. */

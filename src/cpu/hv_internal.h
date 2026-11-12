@@ -149,6 +149,10 @@ extern int      hv_npending;
 extern int      hv_pending_all;
 extern int      hv_in_recalc;
 
+/* HV_MIN_RUN_NS, or more where each stop costs more (a host whose exits
+   are slow, such as a nested one): devices' timers are then later, in
+   their order, the guest stopped less often. */
+extern uint64_t hv_min_run_ns;
 extern uint64_t hv_ns_last;    /* host clock at the last accounting */
 extern uint64_t hv_lag_ns;     /* host time held back from the guest */
 extern uint64_t hv_behind_ns;  /* the guest's time behind the host's since the start */
