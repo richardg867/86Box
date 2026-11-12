@@ -141,6 +141,7 @@ typedef struct _emu10k1_ {
         uint16_t itram[8192]; /* internal TRAM */
         int      skip;
         int      interrupt;
+        int      etram_access; /* external TRAM accessed on this run */
         int      pause : 1, stop : 1;
 
         thread_t *thread;
@@ -774,26 +775,45 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
     /* Don't execute if the DSP is paused. */
     if ((dev->indirect_regs[0x52] & 0x00008000) || UNLIKELY(dev->dsp.pause)) {
         memset(&dev->dsp.regs[0x20], 0, 32 * sizeof(dev->dsp.regs[0])); /* null samples are output when DSP is off */
+        dev->dsp.etram_access = 0;
         goto end;
     }
 
     /* Decrement DBAC. */
     dev->dsp.regs[0x5b] = (dev->dsp.regs[0x5b] - 1) & 0xfffff;
 
-    /* Perform external TRAM operations, unless HCFG_LOCKTANKCACHE is set. */
-    if (!(dev->io_regs[0x14] & 0x04)) {
-        for (int tram = 0; tram < 0x20; tram++) {
-            uint32_t tram_op = dev->indirect_regs[0x380 | tram];
-            if (tram_op & 0x00100000) /* READ */
-                dev->dsp.etram[tram] = mem_readw_phys(etram_addr(-1));
-            if (tram_op & 0x00a00000) /* CLEAR/WRITE */
-                mem_writew_phys(etram_addr(1), dev->dsp.etram[tram]);
-        }
-    }
+    /* External TRAM is accessed by the DSP thread, unless HCFG_LOCKTANKCACHE is set. */
+    dev->dsp.etram_access = !(dev->io_regs[0x14] & 0x04);
 
 end:
     /* Wake DSP thread. */
     thread_set_event(dev->dsp.wake_dsp_thread);
+}
+
+static void
+emu10k1_dsp_etram(emu10k1_t *dev)
+{
+    /* The external TRAM cache is filled from and written back to memory here,
+       on the DSP thread, as the chip does through bus master cycles. The map
+       lock keeps a memory map rebuild on another thread from being seen half
+       done. Only plain memory is accessed: a device's handlers are not safe
+       to call from this thread, so TRAM placed on a device reads as an empty
+       bus and drops writes. Drivers always place it in system RAM. */
+    mem_mapping_lock();
+    for (int tram = 0; tram < 0x20; tram++) {
+        uint32_t tram_op = dev->indirect_regs[0x380 | tram];
+        uint32_t addr;
+        if (tram_op & 0x00100000) { /* READ */
+            addr                 = etram_addr(-1);
+            dev->dsp.etram[tram] = mem_phys_ptr(addr, 2) ? mem_readw_phys(addr) : 0xffff;
+        }
+        if (tram_op & 0x00a00000) { /* CLEAR/WRITE */
+            addr = etram_addr(1);
+            if (mem_phys_ptr(addr, 2))
+                mem_writew_phys(addr, dev->dsp.etram[tram]);
+        }
+    }
+    mem_mapping_unlock();
 }
 
 void
@@ -823,6 +843,8 @@ extern uint8_t keyboard_get_shift(void);
 #endif
 
         /* Update TRAM. */
+        if (dev->dsp.etram_access)
+            emu10k1_dsp_etram(dev);
         for (int tram = 0; tram < 0x80; tram++) {
             uint32_t tram_op = dev->indirect_regs[0x300 | tram];
             if (tram_op & 0x00100000) /* READ */
