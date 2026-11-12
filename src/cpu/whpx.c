@@ -1375,8 +1375,13 @@ hv_available(void)
         }
     }
 
-    if (!hv_avail)
+    if (!hv_avail) {
         pclog("WHPX: not available (%s), the CPU is emulated\n", why);
+        /* Said once a session: the machine runs on, emulated. */
+        warning("This machine is set to run its CPU on the Windows Hypervisor Platform, which is not available (%s). "
+                "Turn on the \"Windows Hypervisor Platform\" Windows feature, and virtualization in the firmware "
+                "setup, then restart Windows. The CPU is emulated for now.", why);
+    }
 
     return hv_avail;
 }
