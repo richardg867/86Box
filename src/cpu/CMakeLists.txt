@@ -66,7 +66,7 @@ endif()
 
 if(HYPERVISOR)
     if(CMAKE_SYSTEM_NAME MATCHES "Linux")
-        target_sources(cpu PRIVATE kvm.c)
+        target_sources(cpu PRIVATE hv_common.c kvm.c)
         target_link_libraries(86Box rt)
     endif()
 endif()
