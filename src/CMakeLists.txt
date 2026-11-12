@@ -125,8 +125,9 @@ if(CMAKE_SYSTEM_NAME MATCHES "Linux")
     endif()
 endif()
 
-if(CMAKE_SYSTEM_NAME MATCHES "Linux")
-    if(HYPERVISOR)
+# KVM on Linux, the Windows Hypervisor Platform (loaded at run time) on x86-64 Windows
+if(HYPERVISOR)
+    if(CMAKE_SYSTEM_NAME MATCHES "Linux" OR (WIN32 AND ARCH STREQUAL "x86_64"))
         add_compile_definitions(USE_HYPERVISOR)
     endif()
 endif()

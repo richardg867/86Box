@@ -68,6 +68,8 @@ if(HYPERVISOR)
     if(CMAKE_SYSTEM_NAME MATCHES "Linux")
         target_sources(cpu PRIVATE hv_common.c kvm.c)
         target_link_libraries(86Box rt)
+    elseif(WIN32 AND ARCH STREQUAL "x86_64")
+        target_sources(cpu PRIVATE hv_common.c whpx.c)
     endif()
 endif()
 
