@@ -827,8 +827,10 @@ emu10k1_dsp_thread(void *priv)
 #if 0
 #define EMU10K1_DSP_TRACE dev->dsp.regs[0] && /*RUNNING_CODE() &&*/ (ANY_REG(0x00) || ANY_REG(0x04) || ANY_REG(0x20) || ANY_REG(0x100) || ANY_REG(0x102) || ANY_REG(0x10c) || ANY_REG(0x114))
 #endif
+#ifdef ENABLE_EMU10K1_DSP_TRACE /* trace while Shift is held */
 extern uint8_t keyboard_get_shift(void);
-#define EMU10K1_DSP_TRACE (keyboard_get_shift() & 0x01)
+#    define EMU10K1_DSP_TRACE (keyboard_get_shift() & 0x01)
+#endif
 
     thread_set_event(dev->dsp.wake_main_thread);
 
