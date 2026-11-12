@@ -167,6 +167,7 @@ static int      whpx_ev_pending; /* an event is being or about to be delivered *
 static uint64_t whpx_notify;     /* WHvX64RegisterDeliverabilityNotifications as set */
 static uint64_t whpx_exc_bitmap; /* the exception exit bitmap as set */
 static int      whpx_exc_fixed;  /* it cannot be changed after setup */
+static int      whpx_fxsr_only;  /* the emulated processor has FXSR but no SSE */
 
 /* The host's clock. */
 static uint64_t whpx_qpc_freq;
@@ -195,6 +196,7 @@ static hv_fpu_t whpx_ferr_snap;
 static uint64_t whpx_stat_exits[16];
 static uint64_t whpx_stat_emu_fail;
 static uint64_t whpx_stat_ferr;
+static uint64_t whpx_stat_fxrstor;
 static uint64_t whpx_stat_smi;
 static uint64_t whpx_stat_late;
 static uint64_t whpx_stat_late_next = 10;
@@ -644,12 +646,20 @@ whpx_end_shadow(void)
     whpx_shadow = 0;
 }
 
-/* The exceptions that stop the guest: #MF always (FERR#), #UD in SMM (RSM). */
+/* The exceptions that stop the guest: #MF always (FERR#), #UD in SMM (RSM),
+   #GP on a processor with FXSR but no SSE (FXRSTOR). */
+static uint64_t
+whpx_exc_always(void)
+{
+    return (1ULL << WHvX64ExceptionTypeFloatingPointErrorFault) |
+           (whpx_fxsr_only ? (1ULL << WHvX64ExceptionTypeGeneralProtectionFault) : 0);
+}
+
 static void
 whpx_exceptions(void)
 {
     WHV_PARTITION_PROPERTY prop;
-    uint64_t               want = (1ULL << WHvX64ExceptionTypeFloatingPointErrorFault) |
+    uint64_t               want = whpx_exc_always() |
                                   ((in_smm || whpx_exc_fixed) ? (1ULL << WHvX64ExceptionTypeInvalidOpcodeFault) : 0);
     HRESULT                hr;
 
@@ -1240,6 +1250,44 @@ whpx_rsm(void)
     whpx_log("WHPX: RSM, %s SMM, %s\n", in_smm ? "in" : "out of", hv_halted ? "halted" : "running");
 }
 
+/* FXRSTOR on a processor with FXSR but no SSE (Pentium II, Celeron
+   Mendocino): the MXCSR field of its image is reserved there, and an
+   operating system that does not use SSE leaves anything in it. Windows XP
+   copies it from frame to frame for user mode callbacks, a stale stack
+   value included. The host's processor has SSE and, with CR4.OSFXSR set,
+   raises #GP for reserved MXCSR bits (bugcheck 0x7F, 0x0D in KiTrap07).
+   The CPU interpreter runs the instruction as the emulated processor does. */
+static int
+whpx_is_fxrstor(const UINT8 *b, int n)
+{
+    int i = 0;
+
+    /* Prefixes: segment, operand and address size, LOCK, REP. */
+    while ((i < n) && ((b[i] == 0x26) || (b[i] == 0x2e) || (b[i] == 0x36) || (b[i] == 0x3e) || (b[i] == 0x64) ||
+                       (b[i] == 0x65) || (b[i] == 0x66) || (b[i] == 0x67) || (b[i] == 0xf0) || (b[i] == 0xf2) ||
+                       (b[i] == 0xf3)))
+        i++;
+
+    /* 0F AE /1, a memory operand. */
+    return ((i + 2) < n) && (b[i] == 0x0f) && (b[i + 1] == 0xae) && ((b[i + 2] & 0x38) == 0x08) &&
+           ((b[i + 2] & 0xc0) != 0xc0);
+}
+
+static void
+whpx_fxrstor(void)
+{
+    hv_state_t st;
+    uint32_t   pc;
+
+    hv_state_begin(&st);
+    pc = cpu_state.pc;
+    exec386_hv_step();
+    hv_state_end(&st);
+    whpx_end_shadow();
+    if (++whpx_stat_fxrstor <= 4)
+        pclog("WHPX: FXRSTOR at %04X:%08X raised #GP on the host's processor, run as the emulated one does\n", CS, pc);
+}
+
 static void
 whpx_exception(void)
 {
@@ -1257,6 +1305,13 @@ whpx_exception(void)
             if (in_smm && (e->InstructionByteCount >= 2) && (e->InstructionBytes[0] == 0x0f) &&
                 (e->InstructionBytes[1] == 0xaa)) {
                 whpx_rsm();
+                return;
+            }
+            break;
+
+        case WHvX64ExceptionTypeGeneralProtectionFault:
+            if (whpx_fxsr_only && whpx_is_fxrstor(e->InstructionBytes, e->InstructionByteCount)) {
+                whpx_fxrstor();
                 return;
             }
             break;
@@ -1418,9 +1473,13 @@ whpx_init(void)
     if (FAILED(hr = pWHvSetPartitionProperty(whpx_part, WHvPartitionPropertyCodeExtendedVmExits, &prop, sizeof(prop))))
         whpx_fatal("setting the extended exits", hr);
 
+    /* FXSR (EDX bit 24) without SSE (bit 25). */
+    whpx_cpuid_leaf(0x00000001, 0, leaves);
+    whpx_fxsr_only = (leaves[3] & 0x03000000) == 0x01000000;
+
     /* #UD too until it is seen that it can be dropped afterwards. */
     memset(&prop, 0, sizeof(prop));
-    prop.ExceptionExitBitmap = (1ULL << WHvX64ExceptionTypeFloatingPointErrorFault) | (1ULL << WHvX64ExceptionTypeInvalidOpcodeFault);
+    prop.ExceptionExitBitmap = whpx_exc_always() | (1ULL << WHvX64ExceptionTypeInvalidOpcodeFault);
     if (FAILED(hr = pWHvSetPartitionProperty(whpx_part, WHvPartitionPropertyCodeExceptionExitBitmap, &prop, sizeof(prop))))
         whpx_fatal("setting the exception exits", hr);
     whpx_exc_bitmap = prop.ExceptionExitBitmap;
