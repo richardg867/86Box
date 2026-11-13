@@ -1336,21 +1336,13 @@ emu10k1_mmutranslate(emu10k1_t *dev, emu8k_voice_t *voice, uint32_t page)
             goto found_page;
     }
 
-    /* Perform page walk. */
-    uint32_t ptb     = dev->indirect_regs[0x40];
-    uint32_t ptb_end = ptb + (dev->pagemask << 2);
-    for (; ptb <= ptb_end; ptb += 4) {
-        pte = mem_readl_phys(ptb);
-        if ((pte & dev->pagemask) == page) {
-            /* Add TLB entry. */
-            voice->map[voice->tlb_pos] = pte;
-            voice->tlb_pos             = (voice->tlb_pos + 1) & ((sizeof(voice->map) / sizeof(voice->map[0])) - 1);
-            goto found_page;
-        }
-    }
-
-    /* Nothing found. */
-    return EMU10K1_MMU_UNMAPPED;
+    /* Perform page walk. The page table is indexed directly by page number, and the
+       TLB entry is tagged with it: the low bits of the table entry are not checked,
+       which matters for drivers that leave them clear (Creative's later WDM drivers). */
+    pte = mem_readl_phys(dev->indirect_regs[0x40] + ((page & dev->pagemask) << 2));
+    pte = (pte & ~dev->pagemask) | (page & dev->pagemask);
+    voice->map[voice->tlb_pos] = pte;
+    voice->tlb_pos             = (voice->tlb_pos + 1) & ((sizeof(voice->map) / sizeof(voice->map[0])) - 1);
 
 found_page:
     /* EMU10K1 is notorious for its "31-bit" DMA, where pte[31:13] = addr[30:12] */
