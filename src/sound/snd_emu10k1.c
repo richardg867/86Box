@@ -895,7 +895,7 @@ emu10k1_dsp_etram(emu10k1_t *dev)
             addr                 = etram_addr(-1);
             dev->dsp.etram[tram] = mem_phys_ptr(addr, 2) ? mem_readw_phys(addr) : 0xffff;
         }
-        if (tram_op & 0x00a00000) { /* CLEAR/WRITE */
+        if (tram_op & 0x00200000) { /* WRITE */
             addr = etram_addr(1);
             if (mem_phys_ptr(addr, 2))
                 mem_writew_phys(addr, dev->dsp.etram[tram]);
@@ -1194,18 +1194,17 @@ emu10k1_dsp_thread(void *priv)
             uint32_t tram_op = dev->indirect_regs[0x300 | tram];
             if (tram_op & 0x00100000) /* READ */
                 dev->indirect_regs[0x200 | tram] = emu10k1_dsp_tramdecompress(dev->dsp.itram[itram_addr(-1)]);
-            if (tram_op & 0x00800000) /* CLEAR */
-                dev->dsp.itram[itram_addr(1)] = 0;
-            else if (tram_op & 0x00200000) /* WRITE */
+            if (tram_op & 0x00200000) /* WRITE */
                 dev->dsp.itram[itram_addr(1)] = emu10k1_dsp_tramcompress(dev->indirect_regs[0x200 | tram]);
+            /* The CLEAR flag has no effect while the DSP runs: it neither clears the location on its own
+               nor after a READ, and it doesn't stop a WRITE. Creative's effects set it on delay line
+               taps, which must keep the data for the taps further down the line. */
         }
         for (int tram = 0; tram < 0x20; tram++) {
             uint32_t tram_op = dev->indirect_regs[0x380 | tram];
             if (tram_op & 0x00100000) /* READ */
                 dev->indirect_regs[0x280 | tram] = emu10k1_dsp_tramdecompress(dev->dsp.etram[tram]);
-            if (tram_op & 0x00800000) /* CLEAR */
-                dev->dsp.etram[tram] = 0;
-            else if (tram_op & 0x00200000) /* WRITE */
+            if (tram_op & 0x00200000) /* WRITE (CLEAR has no effect, as above) */
                 dev->dsp.etram[tram] = emu10k1_dsp_tramcompress(dev->indirect_regs[0x280 | tram]);
         }
 
