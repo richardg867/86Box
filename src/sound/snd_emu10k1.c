@@ -205,7 +205,6 @@ typedef struct _emu10k1_ {
     int cd_vol_r;
 } emu10k1_t;
 
-#define ENABLE_EMU10K1_LOG 1
 #ifdef ENABLE_EMU10K1_LOG
 int emu10k1_do_log = ENABLE_EMU10K1_LOG;
 
@@ -1564,8 +1563,16 @@ indirect_reg:
             break;
 
         case 0x10: /* WC */
-            /* [5:0] is channel being processed, but we service all in one go */
+            /* [5:0] is the channel being processed. The chip goes through all
+               64 channels once per sample period, while we service them all in
+               one go on each poll, so derive the channel from how far into the
+               current sample period we are. */
             ret = (dev->emu8k.wc << 6) & 0x03ffffc0;
+            if (dev->timer_latch) {
+                uint64_t remaining = (uint64_t) timer_get_remaining_u64(&dev->poll_timer);
+                if (remaining < dev->timer_latch)
+                    ret |= 63 - (uint32_t) ((remaining * 64) / dev->timer_latch);
+            }
             break;
 
         default: /* 8/16-bit registers or unaligned operation */
