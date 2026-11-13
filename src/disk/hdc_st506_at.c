@@ -174,6 +174,14 @@ drive_hpc(const drive_t *drive, int multi)
     return multi ? drive->cfg_hpc : drive->hpc;
 }
 
+/* The SDH register holds four head bits, but the drive only sees bit 3 on
+   HS3- when 3F6 bit 3 (HS3EN) selects it over RWC-. */
+static int
+drive_head(const mfm_t *mfm)
+{
+    return mfm->hs3en ? mfm->head : (mfm->head & 0x07);
+}
+
 /* A single-sector access needs no geometry: the controller seeks to
    the given cylinder, selects the head and scans the track for an ID field
    matching C/H/S. SET PARAMETERS only matters for multi-sector transfers. */
@@ -182,6 +190,7 @@ get_sector(mfm_t *mfm, off64_t *addr)
 {
     const drive_t *drive = &mfm->drives[mfm->drvsel];
     int            multi = (mfm->secount != 1);
+    int            head  = drive_head(mfm);
 
     /* FIXME: See if this is even needed - if the code is present, IBM AT
               diagnostics v2.07 will error with: ERROR 152 - SYSTEM BOARD. */
@@ -190,7 +199,7 @@ get_sector(mfm_t *mfm, off64_t *addr)
         return 1;
     }
 
-    if (mfm->head > drive_hpc(drive, multi)) {
+    if (head > drive_hpc(drive, multi)) {
         st506_at_log("WD1003(%d) get_sector: past end of configured heads\n",
                      mfm->drvsel);
         return 1;
@@ -203,7 +212,7 @@ get_sector(mfm_t *mfm, off64_t *addr)
     }
 
     /* We should check this in the SET_DRIVE_PARAMETERS command!  --FvK */
-    if (mfm->head > drive->hpc) {
+    if (head > drive->hpc) {
         st506_at_log("WD1003(%d) get_sector: past end of heads\n", mfm->drvsel);
         return 1;
     }
@@ -213,7 +222,7 @@ get_sector(mfm_t *mfm, off64_t *addr)
         return 1;
     }
 
-    *addr = ((((off64_t) mfm->cylinder * drive_hpc(drive, multi)) + mfm->head) * drive_spt(drive, multi)) + (mfm->sector - 1);
+    *addr = ((((off64_t) mfm->cylinder * drive_hpc(drive, multi)) + head) * drive_spt(drive, multi)) + (mfm->sector - 1);
 
     return 0;
 }
@@ -222,6 +231,7 @@ static int
 get_sector_format(mfm_t *mfm, off64_t *addr)
 {
     const drive_t *drive = &mfm->drives[mfm->drvsel];
+    int            head  = drive_head(mfm);
 
     /* FIXME: See if this is even needed - if the code is present, IBM AT
               diagnostics v2.07 will error with: ERROR 152 - SYSTEM BOARD. */
@@ -230,19 +240,19 @@ get_sector_format(mfm_t *mfm, off64_t *addr)
         return 1;
     }
 
-    if (mfm->head > drive_hpc(drive, 0)) {
+    if (head > drive_hpc(drive, 0)) {
         st506_at_log("WD1003(%d) get_sector: past end of configured heads\n",
                      mfm->drvsel);
         return 1;
     }
 
     /* We should check this in the SET_DRIVE_PARAMETERS command!  --FvK */
-    if (mfm->head > drive->hpc) {
+    if (head > drive->hpc) {
         st506_at_log("WD1003(%d) get_sector: past end of heads\n", mfm->drvsel);
         return 1;
     }
 
-    *addr = ((((off64_t) mfm->cylinder * drive_hpc(drive, 0)) + mfm->head) * drive_spt(drive, 0));
+    *addr = ((((off64_t) mfm->cylinder * drive_hpc(drive, 0)) + head) * drive_spt(drive, 0));
 
     return 0;
 }
@@ -449,8 +459,9 @@ mfm_write(uint16_t port, uint8_t val, void *priv)
             return;
 
         case 0x01f6: /* drive/head */
-            /* SDH bit 3 only reaches the drive when 3F6 bit 3 enables it. */
-            mfm->head   = mfm->hs3en ? (val & 0x0f) : (val & 0x07);
+            /* The register keeps bit 3 even when HS3EN is clear: SET
+               PARAMETERS still takes all four bits as the head count. */
+            mfm->head   = val & 0x0f;
             mfm->drvsel = !!(val & 0x10);
             if (mfm->drives[mfm->drvsel].present)
                 mfm->status = STAT_READY | STAT_DSC;
