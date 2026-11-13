@@ -1848,10 +1848,27 @@ emu8k_update(emu8k_t *emu8k)
         if (emu_voice->env_engine_on || emu_voice->cvcf_curr_volume)
             num_active++;
 
+        /* EMU10K1 stereo: the stereo bit on an even voice makes it the left channel of a pair, and the
+           next (odd) voice plays the right channel at the even voice's position, in its format and
+           between its loop points, whatever the odd voice's own pitch, stereo bit and position are.
+           Both channels are fetched through the even voice's translation cache: the odd voice's own
+           MAPA/MAPB are not used, and drivers leave junk in them. */
+        int                  stereo_master = emu8k->emu10k1_fxsends && !(c & 1) && CPF_10K1_STEREO(emu_voice->cpf);
+        int                  stereo_slave  = emu8k->emu10k1_fxsends && (c & 1) && CPF_10K1_STEREO(emu8k->voice[c - 1].cpf);
+        emu8k_voice_t       *fmt_voice     = stereo_slave ? &emu8k->voice[c - 1] : emu_voice;
+        int                  fmt_shift     = fmt_voice->addr_shift;
+        int                  fmt_offset    = stereo_slave ? fmt_shift : emu_voice->stereo_offset;
+        int                  fmt_stereo    = stereo_slave || CPF_10K1_STEREO(emu_voice->cpf);
+        int                  fmt_8bit      = CCCA_10K1_8BITSELECT(fmt_voice->ccca);
+
         for (pos = emu8k->pos; pos < new_pos; pos++) {
             int32_t dat;
 
-            uint64_t new_addr = emu_voice->addr.addr + (((uint64_t) emu_voice->cpf_curr_pitch) << 18);
+            if (stereo_master)
+                emu8k->stereo_addr[pos - emu8k->pos] = emu_voice->addr.addr;
+            else if (stereo_slave)
+                emu_voice->addr.addr = emu8k->stereo_addr[pos - emu8k->pos];
+            uint64_t new_addr = stereo_slave ? emu8k->stereo_addr[pos - emu8k->pos + 1] : (emu_voice->addr.addr + (((uint64_t) emu_voice->cpf_curr_pitch) << 18));
             if (emu_voice->cvcf_curr_volume) {
                 /* Waveform oscillator */
                 int16_t dat0;
@@ -1902,18 +1919,18 @@ emu8k_update(emu8k_t *emu8k)
                         } while (fetch--);
                     }
 #endif
-                    uint32_t addr     = (emu_voice->addr.int_address << emu_voice->addr_shift) + emu_voice->stereo_offset;
-                    uint32_t end_addr = (emu_voice->loop_end.int_address << emu_voice->addr_shift) + emu_voice->stereo_offset;
+                    uint32_t addr     = (emu_voice->addr.int_address << fmt_shift) + fmt_offset;
+                    uint32_t end_addr = (fmt_voice->loop_end.int_address << fmt_shift) + fmt_offset;
                     for (int i = 0; i < 16; i++) {
-                        emu_voice->cd[i] = emu8k->readl(emu8k, emu_voice, addr++);
+                        emu_voice->cd[i] = emu8k->readl(emu8k, fmt_voice, addr++);
                         if (addr >= end_addr)
-                            addr -= ((emu_voice->loop_end.int_address - emu_voice->loop_start.int_address) << emu_voice->addr_shift);
+                            addr -= ((fmt_voice->loop_end.int_address - fmt_voice->loop_start.int_address) << fmt_shift);
                     }
                     emu_voice->fifo_pos = 0;
 
                     /* Read sample points. */
-                    if (CCCA_10K1_8BITSELECT(emu_voice->ccca)) {
-                        if (CPF_10K1_STEREO(emu_voice->cpf)) { /* 8-bit stereo */
+                    if (fmt_8bit) {
+                        if (fmt_stereo) { /* 8-bit stereo */
                             dat0 = emu_voice->cd[emu_voice->fifo_pos & (sizeof(emu_voice->cd) - 1)];
                             dat1 = emu_voice->cd[(emu_voice->fifo_pos + 2) & (sizeof(emu_voice->cd) - 1)];
                             dat2 = emu_voice->cd[(emu_voice->fifo_pos + 4) & (sizeof(emu_voice->cd) - 1)];
@@ -1928,7 +1945,7 @@ emu8k_update(emu8k_t *emu8k)
                         dat1 = (dat1 << 8) ^ 0x8000;
                         dat2 = (dat2 << 8) ^ 0x8000;
                         dat3 = (dat3 << 8) ^ 0x8000;
-                    } else if (CPF_10K1_STEREO(emu_voice->cpf)) { /* 16-bit stereo */
+                    } else if (fmt_stereo) { /* 16-bit stereo */
                         dat0 = *((int16_t *) &emu_voice->cd[emu_voice->fifo_pos & (sizeof(emu_voice->cd) - 1)]);
                         dat1 = *((int16_t *) &emu_voice->cd[(emu_voice->fifo_pos + 4) & (sizeof(emu_voice->cd) - 1)]);
                         dat2 = *((int16_t *) &emu_voice->cd[(emu_voice->fifo_pos + 8) & (sizeof(emu_voice->cd) - 1)]);
@@ -1941,7 +1958,7 @@ emu8k_update(emu8k_t *emu8k)
                     }
 
                     /* Advance FIFO to the next sample. */
-                    emu_voice->fifo_pos += ((new_addr >> 32) - emu_voice->addr.int_address) << emu_voice->addr_shift;
+                    emu_voice->fifo_pos += ((new_addr >> 32) - emu_voice->addr.int_address) << fmt_shift;
                     if (UNLIKELY(emu_voice->fifo_end < emu_voice->fifo_pos)) {
                         /* Reposition FIFO due to overflow. */
                         emu_voice->fifo_end = emu_voice->fifo_pos;
@@ -2294,6 +2311,9 @@ emu8k_update(emu8k_t *emu8k)
             emu_voice->cvcf_curr_volume     = emu8k_vol_slide(&emu_voice->volumeslide, emu_voice->vtft_vol_target);
             emu_voice->cvcf_curr_filt_ctoff = emu_voice->vtft_filter_target;
         }
+
+        if (stereo_master)
+            emu8k->stereo_addr[new_pos - emu8k->pos] = emu_voice->addr.addr;
 
         /* Update EMU voice registers. */
         emu_voice->ccca = (((uint32_t) emu_voice->ccca_qcontrol) << 24) | emu_voice->addr.int_address;

@@ -435,6 +435,7 @@ typedef struct emu8k_t {
         };
         struct { /* EMU10K1 */
             int32_t fx_buffer[SOUNDBUFLEN][64];
+            uint64_t stereo_addr[SOUNDBUFLEN + 1]; /* EMU10K1: addresses of a stereo pair's even voice, followed by the odd voice */
         };
     };
 
