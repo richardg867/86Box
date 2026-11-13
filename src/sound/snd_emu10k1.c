@@ -342,7 +342,7 @@ emu10k1_dsp_opMACS(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opMACS1(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
-    st->acc = emu10k1_dsp_saturate(st, emu10k1_dsp_add(st, a, ((int64_t) -x * y) >> 31));
+    st->acc = emu10k1_dsp_saturate(st, emu10k1_dsp_add(st, a, -((int64_t) x * y) >> 31)); /* negated after widening, for X = Y = 0x80000000 */
     return st->acc;
 }
 
@@ -357,7 +357,7 @@ emu10k1_dsp_opMACW(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opMACW1(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
-    st->acc = emu10k1_dsp_add(st, a, ((int64_t) -x * y) >> 31);
+    st->acc = emu10k1_dsp_add(st, a, -((int64_t) x * y) >> 31);
     emu10k1_dsp_saturate(st, st->acc); /* saturation flag still calculated */
     return st->acc;
 }
