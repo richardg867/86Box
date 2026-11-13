@@ -110,7 +110,8 @@ enum {
     EMU10K1_DSP_SPECIAL_RNG_A = 0x01, /* operand read from a random number generator */
     EMU10K1_DSP_SPECIAL_RNG_X = 0x02,
     EMU10K1_DSP_SPECIAL_RNG_Y = 0x04,
-    EMU10K1_DSP_SPECIAL_INT   = 0x08  /* result written to the interrupt register */
+    EMU10K1_DSP_SPECIAL_INT   = 0x08, /* result written to the interrupt register */
+    EMU10K1_DSP_SPECIAL_FILL  = 0x10  /* an operand has its low bits filled from the sign */
 };
 
 /* Special handling of the A operand. */
@@ -158,7 +159,8 @@ typedef struct _emu10k1_ {
         int      code_dirty; /* microcode changed since it was last decoded */
         uint32_t sink;       /* destination of results that go nowhere */
         struct {             /* microcode decoded into word indexes from indirect_regs */
-            uint32_t mask[3];   /* A, X and Y operands: (word & mask) << shift */
+            uint32_t mask[3];   /* A, X and Y operands: (word & mask) << shift, with the bits */
+            uint32_t fill[3];   /* below the shift set from the sign as in fill */
             uint16_t src[3];
             uint16_t wo_cmp[3]; /* DSP address read back as the last written value, or none */
             uint8_t  shift[3];
@@ -699,6 +701,7 @@ emu10k1_dsp_decode_opnd(emu10k1_t *dev, int pc, int i, int addr)
        (kept up to date in the register file by the executor). */
     uint32_t *word = &dev->dsp.regs[addr & 0xff];
     uint32_t  mask = 0xffffffff;
+    uint32_t  fill = 0;
     int       shift = 0;
     int       wo_cmp = EMU10K1_DSP_WO_NEVER;
 
@@ -718,17 +721,25 @@ emu10k1_dsp_decode_opnd(emu10k1_t *dev, int pc, int i, int addr)
             break;
 
         case 0x200 ... 0x2ff: /* TRAM data */
-            /* Justified to most significant bit from the DSP's point of view */
-            word  = &dev->indirect_regs[addr];
-            shift = 12;
+            /* Justified to most significant bit from the DSP's point of view,
+               with the bits below filled from the sign. Read during the next
+               instruction, the full value last written by the DSP comes back. */
+            word   = &dev->indirect_regs[addr];
+            mask   = 0x000fffff;
+            fill   = 0x00000fff;
+            shift  = 12;
+            wo_cmp = addr;
             break;
 
         case 0x300 ... 0x3ff: /* TRAM address */
             /* Justified to second most significant bit from the DSP's point of view.
-               The opcode in the upper bits is discarded and therefore not visible. */
-            word  = &dev->indirect_regs[addr];
-            mask  = 0x000fffff;
-            shift = 11;
+               The opcode in the upper bits is discarded and therefore not visible.
+               Read during the next instruction, the full value last written by the
+               DSP comes back, fraction included. */
+            word   = &dev->indirect_regs[addr];
+            mask   = 0x000fffff;
+            shift  = 11;
+            wo_cmp = addr;
             break;
 
         case 0x00 ... 0x3f: /* inputs and outputs */
@@ -743,6 +754,9 @@ emu10k1_dsp_decode_opnd(emu10k1_t *dev, int pc, int i, int addr)
 
     dev->dsp.code[pc].src[i]    = word - dev->indirect_regs;
     dev->dsp.code[pc].mask[i]   = mask;
+    dev->dsp.code[pc].fill[i]   = fill;
+    if (fill)
+        dev->dsp.code[pc].special |= EMU10K1_DSP_SPECIAL_FILL;
     dev->dsp.code[pc].shift[i]  = shift;
     dev->dsp.code[pc].wo_cmp[i] = wo_cmp;
 }
@@ -942,17 +956,20 @@ emu10k1_dsp_decode(emu10k1_t *dev)
 
             case 0x200 ... 0x2ff: /* TRAM data */
                 /* Justified to most significant bit from the DSP's point of view. */
-                word  = &dev->indirect_regs[r];
-                shift = 12;
+                word   = &dev->indirect_regs[r];
+                mask   = 0x000fffff;
+                shift  = 12;
+                wo_set = r;
                 break;
 
             case 0x300 ... 0x3ff: /* TRAM address */
                 /* Justified to second most significant bit from the DSP's point of view.
                    The opcode in the upper bits is inaccessible and must be kept intact. */
-                word  = &dev->indirect_regs[r];
-                keep  = 0xfff00000;
-                mask  = 0x000fffff;
-                shift = 11;
+                word   = &dev->indirect_regs[r];
+                keep   = 0xfff00000;
+                mask   = 0x000fffff;
+                shift  = 11;
+                wo_set = r;
                 break;
 
             default: /* not writable */
@@ -1059,6 +1076,8 @@ emu10k1_dsp_etram_slot(emu10k1_t *dev, int tram)
     }
 }
 
+#define EMU10K1_DSP_OPND(i) ((regs[insn->src[i]] & insn->mask[i]) << insn->shift[i])
+
 static void
 emu10k1_dsp_run(emu10k1_t *dev)
 {
@@ -1114,20 +1133,29 @@ emu10k1_dsp_run(emu10k1_t *dev)
 
         /* Read operands. */
         if (LIKELY(!(insn->special & (EMU10K1_DSP_SPECIAL_RNG_A | EMU10K1_DSP_SPECIAL_RNG_X | EMU10K1_DSP_SPECIAL_RNG_Y)))) {
-            aval = (int32_t) ((insn->wo_cmp[0] == last_wo_reg) ? last_wo_val : ((regs[insn->src[0]] & insn->mask[0]) << insn->shift[0]));
-            xval = (insn->wo_cmp[1] == last_wo_reg) ? last_wo_val : ((regs[insn->src[1]] & insn->mask[1]) << insn->shift[1]);
-            yval = (insn->wo_cmp[2] == last_wo_reg) ? last_wo_val : ((regs[insn->src[2]] & insn->mask[2]) << insn->shift[2]);
+            aval = (int32_t) ((insn->wo_cmp[0] == last_wo_reg) ? last_wo_val : EMU10K1_DSP_OPND(0));
+            xval = (insn->wo_cmp[1] == last_wo_reg) ? last_wo_val : EMU10K1_DSP_OPND(1);
+            yval = (insn->wo_cmp[2] == last_wo_reg) ? last_wo_val : EMU10K1_DSP_OPND(2);
         } else {
             /* The random number generators are read in operand order. */
-            aval = (int32_t) ((insn->special & EMU10K1_DSP_SPECIAL_RNG_A) ? (random_generate() << 12) : ((regs[insn->src[0]] & insn->mask[0]) << insn->shift[0]));
-            xval = (insn->special & EMU10K1_DSP_SPECIAL_RNG_X) ? (random_generate() << 12) : ((regs[insn->src[1]] & insn->mask[1]) << insn->shift[1]);
-            yval = (insn->special & EMU10K1_DSP_SPECIAL_RNG_Y) ? (random_generate() << 12) : ((regs[insn->src[2]] & insn->mask[2]) << insn->shift[2]);
+            aval = (int32_t) ((insn->special & EMU10K1_DSP_SPECIAL_RNG_A) ? (random_generate() << 12) : EMU10K1_DSP_OPND(0));
+            xval = (insn->special & EMU10K1_DSP_SPECIAL_RNG_X) ? (random_generate() << 12) : EMU10K1_DSP_OPND(1);
+            yval = (insn->special & EMU10K1_DSP_SPECIAL_RNG_Y) ? (random_generate() << 12) : EMU10K1_DSP_OPND(2);
             if (insn->wo_cmp[0] == last_wo_reg)
                 aval = (int32_t) last_wo_val;
             if (insn->wo_cmp[1] == last_wo_reg)
                 xval = last_wo_val;
             if (insn->wo_cmp[2] == last_wo_reg)
                 yval = last_wo_val;
+        }
+        if (UNLIKELY(insn->special & EMU10K1_DSP_SPECIAL_FILL)) {
+            /* TRAM data: the bits below the 20-bit value are filled from its sign (not on a read-back of the last write). */
+            if (insn->wo_cmp[0] != last_wo_reg)
+                aval = (int32_t) (aval | (((int32_t) aval >> 31) & insn->fill[0]));
+            if (insn->wo_cmp[1] != last_wo_reg)
+                xval |= (xval >> 31) & insn->fill[1];
+            if (insn->wo_cmp[2] != last_wo_reg)
+                yval |= (yval >> 31) & insn->fill[2];
         }
         last_wo_reg = EMU10K1_DSP_WO_NONE;
 
