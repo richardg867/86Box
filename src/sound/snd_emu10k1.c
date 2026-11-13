@@ -462,6 +462,8 @@ emu10k1_dsp_logcompress(int32_t val, int max_exp)
     /* Tweaked from a kX plugin API function written by someone smarter than me. */
     int      exp_bits = log2i(max_exp) + 1;
     uint32_t ret      = (val < 0) ? ~val : val; /* actually's one complement */
+    if (!ret) /* 0 and -1 come out as is; log2i() can't tell 0 from 1, which matters with an exponent of 31 */
+        return val;
     int      msb      = 31 - log2i(ret);
     ret <<= msb;
     int exp = max_exp - msb;
