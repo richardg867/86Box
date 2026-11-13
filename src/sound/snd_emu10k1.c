@@ -177,7 +177,6 @@ typedef struct _emu10k1_ {
             int64_t  run_acc;
         } code[512];
         uint32_t etram_mask;
-        uint16_t etram[32];
         uint16_t itram[8192]; /* internal TRAM */
         int      skip;
         int      interrupt;
@@ -757,7 +756,6 @@ emu10k1_dsp_decode_opnd(emu10k1_t *dev, int pc, int i, int addr)
 /* Calculation of effective TRAM addresses (addr + DBAC +- align bit) */
 #define tram_addr(align, mask) ((tram_op + dev->dsp.regs[0x5b] + (!!(tram_op & 0x00400000) * (align))) & (mask))
 #define itram_addr(align)      tram_addr(align, (sizeof(dev->dsp.itram) / sizeof(dev->dsp.itram[0])) - 1)
-#define etram_addr(align)      (dev->indirect_regs[0x41] + (tram_addr(align, dev->dsp.etram_mask) << 1))
 
 void
 emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
@@ -876,32 +874,6 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
 end:
     /* Wake DSP thread. */
     thread_set_event(dev->dsp.wake_dsp_thread);
-}
-
-static void
-emu10k1_dsp_etram(emu10k1_t *dev)
-{
-    /* The external TRAM cache is filled from and written back to memory here,
-       on the DSP thread, as the chip does through bus master cycles. The map
-       lock keeps a memory map rebuild on another thread from being seen half
-       done. Only plain memory is accessed: a device's handlers are not safe
-       to call from this thread, so TRAM placed on a device reads as an empty
-       bus and drops writes. Drivers always place it in system RAM. */
-    mem_mapping_lock();
-    for (int tram = 0; tram < 0x20; tram++) {
-        uint32_t tram_op = dev->indirect_regs[0x380 | tram];
-        uint32_t addr;
-        if (tram_op & 0x00100000) { /* READ */
-            addr                 = etram_addr(-1);
-            dev->dsp.etram[tram] = mem_phys_ptr(addr, 2) ? mem_readw_phys(addr) : 0xffff;
-        }
-        if (tram_op & 0x00200000) { /* WRITE */
-            addr = etram_addr(1);
-            if (mem_phys_ptr(addr, 2))
-                mem_writew_phys(addr, dev->dsp.etram[tram]);
-        }
-    }
-    mem_mapping_unlock();
 }
 
 #define RAW_FETCH()    (((uint64_t *) &dev->indirect_regs[0x400])[pc])
@@ -1039,6 +1011,54 @@ emu10k1_dsp_decode(emu10k1_t *dev)
     }
 }
 
+/* The TRAM engine works through the TRAM slots while the microcode runs: internal
+   slot n is accessed between instructions 3n + 1 and 3n + 2, then external slot n
+   between instructions 384 + 4n + 1 and 384 + 4n + 2. A program reading a data
+   register earlier than that gets the previous sample's read, and a program writing
+   it earlier has the write go out on the current sample. DBAC steps to the next
+   sample's value between external slots 29 and 30. */
+#define EMU10K1_ITRAM_SLOT_PC(n) ((3 * (n)) + 2)
+#define EMU10K1_ETRAM_SLOT_PC(n) (0x182 + (4 * (n)))
+
+static inline void
+emu10k1_dsp_itram_slot(emu10k1_t *dev, int tram)
+{
+    uint32_t tram_op = dev->indirect_regs[0x300 | tram];
+    if (tram_op & 0x00100000) /* READ */
+        dev->indirect_regs[0x200 | tram] = emu10k1_dsp_tramdecompress(dev->dsp.itram[itram_addr(-1)]);
+    if (tram_op & 0x00200000) /* WRITE */
+        dev->dsp.itram[itram_addr(1)] = emu10k1_dsp_tramcompress(dev->indirect_regs[0x200 | tram]);
+    /* The CLEAR flag has no effect while the DSP runs: it neither clears the location on its own
+       nor after a READ, and it doesn't stop a WRITE. Creative's effects set it on delay line
+       taps, which must keep the data for the taps further down the line. */
+}
+
+static inline void
+emu10k1_dsp_etram_slot(emu10k1_t *dev, int tram)
+{
+    /* External TRAM is accessed on the DSP thread, as the chip does through bus
+       master cycles, with the memory map locked by the caller so that a rebuild
+       on another thread isn't seen half done. Only plain memory is accessed: a
+       device's handlers are not safe to call from this thread, so TRAM placed on
+       a device reads as an empty bus and drops writes. Drivers always place it in
+       system RAM. Unlike the hardware, which goes through a write-back cache, a
+       write is visible to reads right away; that only matters for delay lines
+       shorter than a few dozen samples, which drivers keep in internal TRAM. */
+    uint32_t tram_op = dev->indirect_regs[0x380 | tram];
+    uint32_t base    = tram_op + dev->dsp.regs[0x5b] - (tram >= 30); /* next sample's DBAC from slot 30 on */
+    uint32_t align   = !!(tram_op & 0x00400000);
+    uint32_t addr;
+    if (tram_op & 0x00100000) { /* READ */
+        addr                              = dev->indirect_regs[0x41] + (((base - align) & dev->dsp.etram_mask) << 1);
+        dev->indirect_regs[0x280 | tram] = emu10k1_dsp_tramdecompress(mem_phys_ptr(addr, 2) ? mem_readw_phys(addr) : 0xffff);
+    }
+    if (tram_op & 0x00200000) { /* WRITE (CLEAR has no effect, see emu10k1_dsp_itram_slot) */
+        addr = dev->indirect_regs[0x41] + (((base + align) & dev->dsp.etram_mask) << 1);
+        if (mem_phys_ptr(addr, 2))
+            mem_writew_phys(addr, emu10k1_dsp_tramcompress(dev->indirect_regs[0x280 | tram]));
+    }
+}
+
 static void
 emu10k1_dsp_run(emu10k1_t *dev)
 {
@@ -1055,8 +1075,26 @@ emu10k1_dsp_run(emu10k1_t *dev)
     uint32_t            last_wo_reg = EMU10K1_DSP_WO_NONE;
     uint32_t            last_wo_val = 0;
     int                 pc          = 0;
+    int                 tram_slot   = 0; /* next TRAM slot to access: internal 0-127, then external */
+    int                 tram_pc     = EMU10K1_ITRAM_SLOT_PC(0);
 
     while (pc < 0x200) {
+        /* Access the TRAM slots due before this instruction. */
+        if (UNLIKELY(pc >= tram_pc)) {
+            while ((tram_slot < 0x80) && (EMU10K1_ITRAM_SLOT_PC(tram_slot) <= pc))
+                emu10k1_dsp_itram_slot(dev, tram_slot++);
+            if ((tram_slot >= 0x80) && (EMU10K1_ETRAM_SLOT_PC(tram_slot - 0x80) <= pc)) {
+                if ((tram_slot == 0x80) && dev->dsp.etram_access)
+                    mem_mapping_lock();
+                do {
+                    if (dev->dsp.etram_access)
+                        emu10k1_dsp_etram_slot(dev, tram_slot - 0x80);
+                    tram_slot++;
+                } while ((tram_slot < 0xa0) && (EMU10K1_ETRAM_SLOT_PC(tram_slot - 0x80) <= pc));
+            }
+            tram_pc = (tram_slot < 0x80) ? EMU10K1_ITRAM_SLOT_PC(tram_slot) : ((tram_slot < 0xa0) ? EMU10K1_ETRAM_SLOT_PC(tram_slot - 0x80) : 0x200);
+        }
+
         const typeof(dev->dsp.code[0]) *insn = &dev->dsp.code[pc];
         int                             op   = insn->op;
         int64_t                         aval;
@@ -1165,6 +1203,19 @@ emu10k1_dsp_run(emu10k1_t *dev)
         pc += MAX(st.skip, 1);
     }
 
+    /* Access any slots left, which a SKIP past the end can leave. */
+    while (tram_slot < 0x80)
+        emu10k1_dsp_itram_slot(dev, tram_slot++);
+    if (dev->dsp.etram_access) {
+        if (tram_slot == 0x80)
+            mem_mapping_lock();
+        while (tram_slot < 0xa0) {
+            emu10k1_dsp_etram_slot(dev, tram_slot - 0x80);
+            tram_slot++;
+        }
+        mem_mapping_unlock();
+    }
+
     dev->dsp.acc   = st.acc;
     dev->dsp.skip  = st.skip;
     regs[0x52]     = debug;
@@ -1186,27 +1237,6 @@ emu10k1_dsp_thread(void *priv)
         if (EMU10K1_DSP_TRACE)
             pclog("EMU10K1: DSP in %08" PRIX32 " %08" PRIX32 "\n", dev->dsp.regs[0], dev->dsp.regs[1]);
 #endif
-
-        /* Update TRAM. */
-        if (dev->dsp.etram_access)
-            emu10k1_dsp_etram(dev);
-        for (int tram = 0; tram < 0x80; tram++) {
-            uint32_t tram_op = dev->indirect_regs[0x300 | tram];
-            if (tram_op & 0x00100000) /* READ */
-                dev->indirect_regs[0x200 | tram] = emu10k1_dsp_tramdecompress(dev->dsp.itram[itram_addr(-1)]);
-            if (tram_op & 0x00200000) /* WRITE */
-                dev->dsp.itram[itram_addr(1)] = emu10k1_dsp_tramcompress(dev->indirect_regs[0x200 | tram]);
-            /* The CLEAR flag has no effect while the DSP runs: it neither clears the location on its own
-               nor after a READ, and it doesn't stop a WRITE. Creative's effects set it on delay line
-               taps, which must keep the data for the taps further down the line. */
-        }
-        for (int tram = 0; tram < 0x20; tram++) {
-            uint32_t tram_op = dev->indirect_regs[0x380 | tram];
-            if (tram_op & 0x00100000) /* READ */
-                dev->indirect_regs[0x280 | tram] = emu10k1_dsp_tramdecompress(dev->dsp.etram[tram]);
-            if (tram_op & 0x00200000) /* WRITE (CLEAR has no effect, as above) */
-                dev->dsp.etram[tram] = emu10k1_dsp_tramcompress(dev->indirect_regs[0x280 | tram]);
-        }
 
         /* Execute DSP instruction stream. */
         emu10k1_dsp_run(dev);
