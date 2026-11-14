@@ -414,10 +414,10 @@ emu10k1_dsp_macint_ret(emu10k1_dsp_state_t *st)
 {
     /* The accumulator as an integer, clamped to just past the 32-bit range. */
     if (st->acc > 0)
-        return INT64_C(0x80000000);
+        return 0x80000000LL;
     else if (st->acc < -1)
-        return INT64_C(-0x80000001);
-    return (st->acc * INT64_C(0x80000000)) + st->frac;
+        return -0x80000001LL;
+    return (st->acc * 0x80000000LL) + st->frac;
 }
 
 static int32_t
