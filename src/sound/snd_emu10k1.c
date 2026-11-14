@@ -366,10 +366,8 @@ emu10k1_dsp_opMACW1(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opMACINTS(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
-    /* MACINT operations have weird borrow flag handling, seemingly a >= 0... */
-    int64_t ret = a + ((int64_t) x * y);
-    if (a >= 0)
-        st->flags |= 0x02; /* B */
+    /* MACINT operations set the borrow flag from the full precision product... */
+    int64_t ret = emu10k1_dsp_add(st, a, (int64_t) x * y);
     /* ...and set the accumulator to the result's [62:31] bits. */
     st->acc = ret >> 31;
     return emu10k1_dsp_saturate(st, ret);
@@ -378,9 +376,7 @@ emu10k1_dsp_opMACINTS(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opMACINTW(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
-    int64_t ret = a + ((int64_t) x * y);
-    if (a >= 0)
-        st->flags |= 0x02; /* B */
+    int64_t ret = emu10k1_dsp_add(st, a, (int64_t) x * y);
     st->acc = ret >> 31;
     emu10k1_dsp_saturate(st, ret); /* saturation flag still calculated */
     return ret & 0x7fffffff;
@@ -409,8 +405,6 @@ emu10k1_dsp_opMACMV(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opANDXOR(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
-    /* Borrow flag apparently always set. */
-    st->flags |= 0x02; /* B */
     /* The A operand is copied to the accumulator, which is
        subtracted by 1 if a is positive and y is negative. */
     st->acc = a - ((a >= 0) && (y < 0));
@@ -494,8 +488,11 @@ emu10k1_dsp_opLOG(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
     int32_t r = emu10k1_dsp_logcompress(a, x & 0x1f);
     emu10k1_dsp_logexp_acc(st, a, x, y);
 
-    /* The borrow flag is also always set. */
-    st->flags |= 0x02; /* B */
+    /* The normalized flag is also set when the value took the normal
+       path through the compressor, with a non-zero exponent. */
+    uint32_t mag = ((int32_t) a < 0) ? ~((uint32_t) a) : (uint32_t) a;
+    if ((x & 0x1f) && mag && (((x & 0x1f) + log2i(mag) + 1) >= 32))
+        st->flags |= 0x01; /* N */
 
     /* Apply one's complement transformations. */
     switch (y & 0x3) {
@@ -549,7 +546,6 @@ static int32_t
 emu10k1_dsp_opEXP(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
     emu10k1_dsp_logexp_acc(st, a, x, y);
-    st->flags |= 0x02; /* B */
 
     /* Apply one's complement transformations. */
     switch (y & 0x3) {
@@ -574,9 +570,6 @@ emu10k1_dsp_opEXP(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opINTERP(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
-    /* Borrow flag always set. The minus flag has further nonsense; hardware sometimes
-       doesn't match the result, but my attempts at reverse engineering it failed. */
-    st->flags |= 0x02; /* B */
     st->acc = a + (((int64_t) x * (y - a)) >> 31);
     return emu10k1_dsp_saturate(st, st->acc);
 }
@@ -663,6 +656,21 @@ emu10k1_dsp_op(emu10k1_dsp_state_t *st, int op, int64_t a, int32_t x, int32_t y)
             return emu10k1_dsp_opSKIP(st, a, x, y);
     }
 }
+
+/* Flags each operation leaves as the previous instruction set them, instead of
+   calculating them; SKIP keeps them all. TSTNEG and the LIMITs pass on S and N,
+   ANDXOR, LOG and EXP pass on S and B, INTERP passes on B and MACINTW passes on M. */
+static const uint8_t emu10k1_dsp_flags_kept[16] = {
+    [0x5] = 0x04, /* M */
+    [0x8] = 0x12, /* S, B */
+    [0x9] = 0x11, /* S, N */
+    [0xa] = 0x11,
+    [0xb] = 0x11,
+    [0xc] = 0x12,
+    [0xd] = 0x12,
+    [0xe] = 0x02, /* B */
+    [0xf] = 0x1f
+};
 
 static inline uint16_t
 emu10k1_dsp_tramcompress(int32_t val)
@@ -986,7 +994,7 @@ emu10k1_dsp_decode(emu10k1_t *dev)
         int      a     = (fetch >> 32) & 0x3ff;
         int      r     = (fetch >> 42) & 0x3ff;
         int      op    = dev->dsp.code[pc].op;
-        if ((op == 0x07) || (op == 0x0f) || (a < 0x40) || (a > 0x55) || (x < 0x40) || (x > 0x55) || (y < 0x40) || (y > 0x55) ||
+        if ((op == 0x07) || emu10k1_dsp_flags_kept[op] || (a < 0x40) || (a > 0x55) || (x < 0x40) || (x > 0x55) || (y < 0x40) || (y > 0x55) ||
             (r < 0x40) || (r == 0x5a) || (r > 0x7f)) {
             dev->dsp.code[pc].run_end = 0;
             run_end                   = 0;
@@ -1182,10 +1190,10 @@ emu10k1_dsp_run(emu10k1_t *dev)
             continue;
         }
 
-        /* Clear flags now, as operation code may set them, unless
-           we're in a SKIP operation, which always preserves flags. */
-        if (LIKELY(op != 0xf))
-            st.flags = 0;
+        /* Clear flags now, as operation code may set them, keeping
+           the ones the operation passes on from the previous one. */
+        uint32_t prev_flags = st.flags;
+        st.flags            = 0;
 
         /* Execute operation. */
         int32_t rval = emu10k1_dsp_op(&st, op, aval, xval, yval);
@@ -1195,6 +1203,7 @@ emu10k1_dsp_run(emu10k1_t *dev)
             st.flags |= ((rval < -0x40000000) || (rval >= 0x40000000)) | /* N = 0x01 */
                 ((rval < 0) << 2) |                                      /* M = 0x04 */
                 ((rval == 0) << 3);                                      /* Z = 0x08 */
+        st.flags = (prev_flags & emu10k1_dsp_flags_kept[op]) | (st.flags & ~emu10k1_dsp_flags_kept[op]);
         dev->dsp.regs[0x57] = st.flags;
 
 #ifdef EMU10K1_DSP_TRACE
