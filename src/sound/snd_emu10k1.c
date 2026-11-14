@@ -482,21 +482,10 @@ emu10k1_dsp_logcompress(int32_t val, int max_exp)
 static inline void
 emu10k1_dsp_logexp_acc(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
-    /* Both LOG and EXP are meant to be used with X = 2~31 and Y = 0~3. While their intended main
-       behavior just bit-masks X and Y into range, there is a whole other secondary behavior with
-       regards to the accumulator involving unmasked X and Y. Accessing the accumulator result of
-       these instructions could be undefined for all I know, but we don't have internal docs to
-       prove it, and we won't know if any real-world DSP programs abuse this until one shows up.
-       This code is an imperfect approximation (values start deviating from hardware when X < 0
-       or Y < 0), but I'm not burning any more time on what appears to be an unlikely scenario. */
-    int    point = 31 - (log2i(x & 0x7fffffff) + 1);                 /* how much to shift Y by (including sign bit) */
-    double scale = (unsigned int) ((x + 1) << point) / 2147483648.0; /* factor for scaling Y, shifted towards MSB so Y can be scaled in place */
-    st->acc = a + ((int64_t) (y * scale) >> point);             /* scale Y in place, then shift towards LSB */
-    if (x < 0) {
-        st->acc -= y;              /* subtract Y when X is negative */
-        if (st->acc < -2147483648) /* saturate without flag */
-            st->acc = -2147483648;
-    }
+    /* Both LOG and EXP are meant to be used with X = 2~31 and Y = 0~3, which they mask
+       into range for the result. The accumulator gets A + (X + 1) * Y, multiplied like
+       MACS but with the unmasked operands and without saturation. */
+    st->acc = a + ((((int64_t) x + 1) * y) >> 31);
 }
 
 static int32_t
