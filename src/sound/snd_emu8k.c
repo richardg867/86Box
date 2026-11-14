@@ -911,9 +911,9 @@ emu8k_outw(uint16_t addr, uint16_t val, void *priv)
                     {
                         emu8k_voice_t *emu_voice = &emu8k->voice[emu8k->cur_voice];
                         WRITE16(addr, emu_voice->ptrx, val);
-                        emu_voice->fx_send[0] = emu_voice->ptrx_revb_send * 0x0101;
+                        emu_voice->fx_send[0] = emu_voice->ptrx_revb_send * (emu8k->emu10k1_fxsends ? 0x0100 : 0x0101); /* EMU10K1: 1/256ths */
                         if (emu8k->emu10k1_fxsends)
-                            emu_voice->fx_send[1] = emu_voice->ptrx_pan_aux * 0x0101;
+                            emu_voice->fx_send[1] = emu_voice->ptrx_pan_aux * 0x0100;
                     }
                     return;
 
@@ -946,7 +946,7 @@ emu8k_outw(uint16_t addr, uint16_t val, void *priv)
                         emu_voice->loop_start.int_address = emu_voice->psst & EMU8K_MEM_ADDRESS_MASK;
                         if (addr & 2) {
                             if (emu8k->emu10k1_fxsends) { /* psst_pan became FX send 2 in EMU10K1 */
-                                emu_voice->fx_send[2] = emu_voice->psst_pan * 0x0101;
+                                emu_voice->fx_send[2] = emu_voice->psst_pan * 0x0100;
                             } else {
                                 emu_voice->vol_l = emu_voice->psst_pan * 0x0101;
                                 emu_voice->vol_r = (255 - emu_voice->psst_pan) * 0x0101;
@@ -959,7 +959,7 @@ emu8k_outw(uint16_t addr, uint16_t val, void *priv)
                     {
                         emu8k_voice_t *emu_voice = &emu8k->voice[emu8k->cur_voice];
                         WRITE16(addr, emu_voice->csl, val);
-                        emu_voice->fx_send[3] = emu_voice->csl_chor_send * 0x0101;
+                        emu_voice->fx_send[3] = emu_voice->csl_chor_send * (emu8k->emu10k1_fxsends ? 0x0100 : 0x0101);
                         /* TODO: Should we update only on MSB update, or this could be used as some sort of hack by applications? */
                         emu_voice->loop_end.int_address = emu_voice->csl & EMU8K_MEM_ADDRESS_MASK;
                     }
@@ -2059,7 +2059,7 @@ emu8k_update(emu8k_t *emu8k)
 
                     if (emu8k->emu10k1_fxsends) {
                         for (int i = 0; i < emu8k->emu10k1_fxsends; i++)
-                            emu8k->fx_buffer[pos][emu_voice->fx_send_bus[i]] += (dat * emu_voice->fx_send[i]) >> 16;
+                            emu8k->fx_buffer[pos][emu_voice->fx_send_bus[i]] += (dat * emu_voice->fx_send[i]) >> 10; /* see SAMPLE_16_TO_32 */
                     } else {
                         (*buf++) += (dat * emu_voice->vol_l) >> 16;
                         (*buf++) += (dat * emu_voice->vol_r) >> 16;
