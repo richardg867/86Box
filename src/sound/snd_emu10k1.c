@@ -390,7 +390,15 @@ emu10k1_dsp_macint(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
     /* MACINT operations add the product unshifted: the accumulator becomes A + X * Y,
        with A as an integer, or the whole accumulator, fraction included, if A is the
-       accumulator. The borrow flag comes from the full precision product. */
+       accumulator. The borrow flag comes from the full precision product.
+
+       Not emulated: on hardware, when the result is small, mostly -1, 0 or 1, the
+       N, M, Z and S flags are sometimes calculated as if it were off by a carry into
+       bit 30 or above (-1 seen as -1 - 2^30, 0 and 1 as 0x40000000 and up), while the
+       result and accumulator are right. Whether it happens depends on the operands of
+       this and the previous multiplying instruction (X's low 16 bits and Y), as if the
+       flags were taken from the multiplier's carry-save form with leftover state; it
+       hit about half of the -1 results of random operands, and no larger result. */
     int64_t prod = (int64_t) x * y;
     if (st->a_acc) {
         st->acc = emu10k1_dsp_mac(st, a, st->afrac, prod);
