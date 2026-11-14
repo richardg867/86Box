@@ -843,8 +843,8 @@ emu10k1_voice_sync(emu8k_voice_t *voice, unsigned reg, int high)
                 voice->cpf_curr_pitch = 0;
             break;
         case EMU8K_VOICE_PTRX:
-            voice->fx_send[0] = voice->ptrx_revb_send * 0x0101;
-            voice->fx_send[1] = voice->ptrx_pan_aux * 0x0101;
+            voice->fx_send[0] = voice->ptrx_revb_send * 0x0100;
+            voice->fx_send[1] = voice->ptrx_pan_aux * 0x0100;
             break;
         case EMU8K_VOICE_CVCF:
             /* EMU10K1 Linux PCM sets both cvcf_curr_volume and vtft_vol_target to 0xffff to maintain a constant volume.
@@ -854,10 +854,10 @@ emu10k1_voice_sync(emu8k_voice_t *voice, unsigned reg, int high)
         case EMU8K_VOICE_PSST:
             voice->loop_start.int_address = voice->psst & EMU8K_MEM_ADDRESS_MASK;
             if (high)
-                voice->fx_send[2] = voice->psst_pan * 0x0101;
+                voice->fx_send[2] = voice->psst_pan * 0x0100;
             break;
         case EMU8K_VOICE_CSL:
-            voice->fx_send[3] = voice->csl_chor_send * 0x0101;
+            voice->fx_send[3] = voice->csl_chor_send * 0x0100;
             voice->loop_end.int_address = voice->csl & EMU8K_MEM_ADDRESS_MASK;
             break;
         default:
@@ -3004,7 +3004,7 @@ emu10k1_voice_update(emu8k_t *emu8k, int c, int new_pos)
             dat = (dat * emu_voice->cvcf_curr_volume) >> 16;
 
             for (int i = 0; i < emu8k->emu10k1_fxsends; i++)
-                emu8k->fx_buffer[pos][emu_voice->fx_send_bus[i]] += (dat * emu_voice->fx_send[i]) >> 16;
+                emu8k->fx_buffer[pos][emu_voice->fx_send_bus[i]] += (dat * emu_voice->fx_send[i]) >> 10; /* see SAMPLE_16_TO_32 */
         } else {
             /* Reposition EMU10K1 FIFO due to address desync. */
             emu_voice->fifo_end = emu_voice->fifo_pos;

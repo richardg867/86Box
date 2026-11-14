@@ -814,11 +814,13 @@ emu10k1_dsp_decode_opnd(emu10k1_t *dev, int pc, int i, int addr)
     dev->dsp.code[pc].wo_cmp[i] = wo_cmp;
 }
 
-#define SAMPLE_CONV_FACTOR -15406.5397154191 /* average observed through probing 218k sample values (>3 laps around the full range) \
-                                                on hardware; produces an average ~0.498 and maximum ~0.996 sample value error */
 #define CLAMP(x, min, max) (((x) < (min)) ? (min) : (((x) > (max)) ? (max) : (x)))
-#define SAMPLE_16_TO_32(x) CLAMP((int64_t) ((x) *SAMPLE_CONV_FACTOR), -2147483648, 2147483647)
-#define SAMPLE_32_TO_16(x) CLAMP((int32_t) (x) / (SAMPLE_CONV_FACTOR * 4), -32768, 32767)
+/* A voice adds sample * volume * send amount * 2^14 to an FX bus, where the send amount
+   is 1/256ths and the volume 1/65536ths; the voice engine accumulates that in units of
+   2^8, which the DSP sees as is. 16-bit audio taken from a DSP output, for playback or
+   the capture buffers, is its upper 16 bits. */
+#define SAMPLE_16_TO_32(x) ((int32_t) CLAMP((int64_t) (x) * 256, -2147483648LL, 2147483647LL))
+#define SAMPLE_32_TO_16(x) ((int16_t) ((int32_t) (x) >> 16))
 
 /* Calculation of effective TRAM addresses (addr + DBAC +- align bit) */
 #define tram_addr(align, mask) ((tram_op + dev->dsp.regs[0x5b] + (!!(tram_op & 0x00400000) * (align))) & (mask))
@@ -913,7 +915,7 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         /* Each FX bus is copied to an equivalent output by default. The
            DSP program can overwrite the outputs to do its own routing. */
 #ifdef EMU10K1_SAMPLE_DUMP
-        fx_samples[i]  = CLAMP(dev->emu8k.fx_buffer[pos][i], -32768, 32767);
+        fx_samples[i]  = CLAMP(dev->emu8k.fx_buffer[pos][i] >> 8, -32768, 32767);
         out_samples[i] = SAMPLE_32_TO_16(dev->dsp.regs[0x20 | i]); /* from previous run */
 #endif
         dev->dsp.regs[i] = dev->dsp.regs[0x20 | i] = SAMPLE_16_TO_32(dev->emu8k.fx_buffer[pos][i]);
