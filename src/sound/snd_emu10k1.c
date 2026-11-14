@@ -154,7 +154,8 @@ typedef struct _emu10k1_ {
     int      micbuf_half_looped : 1;
 
     struct {
-        int64_t  acc; /* claims to be 67-bit in hardware */
+        int64_t  acc;  /* claims to be 67-bit in hardware: an integer part... */
+        uint32_t frac; /* ...with 31 bits of fraction */
         uint32_t regs[256];
         int      code_dirty; /* microcode changed since it was last decoded */
         uint32_t sink;       /* destination of results that go nowhere */
@@ -177,6 +178,7 @@ typedef struct _emu10k1_ {
             uint32_t run_flags;
             uint32_t run_debug;
             int64_t  run_acc;
+            uint32_t run_frac;
         } code[512];
         uint32_t etram_mask;
         uint16_t itram[8192]; /* internal TRAM */
@@ -298,7 +300,10 @@ static void     emu10k1_writew(uint16_t addr, uint16_t val, void *priv);
 static void     emu10k1_writel(uint16_t addr, uint32_t val, void *priv);
 
 typedef struct {
-    int64_t  acc; /* claims to be 67-bit in hardware */
+    int64_t  acc;   /* integer part of the accumulator, unsaturated */
+    uint32_t frac;  /* and its 31 bits of fraction, from products shifted right */
+    uint32_t afrac; /* fraction of the A operand: the accumulator's if read as A, 0 otherwise */
+    int      a_acc; /* A operand is the accumulator */
     uint32_t flags;
     int      skip;
 } emu10k1_dsp_state_t;
@@ -333,24 +338,41 @@ emu10k1_dsp_add(emu10k1_dsp_state_t *st, int64_t a, int64_t b)
     return a + b;
 }
 
+/* The accumulator is a fixed point value with 31 bits of fraction, which keeps the bits
+   of products shifted out of the integer part, unsaturated: only results saturate. This
+   adds a product to A (with the accumulator's fraction if A is the accumulator) and
+   returns the integer part, leaving the fraction in the state. */
+static inline int64_t
+emu10k1_dsp_mac(emu10k1_dsp_state_t *st, int64_t a, uint32_t afrac, int64_t prod)
+{
+    uint32_t frac = afrac + (uint32_t) (prod & 0x7fffffff);
+    int64_t  ret  = a + (prod >> 31) + (frac >> 31);
+    st->frac      = frac & 0x7fffffff;
+
+    /* Borrow flag as with emu10k1_dsp_add, at full precision. */
+    if (((a >= 0) && (prod >= 0)) || (((a >= 0) != (prod >= 0)) && (ret < 0)))
+        st->flags |= 0x02; /* B */
+    return ret;
+}
+
 static int32_t
 emu10k1_dsp_opMACS(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
-    st->acc = emu10k1_dsp_saturate(st, emu10k1_dsp_add(st, a, ((int64_t) x * y) >> 31));
-    return st->acc;
+    st->acc = emu10k1_dsp_mac(st, a, st->afrac, (int64_t) x * y);
+    return emu10k1_dsp_saturate(st, st->acc);
 }
 
 static int32_t
 emu10k1_dsp_opMACS1(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
-    st->acc = emu10k1_dsp_saturate(st, emu10k1_dsp_add(st, a, -((int64_t) x * y) >> 31)); /* negated after widening, for X = Y = 0x80000000 */
-    return st->acc;
+    st->acc = emu10k1_dsp_mac(st, a, st->afrac, -((int64_t) x * y)); /* negated after widening, for X = Y = 0x80000000 */
+    return emu10k1_dsp_saturate(st, st->acc);
 }
 
 static int32_t
 emu10k1_dsp_opMACW(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
-    st->acc = emu10k1_dsp_add(st, a, ((int64_t) x * y) >> 31);
+    st->acc = emu10k1_dsp_mac(st, a, st->afrac, (int64_t) x * y);
     emu10k1_dsp_saturate(st, st->acc); /* saturation flag still calculated */
     return st->acc;
 }
@@ -358,38 +380,61 @@ emu10k1_dsp_opMACW(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opMACW1(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
-    st->acc = emu10k1_dsp_add(st, a, -((int64_t) x * y) >> 31);
+    st->acc = emu10k1_dsp_mac(st, a, st->afrac, -((int64_t) x * y));
     emu10k1_dsp_saturate(st, st->acc); /* saturation flag still calculated */
     return st->acc;
+}
+
+static inline void
+emu10k1_dsp_macint(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
+{
+    /* MACINT operations add the product unshifted: the accumulator becomes A + X * Y,
+       with A as an integer, or the whole accumulator, fraction included, if A is the
+       accumulator. The borrow flag comes from the full precision product. */
+    int64_t prod = (int64_t) x * y;
+    if (st->a_acc) {
+        st->acc = emu10k1_dsp_mac(st, a, st->afrac, prod);
+    } else {
+        int64_t ret = emu10k1_dsp_add(st, a, prod);
+        st->acc     = ret >> 31;
+        st->frac    = ret & 0x7fffffff;
+    }
+}
+
+static inline int64_t
+emu10k1_dsp_macint_ret(emu10k1_dsp_state_t *st)
+{
+    /* The accumulator as an integer, clamped to just past the 32-bit range. */
+    if (st->acc > 0)
+        return INT64_C(0x80000000);
+    else if (st->acc < -1)
+        return INT64_C(-0x80000001);
+    return (st->acc * INT64_C(0x80000000)) + st->frac;
 }
 
 static int32_t
 emu10k1_dsp_opMACINTS(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
-    /* MACINT operations set the borrow flag from the full precision product... */
-    int64_t ret = emu10k1_dsp_add(st, a, (int64_t) x * y);
-    /* ...and set the accumulator to the result's [62:31] bits. */
-    st->acc = ret >> 31;
-    return emu10k1_dsp_saturate(st, ret);
+    emu10k1_dsp_macint(st, a, x, y);
+    return emu10k1_dsp_saturate(st, emu10k1_dsp_macint_ret(st));
 }
 
 static int32_t
 emu10k1_dsp_opMACINTW(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
-    int64_t ret = emu10k1_dsp_add(st, a, (int64_t) x * y);
-    st->acc = ret >> 31;
-    emu10k1_dsp_saturate(st, ret); /* saturation flag still calculated */
-    return ret & 0x7fffffff;
+    emu10k1_dsp_macint(st, a, x, y);
+    emu10k1_dsp_saturate(st, emu10k1_dsp_macint_ret(st)); /* saturation flag still calculated */
+    return st->frac;
 }
 
 static int32_t
 emu10k1_dsp_opACC3(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
-    /* The accumulator's lower 32 bits are used, despite documentation.
-       X and Y are added first without borrow flag calculation, then A is added
-       to X+Y with saturation at the accumulator and borrow flag calculation. */
-    st->acc = emu10k1_dsp_saturate(st, emu10k1_dsp_add(st, a, (int64_t) x + y));
-    return st->acc;
+    /* X and Y are added first without borrow flag calculation, then A is added
+       to X+Y with borrow flag calculation. The accumulator keeps A's fraction. */
+    st->acc  = emu10k1_dsp_add(st, a, (int64_t) x + y);
+    st->frac = st->afrac;
+    return emu10k1_dsp_saturate(st, st->acc);
 }
 
 static int32_t
@@ -397,17 +442,17 @@ emu10k1_dsp_opMACMV(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
     /* Clearing up unclear documentation:
        - The order is MAC *then* move.
-       - The multiplication result is shifted like MACS/MACW, then saturated. */
-    st->acc = emu10k1_dsp_saturate(st, emu10k1_dsp_add(st, st->acc, ((int64_t) x * y) >> 31));
+       - The product is added to the whole accumulator like MACS/MACW. */
+    st->acc = emu10k1_dsp_mac(st, st->acc, st->frac, (int64_t) x * y);
+    emu10k1_dsp_saturate(st, st->acc); /* saturation flag still calculated */
     return a;
 }
 
 static int32_t
 emu10k1_dsp_opANDXOR(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
-    /* The A operand is copied to the accumulator, which is
-       subtracted by 1 if a is positive and y is negative. */
-    st->acc = a - ((a >= 0) && (y < 0));
+    /* The accumulator gets A + (X + 1) * Y like LOG and EXP. */
+    st->acc = emu10k1_dsp_mac(st, a, st->afrac, ((int64_t) x + 1) * y);
     return (a & x) ^ y;
 }
 
@@ -417,7 +462,8 @@ emu10k1_dsp_opTSTNEG(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
     /* For the 3 test operations, the operands are subtracted
        into the accumulator and the comparison is done on that.
        The borrow flag is set if the accumulator is negative. */
-    st->acc = a - y;
+    st->acc  = a - y;
+    st->frac = st->afrac;
     if (st->acc < 0) {
         x = ~x;
         st->flags |= 0x02; /* B */
@@ -428,7 +474,8 @@ emu10k1_dsp_opTSTNEG(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opLIMIT(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
-    st->acc = a - y;
+    st->acc  = a - y;
+    st->frac = st->afrac;
     if (st->acc < 0) {
         st->flags |= 0x02; /* B */
         return y;
@@ -439,7 +486,8 @@ emu10k1_dsp_opLIMIT(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opLIMIT1(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
-    st->acc = a - y;
+    st->acc  = a - y;
+    st->frac = st->afrac;
     if (st->acc < 0) {
         st->flags |= 0x02; /* B */
         return x;
@@ -479,7 +527,7 @@ emu10k1_dsp_logexp_acc(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
     /* Both LOG and EXP are meant to be used with X = 2~31 and Y = 0~3, which they mask
        into range for the result. The accumulator gets A + (X + 1) * Y, multiplied like
        MACS but with the unmasked operands and without saturation. */
-    st->acc = a + ((((int64_t) x + 1) * y) >> 31);
+    st->acc = emu10k1_dsp_mac(st, a, st->afrac, ((int64_t) x + 1) * y);
 }
 
 static int32_t
@@ -570,7 +618,7 @@ emu10k1_dsp_opEXP(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 static int32_t
 emu10k1_dsp_opINTERP(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
 {
-    st->acc = a + (((int64_t) x * (y - a)) >> 31);
+    st->acc = emu10k1_dsp_mac(st, a, st->afrac, (int64_t) x * (y - a));
     return emu10k1_dsp_saturate(st, st->acc);
 }
 
@@ -1010,11 +1058,13 @@ emu10k1_dsp_decode(emu10k1_t *dev)
         st.flags |= ((rval < -0x40000000) || (rval >= 0x40000000)) | ((rval < 0) << 2) | ((rval == 0) << 3);
         if (run_end == (pc + 1)) {
             dev->dsp.code[pc].run_acc   = st.acc;
+            dev->dsp.code[pc].run_frac  = st.frac;
             dev->dsp.code[pc].run_flags = st.flags;
             if (st.flags & 0x10)
                 run_debug |= 0x02000000 | (r << 16);
         } else {
             dev->dsp.code[pc].run_acc   = dev->dsp.code[pc + 1].run_acc;
+            dev->dsp.code[pc].run_frac  = dev->dsp.code[pc + 1].run_frac;
             dev->dsp.code[pc].run_flags = dev->dsp.code[pc + 1].run_flags;
             if (st.flags & 0x10)
                 run_debug |= 0x02000000;
@@ -1086,7 +1136,7 @@ emu10k1_dsp_run(emu10k1_t *dev)
 
     /* Run state is kept local and stored back at the end. */
     uint32_t           *regs        = dev->indirect_regs;
-    emu10k1_dsp_state_t st          = { .acc = dev->dsp.acc, .flags = dev->dsp.regs[0x57], .skip = dev->dsp.skip };
+    emu10k1_dsp_state_t st          = { .acc = dev->dsp.acc, .frac = dev->dsp.frac, .flags = dev->dsp.regs[0x57], .skip = dev->dsp.skip };
     uint32_t            debug       = regs[0x52];
     uint32_t            last_wo_reg = EMU10K1_DSP_WO_NONE;
     uint32_t            last_wo_val = 0;
@@ -1120,6 +1170,7 @@ emu10k1_dsp_run(emu10k1_t *dev)
         /* Execute a run of constant-only instructions in one go. */
         if (insn->run_end && !st.skip) {
             st.acc              = insn->run_acc;
+            st.frac             = insn->run_frac;
             st.flags            = insn->run_flags;
             dev->dsp.regs[0x57] = st.flags;
             debug               = (debug & ~0x01ff0000) | insn->run_debug;
@@ -1157,23 +1208,29 @@ emu10k1_dsp_run(emu10k1_t *dev)
         last_wo_reg = EMU10K1_DSP_WO_NONE;
 
         /* The A operand has some special cases which read as 0 if not fulfilled. */
+        st.afrac = 0;
+        st.a_acc = 0;
         if (UNLIKELY(insn->amode)) {
             switch (insn->amode) {
                 case EMU10K1_DSP_A_ACC:
                     /* Accumulator can only be specified as A, except on MACMV where it can't be read. */
-                    aval = st.acc;
+                    aval     = st.acc;
+                    st.afrac = st.frac;
+                    st.a_acc = 1;
                     break;
 
                 case EMU10K1_DSP_A_SKIP_ACC:
                     /* Despite documentation, SKIP can only read the flags register as A.
                        If a different A is provided, its value is moved to the accumulator. */
-                    st.acc = aval;
-                    aval   = 0;
+                    st.acc  = aval;
+                    st.frac = 0;
+                    aval    = 0;
                     break;
 
                 default:
                     /* Accumulator is 0 when reading flags as A. */
-                    st.acc = 0;
+                    st.acc  = 0;
+                    st.frac = 0;
                     break;
             }
         }
@@ -1183,7 +1240,8 @@ emu10k1_dsp_run(emu10k1_t *dev)
             st.skip = 0;
 
             /* ...as the accumulator is set to the last Y value fetched before the target. */
-            st.acc = yval;
+            st.acc  = yval;
+            st.frac = 0;
 
             /* Move on to the next instruction. */
             pc++;
@@ -1243,6 +1301,7 @@ emu10k1_dsp_run(emu10k1_t *dev)
     }
 
     dev->dsp.acc   = st.acc;
+    dev->dsp.frac  = st.frac;
     dev->dsp.skip  = st.skip;
     regs[0x52]     = debug;
 }
