@@ -235,6 +235,7 @@ typedef struct _emu10k1_ {
     ac97_codec_t     *codec;
     mpu_t             mpu[2];
     void             *gameport;
+    uint16_t          gameport_off_base; /* game port held by HCFG_JOYENABLE = 0 */
     emu10k1_io_trap_t io_traps[TRAP_MAX];
 
     int master_vol_l;
@@ -1702,8 +1703,10 @@ emu10k1_mmutranslate(emu10k1_t *dev, emu8k_voice_t *voice, uint32_t page)
     voice->tlb_pos             = (voice->tlb_pos + 1) & ((sizeof(voice->map) / sizeof(voice->map[0])) - 1);
 
 found_page:
-    /* EMU10K1 is notorious for its "31-bit" DMA, where pte[31:13] = addr[30:12] */
-    return (pte >> !(dev->io_regs[0x16] & 0x04)) & 0xfffff000;
+    /* EMU10K1 is notorious for its "31-bit" DMA, where pte[31:13] = addr[30:12].
+       Later chips take the address as is with HCFG_EXPANDEDMEM set; on the
+       EMU10K1, that bit can be set but has no effect. */
+    return (pte >> !((dev->type != EMU10K1) && (dev->io_regs[0x16] & 0x04))) & 0xfffff000;
 }
 
 static uint32_t
@@ -1948,6 +1951,30 @@ readl_fallback:
     return ret;
 }
 
+static uint8_t
+emu10k1_gameport_off_read(UNUSED(uint16_t addr), UNUSED(void *priv))
+{
+    return 0xf0;
+}
+
+/* Map the game port function's I/O BAR. With HCFG_JOYENABLE clear, the port
+   still decodes but reads F0h at every offset and ignores writes. */
+static void
+emu10k1_remap_gameport(emu10k1_t *dev)
+{
+    uint16_t base    = (dev->pci_game_regs[0x04] & 0x01) ? ((dev->pci_game_regs[0x10] & 0xf8) | (dev->pci_game_regs[0x11] << 8)) : 0;
+    int      enabled = dev->io_regs[0x15] & 0x02; /* HCFG_JOYENABLE */
+
+    if (dev->gameport_off_base)
+        io_removehandler(dev->gameport_off_base, 8, emu10k1_gameport_off_read, NULL, NULL, NULL, NULL, NULL, dev);
+    dev->gameport_off_base = enabled ? 0 : base;
+    if (dev->gameport_off_base)
+        io_sethandler(dev->gameport_off_base, 8, emu10k1_gameport_off_read, NULL, NULL, NULL, NULL, NULL, dev);
+
+    gameport_set_decode(dev->gameport, enabled, enabled);
+    gameport_remap(dev->gameport, base);
+}
+
 /* Write one half of a channel register the EMU8000 handles in 16-bit halves. */
 static void
 emu10k1_write_voice16(emu10k1_t *dev, int reg, int high, uint16_t val)
@@ -2076,7 +2103,12 @@ emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
             return;
 
         case 0x15: /* HCFG[15:8] */
-            val = (val & 0x1f) | (dev->io_regs[addr] & ~0x1f);
+            val = (val & 0x9f) | (dev->io_regs[addr] & ~0x9f); /* GPINPUT0/1 are inputs */
+            if ((val ^ dev->io_regs[addr]) & 0x02) {         /* HCFG_JOYENABLE */
+                dev->io_regs[addr] = val;
+                emu10k1_remap_gameport(dev);
+                return;
+            }
             break;
 
         case 0x16:            /* HCFG[23:16] */
@@ -2084,11 +2116,15 @@ emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
                 dev->io_regs[addr] &= ~0x20;
                 nmi = 0;
             }
-            reg = (dev->type == EMU10K1) ? 0x19 : 0x1d;
+            /* The EMU10K1 has a 3-bit codec format and a bit 18 that does nothing,
+               and no BAUDRATE or PUSHBUTTONENABLE. */
+            reg = (dev->type == EMU10K1) ? 0x07 : 0x1d;
             val = (val & reg) | (dev->io_regs[addr] & ~reg);
             break;
 
         case 0x17: /* HCFG[31:24] */
+            if (dev->type == EMU10K1) /* legacy capture information, read-only */
+                return;
             val &= 0xfd;
             break;
 
@@ -2493,7 +2529,7 @@ emu10k1_pci_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
                 case 0x04:
                     dev->pci_game_regs[addr] = val & 0x05;
 remap_gameport:
-                    gameport_remap(dev->gameport, (dev->pci_game_regs[0x04] & 0x01) ? ((dev->pci_game_regs[0x10] & 0xf8) | (dev->pci_game_regs[0x11] << 8)) : 0);
+                    emu10k1_remap_gameport(dev);
                     return;
 
                 case 0x05:
@@ -2654,7 +2690,7 @@ emu10k1_reset(void *priv)
     memset(dev->io_regs, 0, sizeof(dev->io_regs));
     dev->io_regs[0x02]  = 0xff; /* PTR_ADDRESS maxed out */
     dev->io_regs[0x03]  = 0x07;
-    dev->io_regs[0x14]  = 0x1e; /* HCFG_MUTEBUTTONENABLE | HCFG_LOCKTANKCACHE | HCFG_LOCKSOUNDCACHE | HCFG_AUTOMUTE */
+    dev->io_regs[0x14]  = 0x0e; /* HCFG_MUTEBUTTONENABLE | HCFG_LOCKTANKCACHE | HCFG_LOCKSOUNDCACHE */
     dev->timer_interval = 1024;
     dev->timer_count    = 0;
 
@@ -2724,7 +2760,7 @@ emu10k1_reset(void *priv)
     /* Reset I/O mappings. */
     emu10k1_remap(dev);
     emu10k1_remap_traps(dev);
-    gameport_remap(dev->gameport, 0);
+    emu10k1_remap_gameport(dev);
 
     /* Invalidate any existing TLB. */
     for (i = 0; i < dev->emu8k.nvoices; i++) {
