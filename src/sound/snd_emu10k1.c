@@ -122,6 +122,8 @@ enum {
     EMU10K1_DSP_A_SKIP_FLAGS /* SKIP with the flags as A: accumulator cleared */
 };
 
+#define EMU10K1_IN_RING 16384 /* host input frames held for the AC97 ADC */
+
 #define EMU10K1_DSP_WO_NONE  0xfffe /* no last written register */
 #define EMU10K1_DSP_WO_NEVER 0xffff /* operand never reads one back */
 
@@ -162,6 +164,18 @@ typedef struct _emu10k1_ {
 
     emu10k1_capture_src_t adc_src;
     emu10k1_capture_src_t mic_src;
+
+    /* Audio input. The host's frames (at in_rate) wait in in_ring until
+       the AC97 ADC, running at 48 KHz, takes them for the DSP. */
+    int16_t  in_ring[EMU10K1_IN_RING * 2];
+    uint32_t in_wr;
+    uint32_t in_rd;
+    double   in_frac;
+    int      in_rate;
+    int      in_primed;
+    int      codec_mic_adc;  /* AC97 codec has a dedicated microphone ADC */
+    uint16_t in_gain_reg[2]; /* record gain registers the factors below were calculated from */
+    double   in_gain[3];     /* left, right, mic */
 
     struct {
         int64_t  acc;  /* claims to be 67-bit in hardware: an integer part... */
@@ -851,6 +865,80 @@ emu10k1_dsp_decode_opnd(emu10k1_t *dev, int pc, int i, int addr)
 #define tram_addr(align, mask) ((tram_op + dev->dsp.regs[0x5b] + (!!(tram_op & 0x00400000) * (align))) & (mask))
 #define itram_addr(align)      tram_addr(align, (sizeof(dev->dsp.itram) / sizeof(dev->dsp.itram[0])) - 1)
 
+/* One frame of the host's input at the AC97 ADC's 48 KHz (linear
+   interpolation; silence while none has come). */
+static void
+emu10k1_input_frame(emu10k1_t *dev, int *l, int *r)
+{
+    uint32_t i0    = dev->in_rd % EMU10K1_IN_RING;
+    uint32_t i1    = (dev->in_rd + 1) % EMU10K1_IN_RING;
+    uint32_t avail = dev->in_wr - dev->in_rd;
+
+    /* The host's input comes in blocks; 40 ms in hand keeps the ADC from
+       running dry at the end of each block, which would slip samples. */
+    if (!dev->in_primed && (avail >= (uint32_t) (dev->in_rate / 25)))
+        dev->in_primed = 1;
+    if (!dev->in_primed || (avail < 2)) {
+        dev->in_primed = 0;
+        *l = *r = 0;
+        return;
+    }
+
+    *l = (int) (dev->in_ring[i0 * 2] + ((dev->in_ring[i1 * 2] - dev->in_ring[i0 * 2]) * dev->in_frac));
+    *r = (int) (dev->in_ring[i0 * 2 + 1] + ((dev->in_ring[i1 * 2 + 1] - dev->in_ring[i0 * 2 + 1]) * dev->in_frac));
+
+    dev->in_frac += (double) dev->in_rate / 48000.0;
+    while ((dev->in_frac >= 1.0) && ((dev->in_wr - dev->in_rd) > 1)) {
+        dev->in_frac -= 1.0;
+        dev->in_rd++;
+    }
+    if (dev->in_frac >= 1.0)
+        dev->in_frac = 0.0;
+}
+
+/* AC97 record gain register: mute, 0 to +22.5 dB in 1.5 dB steps. */
+static double
+emu10k1_ac97_gain(uint16_t reg, int shift)
+{
+    if (reg & 0x8000)
+        return 0.0;
+    return pow(10.0, (((reg >> shift) & 0x0f) * 1.5) / 20.0);
+}
+
+/* The AC97 codec's ADCs, which feed the DSP's EXTIN 0x10 and 0x11 (stereo) and,
+   with a codec that has a dedicated microphone ADC, 0x1E (mono). The real card's
+   STAC9708 has none, and that input reads 0 whatever the record source. Samples
+   arrive left-justified: the STAC9708's 18 bits occupy bits 31:14. */
+static void
+emu10k1_ac97_adc(emu10k1_t *dev)
+{
+    int l;
+    int r;
+
+    if (!dev->codec)
+        return;
+
+    emu10k1_input_frame(dev, &l, &r);
+
+    uint16_t reg = ac97_codec_readw(dev->codec, 0x1c);
+    if (reg != dev->in_gain_reg[0]) {
+        dev->in_gain_reg[0] = reg;
+        dev->in_gain[0]     = emu10k1_ac97_gain(reg, 8);
+        dev->in_gain[1]     = emu10k1_ac97_gain(reg, 0);
+    }
+    dev->dsp.regs[0x10] = (uint32_t) CLAMP((int) (l * dev->in_gain[0]), -32768, 32767) << 16;
+    dev->dsp.regs[0x11] = (uint32_t) CLAMP((int) (r * dev->in_gain[1]), -32768, 32767) << 16;
+
+    if (dev->codec_mic_adc) {
+        reg = ac97_codec_readw(dev->codec, 0x1e);
+        if (reg != dev->in_gain_reg[1]) {
+            dev->in_gain_reg[1] = reg;
+            dev->in_gain[2]     = emu10k1_ac97_gain(reg, 0);
+        }
+        dev->dsp.regs[0x1e] = (uint32_t) CLAMP((int) (((l + r) / 2) * dev->in_gain[2]), -32768, 32767) << 16;
+    }
+}
+
 /* A capture buffer's sample rate converter: averages the DSP outputs over each period
    of the buffer's rate. The real one is a filter that rings for about 20 samples after
    a transient; only its gain at DC, which depends on the rate, is reproduced. */
@@ -973,6 +1061,9 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
             dev->adcbuf_half_looped = 0;
         }
     }
+
+    /* Populate the AC97 ADC inputs. */
+    emu10k1_ac97_adc(dev);
 
     /* Populate FX bus inputs. */
 #ifdef EMU10K1_SAMPLE_DUMP
@@ -2540,6 +2631,33 @@ emu10k1_reset(void *priv)
     }
 }
 
+/* The host's input, as sound.c hands it over (interleaved stereo at
+   the capture rate). Kept within a quarter second of the ADC. */
+static void
+emu10k1_put_buffer(int16_t *buffer, int len, void *priv)
+{
+    emu10k1_t *dev      = (emu10k1_t *) priv;
+    int        cap_rate = al_capture_get_rate();
+
+    dev->in_rate = (cap_rate > 0) ? cap_rate : SOUND_FREQ;
+
+    for (int c = 0; c < len; c++) {
+        uint32_t i = dev->in_wr % EMU10K1_IN_RING;
+
+        dev->in_ring[i * 2]     = buffer[c * 2];
+        dev->in_ring[i * 2 + 1] = buffer[c * 2 + 1];
+        dev->in_wr++;
+    }
+
+    uint32_t keep = (uint32_t) (dev->in_rate / 4);
+    if (keep > (EMU10K1_IN_RING / 2))
+        keep = EMU10K1_IN_RING / 2;
+    if ((dev->in_wr - dev->in_rd) > keep) {
+        dev->in_rd   = dev->in_wr - (keep / 2);
+        dev->in_frac = 0.0;
+    }
+}
+
 static void *
 emu10k1_init(const device_t *info)
 {
@@ -2588,6 +2706,7 @@ emu10k1_init(const device_t *info)
         ac97_codec_count = 1;
         ac97_codec_id    = 0;
         device_add(emu10k1_models[dev->model].codec);
+        dev->codec_mic_adc = ac97_codec_readw(dev->codec, 0x00) & 0x0001; /* ID0: dedicated mic PCM in */
     } else {
         /* No volume control in non-AC97 mode. */
         dev->master_vol_l = dev->master_vol_r = 32768;
@@ -2603,6 +2722,12 @@ emu10k1_init(const device_t *info)
     /* Initialize playback handler and CD audio filter. */
     sound_add_handler(emu10k1_get_buffer, dev);
     sound_set_cd_audio_filter(emu10k1_filter_cd_audio, dev);
+
+    /* Initialize audio input. The AC97 ADC runs all the time. */
+    dev->in_rate        = SOUND_FREQ;
+    dev->in_gain_reg[0] = dev->in_gain_reg[1] = 0x8000; /* muted, the record gain registers' default */
+    sound_in_add_handler(emu10k1_put_buffer, dev);
+    sound_in_start_input();
 
     /* Initialize MPU-401. */
     mpu401_init(&dev->mpu[0], 0, 0, M_UART, device_get_config_int("receive_input"));
@@ -2671,6 +2796,8 @@ emu10k1_close(void *priv)
 
     emu10k1_log("EMU10K1: close()\n");
 
+    sound_in_stop_input();
+
 #ifdef EMU10K1_SAMPLE_DUMP
     for (int i = 0; i < (sizeof(sample_dump_f) / sizeof(sample_dump_f[0])); i++) {
         if (!sample_dump_f[i])
@@ -2726,7 +2853,7 @@ static const device_config_t sb_live_config[] = {
 const device_t sb_live_device = {
     .name          = "Sound Blaster Live!",
     .internal_name = "sb_live",
-    .flags         = DEVICE_PCI,
+    .flags         = DEVICE_PCI | DEVICE_AUDIO_IN,
     .local         = EMU10K1 << 16,
     .init          = emu10k1_init,
     .close         = emu10k1_close,
