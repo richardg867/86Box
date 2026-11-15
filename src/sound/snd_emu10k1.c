@@ -1337,8 +1337,12 @@ emu10k1_dsp_tram_access(emu10k1_t *dev, int access)
        through a write-back cache, a write is visible to reads right away; that only
        matters for delay lines shorter than a few dozen samples, which drivers keep
        in internal TRAM. */
-    if (!dev->dsp.etram_access)
+    if (!dev->dsp.etram_access) {
+        /* With HCFG_LOCKTANKCACHE set, reads return zero and writes are dropped. */
+        if ((access & 1) && (dev->indirect_regs[0x380 | (tram & 0x1f)] & 0x00100000))
+            dev->indirect_regs[0x280 | (tram & 0x1f)] = 0;
         return;
+    }
     if (access == 0x100)
         mem_mapping_lock();
     tram &= 0x1f;
