@@ -131,6 +131,13 @@ typedef struct {
     uint8_t           flag;
 } emu10k1_io_trap_t;
 
+/* A capture buffer's sample rate converter, which takes the 48 KHz DSP outputs. */
+typedef struct {
+    int64_t  acc[2];
+    int      count;
+    uint32_t phase;
+} emu10k1_capture_src_t;
+
 typedef struct _emu10k1_ {
     emu8k_t emu8k; /* at the beginning so we can cast back */
 
@@ -152,6 +159,9 @@ typedef struct _emu10k1_ {
     int      fxbuf_half_looped : 1;
     int      adcbuf_half_looped : 1;
     int      micbuf_half_looped : 1;
+
+    emu10k1_capture_src_t adc_src;
+    emu10k1_capture_src_t mic_src;
 
     struct {
         int64_t  acc;  /* claims to be 67-bit in hardware: an integer part... */
@@ -283,6 +293,21 @@ static const uint32_t dsp_constants[] = {
     0x00000100, 0x00010000, 0x00080000, 0x10000000, 0x20000000, 0x40000000, 0x80000000, 0x7fffffff, /* 48 */
     0xffffffff, 0xfffffffe, 0xc0000000, 0x4f1bbcdc, 0x5a7ef9db, 0x00100000                          /* 50 */
 };
+/* ADC capture buffer rates by ADCCR, with the gain their sample rate converter has
+   in 1/16384ths, as measured on the EMU10K1. The Audigy's gains are assumed to match. */
+static const struct {
+    uint16_t rate;
+    uint16_t gain;
+} emu10k1_adc_rates[] = {
+    { 48000, 16384 }, { 44100, 15453 }, { 32000, 13673 }, { 24000, 13809 },
+    { 22050, 13545 }, { 16000, 13596 }, { 11025, 15464 }, { 8000, 15468 }
+}, emu10k2_adc_rates[] = {
+    { 48000, 16384 }, { 44100, 15453 }, { 32000, 13673 }, { 24000, 13809 },
+    { 22050, 13545 }, { 16000, 13596 }, { 12000, 15464 }, { 11025, 15464 },
+    { 8000, 15468 }
+};
+#define EMU10K1_MIC_RATE 8000
+#define EMU10K1_MIC_GAIN 15468 /* same as the ADC at 8 KHz */
 static const int record_buffer_sizes[] = {
     0, 384, 448, 512,
     640, 384 * 2, 448 * 2, 512 * 2,
@@ -826,6 +851,28 @@ emu10k1_dsp_decode_opnd(emu10k1_t *dev, int pc, int i, int addr)
 #define tram_addr(align, mask) ((tram_op + dev->dsp.regs[0x5b] + (!!(tram_op & 0x00400000) * (align))) & (mask))
 #define itram_addr(align)      tram_addr(align, (sizeof(dev->dsp.itram) / sizeof(dev->dsp.itram[0])) - 1)
 
+/* A capture buffer's sample rate converter: averages the DSP outputs over each period
+   of the buffer's rate. The real one is a filter that rings for about 20 samples after
+   a transient; only its gain at DC, which depends on the rate, is reproduced. */
+static int
+emu10k1_capture_src(emu10k1_capture_src_t *src, uint32_t rate, uint32_t gain, int32_t l, int32_t r, int16_t *out)
+{
+    src->acc[0] += l;
+    src->acc[1] += r;
+    src->count++;
+    src->phase += rate;
+    if (src->phase < 48000)
+        return 0;
+    src->phase -= 48000;
+
+    out[0] = SAMPLE_32_TO_16(((src->acc[0] * gain) >> 14) / src->count);
+    out[1] = SAMPLE_32_TO_16(((src->acc[1] * gain) >> 14) / src->count);
+
+    src->acc[0] = src->acc[1] = 0;
+    src->count                = 0;
+    return 1;
+}
+
 void
 emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
 {
@@ -867,13 +914,15 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         }
     }
 
-    /* Feed samples into the regular capture buffers. */
-    if (UNLIKELY(dev->indirect_regs[0x49]) && !(pos % 6)) { /* any MICBS set and we're in an 8 KHz aligned sample? */
+    /* Feed samples into the regular capture buffers, through their sample rate converters. */
+    int16_t cap[2];
+    if (UNLIKELY(dev->indirect_regs[0x49]) && /* any MICBS set? */
+        emu10k1_capture_src(&dev->mic_src, EMU10K1_MIC_RATE, EMU10K1_MIC_GAIN, dev->dsp.regs[0x2c], 0, cap)) {
         int      buf_size  = record_buffer_sizes[dev->indirect_regs[0x49]];
         uint32_t base_addr = dev->indirect_regs[0x45];
         uint32_t idx       = dev->indirect_regs[0x63 + (dev->type != EMU10K1)];
 
-        mem_writew_phys(base_addr + idx, SAMPLE_32_TO_16(dev->dsp.regs[0x2c]));
+        mem_writew_phys(base_addr + idx, cap[0]);
         dev->indirect_regs[0x63 + (dev->type != EMU10K1)] = (idx + 2) % buf_size; /* write new position */
 
         /* Process loop interrupts. */
@@ -887,13 +936,32 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         }
     }
 
-    if (UNLIKELY(dev->indirect_regs[0x4a])) { /* any ADCBS set? */
+    /* ADCCR selects the channels (none stops the buffer) and the rate. */
+    int adc_chans;
+    int adc_rate;
+    if (dev->type == EMU10K1) {
+        adc_chans = (dev->indirect_regs[0x42] >> 3) & 3;
+        adc_rate  = MIN(dev->indirect_regs[0x42] & 0x07, (sizeof(emu10k1_adc_rates) / sizeof(emu10k1_adc_rates[0])) - 1);
+    } else {
+        adc_chans = (dev->indirect_regs[0x42] >> 4) & 3;
+        adc_rate  = MIN(dev->indirect_regs[0x42] & 0x0f, (sizeof(emu10k2_adc_rates) / sizeof(emu10k2_adc_rates[0])) - 1);
+    }
+    if (UNLIKELY(dev->indirect_regs[0x4a]) && adc_chans && /* any ADCBS and channels set? */
+        emu10k1_capture_src(&dev->adc_src,
+                            (dev->type == EMU10K1) ? emu10k1_adc_rates[adc_rate].rate : emu10k2_adc_rates[adc_rate].rate,
+                            (dev->type == EMU10K1) ? emu10k1_adc_rates[adc_rate].gain : emu10k2_adc_rates[adc_rate].gain,
+                            dev->dsp.regs[0x2a], dev->dsp.regs[0x2b], cap)) {
         int      buf_size  = record_buffer_sizes[dev->indirect_regs[0x4a]];
         uint32_t base_addr = dev->indirect_regs[0x46];
         uint32_t idx       = dev->indirect_regs[0x64 - (dev->type != EMU10K1)];
 
-        mem_writel_phys(base_addr + idx, (uint16_t) SAMPLE_32_TO_16(dev->dsp.regs[0x2a]) | ((uint16_t) SAMPLE_32_TO_16(dev->dsp.regs[0x2b]) << 16));
-        dev->indirect_regs[0x64 - (dev->type != EMU10K1)] = (idx + 4) % buf_size; /* write new position */
+        if (adc_chans == 3) {
+            mem_writel_phys(base_addr + idx, (uint16_t) cap[0] | ((uint16_t) cap[1] << 16));
+            dev->indirect_regs[0x64 - (dev->type != EMU10K1)] = (idx + 4) % buf_size; /* write new position */
+        } else { /* mono: left or right only */
+            mem_writew_phys(base_addr + idx, cap[adc_chans - 1]);
+            dev->indirect_regs[0x64 - (dev->type != EMU10K1)] = (idx + 2) % buf_size;
+        }
 
         /* Process loop interrupts. */
         buf_size /= 2; /* compare against half buffer size */
@@ -1995,11 +2063,13 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                     val &= 0x0000001f;
                     if (!dev->indirect_regs[reg] && val) {
                         dev->indirect_regs[reg + 0x1a] = 0; /* buffer position is reset when transitioning from 0 to non-0 */
-                        if (reg == 0x49)
+                        if (reg == 0x49) {
                             dev->micbuf_half_looped = 0;
-                        else if (reg == 0x4a)
+                            memset(&dev->mic_src, 0, sizeof(dev->mic_src));
+                        } else if (reg == 0x4a) {
                             dev->adcbuf_half_looped = 0;
-                        else
+                            memset(&dev->adc_src, 0, sizeof(dev->adc_src));
+                        } else
                             dev->fxbuf_half_looped = 0;
                     }
                     break;
