@@ -942,7 +942,8 @@ emu10k1_ac97_gain(uint16_t reg, int shift)
 /* The AC97 codec's ADCs, which feed the DSP's EXTIN 0x10 and 0x11 (stereo) and,
    with a codec that has a dedicated microphone ADC, 0x1E (mono). The real card's
    STAC9708 has none, and that input reads 0 whatever the record source. Samples
-   arrive left-justified: the STAC9708's 18 bits occupy bits 31:14. */
+   arrive left-justified: the STAC9708's 18 bits occupy bits 31:14. An ADC powered
+   down (PR0, or PRL for the microphone) leaves its input at the last sample. */
 static void
 emu10k1_ac97_adc(emu10k1_t *dev)
 {
@@ -960,10 +961,12 @@ emu10k1_ac97_adc(emu10k1_t *dev)
         dev->in_gain[0]     = emu10k1_ac97_gain(reg, 8);
         dev->in_gain[1]     = emu10k1_ac97_gain(reg, 0);
     }
-    dev->dsp.regs[0x10] = (uint32_t) CLAMP((int) (l * dev->in_gain[0]), -32768, 32767) << 16;
-    dev->dsp.regs[0x11] = (uint32_t) CLAMP((int) (r * dev->in_gain[1]), -32768, 32767) << 16;
+    if (!(ac97_codec_readw(dev->codec, 0x26) & 0x0100)) { /* PR0 */
+        dev->dsp.regs[0x10] = (uint32_t) CLAMP((int) (l * dev->in_gain[0]), -32768, 32767) << 16;
+        dev->dsp.regs[0x11] = (uint32_t) CLAMP((int) (r * dev->in_gain[1]), -32768, 32767) << 16;
+    }
 
-    if (dev->codec_mic_adc) {
+    if (dev->codec_mic_adc && !(ac97_codec_readw(dev->codec, 0x2a) & AC97_PRL)) {
         reg = ac97_codec_readw(dev->codec, 0x1e);
         if (reg != dev->in_gain_reg[1]) {
             dev->in_gain_reg[1] = reg;
