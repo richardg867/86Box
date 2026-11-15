@@ -1121,11 +1121,12 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         fwrite(out_samples, sizeof(out_samples[0]), dev->emu8k.emu10k1_fxbuses, sample_dump_f[1]);
 #endif
 
-    /* Don't execute if the DSP is paused. */
+    /* Don't execute if the DSP is paused: the DSP thread is left idle, with its
+       hand-off marked done for the next sample. */
     if ((dev->indirect_regs[0x52] & 0x00008000) || UNLIKELY(dev->dsp.pause)) {
         memset(&dev->dsp.regs[0x20], 0, 32 * sizeof(dev->dsp.regs[0])); /* null samples are output when DSP is off */
-        dev->dsp.etram_access = 0;
-        goto end;
+        atomic_store_explicit(&dev->dsp.done, 1, memory_order_release);
+        return;
     }
 
     /* Decrement DBAC. */
@@ -1134,7 +1135,6 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
     /* External TRAM is accessed by the DSP thread, unless HCFG_LOCKTANKCACHE is set. */
     dev->dsp.etram_access = !(dev->io_regs[0x14] & 0x04);
 
-end:
     /* Wake DSP thread. The sequentially consistent go store and sleeping load
        pair with the opposite ones in the DSP thread, so either the DSP thread
        sees go before sleeping, or this sees it sleeping and signals the event. */
