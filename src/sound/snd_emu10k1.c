@@ -1036,10 +1036,10 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         /* Process loop interrupts. */
         buf_size /= 2; /* compare against half buffer size */
         if (!dev->fxbuf_half_looped && (idx >= buf_size)) {
-            dev->temp_ipr |= (*((uint32_t *) &dev->io_regs[0x0c]) & 0x00000020) << 7; /* INTE_EFXBUFENABLE into IPR_EFXBUFHALFFULL = 0x00001000 */
+            dev->temp_ipr |= (AS_U32(dev->io_regs[0x0c]) & 0x00000020) << 7; /* INTE_EFXBUFENABLE into IPR_EFXBUFHALFFULL = 0x00001000 */
             dev->fxbuf_half_looped = 1;
         } else if (dev->fxbuf_half_looped && (idx < buf_size)) {
-            dev->temp_ipr |= (*((uint32_t *) &dev->io_regs[0x0c]) & 0x00000020) << 8; /* INTE_EFXBUFENABLE into IPR_EFXBUFFULL = 0x00002000 */
+            dev->temp_ipr |= (AS_U32(dev->io_regs[0x0c]) & 0x00000020) << 8; /* INTE_EFXBUFENABLE into IPR_EFXBUFFULL = 0x00002000 */
             dev->fxbuf_half_looped = 0;
         }
     }
@@ -1058,10 +1058,10 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         /* Process loop interrupts. */
         buf_size /= 2; /* compare against half buffer size */
         if (!dev->micbuf_half_looped && (idx >= buf_size)) {
-            dev->temp_ipr |= (*((uint32_t *) &dev->io_regs[0x0c]) & 0x00000080) << 9; /* INTE_MICBUFENABLE into IPR_MICBUFHALFFULL = 0x00010000 */
+            dev->temp_ipr |= (AS_U32(dev->io_regs[0x0c]) & 0x00000080) << 9; /* INTE_MICBUFENABLE into IPR_MICBUFHALFFULL = 0x00010000 */
             dev->micbuf_half_looped = 1;
         } else if (dev->micbuf_half_looped && (idx < buf_size)) {
-            dev->temp_ipr |= (*((uint32_t *) &dev->io_regs[0x0c]) & 0x00000080) << 10; /* INTE_MICBUFENABLE into IPR_MICBUFFULL = 0x00020000 */
+            dev->temp_ipr |= (AS_U32(dev->io_regs[0x0c]) & 0x00000080) << 10; /* INTE_MICBUFENABLE into IPR_MICBUFFULL = 0x00020000 */
             dev->micbuf_half_looped = 0;
         }
     }
@@ -1096,10 +1096,10 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         /* Process loop interrupts. */
         buf_size /= 2; /* compare against half buffer size */
         if (!dev->adcbuf_half_looped && (idx >= buf_size)) {
-            dev->temp_ipr |= (*((uint32_t *) &dev->io_regs[0x0c]) & 0x00000040) << 8; /* INTE_ADCBUFENABLE into IPR_ADCBUFHALFFULL = 0x00004000 */
+            dev->temp_ipr |= (AS_U32(dev->io_regs[0x0c]) & 0x00000040) << 8; /* INTE_ADCBUFENABLE into IPR_ADCBUFHALFFULL = 0x00004000 */
             dev->adcbuf_half_looped = 1;
         } else if (dev->adcbuf_half_looped && (idx < buf_size)) {
-            dev->temp_ipr |= (*((uint32_t *) &dev->io_regs[0x0c]) & 0x00000040) << 9; /* INTE_ADCBUFENABLE into IPR_ADCBUFFULL = 0x00008000 */
+            dev->temp_ipr |= (AS_U32(dev->io_regs[0x0c]) & 0x00000040) << 9; /* INTE_ADCBUFENABLE into IPR_ADCBUFFULL = 0x00008000 */
             dev->adcbuf_half_looped = 0;
         }
     }
@@ -1156,7 +1156,7 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         thread_set_event(dev->dsp.wake_dsp_thread);
 }
 
-#define RAW_FETCH()    (((uint64_t *) &dev->indirect_regs[0x400])[pc])
+#define RAW_FETCH()    AS_U64(dev->indirect_regs[0x400 + (pc << 1)])
 #define RAW_A()        ((RAW_FETCH() >> 32) & 0x3ff)
 #define RAW_X()        ((RAW_FETCH() >> 10) & 0x3ff)
 #define RAW_Y()        (RAW_FETCH() & 0x3ff)
@@ -1173,10 +1173,8 @@ extern uint8_t keyboard_get_shift(void);
 static void
 emu10k1_dsp_decode(emu10k1_t *dev)
 {
-    const uint64_t *code = (uint64_t *) &dev->indirect_regs[0x400];
-
     for (int pc = 0; pc < 0x200; pc++) {
-        uint64_t fetch = code[pc];
+        uint64_t fetch = AS_U64(dev->indirect_regs[0x400 + (pc << 1)]);
         int      op    = (fetch >> (*OP_BASE ^ 014)) & 0xf;
         int      a     = (fetch >> 32) & 0x3ff;
         int      r     = (fetch >> 42) & 0x3ff;
@@ -1257,7 +1255,7 @@ emu10k1_dsp_decode(emu10k1_t *dev)
     int      run_end   = 0;
     uint32_t run_debug = 0;
     for (int pc = 0x1ff; pc >= 0; pc--) {
-        uint64_t fetch = code[pc];
+        uint64_t fetch = AS_U64(dev->indirect_regs[0x400 + (pc << 1)]);
         int      y     = fetch & 0x3ff;
         int      x     = (fetch >> 10) & 0x3ff;
         int      a     = (fetch >> 32) & 0x3ff;
@@ -1584,13 +1582,13 @@ static void
 emu10k1_update_irqs(emu10k1_t *dev)
 {
     /* Load interrupt enable flags and current status. */
-    uint32_t ipr  = *((uint32_t *) &dev->io_regs[0x08]);
-    uint32_t inte = *((uint32_t *) &dev->io_regs[0x0c]);
+    uint32_t ipr  = AS_U32(dev->io_regs[0x08]);
+    uint32_t inte = AS_U32(dev->io_regs[0x0c]);
 
     /* Set channel loop interrupts. */
     if (dev->emu8k.lip) {
         /* Calculate highest active channel for IPR_CHANNELNUMBER. */
-        uint64_t any_ip  = *((uint64_t *) &dev->indirect_regs[0x5a]) | *((uint64_t *) &dev->indirect_regs[0x68]);
+        uint64_t any_ip  = AS_U64(dev->indirect_regs[0x5a]) | AS_U64(dev->indirect_regs[0x68]);
         int      channel = -1;
         while (any_ip) {
             any_ip >>= 1;
@@ -1618,7 +1616,7 @@ emu10k1_update_irqs(emu10k1_t *dev)
     ipr |= (inte & 0x00100000) << 2; /* INTE_FORCEINT into IPR_FORCEINT = 0x00400000 */
 
     /* Save new interrupt pending status. */
-    *((uint32_t *) &dev->io_regs[0x08]) = ipr;
+    AS_U32(dev->io_regs[0x08]) = ipr;
 
     /* Raise or lower IRQ according to interrupt flags. */
     if (ipr) {
@@ -1751,7 +1749,7 @@ emu10k1_readb(uint16_t addr, void *priv)
 
     switch (addr) {
         case 0x04 ... 0x07: /* DATA */
-            reg = *((uint16_t *) &dev->io_regs[0x02]);
+            reg = AS_U16(dev->io_regs[0x02]);
             switch (reg) {
                 case 0x70 ... 0x73: /* A_MUDATA1 ... A_MUCMD2 */
                     if ((dev->type != EMU10K1) && !(addr & 3))
@@ -1766,7 +1764,7 @@ emu10k1_readb(uint16_t addr, void *priv)
         case 0x08: /* IPR */
             /* If no interrupt flags are read, update interrupts beforehand. This
                helps synchronize our threaded MPU-401 input on the ALSA driver. */
-            if (!*((uint32_t *) &dev->io_regs[0x08]))
+            if (!AS_U32(dev->io_regs[0x08]))
                 emu10k1_update_irqs(dev);
             goto io_reg;
 
@@ -1822,7 +1820,7 @@ emu10k1_readw(uint16_t addr, void *priv)
     switch (addr) {
         case 0x04: /* DATA */
         case 0x06:
-            reg = *((uint16_t *) &dev->io_regs[0x02]);
+            reg = AS_U16(dev->io_regs[0x02]);
             switch (reg) {
                 case 0x00 ... 0x07: /* CPF ... DSL */
                     ret = emu8k_inw(0x600 | (addr & 2), &dev->emu8k);
@@ -1899,7 +1897,7 @@ emu10k1_readl(uint16_t addr, void *priv)
 
     switch (addr) {
         case 0x04: /* DATA */
-            reg = *((uint16_t *) &dev->io_regs[0x02]);
+            reg = AS_U16(dev->io_regs[0x02]);
             switch (reg) {
                 case 0x09: /* CCR */
                     ret = dev->emu8k.voice[dev->emu8k.cur_voice].ccr;
@@ -1914,7 +1912,7 @@ emu10k1_readl(uint16_t addr, void *priv)
                     break;
 
                 case 0x20 ... 0x3f: /* CD */
-                    ret = ((uint32_t *) dev->emu8k.voice[dev->emu8k.cur_voice].cd)[reg & 0x1f];
+                    ret = AS_U32(dev->emu8k.voice[dev->emu8k.cur_voice].cd[(reg & 0x1f) << 2]);
                     break;
 
                 case 0x7d: /* A_SENDAMOUNTS */
@@ -2052,7 +2050,7 @@ emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
             break;
 
         case 0x04 ... 0x07: /* DATA */
-            reg = *((uint16_t *) &dev->io_regs[0x02]);
+            reg = AS_U16(dev->io_regs[0x02]);
             emu10k1_log("EMU10K1: write_i(%d, %03X, %02X)\n", dev->emu8k.cur_voice, reg, val);
             switch (reg) {
                 case 0x70 ... 0x73: /* A_MUDATA1 ... A_MUCMD2 */
@@ -2087,8 +2085,8 @@ emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
             /* Clear pending interrupt flags for a channel when it's written back. */
             if (val & 0x40) {
                 val &= 0x3f;
-                *((uint64_t *) &dev->indirect_regs[0x5a]) &= ~(1ULL << val);
-                *((uint64_t *) &dev->indirect_regs[0x68]) &= ~(1ULL << val);
+                AS_U64(dev->indirect_regs[0x5a]) &= ~(1ULL << val);
+                AS_U64(dev->indirect_regs[0x68]) &= ~(1ULL << val);
             }
             emu10k1_update_irqs(dev);
             return;
@@ -2167,7 +2165,7 @@ emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
 
         case 0x1a: /* TIMER[7:0] */
             dev->io_regs[addr]  = val;
-            dev->timer_interval = *((uint16_t *) &dev->io_regs[0x1a]);
+            dev->timer_interval = AS_U16(dev->io_regs[0x1a]);
             if (dev->timer_interval == 0) /* wrap-around */
                 dev->timer_interval = 1024;
             dev->timer_count = 0;
@@ -2214,7 +2212,7 @@ emu10k1_writew(uint16_t addr, uint16_t val, void *priv)
     switch (addr) {
         case 0x04: /* DATA */
         case 0x06:
-            reg = *((uint16_t *) &dev->io_regs[0x02]);
+            reg = AS_U16(dev->io_regs[0x02]);
             switch (reg) {
                 case 0x70 ... 0x73: /* 8-bit registers */
                     goto writew_fallback;
@@ -2263,7 +2261,7 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
 
     switch (addr) {
         case 0x04:
-            reg = *((uint16_t *) &dev->io_regs[0x02]);
+            reg = AS_U16(dev->io_regs[0x02]);
             emu10k1_log("EMU10K1: write_i(%d, %03X, %08X)\n", dev->emu8k.cur_voice, reg, val);
             switch (reg) {
                 case 0x09: /* CCR */
@@ -2288,7 +2286,7 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                     return;
 
                 case 0x20 ... 0x3f: /* CD */
-                    ((uint32_t *) dev->emu8k.voice[dev->emu8k.cur_voice].cd)[reg & 0x1f] = val;
+                    AS_U32(dev->emu8k.voice[dev->emu8k.cur_voice].cd[(reg & 0x1f) << 2]) = val;
                     return;
 
                 case 0x40 ... 0x41: /* PTB ... TCB */
@@ -2592,7 +2590,7 @@ emu10k1_poll(void *priv)
 
     /* Process interrupts, starting with those coming from the DSP executor. */
     uint32_t ipr  = dev->temp_ipr;
-    uint32_t inte = *((uint32_t *) &dev->io_regs[0x0c]);
+    uint32_t inte = AS_U32(dev->io_regs[0x0c]);
 
     /* Process channel loop interrupts. */
     ipr |= dev->emu8k.lip << 6; /* IPR_CHANNELLOOP = 0x00000040 */
@@ -2612,7 +2610,7 @@ emu10k1_poll(void *priv)
 
     /* Update interrupts if any were raised. */
     if (ipr) {
-        *((uint32_t *) &dev->io_regs[0x08]) |= ipr;
+        AS_U32(dev->io_regs[0x08]) |= ipr;
         emu10k1_update_irqs(dev);
     }
 }
@@ -2666,7 +2664,7 @@ emu10k1_reset(void *priv)
     memset(dev->pci_regs, 0, sizeof(dev->pci_regs));
     dev->pci_regs[0x00]                  = 0x02;
     dev->pci_regs[0x01]                  = 0x11;
-    *((uint16_t *) &dev->pci_regs[0x02]) = dev->type;
+    AS_U16(dev->pci_regs[0x02]) = dev->type;
     dev->pci_regs[0x06]                  = 0x90;
     dev->pci_regs[0x07]                  = 0x02;
     dev->pci_regs[0x08]                  = emu10k1_models[dev->model].rev[0];
@@ -2677,7 +2675,7 @@ emu10k1_reset(void *priv)
     dev->pci_regs[0x10]                  = 0x01;
     dev->pci_regs[0x2c]                  = 0x02;
     dev->pci_regs[0x2d]                  = 0x11;
-    *((uint16_t *) &dev->pci_regs[0x2e]) = emu10k1_models[dev->model].id;
+    AS_U16(dev->pci_regs[0x2e]) = emu10k1_models[dev->model].id;
     dev->pci_regs[0x34]                  = 0xdc;
     dev->pci_regs[0x3d]                  = 0x01;
     dev->pci_regs[0x3e]                  = 0x02;
