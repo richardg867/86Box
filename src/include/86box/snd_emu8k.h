@@ -400,6 +400,11 @@ typedef struct emu8k_t {
     int           emu10k1_fxsends;
     emu8k_voice_t voice[64];
 
+    /* Tables that depend on the output rate. */
+    int32_t env_attack_to_samples[128];  /* envelope attack amount to time in samples */
+    int64_t lfofreqtospeed[256];         /* LFO speed parameter to 32.32 phase increment */
+    int32_t filt_coeffs[16][256][3];     /* filter coefficients for a Q and cutoff */
+
     union {
         struct { /* EMU8000 */
             uint16_t hwcf1;
@@ -421,6 +426,9 @@ typedef struct emu8k_t {
             uint32_t smarw;
             uint16_t smld_buffer;
             uint16_t smrd_buffer;
+            uint16_t dmareadbit;  /* simulated empty bit of the sound memory read address registers */
+            uint16_t dmawritebit; /* simulated full bit of the sound memory write address registers */
+            int      random_helper;
 
             /* RAM pointers are a way to avoid checking ram boundaries on read */
             int16_t *ram_pointers[0x100];
