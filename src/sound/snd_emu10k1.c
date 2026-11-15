@@ -1942,6 +1942,40 @@ readl_fallback:
     return ret;
 }
 
+/* Write one half of a channel register the EMU8000 handles in 16-bit halves. */
+static void
+emu10k1_write_voice16(emu10k1_t *dev, int reg, int high, uint16_t val)
+{
+    switch (reg) {
+        case 0x00 ... 0x07: /* CPF ... DSL */
+            emu8k_outw(0x600 | (high << 1), val, &dev->emu8k);
+            break;
+
+        case 0x08: /* CCCA */
+            emu8k_outw(0xa00 | (high << 1), val, &dev->emu8k);
+            break;
+
+        case 0x10 ... 0x17: /* ENVVOL ... LFO2VAL */
+            dev->emu8k.cur_reg = 4 | ((reg & 7) >> 1);
+            if (!high)
+                emu8k_outw(0xa00 | ((reg & 1) << 1), val, &dev->emu8k);
+            break;
+
+        case 0x18 ... 0x1e: /* IP ... TEMPENV */
+            if (!high)
+                emu8k_outw(0xe00, val, &dev->emu8k);
+            break;
+
+        case 0x1f: /* undocumented, plain storage on the low 16 bits */
+            if (!high)
+                dev->emu8k.voice[dev->emu8k.cur_voice].reg_1f = val;
+            break;
+
+        default:
+            break;
+    }
+}
+
 static void
 emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
 {
@@ -1986,8 +2020,15 @@ emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
                     }
                     break;
 
-                default: /* 16/32-bit registers */
-                    goto writeb_fallback;
+                default:
+                    /* The card ignores byte enables on DATA: a partial write
+                       writes the whole register, with the bytes not written
+                       taken from whatever is on the bus, which varies by host
+                       and from one write to the next. Make them zero. */
+                    emu10k1_log_push();
+                    emu10k1_writel(0x04, (uint32_t) val << ((addr & 3) << 3), priv);
+                    emu10k1_log_pop();
+                    break;
             }
             return;
 
@@ -2078,7 +2119,6 @@ emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
             break;
 
         case 0x1c ... 0x1d: /* 16-bit registers */
-writeb_fallback:
             emu10k1_log_push();
             if (!(addr & 1))
                 emu10k1_writew(addr & ~0x01, val | (emu10k1_readw(addr, priv) & 0xff00), priv);
@@ -2112,40 +2152,14 @@ emu10k1_writew(uint16_t addr, uint16_t val, void *priv)
         case 0x04: /* DATA */
         case 0x06:
             reg = *((uint16_t *) &dev->io_regs[0x02]);
-            emu10k1_log("EMU10K1: write_i(%d, %03X, %04X)\n", dev->emu8k.cur_voice, reg, val);
             switch (reg) {
-                case 0x00 ... 0x07: /* CPF ... DSL */
-                    emu8k_outw(0x600 | (addr & 2), val, &dev->emu8k);
-                    break;
-
-                case 0x08: /* CCCA */
-                    emu8k_outw(0xa00 | (addr & 2), val, &dev->emu8k);
-                    break;
-
-                case 0x10 ... 0x17: /* ENVVOL ... LFO2VAL */
-                    dev->emu8k.cur_reg = 4 | ((reg & 7) >> 1);
-                    if (!(addr & 2))
-                        emu8k_outw(0xa00 | ((reg & 1) << 1), val, &dev->emu8k);
-                    break;
-
-                case 0x18 ... 0x1e: /* IP ... TEMPENV */
-                    if (!(addr & 2))
-                        emu8k_outw(0xe00, val, &dev->emu8k);
-                    break;
-
-                case 0x1f:
-                    if (!(addr & 2))
-                        dev->emu8k.voice[dev->emu8k.cur_voice].reg_1f = val;
-                    break;
-
                 case 0x70 ... 0x73: /* 8-bit registers */
                     goto writew_fallback;
 
-                default: /* 32-bit registers */
-                    if (!(addr & 2))
-                        emu10k1_writel(addr & ~0x03, val | (emu10k1_readl(addr, priv) & 0xffff0000), priv);
-                    else
-                        emu10k1_writel(addr & ~0x03, (val << 16) | (emu10k1_readl(addr, priv) & 0x0000ffff), priv);
+                default: /* the whole register is written, see emu10k1_writeb */
+                    emu10k1_log_push();
+                    emu10k1_writel(0x04, (uint32_t) val << ((addr & 2) << 3), priv);
+                    emu10k1_log_pop();
                     break;
             }
             return;
@@ -2204,9 +2218,11 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                     dev->emu8k.voice[dev->emu8k.cur_voice].map[reg & 0x01] = val;
                     return;
 
-                case 0x00 ... 0x08: /* 16-bit registers */
+                case 0x00 ... 0x08: /* registers the EMU8000 handles in 16-bit halves */
                 case 0x10 ... 0x1f:
-                    goto writel_fallback;
+                    emu10k1_write_voice16(dev, reg, 0, val);
+                    emu10k1_write_voice16(dev, reg, 1, val >> 16);
+                    return;
 
                 case 0x20 ... 0x3f: /* CD */
                     ((uint32_t *) dev->emu8k.voice[dev->emu8k.cur_voice].cd)[reg & 0x1f] = val;
