@@ -25,6 +25,10 @@
 #include <stdlib.h>
 #include <math.h>
 #include <inttypes.h>
+#include <stdatomic.h>
+#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+#    include <intrin.h>
+#endif
 #define HAVE_STDARG_H
 #include <86box/86box.h>
 #include <86box/device.h>
@@ -36,6 +40,7 @@
 #include <86box/random.h>
 #include <86box/nmi.h>
 #include <86box/pci.h>
+#include <86box/plat.h>
 #include <86box/gameport.h>
 #include <86box/sound.h>
 #include <86box/snd_ac97.h>
@@ -211,9 +216,11 @@ typedef struct _emu10k1_ {
         int      etram_access; /* external TRAM accessed on this run */
         int      pause : 1, stop : 1;
 
-        thread_t *thread;
-        event_t  *wake_dsp_thread;
-        event_t  *wake_main_thread;
+        thread_t  *thread;
+        event_t   *wake_dsp_thread; /* only signaled while sleeping is set */
+        atomic_int go;              /* main thread to DSP thread: run */
+        atomic_int done;            /* DSP thread to main thread: run finished */
+        atomic_int sleeping;        /* DSP thread stopped spinning and waits on its event */
     } dsp;
 
     pc_timer_t poll_timer;
@@ -337,6 +344,25 @@ static uint16_t emu10k1_readw(uint16_t addr, void *priv);
 static uint32_t emu10k1_readl(uint16_t addr, void *priv);
 static void     emu10k1_writew(uint16_t addr, uint16_t val, void *priv);
 static void     emu10k1_writel(uint16_t addr, uint32_t val, void *priv);
+
+/* The main thread hands each sample to the DSP thread and back. Both sides spin
+   for the other, as an event round trip costs several times the sample's work;
+   the DSP thread falls back to sleeping on its event if no sample comes within
+   this many nanoseconds, so it does not burn a host core while emulation is
+   paused or the sound card is idle. */
+#define EMU10K1_DSP_SPIN_NS 100000
+
+#if defined(__i386__) || defined(__x86_64__)
+#    define EMU10K1_SPIN_PAUSE() __builtin_ia32_pause()
+#elif defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+#    define EMU10K1_SPIN_PAUSE() _mm_pause()
+#elif defined(__aarch64__) || defined(__arm__)
+#    define EMU10K1_SPIN_PAUSE() __asm__ __volatile__("yield")
+#elif defined(_MSC_VER) && defined(_M_ARM64)
+#    define EMU10K1_SPIN_PAUSE() __yield()
+#else
+#    define EMU10K1_SPIN_PAUSE()
+#endif
 
 typedef struct {
     int64_t  acc;   /* integer part of the accumulator, unsaturated */
@@ -965,8 +991,9 @@ void
 emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
 {
     /* Wait for DSP thread. */
-    thread_wait_event(dev->dsp.wake_main_thread, -1);
-    thread_reset_event(dev->dsp.wake_main_thread);
+    while (!atomic_load_explicit(&dev->dsp.done, memory_order_acquire))
+        EMU10K1_SPIN_PAUSE();
+    atomic_store_explicit(&dev->dsp.done, 0, memory_order_relaxed);
 
     /* Send DSP outputs from the previous run to the audio buffer.
        This should actually be 20 bits sent to the AC97 codec. */
@@ -1100,8 +1127,12 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
     dev->dsp.etram_access = !(dev->io_regs[0x14] & 0x04);
 
 end:
-    /* Wake DSP thread. */
-    thread_set_event(dev->dsp.wake_dsp_thread);
+    /* Wake DSP thread. The sequentially consistent go store and sleeping load
+       pair with the opposite ones in the DSP thread, so either the DSP thread
+       sees go before sleeping, or this sees it sleeping and signals the event. */
+    atomic_store(&dev->dsp.go, 1);
+    if (atomic_load(&dev->dsp.sleeping))
+        thread_set_event(dev->dsp.wake_dsp_thread);
 }
 
 #define RAW_FETCH()    (((uint64_t *) &dev->indirect_regs[0x400])[pc])
@@ -1488,13 +1519,28 @@ void
 emu10k1_dsp_thread(void *priv)
 {
     emu10k1_t *dev = (emu10k1_t *) priv;
+    uint64_t   spin_start;
+    int        spins;
 
-    thread_set_event(dev->dsp.wake_main_thread);
+    atomic_store_explicit(&dev->dsp.done, 1, memory_order_release);
 
     while (!dev->dsp.stop) {
-        /* Wait for main thread. */
-        thread_wait_event(dev->dsp.wake_dsp_thread, -1);
-        thread_reset_event(dev->dsp.wake_dsp_thread);
+        /* Wait for main thread, spinning for a while before sleeping. */
+        spin_start = plat_get_ns();
+        spins      = 0;
+        while (!atomic_load_explicit(&dev->dsp.go, memory_order_acquire)) {
+            EMU10K1_SPIN_PAUSE();
+            if (!(++spins & 63) && ((plat_get_ns() - spin_start) >= EMU10K1_DSP_SPIN_NS)) {
+                atomic_store(&dev->dsp.sleeping, 1);
+                while (!atomic_load(&dev->dsp.go)) {
+                    thread_wait_event(dev->dsp.wake_dsp_thread, -1);
+                    thread_reset_event(dev->dsp.wake_dsp_thread);
+                }
+                atomic_store(&dev->dsp.sleeping, 0);
+                break;
+            }
+        }
+        atomic_store_explicit(&dev->dsp.go, 0, memory_order_relaxed);
 
 #ifdef EMU10K1_DSP_TRACE
         if (EMU10K1_DSP_TRACE)
@@ -1505,7 +1551,7 @@ emu10k1_dsp_thread(void *priv)
         emu10k1_dsp_run(dev);
 
         /* Wake main thread. */
-        thread_set_event(dev->dsp.wake_main_thread);
+        atomic_store_explicit(&dev->dsp.done, 1, memory_order_release);
     }
 }
 
@@ -2704,7 +2750,6 @@ emu10k1_init(const device_t *info)
     memcpy(&dev->dsp.regs[(dev->type == EMU10K1) ? 0x40 : 0xc0], dsp_constants, sizeof(dsp_constants));
     memcpy(&dev->dsp.regs[(dev->type == EMU10K1) ? 0x60 : 0xe0], dsp_constants, sizeof(dsp_constants)); /* undocumented shadow (unknown on non-EMU10K1) */
     dev->dsp.wake_dsp_thread = thread_create_event();
-    dev->dsp.wake_main_thread = thread_create_event();
     dev->dsp.thread = thread_create(emu10k1_dsp_thread, dev);
 
     /* Initialize EMU8000 synth. */
@@ -2834,10 +2879,10 @@ emu10k1_close(void *priv)
 #endif
 
     dev->dsp.stop = 1;
+    atomic_store(&dev->dsp.go, 1);
     thread_set_event(dev->dsp.wake_dsp_thread);
     thread_wait(dev->dsp.thread);
     thread_destroy_event(dev->dsp.wake_dsp_thread);
-    thread_destroy_event(dev->dsp.wake_main_thread);
 
     free(dev);
 }
