@@ -1079,16 +1079,143 @@ EMU8K_READ_INTERP_CUBIC(emu8k_sample_read_t read_sample, const void *context, ui
     return dat2;
 }
 
-/* EMU10K1: cubic interpolation of the samples read through the voice's cache. */
-static inline int32_t
-emu10k1_interp_cubic(int32_t dat0, int32_t dat1, int32_t dat2, int32_t dat3, uint16_t fract)
-{
-    /*Since there are four floats in the table for each fraction, the position is 16byte aligned. */
-    fract >>= 16 - CUBIC_RESOLUTION_LOG;
-    fract <<= 2;
+/* EMU10K1 8-point interpolation, as measured on an SB Live! 5.1. CCCA selects one of
+   eight interpolation ROMs: 0 is a full band interpolator, and 1 to 7 low-pass the
+   sample progressively more for pitching up, which also leaves their DC gain at about
+   0.9 to 0.94. Each ROM is a symmetric kernel, 15-bit coefficients (1.0 = 32768) at
+   every 1/32 sample from 0 to 4 samples away, linearly interpolated over the lower 9
+   bits of the 14-bit phase. The result keeps 4 fractional bits. This reproduces the
+   card to within a 16-bit LSB; the voice's filter, which is always in the path on the
+   card, accounts for the rest. */
+static const int32_t emu10k1_interp_rom[8][129] = {
+    {
+        32768, 32707, 32524, 32220, 31798, 31262, 30614, 29861, 29009, 28063, 27031, 25920,
+        24740, 23498, 22205, 20868, 19498, 18103, 16694, 15280, 13870, 12473, 11097, 9750,
+        8441, 7175, 5960, 4801, 3703, 2671, 1708, 817, 0, -741, -1406, -1994,
+        -2506, -2945, -3310, -3606, -3834, -3999, -4103, -4152, -4148, -4098, -4005, -3875,
+        -3712, -3520, -3306, -3072, -2825, -2567, -2303, -2037, -1772, -1511, -1258, -1014,
+        -781, -562, -358, -171, 0, 153, 289, 406, 506, 589, 655, 706,
+        742, 764, 774, 772, 760, 740, 711, 677, 637, 594, 547, 499,
+        449, 400, 351, 304, 258, 215, 174, 137, 103, 72, 45, 21,
+        0, -17, -32, -43, -52, -58, -63, -65, -66, -65, -63, -60,
+        -56, -52, -47, -43, -38, -33, -29, -25, -21, -17, -14, -11,
+        -8, -6, -5, -3, -2, -1, -1, 0, 0
+    },
+    {
+        31372, 31295, 31102, 30795, 30364, 29816, 29156, 28387, 27518, 26554, 25502, 24371,
+        23169, 21905, 20588, 19227, 17833, 16416, 14984, 13548, 12117, 10701, 9308, 7947,
+        6626, 5352, 4133, 2974, 1881, 860, -83, -960, -1771, -2465, -3083, -3623,
+        -4079, -4455, -4752, -4973, -5120, -5199, -5212, -5164, -5060, -4905, -4704, -4462,
+        -4186, -3879, -3549, -3200, -2837, -2465, -2090, -1716, -1347, -987, -639, -308,
+        5, 296, 559, 814, 1064, 1246, 1406, 1543, 1653, 1738, 1799, 1837,
+        1853, 1848, 1824, 1783, 1726, 1655, 1572, 1479, 1378, 1270, 1157, 1041,
+        924, 807, 691, 578, 470, 366, 267, 175, 92, 17, -46, -120,
+        -208, -244, -275, -301, -322, -336, -346, -352, -352, -349, -343, -334,
+        -321, -307, -291, -273, -255, -235, -216, -196, -176, -157, -139, -121,
+        -105, -90, -75, -63, -52, -44, -39, -24, 0
+    },
+    {
+        27211, 27168, 27057, 26865, 26599, 26259, 25848, 25367, 24819, 24208, 23538, 22810,
+        22031, 21204, 20334, 19424, 18481, 17509, 16513, 15498, 14470, 13434, 12394, 11356,
+        10324, 9304, 8299, 7315, 6354, 5422, 4521, 3670, 2828, 2047, 1297, 598,
+        -55, -659, -1215, -1722, -2178, -2586, -2944, -3253, -3516, -3731, -3902, -4029,
+        -4115, -4162, -4172, -4148, -4091, -4004, -3891, -3753, -3594, -3416, -3221, -3014,
+        -2795, -2569, -2335, -2120, -1862, -1626, -1390, -1161, -937, -721, -513, -315,
+        -129, 46, 209, 359, 496, 620, 730, 827, 911, 982, 1040, 1087,
+        1121, 1145, 1159, 1163, 1159, 1146, 1126, 1099, 1066, 1029, 986, 995,
+        896, 849, 794, 742, 692, 641, 591, 541, 494, 449, 405, 363,
+        324, 287, 253, 220, 191, 164, 139, 117, 98, 80, 65, 51,
+        39, 30, 22, 15, 10, 9, 5, -47, 0
+    },
+    {
+        20704, 20691, 20631, 20538, 20407, 20240, 20037, 19800, 19528, 19223, 18886, 18519,
+        18123, 17698, 17248, 16774, 16276, 15759, 15222, 14668, 14100, 13518, 12926, 12325,
+        11717, 11104, 10489, 9872, 9257, 8645, 8038, 7425, 6848, 6259, 5692, 5133,
+        4589, 4060, 3549, 3055, 2579, 2124, 1689, 1275, 882, 511, 163, -163,
+        -467, -748, -1007, -1244, -1459, -1652, -1825, -1977, -2109, -2222, -2317, -2394,
+        -2454, -2498, -2527, -2524, -2549, -2535, -2513, -2478, -2435, -2383, -2323, -2257,
+        -2185, -2107, -2026, -1941, -1853, -1764, -1673, -1581, -1490, -1398, -1308, -1219,
+        -1132, -1048, -965, -886, -809, -737, -667, -601, -538, -480, -424, -418,
+        -311, -273, -232, -196, -165, -136, -111, -87, -67, -49, -33, -20,
+        -8, 2, 10, 16, 21, 25, 28, 30, 31, 31, 31, 30,
+        29, 27, 26, 24, 21, 18, 18, 58, 0
+    },
+    {
+        17916, 17906, 17863, 17804, 17719, 17612, 17480, 17325, 17148, 16948, 16727, 16486,
+        16224, 15944, 15644, 15327, 14993, 14644, 14280, 13902, 13512, 13110, 12697, 12276,
+        11846, 11408, 10965, 10518, 10068, 9615, 9164, 8690, 8244, 7789, 7347, 6901,
+        6460, 6025, 5597, 5177, 4765, 4362, 3969, 3587, 3216, 2856, 2509, 2174,
+        1852, 1544, 1249, 968, 701, 449, 210, -14, -223, -418, -600, -768,
+        -924, -1066, -1200, -1288, -1401, -1492, -1573, -1640, -1697, -1742, -1778, -1805,
+        -1822, -1831, -1832, -1826, -1813, -1794, -1768, -1738, -1703, -1663, -1619, -1573,
+        -1523, -1471, -1417, -1361, -1304, -1247, -1188, -1129, -1068, -1004, -931, -940,
+        -855, -800, -740, -688, -637, -588, -541, -497, -455, -415, -378, -342,
+        -309, -278, -250, -223, -198, -175, -154, -135, -118, -102, -87, -75,
+        -63, -52, -45, -37, -31, -32, -42, 24, 0
+    },
+    {
+        14561, 14547, 14528, 14489, 14436, 14367, 14284, 14186, 14074, 13947, 13807, 13653,
+        13487, 13308, 13116, 12913, 12698, 12473, 12238, 11993, 11739, 11477, 11207, 10929,
+        10646, 10356, 10061, 9761, 9457, 9151, 8841, 8541, 8212, 7907, 7589, 7278,
+        6966, 6657, 6350, 6046, 5745, 5449, 5155, 4867, 4585, 4308, 4037, 3773,
+        3515, 3264, 3021, 2785, 2557, 2337, 2125, 1922, 1727, 1540, 1362, 1192,
+        1031, 878, 735, 582, 479, 357, 246, 141, 45, -44, -125, -199,
+        -266, -327, -380, -428, -470, -506, -537, -562, -583, -599, -611, -619,
+        -624, -624, -623, -617, -610, -600, -588, -574, -559, -541, -524, -462,
+        -503, -474, -452, -429, -405, -381, -357, -335, -313, -291, -271, -250,
+        -231, -213, -195, -178, -162, -147, -133, -119, -107, -96, -84, -75,
+        -65, -57, -50, -43, -36, -30, -27, -61, 0
+    },
+    {
+        11586, 11576, 11567, 11544, 11513, 11474, 11425, 11369, 11304, 11230, 11149, 11059,
+        10962, 10857, 10745, 10626, 10499, 10366, 10226, 10081, 9929, 9771, 9609, 9441,
+        9268, 9091, 8910, 8725, 8536, 8345, 8149, 7965, 7749, 7556, 7349, 7146,
+        6941, 6737, 6532, 6327, 6123, 5919, 5716, 5514, 5314, 5116, 4919, 4725,
+        4533, 4344, 4158, 3975, 3796, 3620, 3447, 3279, 3114, 2953, 2797, 2645,
+        2497, 2354, 2216, 2063, 1958, 1830, 1710, 1594, 1482, 1375, 1273, 1176,
+        1082, 994, 910, 831, 755, 684, 617, 555, 495, 440, 389, 341,
+        296, 255, 217, 182, 150, 121, 94, 70, 48, 29, 11, 41,
+        -32, -36, -47, -54, -59, -63, -66, -69, -70, -70, -70, -70,
+        -69, -67, -65, -62, -60, -57, -54, -51, -47, -45, -41, -38,
+        -34, -32, -29, -26, -22, -19, -19, -58, 0
+    },
+    {
+        9242, 9246, 9235, 9224, 9208, 9187, 9162, 9132, 9098, 9060, 9016, 8969,
+        8917, 8861, 8801, 8737, 8669, 8597, 8521, 8442, 8359, 8272, 8182, 8089,
+        7993, 7894, 7792, 7687, 7580, 7470, 7358, 7232, 7132, 7005, 6889, 6766,
+        6642, 6516, 6390, 6262, 6134, 6004, 5874, 5744, 5612, 5481, 5350, 5219,
+        5088, 4957, 4826, 4696, 4567, 4438, 4310, 4183, 4057, 3933, 3809, 3687,
+        3566, 3447, 3329, 3231, 3092, 2983, 2873, 2766, 2660, 2556, 2454, 2355,
+        2257, 2162, 2069, 1978, 1890, 1803, 1719, 1638, 1558, 1481, 1407, 1335,
+        1265, 1197, 1133, 1070, 1009, 951, 895, 841, 790, 740, 693, 605,
+        623, 574, 534, 495, 458, 422, 389, 358, 329, 301, 276, 251,
+        229, 208, 188, 170, 153, 138, 123, 110, 98, 87, 77, 68,
+        59, 52, 45, 39, 33, 27, 25, 61, 0
+    }
+};
 
-    const float *table = &cubic_table[fract];
-    return dat0 * table[0] + dat1 * table[1] + dat2 * table[2] + dat3 * table[3];
+static inline int32_t
+emu10k1_interp_coef(const int32_t *rom, uint32_t dist)
+{
+    /* dist: distance from the sample in 1/16384 samples */
+    uint32_t node = dist >> 9;
+    uint32_t frac = dist & 511;
+
+    if (node >= 128)
+        return 0;
+    return ((rom[node] * (int32_t) (512 - frac)) + (rom[node + 1] * (int32_t) frac) + 256) >> 9;
+}
+
+static inline int32_t
+emu10k1_voice_sample(emu8k_t *emu8k, emu8k_voice_t *fmt_voice, uint32_t pos, int fmt_shift, int fmt_offset, int fmt_8bit)
+{
+    if ((pos >= fmt_voice->loop_end.int_address) && (fmt_voice->loop_end.int_address > fmt_voice->loop_start.int_address))
+        pos -= fmt_voice->loop_end.int_address - fmt_voice->loop_start.int_address;
+
+    uint32_t val = emu8k->readl(emu8k, fmt_voice, (pos << fmt_shift) + fmt_offset);
+    if (fmt_8bit)
+        return (int16_t) (((val & 0xff) << 8) ^ 0x8000);
+    return (int16_t) val;
 }
 
 static inline void
@@ -2475,9 +2602,11 @@ int32_t old_vol[32]   = { 0 };
 /* The resonant filters before the AWE32Emu Chamberlin filter, on the current
    filter cutoff. The EMU10K1 uses them. */
 static inline int32_t
-emu8k_voice_filter(emu8k_voice_t *emu_voice, int32_t dat)
+emu8k_voice_filter(emu8k_voice_t *emu_voice, int32_t dat, int emu10k1)
 {
     if (emu_voice->filterq_idx || emu_voice->cvcf_curr_filt_ctoff != 0xFFFF) {
+        if (emu10k1)
+            dat >>= 4; /* the filters work on whole samples */
         int           cutoff = emu_voice->cvcf_curr_filt_ctoff >> 8;
         const int64_t coef0  = filt_coeffs[emu_voice->filterq_idx][cutoff][0];
         const int64_t coef1  = filt_coeffs[emu_voice->filterq_idx][cutoff][1];
@@ -2554,6 +2683,8 @@ emu8k_voice_filter(emu8k_voice_t *emu_voice, int32_t dat)
             dat = -32768;
 
 #endif
+        if (emu10k1)
+            dat <<= 4;
     }
     return dat;
 }
@@ -2607,7 +2738,7 @@ emu8k_voice_sample(emu8k_voice_t *emu_voice, emu8k_sample_read_t read_sample,
     }
 #else
     (void) sample_rate;
-    dat = emu8k_voice_filter(emu_voice, dat);
+    dat = emu8k_voice_filter(emu_voice, dat, 0);
 #endif /* FILTER_CHAMBERLIN */
     return dat;
 }
@@ -2896,115 +3027,33 @@ emu10k1_voice_update(emu8k_t *emu8k, int c, int new_pos)
             emu_voice->addr.addr = emu8k->stereo_addr[pos - emu8k->pos];
         uint64_t new_addr = stereo_slave ? emu8k->stereo_addr[pos - emu8k->pos + 1] : (emu_voice->addr.addr + (((uint64_t) emu_voice->cpf_curr_pitch) << 18));
         if (emu_voice->cvcf_curr_volume) {
-            /* Waveform oscillator: 8/16-bit, mono/stereo, FIFO */
-            int16_t dat0;
-            int16_t dat1;
-            int16_t dat2;
-            int16_t dat3;
-#if 0
-            /* Fetch samples into FIFO if less than 4 samples are left. */
-            int fifo_delta = emu_voice->fifo_end - emu_voice->fifo_pos;
-            if (fifo_delta < (4 << emu_voice->addr_shift)) {
-                uint32_t addr = (emu_voice->addr.int_address << emu_voice->addr_shift) + emu_voice->stereo_offset + fifo_delta,
-                         end_addr = (emu_voice->loop_end.int_address << emu_voice->addr_shift) + emu_voice->stereo_offset;
-                if (CCCA_10K1_8BITSELECT(emu_voice->ccca)) pclog("USING 8BIT ON CHANNEL %d\n", c);
-
-                /* Make sure unaligned writes past the end of the FIFO don't happen. */
-                addr -= emu_voice->fifo_end & 3;
-                emu_voice->fifo_end &= ~3;
-
-                /* Fetch 8 dwords as specified by Creative. */
-                int fetch = 8;
-                do {
-                    /* There are a few ways to go about handling overflows. Just repeating the last sample
-                       satisfies both PCM playback (no clicks on period loop) and synth (no weird artifacting). */
-                    int overflow = addr - end_addr;
-                    if (UNLIKELY(overflow >= 0)) {
-                        overflow &= 3;
-                        emu_voice->fifo_end -= overflow;
-#    if 1
-                        addr -= ((emu_voice->loop_end.int_address - emu_voice->loop_start.int_address) << emu_voice->addr_shift) + overflow;
-#    else
-                        /* Read last sample and multiply it across the dword. */
-                        dat = (emu8k->readl(emu8k, emu_voice, end_addr - 4) >> (32 - (8 << emu_voice->addr_shift))) * emu_voice->dword_multiplier;
-
-                        /* Fill remaining fetches with the last sample. */
-                        do {
-                            *((uint32_t *) &emu_voice->cd[emu_voice->fifo_end & (sizeof(emu_voice->cd) - 1)]) = dat;
-                            emu_voice->fifo_end += 4;
-                        } while (fetch--);
-                        break;
-#    endif
-                    }
-
-                    /* Read data into the FIFO. */
-                    *((uint32_t *) &emu_voice->cd[emu_voice->fifo_end & (sizeof(emu_voice->cd) - 1)]) = emu8k->readl(emu8k, emu_voice, addr);
-                    emu_voice->fifo_end += 4;
-                    addr += 4;
-                } while (fetch--);
+            /* Waveform oscillator: 8-point interpolation around the sample after the current
+               address (see EMU8K_READ_INTERP_CUBIC), from 8/16-bit mono/stereo samples. */
+            const int32_t *rom   = emu10k1_interp_rom[(emu_voice->ccca >> 25) & 7];
+            uint32_t       phase = emu_voice->addr.fract_address >> 2;
+            int64_t        acc   = 0;
+            for (int i = 0; i < 8; i++) {
+                int32_t sample = emu10k1_voice_sample(emu8k, fmt_voice, emu_voice->addr.int_address - 2 + i, fmt_shift, fmt_offset, fmt_8bit);
+                acc += (int64_t) sample * emu10k1_interp_coef(rom, (i > 3) ? (((i - 3) << 14) - phase) : (((3 - i) << 14) + phase));
             }
-#endif
-            uint32_t addr     = (emu_voice->addr.int_address << fmt_shift) + fmt_offset;
-            uint32_t end_addr = (fmt_voice->loop_end.int_address << fmt_shift) + fmt_offset;
-            for (int i = 0; i < 16; i++) {
-                emu_voice->cd[i] = emu8k->readl(emu8k, fmt_voice, addr++);
-                if (addr >= end_addr)
-                    addr -= ((fmt_voice->loop_end.int_address - fmt_voice->loop_start.int_address) << fmt_shift);
-            }
-            emu_voice->fifo_pos = 0;
-
-            /* Read sample points. */
-            if (fmt_8bit) {
-                if (fmt_stereo) { /* 8-bit stereo */
-                    dat0 = emu_voice->cd[emu_voice->fifo_pos & (sizeof(emu_voice->cd) - 1)];
-                    dat1 = emu_voice->cd[(emu_voice->fifo_pos + 2) & (sizeof(emu_voice->cd) - 1)];
-                    dat2 = emu_voice->cd[(emu_voice->fifo_pos + 4) & (sizeof(emu_voice->cd) - 1)];
-                    dat3 = emu_voice->cd[(emu_voice->fifo_pos + 6) & (sizeof(emu_voice->cd) - 1)];
-                } else { /* 8-bit mono */
-                    dat0 = emu_voice->cd[emu_voice->fifo_pos & (sizeof(emu_voice->cd) - 1)];
-                    dat1 = emu_voice->cd[(emu_voice->fifo_pos + 1) & (sizeof(emu_voice->cd) - 1)];
-                    dat2 = emu_voice->cd[(emu_voice->fifo_pos + 2) & (sizeof(emu_voice->cd) - 1)];
-                    dat3 = emu_voice->cd[(emu_voice->fifo_pos + 3) & (sizeof(emu_voice->cd) - 1)];
-                }
-                dat0 = (dat0 << 8) ^ 0x8000;
-                dat1 = (dat1 << 8) ^ 0x8000;
-                dat2 = (dat2 << 8) ^ 0x8000;
-                dat3 = (dat3 << 8) ^ 0x8000;
-            } else if (fmt_stereo) { /* 16-bit stereo */
-                dat0 = *((int16_t *) &emu_voice->cd[emu_voice->fifo_pos & (sizeof(emu_voice->cd) - 1)]);
-                dat1 = *((int16_t *) &emu_voice->cd[(emu_voice->fifo_pos + 4) & (sizeof(emu_voice->cd) - 1)]);
-                dat2 = *((int16_t *) &emu_voice->cd[(emu_voice->fifo_pos + 8) & (sizeof(emu_voice->cd) - 1)]);
-                dat3 = *((int16_t *) &emu_voice->cd[(emu_voice->fifo_pos + 12) & (sizeof(emu_voice->cd) - 1)]);
-            } else { /* 16-bit mono */
-                dat0 = *((int16_t *) &emu_voice->cd[emu_voice->fifo_pos & (sizeof(emu_voice->cd) - 1)]);
-                dat1 = *((int16_t *) &emu_voice->cd[(emu_voice->fifo_pos + 2) & (sizeof(emu_voice->cd) - 1)]);
-                dat2 = *((int16_t *) &emu_voice->cd[(emu_voice->fifo_pos + 4) & (sizeof(emu_voice->cd) - 1)]);
-                dat3 = *((int16_t *) &emu_voice->cd[(emu_voice->fifo_pos + 6) & (sizeof(emu_voice->cd) - 1)]);
-            }
-
-            /* Advance FIFO to the next sample. */
-            emu_voice->fifo_pos += ((new_addr >> 32) - emu_voice->addr.int_address) << fmt_shift;
-            if (UNLIKELY(emu_voice->fifo_end < emu_voice->fifo_pos)) {
-                /* Reposition FIFO due to overflow. */
-                emu_voice->fifo_end = emu_voice->fifo_pos;
-            }
-            dat = emu10k1_interp_cubic(dat0, dat1, dat2, dat3, emu_voice->addr.fract_address);
+            dat = (int32_t) (acc >> 11); /* 4 fractional bits */
 
             /* Filter section */
-            dat = emu8k_voice_filter(emu_voice, dat);
+            dat = emu8k_voice_filter(emu_voice, dat, 1);
 
-            /* Moved from the individual filters to here due to overflow issues with no filtering on EMU10K1 Linux PCM. */
-            if (dat > 32768) { /* intentional: 32768 * max volume = 32767 */
-                dat = 32768;
-            } else if (dat < -32768) {
-                dat = -32768;
+            /* Moved from the individual filters to here due to overflow issues with no filtering on EMU10K1 Linux PCM.
+               EMU10K1 samples carry 4 fractional bits from the interpolator. */
+            if (dat > (32768 << 4)) { /* intentional: 32768 * max volume = 32767 */
+                dat = 32768 << 4;
+            } else if (dat < -(32768 << 4)) {
+                dat = -(32768 << 4);
             }
 
             /*volume and pan*/
-            dat = (dat * emu_voice->cvcf_curr_volume) >> 16;
+            dat = (int32_t) (((int64_t) dat * emu_voice->cvcf_curr_volume) >> 16);
 
             for (int i = 0; i < emu8k->emu10k1_fxsends; i++)
-                emu8k->fx_buffer[pos][emu_voice->fx_send_bus[i]] += (dat * emu_voice->fx_send[i]) >> 10; /* see SAMPLE_16_TO_32 */
+                emu8k->fx_buffer[pos][emu_voice->fx_send_bus[i]] += (int32_t) (((int64_t) dat * emu_voice->fx_send[i]) >> 14); /* see SAMPLE_16_TO_32 */
         } else {
             /* Reposition EMU10K1 FIFO due to address desync. */
             emu_voice->fifo_end = emu_voice->fifo_pos;
