@@ -59,6 +59,7 @@ enum {
     SB_LIVE_CT4780 = (EMU10K1 << 16) | 0x8022,
     SB_LIVE_CT4760 = (EMU10K1 << 16) | 0x8024,
     SB_LIVE_SB0060 = (EMU10K1 << 16) | 0x8061,
+    SB_LIVE_SB0150 = (EMU10K1 << 16) | 0x8071,
     SB_LIVE_SB0220 = (EMU10K1 << 16) | 0x8065,
 };
 
@@ -102,6 +103,11 @@ static const struct {
         .id    = SB_LIVE_SB0060,
         .rev   = { 0x07, 0x07 },
         .codec = &stac9708_device
+    },
+    {
+        .id    = SB_LIVE_SB0150,
+        .rev   = { 0x07, 0x07 },
+        .codec = &ct1297_device
     },
     {
         .id    = SB_LIVE_SB0220,
@@ -2938,6 +2944,8 @@ static const device_config_t sb_live_config[] = {
                  .value       = SB_LIVE_CT4780 },
           { .description = "SB0060 (SigmaTel STAC9708)",
                  .value       = SB_LIVE_SB0060 },
+          { .description = "SB0150 PCI 512 (Creative CT1297)",
+                 .value       = SB_LIVE_SB0150 },
           { .description = "SB0220 (SigmaTel STAC9708)",
                  .value       = SB_LIVE_SB0220 },
           { .description = "" } } },
