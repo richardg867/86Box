@@ -157,7 +157,7 @@ typedef struct _emu10k1_ {
     uint32_t temp_ipr;
     int      timer_interval;
     int      timer_count;
-    int      mpu_irq;
+    uint8_t  mpu_rx_irq[2]; /* MPU-401 interrupt (receive data available) */
     int      fxbuf_half_looped : 1;
     int      adcbuf_half_looped : 1;
     int      micbuf_half_looped : 1;
@@ -1527,11 +1527,11 @@ emu10k1_update_irqs(emu10k1_t *dev)
         }
     }
 
-    /* Set MPU-401 receive buffer non-empty interrupt as long as there's a byte in the queue. */
+    /* Set MPU-401 receive buffer non-empty interrupt as long as the MPU-401 has its interrupt raised. */
     ipr &= ~0x08000080; /* automatically cleared once conditions clear */
-    if (dev->mpu[0].queue_used)
+    if (dev->mpu_rx_irq[0])
         ipr |= (inte & 0x00000001) << 7; /* INTE_MIDIRXENABLE into IPR_MIDIRECVBUFEMPTY (a misnomer) = 0x00000080 */
-    if (dev->mpu[1].queue_used)
+    if (dev->mpu_rx_irq[1])
         ipr |= (inte & 0x00010000) << 11; /* INTE_A_MIDIRXENABLE2 into IPR_A_MIDIRECVBUFEMPTY2 (a misnomer) = 0x08000000 */
 
     /* Set forced interrupt flag. */
@@ -1550,14 +1550,24 @@ emu10k1_update_irqs(emu10k1_t *dev)
     }
 }
 
+/* The MPU-401 raises its interrupt before queueing the byte, so its
+   level is taken from here rather than from the queue. */
 static void
-emu10k1_mpu_irq_update(void *priv, UNUSED(int set))
+emu10k1_mpu0_irq_update(void *priv, int set)
 {
     emu10k1_t *dev = (emu10k1_t *) priv;
-    /* Our current MPU-401 implementation calls this from a thread.
-       Set a flag so that interrupts can be updated from the poll timer.
-       Timing will be slightly off, but that's the best we can do for now. */
-    dev->mpu_irq = 1;
+
+    dev->mpu_rx_irq[0] = !!set;
+    emu10k1_update_irqs(dev);
+}
+
+static void
+emu10k1_mpu1_irq_update(void *priv, int set)
+{
+    emu10k1_t *dev = (emu10k1_t *) priv;
+
+    dev->mpu_rx_irq[1] = !!set;
+    emu10k1_update_irqs(dev);
 }
 
 static int
@@ -2450,9 +2460,8 @@ emu10k1_poll(void *priv)
         ipr |= (inte & 0x00001000) << 11; /* INTE_FXDSPENABLE into IPR_FXDSP = 0x00800000 */
     }
 
-    /* Update interrupts if requested. */
-    if (ipr || dev->mpu_irq) {
-        dev->mpu_irq = 0;
+    /* Update interrupts if any were raised. */
+    if (ipr) {
         *((uint32_t *) &dev->io_regs[0x08]) |= ipr;
         emu10k1_update_irqs(dev);
     }
@@ -2731,10 +2740,10 @@ emu10k1_init(const device_t *info)
 
     /* Initialize MPU-401. */
     mpu401_init(&dev->mpu[0], 0, 0, M_UART, device_get_config_int("receive_input"));
-    mpu401_irq_attach(&dev->mpu[0], emu10k1_mpu_irq_update, emu10k1_mpu0_irq_pending, dev);
+    mpu401_irq_attach(&dev->mpu[0], emu10k1_mpu0_irq_update, emu10k1_mpu0_irq_pending, dev);
     if (dev->type != EMU10K1) {
         mpu401_init(&dev->mpu[1], 0, 0, M_UART, 0);
-        mpu401_irq_attach(&dev->mpu[1], emu10k1_mpu_irq_update, emu10k1_mpu1_irq_pending, dev);
+        mpu401_irq_attach(&dev->mpu[1], emu10k1_mpu1_irq_update, emu10k1_mpu1_irq_pending, dev);
     }
 
     /* Initialize game port. */
