@@ -869,6 +869,10 @@ emu10k1_dsp_decode_opnd(emu10k1_t *dev, int pc, int i, int addr)
             break;
 
         case 0x00 ... 0x3f: /* inputs and outputs */
+            /* Outputs can't be read: either address reads the input. */
+            word = &dev->dsp.regs[addr & 0x1f];
+            fallthrough;
+
         case 0x80 ... 0xff: /* unmapped */
             /* These return the last written value *only* when read back during the next instruction. */
             wo_cmp = addr;
@@ -1109,14 +1113,19 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
     int16_t out_samples[dev->emu8k.emu10k1_fxbuses];
 #endif
     for (i = 0; i < dev->emu8k.emu10k1_fxbuses; i++) {
-        /* Each FX bus is copied to an equivalent output by default. The
-           DSP program can overwrite the outputs to do its own routing. */
 #ifdef EMU10K1_SAMPLE_DUMP
         fx_samples[i]  = CLAMP(dev->emu8k.fx_buffer[pos][i] >> 8, -32768, 32767);
         out_samples[i] = SAMPLE_32_TO_16(dev->dsp.regs[0x20 | i]); /* from previous run */
 #endif
-        dev->dsp.regs[i] = dev->dsp.regs[0x20 | i] = SAMPLE_16_TO_32(dev->emu8k.fx_buffer[pos][i]);
+        dev->dsp.regs[i] = SAMPLE_16_TO_32(dev->emu8k.fx_buffer[pos][i]);
+        if (dev->type != EMU10K1)
+            dev->dsp.regs[0x20 | i] = dev->dsp.regs[i];
     }
+
+    /* Each output starts the sample as its input, FX buses and external inputs
+       alike, so any the program doesn't write pass their input through. */
+    if (dev->type == EMU10K1)
+        memcpy(&dev->dsp.regs[0x20], &dev->dsp.regs[0x00], 32 * sizeof(dev->dsp.regs[0]));
 #ifdef EMU10K1_SAMPLE_DUMP
     if (sample_dump_f[0])
         fwrite(fx_samples, sizeof(fx_samples[0]), dev->emu8k.emu10k1_fxbuses, sample_dump_f[0]);
@@ -1125,9 +1134,10 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
 #endif
 
     /* Don't execute if the DSP is paused: the DSP thread is left idle, with its
-       hand-off marked done for the next sample. */
+       hand-off marked done for the next sample, and the inputs pass through. */
     if ((dev->indirect_regs[0x52] & 0x00008000) || UNLIKELY(dev->dsp.pause)) {
-        memset(&dev->dsp.regs[0x20], 0, 32 * sizeof(dev->dsp.regs[0])); /* null samples are output when DSP is off */
+        if (dev->type != EMU10K1)
+            memset(&dev->dsp.regs[0x20], 0, 32 * sizeof(dev->dsp.regs[0]));
         atomic_store_explicit(&dev->dsp.done, 1, memory_order_release);
         return;
     }
@@ -1192,11 +1202,11 @@ emu10k1_dsp_decode(emu10k1_t *dev)
         int       shift  = 0;
         int       wo_set = EMU10K1_DSP_WO_NONE;
         switch (r) {
-            case 0x20 ... 0x3f: /* external and FX bus outputs */
-                word = &dev->dsp.regs[r];
+            case 0x00 ... 0x3f: /* external and FX bus inputs and outputs */
+                /* Inputs can't be written: either address writes the output. */
+                word = &dev->dsp.regs[0x20 | (r & 0x1f)];
                 fallthrough;
 
-            case 0x00 ... 0x1f: /* external and FX bus inputs */
             case 0x80 ... 0xff: /* unmapped */
                 /* Save last written value for special read handling. */
                 wo_set = r;
