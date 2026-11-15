@@ -1812,8 +1812,11 @@ emu10k1_readw(uint16_t addr, void *priv)
                     break;
 
                 case 0x18 ... 0x1e: /* IP ... TEMPENV */
-                case 0x1f:          /* EMU8000 ID register (unknown whether or not it applies here!) */
                     ret = (addr & 2) ? 0 : emu8k_inw(0xe00, &dev->emu8k);
+                    break;
+
+                case 0x1f: /* undocumented, plain storage on the low 16 bits */
+                    ret = (addr & 2) ? 0 : dev->emu8k.voice[dev->emu8k.cur_voice].reg_1f;
                     break;
 
                 case 0x70 ... 0x73: /* 8-bit registers */
@@ -2126,9 +2129,13 @@ emu10k1_writew(uint16_t addr, uint16_t val, void *priv)
                     break;
 
                 case 0x18 ... 0x1e: /* IP ... TEMPENV */
-                case 0x1f:          /* EMU8000 ID register (unknown whether or not it applies here!) */
                     if (!(addr & 2))
                         emu8k_outw(0xe00, val, &dev->emu8k);
+                    break;
+
+                case 0x1f:
+                    if (!(addr & 2))
+                        dev->emu8k.voice[dev->emu8k.cur_voice].reg_1f = val;
                     break;
 
                 case 0x70 ... 0x73: /* 8-bit registers */
