@@ -1681,8 +1681,6 @@ emu10k1_remap_traps(emu10k1_t *dev)
     io_trap_remap(dev->io_traps[TRAP_MPU].trap, dev->io_regs[0x0e] & 0x20, 0x300 | (dev->io_regs[0x0f] & 0x30), 2);
 }
 
-#define EMU10K1_MMU_UNMAPPED ((uint32_t) -1)
-
 static inline uint32_t
 emu10k1_mmutranslate(emu10k1_t *dev, emu8k_voice_t *voice, uint32_t page)
 {
@@ -1714,11 +1712,13 @@ emu10k1_mem_readl(emu8k_t *emu8k, emu8k_voice_t *voice, uint32_t addr)
 {
     emu10k1_t *dev = (emu10k1_t *) emu8k;
 
-    uint32_t page = UNLIKELY(dev->io_regs[0x14] & 0x08) /* HCFG_LOCKSOUNDCACHE */ ? EMU10K1_MMU_UNMAPPED : emu10k1_mmutranslate(dev, voice, addr >> 12);
-    if (UNLIKELY(page == EMU10K1_MMU_UNMAPPED))
-        return 0;
+    /* With HCFG_LOCKSOUNDCACHE set, the cache is not refilled and the voice keeps
+       playing the 128 bytes it holds, wrapping around at the position the lock
+       found it. We read those addresses again rather than keep a copy. */
+    if (UNLIKELY(dev->io_regs[0x14] & 0x08))
+        addr = voice->cache_lock_addr + ((addr - voice->cache_lock_addr) & 127);
 
-    return mem_readl_phys(page | (addr & 0x00000fff));
+    return mem_readl_phys(emu10k1_mmutranslate(dev, voice, addr >> 12) | (addr & 0x00000fff));
 }
 
 static uint8_t
@@ -2170,6 +2170,10 @@ emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
             return;
 
         case 0x14: /* HCFG[7:0] */
+            if ((val & ~dev->io_regs[addr]) & 0x08) { /* HCFG_LOCKSOUNDCACHE set: keep the window around each voice's position */
+                for (int i = 0; i < dev->emu8k.nvoices; i++)
+                    dev->emu8k.voice[i].cache_lock_addr = (dev->emu8k.voice[i].addr.int_address << dev->emu8k.voice[i].addr_shift) - 64;
+            }
             break;
 
         default:
