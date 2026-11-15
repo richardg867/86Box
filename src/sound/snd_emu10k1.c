@@ -1807,7 +1807,7 @@ emu10k1_readw(uint16_t addr, void *priv)
                     break;
 
                 case 0x10 ... 0x17: /* ENVVOL ... LFO2VAL */
-                    dev->emu8k.cur_reg = 4 | (dev->emu8k.cur_reg >> 1);
+                    dev->emu8k.cur_reg = 4 | ((reg & 7) >> 1);
                     ret                = (addr & 2) ? 0 : emu8k_inw(0xa00 | ((reg & 1) << 1), &dev->emu8k);
                     break;
 
@@ -2123,7 +2123,7 @@ emu10k1_writew(uint16_t addr, uint16_t val, void *priv)
                     break;
 
                 case 0x10 ... 0x17: /* ENVVOL ... LFO2VAL */
-                    dev->emu8k.cur_reg = 4 | (dev->emu8k.cur_reg >> 1);
+                    dev->emu8k.cur_reg = 4 | ((reg & 7) >> 1);
                     if (!(addr & 2))
                         emu8k_outw(0xa00 | ((reg & 1) << 1), val, &dev->emu8k);
                     break;
