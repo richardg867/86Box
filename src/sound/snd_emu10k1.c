@@ -574,6 +574,17 @@ emu10k1_dsp_opLIMIT1(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
     return y;
 }
 
+/* Index of the most significant set bit of a non-zero value. */
+static inline int
+emu10k1_msb(uint32_t i)
+{
+#if defined(__GNUC__) || defined(__clang__)
+    return 31 - __builtin_clz(i);
+#else
+    return log2i(i);
+#endif
+}
+
 static uint32_t
 emu10k1_dsp_logcompress(int32_t val, int max_exp)
 {
@@ -582,11 +593,11 @@ emu10k1_dsp_logcompress(int32_t val, int max_exp)
         return val >> 1;
 
     /* Tweaked from a kX plugin API function written by someone smarter than me. */
-    int      exp_bits = log2i(max_exp) + 1;
+    int      exp_bits = emu10k1_msb(max_exp) + 1;
     uint32_t ret      = (val < 0) ? ~val : val; /* actually's one complement */
-    if (!ret) /* 0 and -1 come out as is; log2i() can't tell 0 from 1, which matters with an exponent of 31 */
+    if (!ret) /* 0 and -1 come out as is */
         return val;
-    int      msb      = 31 - log2i(ret);
+    int      msb      = 31 - emu10k1_msb(ret);
     ret <<= msb;
     int exp = max_exp - msb;
     if (exp >= 0) {
@@ -618,7 +629,7 @@ emu10k1_dsp_opLOG(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
     /* The normalized flag is also set when the value took the normal
        path through the compressor, with a non-zero exponent. */
     uint32_t mag = ((int32_t) a < 0) ? ~((uint32_t) a) : (uint32_t) a;
-    if ((x & 0x1f) && mag && (((x & 0x1f) + log2i(mag) + 1) >= 32))
+    if ((x & 0x1f) && mag && (((x & 0x1f) + emu10k1_msb(mag) + 1) >= 32))
         st->flags |= 0x01; /* N */
 
     /* Apply one's complement transformations. */
@@ -650,8 +661,8 @@ emu10k1_dsp_logdecompress(int32_t val, int max_exp)
 
     /* Also based on kX and validated on hardware. */
     uint32_t ret      = (val < 0) ? ~val : val; /* still two's complement */
-    int      exp_bits = log2i(max_exp) + 1;
-    int      msb      = 32 - (log2i(ret) + 1);
+    int      exp_bits = emu10k1_msb(max_exp) + 1;
+    int      msb      = 31 - emu10k1_msb(ret | 1); /* 0 counts as 1 */
     if (msb <= exp_bits) {
         int exp = ret >> (31 - exp_bits);
         ret <<= exp_bits + 1;
