@@ -122,6 +122,7 @@ typedef struct atkbc_t {
     uint8_t ami_is_megakey;
     uint8_t award_revision;
     uint8_t chips_revision;
+    uint8_t was_reset;
 
     uint8_t mem[0x100];
 
@@ -811,6 +812,7 @@ write_p2(atkbc_t *dev, uint8_t val)
         if (!(val & 0x01)) {  /* Pin 0 selected. */
             /* Pin 0 selected. */
             kbc_at_log("write_p2(): Pulse reset!\n");
+            dev->was_reset = 0;
             softresetx86_from(SOFT_RESET_KBC); /* Pulse reset! */
             cpu_set_edx();
             flushmmucache();
@@ -825,6 +827,14 @@ write_p2(atkbc_t *dev, uint8_t val)
                have to do. */
             if ((kbc_ven == KBC_VEN_SIEMENS) || (machines[machine].init == machine_at_acera1g_init))
                 is486 ? loadcs(0xf000) : loadcs_2386(0xf000);
+
+            /* A chipset that asserts PCIRST# on a soft reset (the ALi M1533
+               and M1543 with register 44h bit 7 set, the SiS 85C496 with
+               register C6h bit 2 set) resets every device, this controller
+               included: its P2 now holds the reset value, and must not be
+               overwritten with the value that started the reset. */
+            if (dev->was_reset)
+                return;
         }
     }
 
@@ -2892,6 +2902,8 @@ static void
 kbc_at_reset(void *priv)
 {
     atkbc_t *dev = (atkbc_t *) priv;
+
+    dev->was_reset = 1;
 
     timer_disable(&dev->kbc_irq_timer);
     dev->do_irq        = 0;
