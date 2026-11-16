@@ -815,20 +815,31 @@ static const uint8_t emu10k1_dsp_flags_kept[16] = {
 static inline uint16_t
 emu10k1_dsp_tramcompress(int32_t val)
 {
-    /* Based on the ALSA DSP code's ETRAM-based playback handler. */
-    int32_t ret = emu10k1_dsp_logcompress(val << 12, 7);
-    if (ret & 0x80000000)
-        ret ^= 0x70000000;
-    return ret >> 16;
+    /* The TRAM format, as stored in external TRAM on an SB Live! 5.1: sign,
+       3-bit exponent and 12-bit mantissa without the leading 1 (implied when
+       the exponent isn't 0) of the 20-bit value's one's complement magnitude,
+       with the mantissa inverted on negative values. */
+    int32_t  v   = (int32_t) ((uint32_t) val << 12);
+    uint32_t mag = v ^ (v >> 31);
+    uint32_t ret;
+    if (mag < 0x01000000) {
+        ret = mag >> 12;
+    } else {
+        int exp = emu10k1_msb(mag) - 23;
+        ret     = (exp << 12) | ((mag >> (11 + exp)) & 0x0fff);
+    }
+    return (v < 0) ? (0x8000 | (ret ^ 0x0fff)) : ret;
 }
 
 static inline uint32_t
 emu10k1_dsp_tramdecompress(int16_t val)
 {
-    /* Extrapolated from compression. The added 0xffff for negative values reduces error. */
-    if (val & 0x8000)
-        val ^= 0x7000;
-    return emu10k1_dsp_logdecompress((val << 16) | (0xffff * (val < 0)), 7) >> 12;
+    /* The reverse; the bits below the mantissa come back as the sign. */
+    uint32_t neg = (val < 0) ? 0xffffffff : 0;
+    uint32_t w   = (val ^ (neg & 0x0fff)) & 0x7fff;
+    int      exp = w >> 12;
+    uint32_t ret = exp ? ((0x1000 | (w & 0x0fff)) << (11 + exp)) : (w << 12);
+    return (ret ^ neg) >> 12;
 }
 
 static void
