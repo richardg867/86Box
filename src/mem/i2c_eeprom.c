@@ -117,10 +117,14 @@ i2c_eeprom_stop(UNUSED(void *bus), UNUSED(uint8_t addr), void *priv)
 uint8_t
 log2i(uint32_t i)
 {
+#if defined(__GNUC__) || defined(__clang__)
+    return i ? (31 - __builtin_clz(i)) : 0;
+#else
     uint8_t ret = 0;
     while (i >>= 1)
         ret++;
     return ret;
+#endif
 }
 
 void *
