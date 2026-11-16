@@ -574,12 +574,12 @@ emu10k1_dsp_opLIMIT1(emu10k1_dsp_state_t *st, int64_t a, int32_t x, int32_t y)
     return y;
 }
 
-/* Index of the most significant set bit of a non-zero value. */
+/* log2i(), inlined for the DSP thread: the index of the most significant set bit, 0 for 0. */
 static inline int
 emu10k1_msb(uint32_t i)
 {
 #if defined(__GNUC__) || defined(__clang__)
-    return 31 - __builtin_clz(i);
+    return i ? (31 - __builtin_clz(i)) : 0;
 #else
     return log2i(i);
 #endif
@@ -662,7 +662,7 @@ emu10k1_dsp_logdecompress(int32_t val, int max_exp)
     /* Also based on kX and validated on hardware. */
     uint32_t ret      = (val < 0) ? ~val : val; /* still two's complement */
     int      exp_bits = emu10k1_msb(max_exp) + 1;
-    int      msb      = 31 - emu10k1_msb(ret | 1); /* 0 counts as 1 */
+    int      msb      = 31 - emu10k1_msb(ret);
     if (msb <= exp_bits) {
         int exp = ret >> (31 - exp_bits);
         ret <<= exp_bits + 1;
