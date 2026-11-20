@@ -678,7 +678,7 @@ typedef struct rdisk_drive_t {
                                      media status. */
     uint8_t            lpt_bridge; /* bus LPT: the bridge, HDD_LPT_*; the
                                       EPAT, or the ZIP's own chip */
-    uint8_t            folder_image; /* the medium was built from a folder or an archive */
+    uint8_t            folder_image; /* the medium was built from a folder */
 
     FILE              *fp;
     void              *priv;
@@ -778,7 +778,7 @@ extern void rdisk_hard_reset(void);
 extern void rdisk_reset(scsi_common_t *sc);
 extern int  rdisk_is_empty(const uint8_t id);
 extern void rdisk_load(const rdisk_t *dev, const char *fn, const int skip_insert);
-/* Mounts a folder or an archive and returns a fat_image_result_t; if left_out isn't NULL, it gets the
+/* Mounts a folder and returns a fat_image_result_t; if left_out isn't NULL, it gets the
    FAT_IMAGE_LEFT_OUT_* flags of what didn't fit. */
 extern int  rdisk_mount_folder(rdisk_t *dev, const char *fn, const int skip_insert, int *left_out);
 extern void rdisk_close(void);

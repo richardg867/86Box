@@ -481,7 +481,7 @@ usb_flash_new(const char *fn, uint8_t wp)
     dev->req_wp = wp;
     dev->wp     = wp;
     if (fat_image_is_source(fn)) {
-        /* A folder or an archive: the image built when it was plugged in, or a new one when the
+        /* A folder: the image built when it was plugged in, or a new one when the
            stick comes back on a hard reset. */
         dev->fp = usb_flash_take_folder(fn);
         if ((dev->fp == NULL) && (usb_flash_build_folder(fn, &dev->fp, NULL) != FAT_IMAGE_OK))
@@ -916,7 +916,7 @@ const device_t usb_flash_device = {
     .config        = NULL
 };
 
-/* Sticks built from folders and archives. They are partitioned like new images (below), in the sizes
+/* Sticks built from folders. They are partitioned like new images (below), in the sizes
    the new image dialog offers; the default is the dialog's too. */
 static const uint32_t usb_flash_folder_mb[] = { 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768 };
 #define USB_FLASH_FOLDER_SIZES   (sizeof(usb_flash_folder_mb) / sizeof(usb_flash_folder_mb[0]))

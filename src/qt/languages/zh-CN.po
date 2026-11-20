@@ -4368,8 +4368,8 @@ msgstr "内容超出当前配置的软驱容量上限。"
 msgid "Mount folder as a temporary removable disk"
 msgstr "将文件夹挂载为临时可移动磁盘"
 
-msgid "Unable to mount folder or archive"
-msgstr "无法挂载文件夹或存档"
+msgid "Unable to mount folder"
+msgstr ""
 
 msgid "The contents don't fit on any medium the drive takes, or a file is 4 GB or larger."
 msgstr ""
@@ -4383,11 +4383,8 @@ msgstr "临时镜像无法被写入。"
 msgid "There is not enough memory to build the image."
 msgstr "内存不足，无法创建镜像。"
 
-msgid "The folder or archive could not be read."
-msgstr "文件夹或存档不可读。"
-
-msgid "Archives"
-msgstr "存档"
+msgid "The folder could not be read."
+msgstr ""
 
 msgid "New USB flash drive"
 msgstr "新建USB闪存盘"

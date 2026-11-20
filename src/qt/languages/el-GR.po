@@ -4527,8 +4527,8 @@ msgstr ""
 msgid "Mount folder as a temporary removable disk"
 msgstr "Προσάρτηση φακέλου ως προσωρινός αφαιρούμενος δίσκος"
 
-msgid "Unable to mount folder or archive"
-msgstr "Αδυναμία προσάρτησης φακέλου ή συμπιεσμένου αρχείου"
+msgid "Unable to mount folder"
+msgstr ""
 
 msgid "The contents don't fit on any medium the drive takes, or a file is 4 GB or larger."
 msgstr ""
@@ -4546,11 +4546,8 @@ msgstr "Δεν ήταν δυνατή η εγγραφή του προσωρινο
 msgid "There is not enough memory to build the image."
 msgstr "Δεν υπάρχει αρκετή μνήμη για τη δημιουργία του αρχείου εικόνας."
 
-msgid "The folder or archive could not be read."
-msgstr "Δεν ήταν δυνατή η ανάγνωση του φακέλου ή του συμπιεσμένου αρχείου."
-
-msgid "Archives"
-msgstr "Συμπιεσμένα αρχεία"
+msgid "The folder could not be read."
+msgstr ""
 
 msgid "New USB flash drive"
 msgstr "Νέα μονάδα flash USB"

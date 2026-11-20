@@ -4401,8 +4401,8 @@ msgstr "內容超出軟碟機組態的容量。"
 msgid "Mount folder as a temporary removable disk"
 msgstr "將資料夾載掛成臨時抽取式磁碟"
 
-msgid "Unable to mount folder or archive"
-msgstr "無法載掛資料夾或壓縮檔"
+msgid "Unable to mount folder"
+msgstr ""
 
 msgid "The contents don't fit on any medium the drive takes, or a file is 4 GB or larger."
 msgstr "內容大小不適用選定磁碟機的可用媒體大小，或有單一檔案等於或大於 4GB。"
@@ -4416,11 +4416,8 @@ msgstr "臨時映像檔無法被寫入。"
 msgid "There is not enough memory to build the image."
 msgstr "記體不足無法創建映像檔。"
 
-msgid "The folder or archive could not be read."
-msgstr "資料夾或壓縮檔無法被讀取。"
-
-msgid "Archives"
-msgstr "壓縮檔"
+msgid "The folder could not be read."
+msgstr ""
 
 msgid "New USB flash drive"
 msgstr "新 USB 快閃碟"

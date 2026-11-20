@@ -26,19 +26,9 @@ add_library(utils OBJECT
     fs_name.c
     ini.c
     log.c
-    media_archive.c
     random.c
 )
 
-# Media mounted from archives are read through the system libarchive.
-find_package(PkgConfig REQUIRED)
-if(LibArchive_ROOT)
-    # Homebrew's libarchive is keg-only.
-    list(APPEND CMAKE_PREFIX_PATH "${LibArchive_ROOT}")
-endif()
-pkg_check_modules(LIBARCHIVE REQUIRED IMPORTED_TARGET libarchive)
-target_link_libraries(utils PkgConfig::LIBARCHIVE)
-target_link_libraries(86Box PkgConfig::LIBARCHIVE)
 # Names that macOS gives decomposed are composed again through CoreFoundation.
 if(APPLE)
     target_link_libraries(86Box "-framework CoreFoundation")
@@ -51,12 +41,6 @@ if(NOT WIN32)
         target_compile_definitions(utils PRIVATE USE_ICONV)
         target_link_libraries(86Box Iconv::Iconv)
     endif()
-endif()
-
-if(WIN32 AND STATIC_BUILD)
-    # MSYS2
-    target_compile_definitions(utils PRIVATE LIBARCHIVE_STATIC)
-    target_link_libraries(86Box -static ${LIBARCHIVE_STATIC_LIBRARIES})
 endif()
 
 add_library(mdsx_dll OBJECT

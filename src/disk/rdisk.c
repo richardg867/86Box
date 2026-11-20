@@ -38,7 +38,6 @@
 #include <86box/rdisk.h>
 #include <86box/disksizes.h>
 #include <86box/fat_image.h>
-#include <86box/media_archive.h>
 #include <86box/version.h>
 
 #define IDE_ATAPI_IS_EARLY             id->sc->pad0
@@ -1681,7 +1680,7 @@ rdisk_folder_params(const uint32_t medium, fat_image_params_t *p)
     }
 }
 
-/* Mounts a folder or an archive as a FAT medium, built in a temporary file. The drive's default medium is
+/* Mounts a folder as a FAT medium, built in a temporary file. The drive's default medium is
    used if the contents fit, else the smallest medium it writes that they fit. Writes go to the temporary
    file and are lost when the medium is ejected. Returns a fat_image_result_t. */
 

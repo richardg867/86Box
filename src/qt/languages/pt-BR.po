@@ -4379,8 +4379,8 @@ msgstr "O conteúdo excede a capacidade do drive de disquete configurado."
 msgid "Mount folder as a temporary removable disk"
 msgstr "Montar pasta como um disco removível temporário"
 
-msgid "Unable to mount folder or archive"
-msgstr "Não foi possível montar a pasta ou arquivo"
+msgid "Unable to mount folder"
+msgstr ""
 
 msgid "The contents don't fit on any medium the drive takes, or a file is 4 GB or larger."
 msgstr ""
@@ -4396,11 +4396,8 @@ msgstr "A imagem temporária não pode ser escrita."
 msgid "There is not enough memory to build the image."
 msgstr "Não há memória suficiente para criar a imagem."
 
-msgid "The folder or archive could not be read."
-msgstr "Não foi possível ler a pasta ou o arquivo."
-
-msgid "Archives"
-msgstr "Arquivos"
+msgid "The folder could not be read."
+msgstr ""
 
 msgid "New USB flash drive"
 msgstr "Novo disco flash USB"

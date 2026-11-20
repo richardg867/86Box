@@ -63,4 +63,3 @@ runs:
           vulkan-headers:p
           llvm-openmp:p
           zstd:p
-          libarchive:p

@@ -42,7 +42,6 @@
 #include <86box/version.h>
 #include <86box/nvr.h>
 
-#include <86box/media_archive.h>
 #include <86box/fs_name.h>
 #include <86box/civil_time.h>
 
@@ -105,7 +104,6 @@ typedef struct _viso_entry_ {
     uint16_t pt_idx;
     uint8_t  joliet_len;
     uint16_t *name_joliet;
-    const media_archive_entry_t *archive_entry;
 
     struct {
         uint8_t is_dir : 1;
@@ -135,8 +133,6 @@ typedef struct {
     viso_entry_t  *root_dir;
     viso_entry_t **entry_map;
     viso_entry_t  *file_fifo[VISO_OPEN_FILES];
-
-    media_archive_t *archive; /* when mounting an archive */
 } viso_t;
 
 static const char rr_eid[]   = "RRIP_1991A"; /* identifiers used in ER field for Rock Ridge */
@@ -638,14 +634,6 @@ viso_compare_entries(const void *a, const void *b)
     return strcmp((*((viso_entry_t **) a))->name_short, (*((viso_entry_t **) b))->name_short);
 }
 
-/* Archives are extracted to a temporary file, as most formats can't seek inside their files. */
-static int
-viso_archive_open(viso_t *viso, const char *filename)
-{
-    viso->archive = media_archive_open(filename);
-    return viso->archive && media_archive_extract_all(viso->archive);
-}
-
 int
 viso_read(void *priv, uint8_t *buffer, uint64_t seek, size_t count)
 {
@@ -671,13 +659,7 @@ viso_read(void *priv, uint8_t *buffer, uint64_t seek, size_t count)
 
             /* Get the file entry corresponding to this sector. */
             viso_entry_t *entry = viso->entry_map[sector - viso->metadata_sectors];
-            if (entry && entry->archive_entry) {
-                const uint64_t offset = seek - entry->data_offset;
-                if (offset < entry->stats.size)
-                    read = MIN(sector_remain, entry->stats.size - offset);
-                if (!media_archive_read(viso->archive, entry->archive_entry, offset, buffer, read))
-                    return -1;
-            } else if (entry) {
+            if (entry) {
                 /* Open file if it's not already open. */
                 if (!entry->file) {
                     /* Close any existing FIFO entry's file. */
@@ -775,8 +757,6 @@ viso_close(void *priv)
     if (viso->entry_map)
         free(viso->entry_map);
 
-    media_archive_close(viso->archive);
-
     if (tf->log != NULL)
         log_close(tf->log);
 
@@ -796,10 +776,6 @@ viso_init(const uint8_t id, const char *dirname, int *error)
     *error        = 1;
 
     if (viso == NULL)
-        goto end;
-
-    if (!plat_dir_check((char *) dirname) && media_archive_is_archive(dirname) &&
-        !viso_archive_open(viso, dirname))
         goto end;
 
     char n[1024]        = { 0 };
@@ -852,28 +828,23 @@ viso_init(const uint8_t id, const char *dirname, int *error)
         goto end;
     memcpy(dir->path, dirname, dir_path_buf_size);
     dir->parent = dir; /* for the root's path table and .. entries */
-    dir->archive_entry = viso->archive ? media_archive_root(viso->archive) : NULL;
     image_viso_log(viso->tf.log, "[%08X] %s => [root]\n", dir, dir->path);
 
     /* Traverse directories, starting with the root. */
     size_t         dir_entries_len = 0;
     while (LIKELY(dir)) {
         /* Open directory for listing. */
-        int    have_dir       = dir->archive_entry || plat_dir_open(&context, dir->path);
-        const media_archive_entry_t *archive_child = dir->archive_entry ? dir->archive_entry->children : NULL;
+        int    have_dir       = plat_dir_open(&context, dir->path);
         size_t children_count = 2; /* include . and .. (terminator is the +1 when allocating) */
         if (UNLIKELY(dir == viso->root_dir)) {
             /* Handle root directory. */
-            if (dir->archive_entry) {
-                dir->stats.is_dir = 1;
-                dir->stats.mtime  = time(NULL);
-            } else if (have_dir && plat_dir_is_dir(&context)) {
+            if (have_dir && plat_dir_is_dir(&context)) {
                 viso_fill_stats(dir, &context, viso->format); /* populate stats */
             } else {
                 goto end; /* not a directory */
             }
         }
-        if (have_dir && !dir->archive_entry) {
+        if (LIKELY(have_dir)) {
             /* Determine the entry array size. */
             children_count += plat_dir_count_children(&context);
         }
@@ -915,7 +886,7 @@ viso_init(const uint8_t id, const char *dirname, int *error)
 
         /* Iterate through this directory's children again, making the entries. */
         if (LIKELY(have_dir)) {
-            while (dir->archive_entry ? archive_child != NULL : plat_dir_read(&context)) {
+            while (plat_dir_read(&context)) {
                 /* Grow array if the original size is inaccurate. */
                 if (UNLIKELY(children_count >= dir_entries_len)) {
                     size_t         new_entries_len = dir_entries_len * 2;
@@ -929,10 +900,10 @@ viso_init(const uint8_t id, const char *dirname, int *error)
                 }
 
                 /* Add and fill entry. */
-                const char *path = archive_child ? archive_child->name : plat_dir_get_path(&context);
+                const char *path = plat_dir_get_path(&context);
                 size_t path_buf_size = strlen(path) + 1;
                 /* Names stored decomposed (on macOS) are composed for the disc; the path keeps the host's form. */
-                char  *composed      = archive_child ? NULL : fs_utf8_compose(&path[context.path_dir_len + 1]);
+                char  *composed      = fs_utf8_compose(&path[context.path_dir_len + 1]);
                 size_t composed_size = composed ? (strlen(composed) + 1) : 0;
                 entry = dir_entries[children_count] =
                     (viso_entry_t *) calloc(1, sizeof(viso_entry_t) + path_buf_size + composed_size);
@@ -942,22 +913,13 @@ viso_init(const uint8_t id, const char *dirname, int *error)
                 }
                 entry->parent = dir;
                 memcpy(entry->path, path, path_buf_size);
-                if (archive_child) {
-                    entry->archive_entry = archive_child;
-                    entry->basename      = entry->path;
-                    entry->stats.is_dir  = archive_child->is_dir;
-                    entry->stats.size    = MIN(archive_child->size, UINT32_MAX);
-                    entry->stats.mtime   = archive_child->has_header ? archive_child->mtime : time(NULL);
-                    archive_child        = archive_child->next;
+                if (composed) {
+                    memcpy(&entry->path[path_buf_size], composed, composed_size);
+                    entry->basename = &entry->path[path_buf_size];
                 } else {
-                    if (composed) {
-                        memcpy(&entry->path[path_buf_size], composed, composed_size);
-                        entry->basename = &entry->path[path_buf_size];
-                    } else {
-                        entry->basename = &entry->path[context.path_dir_len + 1];
-                    }
-                    viso_fill_stats(entry, &context, viso->format);
+                    entry->basename = &entry->path[context.path_dir_len + 1];
                 }
+                viso_fill_stats(entry, &context, viso->format);
                 free(composed);
 
                 /* Set short filename and skip this file if it couldn't be disambiguated. */
@@ -1073,13 +1035,6 @@ have_eltorito_entry:
     char saved_trailer    = volume_path[path_len];
     volume_path[path_len] = '\0';
     const char *basename  = path_get_filename(volume_path);
-    /* Drop the extension of an archive, including the .tar of a .tar.gz. */
-    char *archive_extension = (viso->archive && basename && basename[0]) ? strrchr(basename + 1, '.') : NULL;
-    if (archive_extension) {
-        if (((archive_extension - basename) > 4) && !strncasecmp(archive_extension - 4, ".tar", 4))
-            archive_extension -= 4;
-        *archive_extension = '\0';
-    }
     if (!basename || !basename[0])
         basename = EMU_NAME;
 
@@ -1225,8 +1180,6 @@ have_eltorito_entry:
             fwrite(data, viso->sector_size, 1, viso->tf.fp);
         }
     }
-    if (archive_extension)
-        *archive_extension = '.';
     volume_path[path_len] = saved_trailer;
 
     /* Fill terminator. */

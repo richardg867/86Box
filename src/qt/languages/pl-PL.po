@@ -4383,8 +4383,8 @@ msgstr "Zawartość przekracza pojemność skonfigurowanego napędu dyskietek."
 msgid "Mount folder as a temporary removable disk"
 msgstr "Zamontuj folder jako tymczasowy dysk wymienny"
 
-msgid "Unable to mount folder or archive"
-msgstr "Nie można zamontować folderu lub pliku archiwum"
+msgid "Unable to mount folder"
+msgstr ""
 
 msgid "The contents don't fit on any medium the drive takes, or a file is 4 GB or larger."
 msgstr ""
@@ -4400,11 +4400,8 @@ msgstr "Nie udało się zapisać obrazu tymczasowego."
 msgid "There is not enough memory to build the image."
 msgstr "Nie ma wystarczającej ilości pamięci, aby utworzyć obraz."
 
-msgid "The folder or archive could not be read."
-msgstr "Nie udało się odczytać folderu lub archiwum."
-
-msgid "Archives"
-msgstr "Pliki archiwum"
+msgid "The folder could not be read."
+msgstr ""
 
 msgid "New USB flash drive"
 msgstr ""

@@ -345,7 +345,7 @@ extern int curdrive;
 extern int     fdd_time;
 extern int64_t floppytime;
 
-/* Mounts a folder or an archive and returns a fat_image_result_t; if left_out isn't NULL, it gets the
+/* Mounts a folder and returns a fat_image_result_t; if left_out isn't NULL, it gets the
    FAT_IMAGE_LEFT_OUT_* flags of what didn't fit. */
 extern int  fdd_mount_folder(void *priv, const char *path, int read_only, int *left_out);
 extern void fdd_load(void *priv, char *fn);

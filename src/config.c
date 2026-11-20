@@ -4456,7 +4456,7 @@ save_usb_flash_drives(void)
     uint8_t       wp;
 
     for (int c = 0; c < USB_PORTS_MAX; c++) {
-        /* A stick built from a folder or an archive isn't kept, as on the other drives. */
+        /* A stick built from a folder isn't kept, as on the other drives. */
         if (usb_flash_cfg_get(c, label, fn, &wp) && !fat_image_is_source(fn)) {
             sprintf(temp, "usb_flash_%02i_port", c + 1);
             ini_section_set_string(cat, temp, label);

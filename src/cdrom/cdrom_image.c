@@ -47,7 +47,6 @@
 #include <86box/cdrom.h>
 #include <86box/cdrom_image.h>
 #include <86box/cdrom_image_viso.h>
-#include <86box/media_archive.h>
 
 #include <sndfile.h>
 
@@ -568,14 +567,6 @@ index_file_init(const uint8_t id, const char *filename, int *error, int *is_viso
     track_file_t *tf = NULL;
 
     *is_viso = 0;
-
-#ifndef IS_TEST
-    if (media_archive_is_archive(filename)) {
-        tf = viso_init(id, filename, error);
-        *is_viso = !*error;
-        return tf;
-    }
-#endif
 
     /* Current we only support .BIN files, either combined or one per
        track. In the future, more is planned. */

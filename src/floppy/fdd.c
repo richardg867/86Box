@@ -789,7 +789,7 @@ fdd_media_inserted(fdd_drive_t *drv)
     ui_sb_update_icon_wp(SB_FLOPPY | drv->id, drv->writeprot);
 }
 
-/* Mounts a folder or an archive as a FAT12 disk in the drive's own format, built in memory.
+/* Mounts a folder as a FAT12 disk in the drive's own format, built in memory.
    Writes go to that copy and are lost when it is ejected. */
 int
 fdd_mount_folder(void *priv, const char *path, int read_only, int *left_out)

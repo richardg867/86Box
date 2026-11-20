@@ -49,7 +49,7 @@ AppDir:
     for dir in "$TARGET_APPDIR"/usr/lib/*/gconv
     do
       [ -d "$dir" ] || continue
-      find "$dir" -maxdepth 1 -name '*.so' ! -name CP932.so ! -name IBM437.so ! -name 'UTF-*.so' ! -name UNICODE.so -delete
+      find "$dir" -maxdepth 1 -name '*.so' ! -name CP932.so ! -name 'UTF-*.so' ! -name UNICODE.so -delete
       keep=$(cd "$dir" && for so in *.so; do printf '%s ' "$(basename "$so" .so)"; done)
       for conf in "$dir"/gconv-modules "$dir"/gconv-modules.d/*.conf
       do
@@ -94,7 +94,6 @@ AppDir:
     - sourceline: 'deb http://deb.debian.org/debian trixie-updates main'
       key_url: 'https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x5e04a1e3223a19a20706e20f9904613d4cce68c6'
     include:
-    - libarchive13t64
     - libedit2 # if (CLI:BOOL=ON|QT:BOOL=OFF)
     - libevdev2 # if QT:BOOL=ON
     - libfreetype6

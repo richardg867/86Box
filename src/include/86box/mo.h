@@ -139,7 +139,7 @@ typedef struct mo_drive_t {
     uint8_t            read_only; /* Struct variable reserved for
                                      media status. */
     uint8_t            pad;
-    uint8_t            folder_image; /* the medium was built from a folder or an archive */
+    uint8_t            folder_image; /* the medium was built from a folder */
 
     FILE              *fp;
     void              *priv;
@@ -226,7 +226,7 @@ extern void mo_hard_reset(void);
 extern void mo_reset(scsi_common_t *sc);
 extern int  mo_is_empty(const uint8_t id);
 extern void mo_load(const mo_t *dev, const char *fn, const int skip_insert);
-/* Mounts a folder or an archive and returns a fat_image_result_t; if left_out isn't NULL, it gets the
+/* Mounts a folder and returns a fat_image_result_t; if left_out isn't NULL, it gets the
    FAT_IMAGE_LEFT_OUT_* flags of what didn't fit. */
 extern int  mo_mount_folder(mo_t *dev, const char *fn, const int skip_insert, int *left_out);
 extern void mo_close(void);

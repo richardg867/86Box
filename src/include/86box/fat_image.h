@@ -7,7 +7,7 @@
  *          This file is part of the 86Box distribution.
  *
  *          FAT12/16/32 volume generator for media mounted from host
- *          folders and archives.
+ *          folders.
  *
  * Authors: RichardG, <richardg867@gmail.com>
  *
@@ -28,7 +28,7 @@ typedef enum {
     FAT_IMAGE_UNSUPPORTED,    /* the drive or medium can't hold a folder */
     FAT_IMAGE_FULL,           /* not even the root directory fits */
     FAT_IMAGE_ROOT_FULL,      /* a folder has more names than numeric tails can tell apart */
-    FAT_IMAGE_READ_ERROR,     /* the folder or archive could not be read */
+    FAT_IMAGE_READ_ERROR,     /* the folder could not be read */
     FAT_IMAGE_WRITE_ERROR,    /* the image could not be written */
     FAT_IMAGE_NO_MEMORY
 } fat_image_result_t;
@@ -64,10 +64,10 @@ typedef struct fat_image_t fat_image_t;
    Returns 0 on failure. */
 typedef int (*fat_image_write_t)(void *opaque, uint64_t offset, const void *data, size_t size);
 
-/* Whether the path is a folder or an archive that can be turned into a volume. */
+/* Whether the path is a folder that can be turned into a volume. */
 extern int fat_image_is_source(const char *path);
 
-/* Reads the folder or archive tree. Files and folders inside it that can't be read are left out. */
+/* Reads the folder tree. Files and folders inside it that can't be read are left out. */
 extern fat_image_result_t fat_image_scan(const char *path, fat_image_t **image);
 extern void               fat_image_free(fat_image_t *image);
 

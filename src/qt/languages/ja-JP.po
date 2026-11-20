@@ -4330,7 +4330,7 @@ msgstr ""
 msgid "Mount folder as a temporary removable disk"
 msgstr ""
 
-msgid "Unable to mount folder or archive"
+msgid "Unable to mount folder"
 msgstr ""
 
 msgid "The contents don't fit on any medium the drive takes, or a file is 4 GB or larger."
@@ -4345,10 +4345,7 @@ msgstr ""
 msgid "There is not enough memory to build the image."
 msgstr ""
 
-msgid "The folder or archive could not be read."
-msgstr ""
-
-msgid "Archives"
+msgid "The folder could not be read."
 msgstr ""
 
 msgid "New USB flash drive"

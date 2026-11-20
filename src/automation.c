@@ -1669,7 +1669,7 @@ respond_ok_time(void)
               (unsigned long long) emu_ms, (unsigned long long) frame_count, held ? "true" : "false");
 }
 
-/* As respond_ok_time(), listing why files were left out of a folder or an archive that was mounted anyway. */
+/* As respond_ok_time(), listing why files were left out of a folder that was mounted anyway. */
 static void
 respond_ok_left_out(int left_out)
 {
@@ -2546,7 +2546,7 @@ handle_request(char *line)
                 if (fdd_mount_folder(&drives[id], path + wp * 5, wp, &left_out) == FAT_IMAGE_OK)
                     respond_ok_left_out(left_out);
                 else
-                    respond_error("could not build a floppy from the folder or archive");
+                    respond_error("could not build a floppy from the folder");
             } else {
                 fdd_close(&drives[id]);
                 drives[id].read_only = 0;
@@ -2611,7 +2611,7 @@ handle_request(char *line)
                 rdisk_insert(dev);
             ui_sb_update_icon_state(SB_RDISK | id, rdisk_drives[id].fp == NULL);
             if (result != FAT_IMAGE_OK)
-                respond_error("could not build a removable disk from the folder or archive");
+                respond_error("could not build a removable disk from the folder");
             else if (rdisk_drives[id].fp)
                 respond_ok_left_out(left_out);
             else
@@ -2647,7 +2647,7 @@ handle_request(char *line)
                 mo_insert(dev);
             ui_sb_update_icon_state(SB_MO | id, mo_drives[id].fp == NULL);
             if (result != FAT_IMAGE_OK)
-                respond_error("could not build an M.O. disk from the folder or archive");
+                respond_error("could not build an M.O. disk from the folder");
             else if (mo_drives[id].fp)
                 respond_ok_left_out(left_out);
             else
@@ -2689,7 +2689,7 @@ handle_request(char *line)
             if (fat_image_is_source(path + wp * 5))
                 result = usb_flash_prepare_folder(path + wp * 5, &left_out);
             if (result != FAT_IMAGE_OK) {
-                respond_error("could not build a flash drive from the folder or archive");
+                respond_error("could not build a flash drive from the folder");
             } else {
                 usb_port_flash_want(argv[2], path + wp * 5, wp);
                 respond_ok_left_out(left_out);

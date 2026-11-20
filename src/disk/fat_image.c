@@ -7,7 +7,7 @@
  *          This file is part of the 86Box distribution.
  *
  *          FAT12/16/32 volume generator for media mounted from host
- *          folders and archives.
+ *          folders.
  *
  *          The tree is read first; the layout is then fixed (FAT type and
  *          cluster size from the volume size, as Microsoft's FORMAT does),
@@ -24,13 +24,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifdef _WIN32
+#    include <windows.h>
+#    include <io.h>
+#else
+#    include <unistd.h>
+#endif
 #define HAVE_STDARG_H
 #include <86box/86box.h>
+#include <86box/nvr.h>
 #include <86box/path.h>
 #include <86box/plat.h>
 #include <86box/plat_dir.h>
 #include <86box/random.h>
-#include <86box/media_archive.h>
+#include <86box/machine.h>
 #include <86box/fs_name.h>
 #include <86box/civil_time.h>
 #include <86box/fat_image.h>
@@ -47,38 +54,36 @@ enum {
 };
 
 typedef struct node_t {
-    struct node_t         *parent;
-    struct node_t         *children;
-    struct node_t         *next;
-    char                  *host_path; /* folder sources */
-    media_archive_entry_t *entry;     /* archive sources */
-    uint64_t               size;
-    time_t                 mtime;
-    uint8_t                is_dir;
-    uint8_t                attr;
-    uint8_t                nt_case;
-    uint8_t                needs_tail;
-    uint8_t                left_out;  /* doesn't fit on the volume */
-    uint8_t                short_name[11];
-    uint8_t                lfn_len;   /* in UTF-16 units */
-    uint8_t                write_lfn; /* the long name differs from the short name */
-    uint16_t              *lfn;
-    uint32_t               entries;   /* directory entries used by a directory */
-    uint32_t               first_cluster;
-    uint32_t               clusters;
-    char                   name[];    /* UTF-8 */
+    struct node_t *parent;
+    struct node_t *children;
+    struct node_t *next;
+    char          *host_path;
+    uint64_t       size;
+    time_t         mtime;
+    uint8_t        is_dir;
+    uint8_t        attr;
+    uint8_t        nt_case;
+    uint8_t        needs_tail;
+    uint8_t        left_out;  /* doesn't fit on the volume */
+    uint8_t        short_name[11];
+    uint8_t        lfn_len;   /* in UTF-16 units */
+    uint8_t        write_lfn; /* the long name differs from the short name */
+    uint16_t      *lfn;
+    uint32_t       entries;   /* directory entries used by a directory */
+    uint32_t       first_cluster;
+    uint32_t       clusters;
+    char           name[];    /* UTF-8 */
 } node_t;
 
 struct fat_image_t {
-    node_t          *root;
-    media_archive_t *archive;
-    char             label[11];
-    time_t           now;
-    size_t           nodes;
-    int              left_out;   /* FAT_IMAGE_LEFT_OUT_* of the last layout */
-    int              unreadable; /* files or folders could not be read */
-    int              cp;        /* code page of the short names and the label */
-    int              tz_offset; /* host offset from UTC now, for times the C library can't place */
+    node_t *root;
+    char    label[11];
+    time_t  now;
+    size_t  nodes;
+    int     left_out;   /* FAT_IMAGE_LEFT_OUT_* of the last layout */
+    int     unreadable; /* files or folders could not be read */
+    int     cp;         /* code page of the short names and the label */
+    int     tz_offset;  /* host offset from UTC now, for times the C library can't place */
 };
 
 typedef struct layout_t {
@@ -139,6 +144,30 @@ put_le32(uint8_t *p, uint32_t v)
 {
     put_le16(p, v);
     put_le16(p + 2, v >> 16);
+}
+
+/* The code page of the names written for DOS: 932 (Shift-JIS) when 86Box is in Japanese or the machine is
+   Japanese, else the host's OEM code page on Windows and 437 elsewhere. */
+static int
+dos_codepage(void)
+{
+    char lang[32];
+
+    plat_ui_language(lang, sizeof(lang));
+    if (((lang[0] | 0x20) == 'j') && ((lang[1] | 0x20) == 'a') && ((lang[2] == '\0') || (lang[2] == '-') || (lang[2] == '_')))
+        return 932;
+    if (machine_has_flags(machine, MACHINE_JAPANESE))
+        return 932;
+#ifdef _WIN32
+    /* Not GetOEMCP(): the manifest makes this process's code pages UTF-8, so ask for the system's. */
+    WCHAR buf[8];
+    if (GetLocaleInfoW(LOCALE_SYSTEM_DEFAULT, LOCALE_IDEFAULTCODEPAGE, buf, sizeof(buf) / sizeof(buf[0])) > 0) {
+        int cp = _wtoi(buf);
+        if ((cp > 0) && (cp != CP_UTF8) && IsValidCodePage(cp))
+            return cp;
+    }
+#endif
+    return 437;
 }
 
 /* Converts a character to the code page in 1 or 2 bytes, or returns 0 if it has no equivalent. */
@@ -530,44 +559,6 @@ scan_folder(fat_image_t *image, node_t *dir, const char *path, int depth)
 }
 
 static fat_image_result_t
-scan_archive(fat_image_t *image, node_t *dir, media_archive_entry_t *entry, int depth)
-{
-    node_t **tail = &dir->children;
-
-    if (depth >= MAX_DEPTH)
-        return FAT_IMAGE_READ_ERROR;
-
-    /* Archive children come sorted by name. */
-    for (media_archive_entry_t *child = entry->children; child; child = child->next) {
-        node_t *node = node_new(image, dir, child->name);
-        if (!node)
-            return FAT_IMAGE_NO_MEMORY;
-        node->entry  = child;
-        node->is_dir = child->is_dir;
-        node->size   = child->is_dir ? 0 : child->size;
-        node->mtime  = child->has_header ? child->mtime : image->now;
-        node->attr   = child->dos_attr & ATTR_READ_ONLY;
-        child->priv  = node;
-        *tail        = node;
-        tail         = &node->next;
-    }
-    for (node_t **link = &dir->children; *link;) {
-        if ((*link)->is_dir) {
-            fat_image_result_t result = scan_archive(image, *link, (*link)->entry, depth + 1);
-            if (result == FAT_IMAGE_READ_ERROR) {
-                (*link)->entry->priv = NULL;
-                drop_node(image, link);
-                continue;
-            }
-            if (result != FAT_IMAGE_OK)
-                return result;
-        }
-        link = &(*link)->next;
-    }
-    return FAT_IMAGE_OK;
-}
-
-static fat_image_result_t
 name_tree(node_t *dir, int cp)
 {
     fat_image_result_t result = name_children(dir, cp);
@@ -594,15 +585,6 @@ make_label(fat_image_t *image, const char *path)
     while (len > 1 && ((buf[len - 1] == '/') || (buf[len - 1] == '\\')))
         buf[--len] = '\0';
     name = path_get_filename(buf);
-    if (!plat_dir_check(buf) && name[0]) {
-        /* Drop the archive extension, including the .tar of a .tar.gz. */
-        char *dot = strrchr(name + 1, '.');
-        if (dot) {
-            if (((dot - name) > 4) && !strncasecmp(dot - 4, ".tar", 4))
-                dot -= 4;
-            *dot = '\0';
-        }
-    }
 
     memset(image->label, ' ', 11);
     int n = 0;
@@ -629,7 +611,7 @@ make_label(fat_image_t *image, const char *path)
 int
 fat_image_is_source(const char *path)
 {
-    return plat_dir_check((char *) path) || media_archive_is_archive(path);
+    return plat_dir_check((char *) path);
 }
 
 fat_image_result_t
@@ -639,7 +621,7 @@ fat_image_scan(const char *path, fat_image_t **out)
     if (!image)
         return FAT_IMAGE_NO_MEMORY;
     image->now       = time(NULL);
-    image->cp        = media_codepage();
+    image->cp        = dos_codepage();
     image->tz_offset = civil_time_local_offset(image->now, 0);
     image->root = node_new(image, NULL, "");
     if (!image->root) {
@@ -648,16 +630,8 @@ fat_image_scan(const char *path, fat_image_t **out)
     }
     image->root->is_dir = 1;
 
-    fat_image_result_t result;
-    if (plat_dir_check((char *) path)) {
-        result = scan_folder(image, image->root, path, 0);
-    } else {
-        image->archive = media_archive_open(path);
-        result         = image->archive ? scan_archive(image, image->root, media_archive_root(image->archive), 0) :
-                                          FAT_IMAGE_READ_ERROR;
-        if (image->archive && media_archive_unreadable(image->archive))
-            image->unreadable = 1;
-    }
+    fat_image_result_t result = plat_dir_check((char *) path) ? scan_folder(image, image->root, path, 0) :
+                                                                FAT_IMAGE_READ_ERROR;
     if (result == FAT_IMAGE_OK)
         result = name_tree(image->root, image->cp);
     if (result == FAT_IMAGE_OK)
@@ -677,7 +651,6 @@ fat_image_free(fat_image_t *image)
     if (!image)
         return;
     node_free(image->root);
-    media_archive_close(image->archive);
     free(image);
 }
 
@@ -1233,26 +1206,6 @@ write_folder_files(const writer_t *w, const node_t *dir, uint8_t *buf, int *unre
     return FAT_IMAGE_OK;
 }
 
-typedef struct {
-    const writer_t *w;
-    int             write_error;
-} archive_writer_t;
-
-static int
-write_archive_data(void *opaque, media_archive_entry_t *entry, uint64_t offset, const void *data, size_t size)
-{
-    archive_writer_t *aw   = (archive_writer_t *) opaque;
-    const node_t     *node = (const node_t *) entry->priv;
-
-    if (!node || node->left_out || !size)
-        return 1;
-    if (!emit(aw->w, cluster_offset(aw->w->l, node->first_cluster) + offset, data, size)) {
-        aw->write_error = 1;
-        return 0;
-    }
-    return 1;
-}
-
 static void
 write_boot_code(uint8_t *sector, size_t code_offset, int pc98)
 {
@@ -1410,19 +1363,11 @@ fat_image_write(fat_image_t *image, const fat_image_params_t *p, fat_image_write
         return result;
 
     /* File data. */
-    if (image->archive) {
-        archive_writer_t aw = { .w = &w };
-        if (!media_archive_extract(image->archive, write_archive_data, &aw))
-            return aw.write_error ? FAT_IMAGE_WRITE_ERROR : FAT_IMAGE_READ_ERROR;
-        if (media_archive_unreadable(image->archive))
-            image->unreadable = 1;
-    } else {
-        buf = (uint8_t *) malloc(COPY_BUFFER);
-        if (!buf)
-            return FAT_IMAGE_NO_MEMORY;
-        result = write_folder_files(&w, image->root, buf, &image->unreadable);
-        free(buf);
-    }
+    buf = (uint8_t *) malloc(COPY_BUFFER);
+    if (!buf)
+        return FAT_IMAGE_NO_MEMORY;
+    result = write_folder_files(&w, image->root, buf, &image->unreadable);
+    free(buf);
     return result;
 }
 
@@ -1492,13 +1437,57 @@ fat_image_pick(fat_image_t *image, int count, int def, fat_image_medium_t medium
     return picked;
 }
 
+/* Opens an anonymous temporary file in the VM directory, deleted when closed. */
+static FILE *
+temp_file(const char *prefix)
+{
+    char name[256];
+    char path[1024];
+
+    for (int i = 0; i < 100; i++) {
+        plat_tempfile(name, (char *) prefix, NULL);
+        snprintf(path, sizeof(path), "%s-%d.tmp", nvr_path(name), i);
+#ifdef _WIN32
+        /* The CRT deletes D files when they are closed. */
+        FILE *fp = plat_fopen64(path, "w+bxD");
+#else
+        FILE *fp = plat_fopen64(path, "w+bx");
+#endif
+        if (fp) {
+#ifndef _WIN32
+            /* An unlinked file goes away with the emulator, even if it crashes. */
+            remove(path);
+#endif
+            return fp;
+        }
+    }
+    return NULL;
+}
+
+/* Sets the size of a temporary file, leaving the space unallocated where possible. */
+static int
+temp_file_set_size(FILE *fp, uint64_t size)
+{
+    if (fflush(fp))
+        return 0;
+#ifdef _WIN32
+    /* NTFS allocates the whole size of a file that is not sparse. */
+    DWORD  returned;
+    HANDLE handle = (HANDLE) _get_osfhandle(_fileno(fp));
+    DeviceIoControl(handle, FSCTL_SET_SPARSE, NULL, 0, NULL, 0, &returned, NULL);
+    return !_chsize_s(_fileno(fp), size);
+#else
+    return !ftruncate(fileno(fp), size);
+#endif
+}
+
 fat_image_result_t
 fat_image_write_temp(fat_image_t *image, const fat_image_params_t *params, const char *prefix, FILE **out)
 {
     fat_image_result_t result;
-    FILE              *fp = media_temp_file(prefix);
+    FILE              *fp = temp_file(prefix);
 
-    if (!fp || !media_temp_file_set_size(fp, params->sectors * params->sector_size))
+    if (!fp || !temp_file_set_size(fp, params->sectors * params->sector_size))
         result = FAT_IMAGE_WRITE_ERROR;
     else
         result = fat_image_write(image, params, fat_image_write_file, fp);
