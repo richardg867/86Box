@@ -379,13 +379,9 @@ typedef struct emu8k_voice_t {
             int      fx_send_bus[8];
             int      half_looped;
             int      addr_shift;
-            int      dword_multiplier;
-            int      stereo_offset;
-            uint8_t  cd[128]; /* cache */
-            uint16_t reg_1f;  /* undocumented register 0x1f: 16 bits of storage */
-            uint32_t cache_lock_addr; /* sound memory window the 128-byte cache holds while locked */
-            uint32_t fifo_pos;
-            uint32_t fifo_end;
+            uint8_t  cd[64];       /* cache: a ring of frames, a stereo pair's two making one */
+            uint16_t reg_1f;       /* undocumented register 0x1f: 16 bits of storage */
+            uint8_t  cache_looped; /* the cache has seen the address wrap to the loop start */
         };
     };
 
@@ -418,6 +414,7 @@ typedef struct emu8k_t {
     int           freq;
     int           emu10k1_fxbuses;
     int           emu10k1_fxsends;
+    int           emu10k1_cache_locked; /* HCFG_LOCKSOUNDCACHE: no cache fetches */
     emu8k_voice_t voice[64];
     uint32_t      pci_voices;  /* Voices clocked by the PCI controller. */
 
@@ -466,6 +463,7 @@ typedef struct emu8k_t {
         struct { /* EMU10K1 */
             int32_t fx_buffer[SOUNDBUFLEN][64];
             uint64_t stereo_addr[SOUNDBUFLEN + 1]; /* EMU10K1: addresses of a stereo pair's even voice, followed by the odd voice */
+            int32_t  stereo_dat[SOUNDBUFLEN];      /* EMU10K1: the odd voice's interpolated samples, read from the pair's cache */
         };
     };
 
@@ -553,6 +551,7 @@ void     emu8k_close(emu8k_t *emu8k);
 void     emu8k_reset_buffer(emu8k_t *emu8k);
 
 void emu8k_update(emu8k_t *emu8k);
+void emu10k1_cache_service(emu8k_t *emu8k, int c);
 
 enum {
     EMU8K_VOICE_CPF,

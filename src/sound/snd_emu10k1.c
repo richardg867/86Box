@@ -1745,12 +1745,6 @@ emu10k1_mem_readl(emu8k_t *emu8k, emu8k_voice_t *voice, uint32_t addr)
 {
     emu10k1_t *dev = (emu10k1_t *) emu8k;
 
-    /* With HCFG_LOCKSOUNDCACHE set, the cache is not refilled and the voice keeps
-       playing the 128 bytes it holds, wrapping around at the position the lock
-       found it. We read those addresses again rather than keep a copy. */
-    if (UNLIKELY(dev->io_regs[0x14] & 0x08))
-        addr = voice->cache_lock_addr + ((addr - voice->cache_lock_addr) & 127);
-
     return mem_readl_phys(emu10k1_mmutranslate(dev, voice, addr >> 12) | (addr & 0x00000fff));
 }
 
@@ -1929,8 +1923,12 @@ emu10k1_readl(uint16_t addr, void *priv)
                     ret = dev->emu8k.voice[dev->emu8k.cur_voice].map[reg & 0x01];
                     break;
 
-                case 0x20 ... 0x3f: /* CD */
-                    ret = AS_U32(dev->emu8k.voice[dev->emu8k.cur_voice].cd[(reg & 0x1f) << 2]);
+                case 0x20 ... 0x2f: /* CD */
+                    ret = AS_U32(dev->emu8k.voice[dev->emu8k.cur_voice].cd[(reg & 0x0f) << 2]);
+                    break;
+
+                case 0x30 ... 0x3f: /* not storage, despite being next to the cache */
+                    ret = 0;
                     break;
 
                 case 0x7d: /* A_SENDAMOUNTS */
@@ -2203,9 +2201,10 @@ emu10k1_writeb(uint16_t addr, uint8_t val, void *priv)
             return;
 
         case 0x14: /* HCFG[7:0] */
-            if ((val & ~dev->io_regs[addr]) & 0x08) { /* HCFG_LOCKSOUNDCACHE set: keep the window around each voice's position */
+            dev->emu8k.emu10k1_cache_locked = !!(val & 0x08); /* HCFG_LOCKSOUNDCACHE */
+            if (dev->io_regs[addr] & ~val & 0x08) { /* cleared: fetch what voices passed meanwhile */
                 for (int i = 0; i < dev->emu8k.nvoices; i++)
-                    dev->emu8k.voice[i].cache_lock_addr = (dev->emu8k.voice[i].addr.int_address << dev->emu8k.voice[i].addr_shift) - 64;
+                    emu10k1_cache_service(&dev->emu8k, i);
             }
             break;
 
@@ -2284,6 +2283,7 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
             switch (reg) {
                 case 0x09: /* CCR */
                     dev->emu8k.voice[dev->emu8k.cur_voice].ccr = (val & 0xfe3f0000) | (dev->emu8k.voice[dev->emu8k.cur_voice].ccr & ~0xfe3f0000);
+                    emu10k1_cache_service(&dev->emu8k, dev->emu8k.cur_voice); /* fetches the CCIS frames right away */
                     return;
 
                 case 0x0b:      /* FXRT */
@@ -2303,8 +2303,11 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                     emu10k1_write_voice16(dev, reg, 1, val >> 16);
                     return;
 
-                case 0x20 ... 0x3f: /* CD */
-                    AS_U32(dev->emu8k.voice[dev->emu8k.cur_voice].cd[(reg & 0x1f) << 2]) = val;
+                case 0x20 ... 0x2f: /* CD */
+                    AS_U32(dev->emu8k.voice[dev->emu8k.cur_voice].cd[(reg & 0x0f) << 2]) = val;
+                    return;
+
+                case 0x30 ... 0x3f:
                     return;
 
                 case 0x40 ... 0x41: /* PTB ... TCB */
@@ -2728,6 +2731,7 @@ emu10k1_reset(void *priv)
     dev->io_regs[0x02]  = 0xff; /* PTR_ADDRESS maxed out */
     dev->io_regs[0x03]  = 0x07;
     dev->io_regs[0x14]  = 0x0e; /* HCFG_MUTEBUTTONENABLE | HCFG_LOCKTANKCACHE | HCFG_LOCKSOUNDCACHE */
+    dev->emu8k.emu10k1_cache_locked = 1;
     dev->timer_interval = 1024;
     dev->timer_count    = 0;
 

@@ -1195,16 +1195,72 @@ emu10k1_interp_coef(const int32_t *rom, uint32_t dist)
     return ((rom[node] * (int32_t) (512 - frac)) + (rom[node + 1] * (int32_t) frac) + 256) >> 9;
 }
 
-static inline int32_t
-emu10k1_voice_sample(emu8k_t *emu8k, emu8k_voice_t *fmt_voice, uint32_t pos, int fmt_shift, int fmt_offset, int fmt_8bit)
-{
-    if ((pos >= fmt_voice->loop_end.int_address) && (fmt_voice->loop_end.int_address > fmt_voice->loop_start.int_address))
-        pos -= fmt_voice->loop_end.int_address - fmt_voice->loop_start.int_address;
+/* EMU10K1 voice cache, as measured on an SB Live! 5.1. Each voice has 64 bytes of cache
+   (CD0-CDF), and a stereo pair's two make one 128-byte cache, so in every format it is a
+   ring of 32 frames of 16-bit samples or 64 frames of 8-bit ones. The frame at CCCA - n is
+   in slot CRA - n: as the address moves on, the frames it passes are fetched into the next
+   slots, and writing CCR fetches the CCIS frames before CCCA. The interpolator reads the 8
+   oldest slots, so a voice plays 29 (16-bit) or 61 (8-bit) frames behind CCCA, which drivers
+   add to the start address. With HCFG_LOCKSOUNDCACHE set, nothing is fetched, and the
+   frames passed meanwhile are fetched once it is cleared. */
+#define EMU10K1_CACHE_SLOTS(v) (CCCA_10K1_8BITSELECT((v)->ccca) ? 64 : 32)
 
-    uint32_t val = emu8k->readl(emu8k, fmt_voice, (pos << fmt_shift) + fmt_offset);
-    if (fmt_8bit)
-        return (int16_t) (((val & 0xff) << 8) ^ 0x8000);
-    return (int16_t) val;
+/* A slot's frame, in voice c's cache or, past 64 bytes, the odd voice's. */
+static inline uint8_t *
+emu10k1_cache_frame(emu8k_t *emu8k, int c, int slot)
+{
+    int b = slot << emu8k->voice[c].addr_shift;
+    return (b & 64) ? &emu8k->voice[c | 1].cd[b & 63] : &emu8k->voice[c].cd[b];
+}
+
+static inline void
+emu10k1_cache_fetch(emu8k_t *emu8k, int c, uint32_t addr, int slot)
+{
+    emu8k_voice_t *voice = &emu8k->voice[c];
+    uint32_t       b     = addr << voice->addr_shift;
+    uint32_t       val   = emu8k->readl(emu8k, voice, b & ~3) >> ((b & 3) << 3);
+    uint8_t       *frame = emu10k1_cache_frame(emu8k, c, slot);
+    for (int i = 0; i < (1 << voice->addr_shift); i++)
+        frame[i] = val >> (i << 3);
+}
+
+/* Fetch the frames CCR says are invalid, the CCIS ones before CCCA: right after a CCR
+   write, and for every voice once HCFG_LOCKSOUNDCACHE is cleared. A stereo pair's odd
+   voice has no cache of its own to fetch into. */
+void
+emu10k1_cache_service(emu8k_t *emu8k, int c)
+{
+    if (emu8k->emu10k1_cache_locked || ((c & 1) && CPF_10K1_STEREO(emu8k->voice[c - 1].cpf)))
+        return;
+
+    emu8k_voice_t *voice    = &emu8k->voice[c];
+    int            slots    = EMU10K1_CACHE_SLOTS(voice);
+    int            cra      = voice->ccr_readaddr & 0x3f;
+    uint32_t       loop_len = voice->loop_end.int_address - voice->loop_start.int_address;
+    for (int j = MIN(voice->ccr_cacheinval >> 1, slots); j > 0; j--) {
+        uint32_t addr = voice->addr.int_address - j;
+        if (voice->cache_looped && (addr < voice->loop_start.int_address))
+            addr += loop_len;
+        emu10k1_cache_fetch(emu8k, c, addr & EMU8K_MEM_ADDRESS_MASK, (cra - j) & (slots - 1));
+    }
+    voice->ccr_cacheinval &= 0x01; /* CCIS = 0 */
+}
+
+/* 8-point interpolation over the 8 oldest slots, from one channel of their frames. */
+static inline int32_t
+emu10k1_cache_interp(emu8k_t *emu8k, int c, int chan, const int32_t *rom, uint32_t phase)
+{
+    const emu8k_voice_t *voice = &emu8k->voice[c];
+    int                  slots = EMU10K1_CACHE_SLOTS(voice);
+    int                  cra   = voice->ccr_readaddr & 0x3f;
+    int                  bits8 = CCCA_10K1_8BITSELECT(voice->ccca);
+    int64_t              acc   = 0;
+    for (int i = 0; i < 8; i++) {
+        const uint8_t *frame  = emu10k1_cache_frame(emu8k, c, (cra + i) & (slots - 1)) + chan;
+        int32_t        sample = bits8 ? (int16_t) ((frame[0] << 8) ^ 0x8000) : (int16_t) (frame[0] | (frame[1] << 8));
+        acc += (int64_t) sample * emu10k1_interp_coef(rom, (i > 3) ? (((i - 3) << 14) - phase) : (((3 - i) << 14) + phase));
+    }
+    return (int32_t) (acc >> 11); /* 4 fractional bits */
 }
 
 static inline void
@@ -1228,29 +1284,12 @@ emu8k_10k1_recalc_format(emu8k_t *emu8k)
 {
     emu8k_voice_t *emu_voice = &emu8k->voice[emu8k->cur_voice];
 
-    /* Calculate addressing mode. */
-    emu_voice->ccr_readaddr = (!CCCA_10K1_8BITSELECT(emu_voice->ccca) << 6) | (!!CPF_10K1_STEREO(emu_voice->cpf) << 7);
-    switch (emu_voice->ccr_readaddr & 0xc0) {
-        case 0x00:
-            emu_voice->addr_shift       = 0;
-            emu_voice->dword_multiplier = 0x01010101;
-            break;
-        case 0xc0:
-            emu_voice->addr_shift       = 2;
-            emu_voice->dword_multiplier = 0x00000001;
-            break;
-        default:
-            emu_voice->addr_shift       = 1;
-            emu_voice->dword_multiplier = 0x00010001;
-            break;
-    }
-
-    /* Add stereo channel offset. For the formats we deal with, addr_shift == ((1 << addr_shift) >> 1) as a shortcut. */
-    emu_voice->stereo_offset = ((emu_voice->ccr_readaddr & 0x80) && (emu8k->cur_voice & 1)) ? emu_voice->addr_shift : 0;
-
-    /* Reset FIFO due to format change. */
-    emu_voice->fifo_pos = 0;
-    emu_voice->fifo_end = 0;
+    /* Calculate addressing mode: CCR_INTERLEAVEDSAMPLES and CCR_WORDSIZEDSAMPLES,
+       next to the cache read address, and the frame size as a shift. */
+    int word   = !CCCA_10K1_8BITSELECT(emu_voice->ccca);
+    int stereo = !!CPF_10K1_STEREO(emu_voice->cpf);
+    emu_voice->ccr_readaddr = (emu_voice->ccr_readaddr & 0x3f) | (word << 6) | (stereo << 7);
+    emu_voice->addr_shift   = word + stereo;
 }
 
 static uint16_t /* AWE32Emu: renamed, wrapper below adds the trace */
@@ -1981,7 +2020,8 @@ emu8k_outw(uint16_t addr, uint16_t val, void *priv)
                         emu8k_voice_t *emu_voice = &emu8k->voice[emu8k->cur_voice];
                         WRITE16(addr, emu_voice->ccca, val);
                         emu8k_voice_sync(emu_voice, EMU8K_VOICE_CCCA, addr & 2);
-                        emu_voice->half_looped = 0;
+                        emu_voice->half_looped  = 0;
+                        emu_voice->cache_looped = 0;
                         emu8k_10k1_recalc_format(emu8k);
                     }
                     return;
@@ -2997,35 +3037,29 @@ emu10k1_voice_update(emu8k_t *emu8k, int c, int new_pos)
     /* EMU10K1 stereo: the stereo bit on an even voice makes it the left channel of a pair, and the
        next (odd) voice plays the right channel at the even voice's position, in its format and
        between its loop points, whatever the odd voice's own pitch, stereo bit and position are.
-       Both channels are fetched through the even voice's translation cache: the odd voice's own
-       MAPA/MAPB are not used, and drivers leave junk in them. */
-    int            stereo_master = !(c & 1) && CPF_10K1_STEREO(emu_voice->cpf);
-    int            stereo_slave  = (c & 1) && CPF_10K1_STEREO(emu8k->voice[c - 1].cpf);
-    emu8k_voice_t *fmt_voice     = stereo_slave ? &emu8k->voice[c - 1] : emu_voice;
-    int            fmt_shift     = fmt_voice->addr_shift;
-    int            fmt_offset    = stereo_slave ? fmt_shift : emu_voice->stereo_offset;
-    int            fmt_stereo    = stereo_slave || CPF_10K1_STEREO(emu_voice->cpf);
-    int            fmt_8bit      = CCCA_10K1_8BITSELECT(fmt_voice->ccca);
+       Both channels are fetched through the even voice's translation cache into its cache (see
+       emu10k1_cache_frame), and the even voice interpolates both: the odd voice's own MAPA/MAPB
+       are not used, and drivers leave junk in them. */
+    int stereo_master = !(c & 1) && CPF_10K1_STEREO(emu_voice->cpf);
+    int stereo_slave  = (c & 1) && CPF_10K1_STEREO(emu8k->voice[c - 1].cpf);
 
     for (int pos = emu8k->pos; pos < new_pos; pos++) {
         int32_t dat;
 
-        if (stereo_master)
+        if (stereo_master) {
             emu8k->stereo_addr[pos - emu8k->pos] = emu_voice->addr.addr;
-        else if (stereo_slave)
+            emu8k->stereo_dat[pos - emu8k->pos]  = emu10k1_cache_interp(emu8k, c, 1 << (emu_voice->addr_shift - 1),
+                                                                        emu10k1_interp_rom[(emu8k->voice[c + 1].ccca >> 25) & 7],
+                                                                        emu_voice->addr.fract_address >> 2);
+        } else if (stereo_slave)
             emu_voice->addr.addr = emu8k->stereo_addr[pos - emu8k->pos];
         uint64_t new_addr = stereo_slave ? emu8k->stereo_addr[pos - emu8k->pos + 1] : (emu_voice->addr.addr + (((uint64_t) emu_voice->cpf_curr_pitch) << 18));
         if (emu_voice->cvcf_curr_volume) {
-            /* Waveform oscillator: 8-point interpolation around the sample after the current
-               address (see EMU8K_READ_INTERP_CUBIC), from 8/16-bit mono/stereo samples. */
-            const int32_t *rom   = emu10k1_interp_rom[(emu_voice->ccca >> 25) & 7];
-            uint32_t       phase = emu_voice->addr.fract_address >> 2;
-            int64_t        acc   = 0;
-            for (int i = 0; i < 8; i++) {
-                int32_t sample = emu10k1_voice_sample(emu8k, fmt_voice, emu_voice->addr.int_address - 2 + i, fmt_shift, fmt_offset, fmt_8bit);
-                acc += (int64_t) sample * emu10k1_interp_coef(rom, (i > 3) ? (((i - 3) << 14) - phase) : (((3 - i) << 14) + phase));
-            }
-            dat = (int32_t) (acc >> 11); /* 4 fractional bits */
+            /* Waveform oscillator: 8-point interpolation from the cache. */
+            if (stereo_slave)
+                dat = emu8k->stereo_dat[pos - emu8k->pos];
+            else
+                dat = emu10k1_cache_interp(emu8k, c, 0, emu10k1_interp_rom[(emu_voice->ccca >> 25) & 7], emu_voice->addr.fract_address >> 2);
 
             /* Filter section */
             dat = emu8k_voice_filter(emu8k, emu_voice, dat);
@@ -3043,18 +3077,35 @@ emu10k1_voice_update(emu8k_t *emu8k, int c, int new_pos)
 
             for (int i = 0; i < emu8k->emu10k1_fxsends; i++)
                 emu8k->fx_buffer[pos][emu_voice->fx_send_bus[i]] += (int32_t) (((int64_t) dat * emu_voice->fx_send[i]) >> 14); /* see SAMPLE_16_TO_32 */
-        } else {
-            /* Reposition EMU10K1 FIFO due to address desync. */
-            emu_voice->fifo_end = emu_voice->fifo_pos;
         }
 
         emu8k_voice_envelope_tick(emu_voice, 1);
+
+        uint32_t to = new_addr >> 32;
+        if (!stereo_slave && (to != emu_voice->addr.int_address)) {
+            /* Fetch the frames the address passes into the cache, following the loop. */
+            uint32_t loop_len = emu_voice->loop_end.int_address - emu_voice->loop_start.int_address;
+            int      slots    = EMU10K1_CACHE_SLOTS(emu_voice);
+            int      cra      = emu_voice->ccr_readaddr & 0x3f;
+            for (uint32_t addr = emu_voice->addr.int_address; addr != to; addr++) {
+                uint32_t fetch_addr = (addr >= emu_voice->loop_end.int_address) ? (addr - loop_len) : addr;
+                if (emu8k->emu10k1_cache_locked) {
+                    if ((emu_voice->ccr_cacheinval >> 1) < slots)
+                        emu_voice->ccr_cacheinval += 2; /* CCIS + 1 */
+                } else {
+                    emu10k1_cache_fetch(emu8k, c, fetch_addr & EMU8K_MEM_ADDRESS_MASK, cra & (slots - 1));
+                }
+                cra++;
+            }
+            emu_voice->ccr_readaddr = (emu_voice->ccr_readaddr & 0xc0) | (cra & 0x3f);
+        }
 
         emu_voice->addr.addr = new_addr;
         if (emu_voice->addr.addr >= emu_voice->loop_end.addr) {
             emu_voice->addr.int_address -= (emu_voice->loop_end.int_address - emu_voice->loop_start.int_address);
             emu_voice->addr.int_address &= EMU8K_MEM_ADDRESS_MASK;
-            emu_voice->half_looped = 0;
+            emu_voice->half_looped  = 0;
+            emu_voice->cache_looped = 1;
 
             /* Trigger loop interrupt. */
             if (*(emu8k->clie) & (1ULL << c)) {
