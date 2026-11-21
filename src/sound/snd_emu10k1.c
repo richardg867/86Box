@@ -1059,10 +1059,10 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         /* Process loop interrupts. */
         buf_size /= 2; /* compare against half buffer size */
         if (!dev->fxbuf_half_looped && (idx >= buf_size)) {
-            dev->temp_ipr |= (AS_U32(dev->io_regs[0x0c]) & 0x00000020) << 7; /* INTE_EFXBUFENABLE into IPR_EFXBUFHALFFULL = 0x00001000 */
+            dev->temp_ipr |= (AS_U32(dev->io_regs[0x0c]) & 0x00000020) ? 0x00001000 : 0; /* INTE_EFXBUFENABLE -> IPR_EFXBUFHALFFULL */
             dev->fxbuf_half_looped = 1;
         } else if (dev->fxbuf_half_looped && (idx < buf_size)) {
-            dev->temp_ipr |= (AS_U32(dev->io_regs[0x0c]) & 0x00000020) << 8; /* INTE_EFXBUFENABLE into IPR_EFXBUFFULL = 0x00002000 */
+            dev->temp_ipr |= (AS_U32(dev->io_regs[0x0c]) & 0x00000020) ? 0x00002000 : 0; /* INTE_EFXBUFENABLE -> IPR_EFXBUFFULL */
             dev->fxbuf_half_looped = 0;
         }
     }
@@ -1081,10 +1081,10 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         /* Process loop interrupts. */
         buf_size /= 2; /* compare against half buffer size */
         if (!dev->micbuf_half_looped && (idx >= buf_size)) {
-            dev->temp_ipr |= (AS_U32(dev->io_regs[0x0c]) & 0x00000080) << 9; /* INTE_MICBUFENABLE into IPR_MICBUFHALFFULL = 0x00010000 */
+            dev->temp_ipr |= (AS_U32(dev->io_regs[0x0c]) & 0x00000080) ? 0x00010000 : 0; /* INTE_MICBUFENABLE -> IPR_MICBUFHALFFULL */
             dev->micbuf_half_looped = 1;
         } else if (dev->micbuf_half_looped && (idx < buf_size)) {
-            dev->temp_ipr |= (AS_U32(dev->io_regs[0x0c]) & 0x00000080) << 10; /* INTE_MICBUFENABLE into IPR_MICBUFFULL = 0x00020000 */
+            dev->temp_ipr |= (AS_U32(dev->io_regs[0x0c]) & 0x00000080) ? 0x00020000 : 0; /* INTE_MICBUFENABLE -> IPR_MICBUFFULL */
             dev->micbuf_half_looped = 0;
         }
     }
@@ -1119,10 +1119,10 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         /* Process loop interrupts. */
         buf_size /= 2; /* compare against half buffer size */
         if (!dev->adcbuf_half_looped && (idx >= buf_size)) {
-            dev->temp_ipr |= (AS_U32(dev->io_regs[0x0c]) & 0x00000040) << 8; /* INTE_ADCBUFENABLE into IPR_ADCBUFHALFFULL = 0x00004000 */
+            dev->temp_ipr |= (AS_U32(dev->io_regs[0x0c]) & 0x00000040) ? 0x00004000 : 0; /* INTE_ADCBUFENABLE -> IPR_ADCBUFHALFFULL */
             dev->adcbuf_half_looped = 1;
         } else if (dev->adcbuf_half_looped && (idx < buf_size)) {
-            dev->temp_ipr |= (AS_U32(dev->io_regs[0x0c]) & 0x00000040) << 9; /* INTE_ADCBUFENABLE into IPR_ADCBUFFULL = 0x00008000 */
+            dev->temp_ipr |= (AS_U32(dev->io_regs[0x0c]) & 0x00000040) ? 0x00008000 : 0; /* INTE_ADCBUFENABLE -> IPR_ADCBUFFULL */
             dev->adcbuf_half_looped = 0;
         }
     }
@@ -1626,12 +1626,12 @@ emu10k1_update_irqs(emu10k1_t *dev)
     /* Set MPU-401 receive buffer non-empty interrupt as long as the MPU-401 has its interrupt raised. */
     ipr &= ~0x08000080; /* automatically cleared once conditions clear */
     if (dev->mpu0_rx_irq)
-        ipr |= (inte & 0x00000001) << 7; /* INTE_MIDIRXENABLE into IPR_MIDIRECVBUFEMPTY (a misnomer) = 0x00000080 */
+        ipr |= (inte & 0x00000001) ? 0x00000080 : 0; /* INTE_MIDIRXENABLE -> IPR_MIDIRECVBUFEMPTY (a misnomer) */
     if (dev->mpu1_rx_irq)
-        ipr |= (inte & 0x00010000) << 11; /* INTE_A_MIDIRXENABLE2 into IPR_A_MIDIRECVBUFEMPTY2 (a misnomer) = 0x08000000 */
+        ipr |= (inte & 0x00010000) ? 0x08000000 : 0; /* INTE_A_MIDIRXENABLE2 -> IPR_A_MIDIRECVBUFEMPTY2 (a misnomer) */
 
     /* Set forced interrupt flag. */
-    ipr |= (inte & 0x00100000) << 2; /* INTE_FORCEINT into IPR_FORCEINT = 0x00400000 */
+    ipr |= (inte & 0x00100000) ? 0x00400000 : 0; /* INTE_FORCEINT -> IPR_FORCEINT */
 
     /* Save new interrupt pending status. */
     AS_U32(dev->io_regs[0x08]) = ipr;
@@ -2616,14 +2616,14 @@ emu10k1_poll(void *priv)
     /* Check sample timer. */
     dev->timer_count += dev->emu8k.wc - prev_wc;
     if (dev->timer_count >= dev->timer_interval) {
-        ipr |= (inte & 0x00000004) << 7; /* INTE_INTERVALTIMERENB into IPR_INTERVALTIMER = 0x00000200 */
+        ipr |= (inte & 0x00000004) ? 0x00000200 : 0; /* INTE_INTERVALTIMERENB -> IPR_INTERVALTIMER */
         dev->timer_count -= dev->timer_interval;
     }
 
     /* Process DSP interrupt. */
     if (UNLIKELY(dev->dsp.interrupt)) {
         dev->dsp.interrupt = 0;
-        ipr |= (inte & 0x00001000) << 11; /* INTE_FXDSPENABLE into IPR_FXDSP = 0x00800000 */
+        ipr |= (inte & 0x00001000) ? 0x00800000 : 0; /* INTE_FXDSPENABLE -> IPR_FXDSP */
     }
 
     /* Update interrupts if any were raised. */
