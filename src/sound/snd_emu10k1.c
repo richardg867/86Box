@@ -168,10 +168,11 @@ typedef struct _emu10k1_ {
     uint32_t temp_ipr;
     int      timer_interval;
     int      timer_count;
-    uint8_t  mpu_rx_irq[2]; /* MPU-401 interrupt (receive data available) */
-    int      fxbuf_half_looped : 1;
-    int      adcbuf_half_looped : 1;
-    int      micbuf_half_looped : 1;
+    uint8_t  mpu0_rx_irq : 1; /* MPU-401 interrupts (receive data available) */
+    uint8_t  mpu1_rx_irq : 1;
+    uint8_t  fxbuf_half_looped : 1;
+    uint8_t  adcbuf_half_looped : 1;
+    uint8_t  micbuf_half_looped : 1;
 
     emu10k1_capture_src_t adc_src;
     emu10k1_capture_src_t mic_src;
@@ -1624,9 +1625,9 @@ emu10k1_update_irqs(emu10k1_t *dev)
 
     /* Set MPU-401 receive buffer non-empty interrupt as long as the MPU-401 has its interrupt raised. */
     ipr &= ~0x08000080; /* automatically cleared once conditions clear */
-    if (dev->mpu_rx_irq[0])
+    if (dev->mpu0_rx_irq)
         ipr |= (inte & 0x00000001) << 7; /* INTE_MIDIRXENABLE into IPR_MIDIRECVBUFEMPTY (a misnomer) = 0x00000080 */
-    if (dev->mpu_rx_irq[1])
+    if (dev->mpu1_rx_irq)
         ipr |= (inte & 0x00010000) << 11; /* INTE_A_MIDIRXENABLE2 into IPR_A_MIDIRECVBUFEMPTY2 (a misnomer) = 0x08000000 */
 
     /* Set forced interrupt flag. */
@@ -1652,7 +1653,7 @@ emu10k1_mpu0_irq_update(void *priv, int set)
 {
     emu10k1_t *dev = (emu10k1_t *) priv;
 
-    dev->mpu_rx_irq[0] = !!set;
+    dev->mpu0_rx_irq = !!set;
     emu10k1_update_irqs(dev);
 }
 
@@ -1661,7 +1662,7 @@ emu10k1_mpu1_irq_update(void *priv, int set)
 {
     emu10k1_t *dev = (emu10k1_t *) priv;
 
-    dev->mpu_rx_irq[1] = !!set;
+    dev->mpu1_rx_irq = !!set;
     emu10k1_update_irqs(dev);
 }
 
