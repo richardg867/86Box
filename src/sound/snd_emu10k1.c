@@ -1609,17 +1609,12 @@ emu10k1_update_irqs(emu10k1_t *dev)
 
     /* Set channel loop interrupts. */
     if (dev->emu8k.lip) {
-        /* Calculate highest active channel for IPR_CHANNELNUMBER. */
-        uint64_t any_ip  = AS_U64(dev->indirect_regs[0x5a]) | AS_U64(dev->indirect_regs[0x68]);
-        int      channel = -1;
-        while (any_ip) {
-            any_ip >>= 1;
-            channel++;
-        }
-
         /* Does any channel still have pending interrupts? */
-        if (channel > -1) {
-            ipr = (ipr & ~0x0000007f) | 0x40 | channel; /* IPR_CHANNELLOOP | IPR_CHANNELNUMBER */
+        uint64_t any_ip = AS_U64(dev->indirect_regs[0x5a]) | AS_U64(dev->indirect_regs[0x68]);
+        if (any_ip) {
+            /* IPR_CHANNELNUMBER is the highest channel with one. */
+            int channel = (any_ip >> 32) ? (32 + emu10k1_msb(any_ip >> 32)) : emu10k1_msb(any_ip);
+            ipr         = (ipr & ~0x0000007f) | 0x40 | channel; /* IPR_CHANNELLOOP | IPR_CHANNELNUMBER */
         } else {
             /* Clear interrupt if no channels are left. */
             dev->emu8k.lip = 0;
