@@ -1975,6 +1975,9 @@ emu8k_outw(uint16_t addr, uint16_t val, void *priv)
 
                         /* Converting the input in dBs to envelope value range. */
                         vol_env->sustain_value_db_oct = DCYSUSV_SUS_TO_ENV_RANGE(DCYSUSV_SUSVALUE_GET(val));
+                        /* The EMU10K1 sustains one 0.75 dB step lower: 7Fh is -0.75 dB, 40h -48 dB. */
+                        if (emu8k->emu10k1_fxsends && DCYSUSV_SUSVALUE_GET(val))
+                            vol_env->sustain_value_db_oct += 1 << 14;
                         vol_env->ramp_amount_db_oct   = emu8k->env_decay_to_dbs_or_oct[DCYSUSV_DECAYRELEASE_GET(val)];
                         if (DCYSUSV_IS_RELEASE(val)) {
                             if (vol_env->state == ENV_DELAY || vol_env->state == ENV_ATTACK || vol_env->state == ENV_HOLD) {
