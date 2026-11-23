@@ -3548,6 +3548,18 @@ emu8k_init_standalone(emu8k_t *emu8k, int nvoices, int freq)
         emu8k->env_decay_to_dbs_or_oct[c] = (int32_t) (db_per_s / (double) emu8k->freq * ((double) (1 << 21) / 96.0) * 65536.0 + 0.5);
     }
 
+    /* The EMU10K1 decays 2^-17 octave per sample for every unit of the divisor of rate + 1, so rate 0
+       still decays, at 2.2 dB/s (measured from 0 to 7Fh, within 2 %). */
+    if (emu8k->emu10k1_fxsends) {
+        for (c = 0; c < 128; c++) {
+            int    group         = (c >> 4) & 7;
+            int    m             = c & 15;
+            int    div           = (group == 0) ? (m + 1) : ((m + 17) << (group - 1));
+            double db_per_sample = div * 20.0 * log10(2.0) / 131072.0;
+            emu8k->env_decay_to_dbs_or_oct[c] = (int32_t) (db_per_sample * ((double) (1 << 21) / 96.0) * 65536.0 + 0.5);
+        }
+    }
+
     /* The 65536 * 65536 is in order to left-shift the 32bit value to a 64bit value as a 32.32 fixed point. */
     out = 0.01;
     for (c = 0; c < 256; c++) {
