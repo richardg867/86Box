@@ -2868,9 +2868,9 @@ emu10k1_init(const device_t *info)
     dev->dsp.thread = thread_create(emu10k1_dsp_thread, dev);
 
     /* Initialize EMU8000 synth. */
-    emu8k_init_standalone(&dev->emu8k, 64, FREQ_48000);
     dev->emu8k.emu10k1_fxbuses = (dev->type == EMU10K1) ? 16 : 64;
-    dev->emu8k.emu10k1_fxsends = (dev->type == EMU10K1) ? 4 : 8;
+    dev->emu8k.emu10k1_fxsends = (dev->type == EMU10K1) ? 4 : 8; /* before the rate tables, which depend on it */
+    emu8k_init_standalone(&dev->emu8k, 64, FREQ_48000);
     dev->emu8k.readl           = emu10k1_mem_readl;
     dev->emu8k.clie            = (uint64_t *) &dev->indirect_regs[0x58];
     dev->emu8k.clip            = (uint64_t *) &dev->indirect_regs[0x5a];

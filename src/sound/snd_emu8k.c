@@ -3555,6 +3555,13 @@ emu8k_init_standalone(emu8k_t *emu8k, int nvoices, int freq)
         out += 0.042;
     }
 
+    /* The EMU10K1 LFOs advance f / 2^20 of a cycle per sample (f x 48000 / 2^20 Hz, measured
+       from 10h to FFh), which is what the EMU8000's 0.042 Hz steps are at 44.1 kHz. */
+    if (emu8k->emu10k1_fxsends) {
+        for (c = 0; c < 256; c++)
+            emu8k->lfofreqtospeed[c] = (uint64_t) c << 28;
+    }
+
     /* Filter coefficients tables. Note: Values are multiplied by *16777216 to left shift 24 bits. (i.e. 8.24 fixed point) */
     for (uint8_t qidx = 0; qidx < 16; qidx++) {
         out = 125.0; /* Start at 125Hz */
