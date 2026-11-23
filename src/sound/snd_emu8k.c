@@ -2973,7 +2973,9 @@ emu8k_voice_envelope_tick(emu8k_voice_t *emu_voice, int emu10k1)
         /* table range 1<<15, pitch mod range 1<<14 desired range 0x40000 (+/-12dBs). */
         int32_t lfo1_tremolo = (lfotable[emu_voice->lfo1_count.int_address] * emu_voice->fixed_lfo1_tremolo) >> 11;
         /* AWE32Emu: the card only attenuates (block 17), upstream adds both ways */
-        if (lfo1_tremolo < 0)
+        /* The EMU10K1 swings both ways (+-12 dB at 7Fh, louder first for a positive depth),
+           limited at full volume by the attenuation clamp below. */
+        if ((lfo1_tremolo < 0) || emu10k1)
             attenuation -= lfo1_tremolo;
     }
 
