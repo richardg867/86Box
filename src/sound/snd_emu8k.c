@@ -2808,8 +2808,7 @@ emu8k_voice_envelope_tick(emu8k_voice_t *emu_voice, int emu10k1)
                 volenv->state         = ENV_ATTACK;
                 volenv->delay_samples = 0;
             }
-            if (!emu10k1)
-                attenuation = 0x1FFFFF;
+            attenuation = 0x1FFFFF;
             break;
 
         case ENV_ATTACK:
