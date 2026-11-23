@@ -873,13 +873,18 @@ emu8k_voice_set_ip(emu8k_voice_t *voice, uint16_t val)
 }
 
 static void
-emu8k_voice_set_ifatn(emu8k_voice_t *voice, uint16_t val)
+emu8k_voice_set_ifatn(emu8k_voice_t *voice, uint16_t val, int emu10k1)
 {
-    voice->ifatn              = val;
-    voice->initial_att        = ((int32_t) voice->ifatn_attenuation << 21) / 0xFF;
-    voice->vtft_vol_target    = attentable[voice->ifatn_attenuation];
-    voice->initial_filter     = ((int32_t) voice->ifatn_init_filter << 21) / 0xFF;
-    voice->vtft_filter_target = voice->ifatn_init_filter == 0xFF ? 0xFFFF : voice->initial_filter >> 5;
+    voice->ifatn          = val;
+    voice->initial_att    = ((int32_t) voice->ifatn_attenuation << 21) / 0xFF;
+    voice->initial_filter = ((int32_t) voice->ifatn_init_filter << 21) / 0xFF;
+
+    /* The EMU10K1 leaves VTFT alone: with the envelope engine off, the volume and
+       filter follow the targets the driver writes there. */
+    if (!emu10k1) {
+        voice->vtft_vol_target    = attentable[voice->ifatn_attenuation];
+        voice->vtft_filter_target = voice->ifatn_init_filter == 0xFF ? 0xFFFF : voice->initial_filter >> 5;
+    }
 }
 
 static inline void
@@ -2281,7 +2286,7 @@ emu8k_outw(uint16_t addr, uint16_t val, void *priv)
                     return;
 
                 case 1:
-                    emu8k_voice_set_ifatn(&emu8k->voice[emu8k->cur_voice], val);
+                    emu8k_voice_set_ifatn(&emu8k->voice[emu8k->cur_voice], val, emu8k->emu10k1_fxsends);
                     return;
 
                 case 2:
