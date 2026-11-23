@@ -485,7 +485,7 @@ emu8008_playback_tick(emu8008_t *dev)
             if (!(dev->active_voices & bit))
                 continue;
 
-            const unsigned crossed = emu8k_pci_voice_tick(&dev->emu8k->voice[i],
+            const unsigned crossed = emu8k_pci_voice_tick(dev->emu8k, &dev->emu8k->voice[i],
                                                           emu8008_playback_sample, &table, mix, &sends);
             if ((dev->bank0_regs[EMU8008_LOOP_IRQ_ENABLE] & bit) &&
                 (((crossed & EMU8K_LOOP_START) && !(dev->bank0_regs[EMU8008_LOOP_START_MASK] & bit)) ||
