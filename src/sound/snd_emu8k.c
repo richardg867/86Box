@@ -303,6 +303,16 @@ emu8k_mod_attack_value(int32_t phase)
     return (int32_t) ((1.0 - pow(1.0 - x, 13.5)) * (double) (1 << 21));
 }
 
+/* One attack step on the EMU10K1, where attack_amount_amp_hz is Q16: the whole step of the EMU8000
+   is up to 22 % short at the slowest rates at 48 kHz. The fraction carries over into the decay. */
+static inline int32_t
+emu10k1_attack_step(emu8k_envelope_t *env)
+{
+    int64_t s      = (int64_t) env->attack_amount_amp_hz + env->ramp_frac;
+    env->ramp_frac = (int32_t) (s & 0xFFFF);
+    return (int32_t) (s >> 16);
+}
+
 /* One decay/release step: ramp_amount_db_oct is Q16. */
 static inline int32_t
 emu8k_ramp_step(emu8k_envelope_t *env)
@@ -2201,6 +2211,9 @@ emu8k_outw(uint16_t addr, uint16_t val, void *priv)
                         vol_env->attack_samples                = emu8k->env_attack_to_samples[ATKHLDV_ATTACK(val)];
                         if (vol_env->attack_samples == 0) {
                             vol_env->attack_amount_amp_hz = 0;
+                        } else if (emu8k->emu10k1_fxsends) {
+                            /* Q16 on the EMU10K1, see emu10k1_attack_step. */
+                            vol_env->attack_amount_amp_hz = (int32_t) ((1LL << 37) / vol_env->attack_samples);
                         } else {
                             /* Linear amplitude increase each sample. */
                             vol_env->attack_amount_amp_hz = (1 << 21) / vol_env->attack_samples;
@@ -2245,6 +2258,9 @@ emu8k_outw(uint16_t addr, uint16_t val, void *priv)
                         mod_env->attack_samples               = emu8k->env_attack_to_samples[ATKHLD_ATTACK(val)];
                         if (mod_env->attack_samples == 0) {
                             mod_env->attack_amount_amp_hz = 0;
+                        } else if (emu8k->emu10k1_fxsends) {
+                            /* Q16 on the EMU10K1, see emu10k1_attack_step. */
+                            mod_env->attack_amount_amp_hz = (int32_t) ((1LL << 37) / mod_env->attack_samples);
                         } else {
                             /* Linear amplitude increase each sample. */
                             mod_env->attack_amount_amp_hz = (1 << 21) / mod_env->attack_samples;
@@ -2821,7 +2837,10 @@ emu8k_voice_envelope_tick(emu8k_voice_t *emu_voice, int emu10k1)
 
         case ENV_ATTACK:
             /* Attack amount is in linear amplitude */
-            volenv->value_amp_hz += volenv->attack_amount_amp_hz;
+            if (emu10k1)
+                volenv->value_amp_hz += emu10k1_attack_step(volenv);
+            else
+                volenv->value_amp_hz += volenv->attack_amount_amp_hz;
             if (volenv->value_amp_hz >= (1 << 21)) {
                 volenv->value_amp_hz = 1 << 21;
                 emu_voice->overshoot_samples = 0; /* AWE32Emu */
@@ -2889,7 +2908,10 @@ emu8k_voice_envelope_tick(emu8k_voice_t *emu_voice, int emu10k1)
 
         case ENV_ATTACK:
             /* Attack amount is in linear amplitude */
-            modenv->value_amp_hz += modenv->attack_amount_amp_hz;
+            if (emu10k1)
+                modenv->value_amp_hz += emu10k1_attack_step(modenv);
+            else
+                modenv->value_amp_hz += modenv->attack_amount_amp_hz;
             modenv->value_db_oct = emu8k_mod_attack_value(modenv->value_amp_hz); /* AWE32Emu: convex attack */
             if (modenv->value_amp_hz >= (1 << 21)) {
                 modenv->value_amp_hz = 1 << 21;
@@ -3536,6 +3558,12 @@ emu8k_init_standalone(emu8k_t *emu8k, int nvoices, int freq)
         }
 
         emu8k->env_attack_to_samples[c] = (emu8k->freq / 1000.0) * millis;
+    }
+
+    /* The EMU10K1 attacks 3 % faster, 11520 ms / divisor (fitted from 01h to 70h, within 1.5 %). */
+    if (emu8k->emu10k1_fxsends) {
+        for (c = 1; c < 128; c++)
+            emu8k->env_attack_to_samples[c] = (int32_t) (emu8k->env_attack_to_samples[c] * 0.97 + 0.5);
     }
 
     /* AWE32Emu: decay/release from the Creative table (see the declaration of
