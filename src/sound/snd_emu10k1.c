@@ -573,6 +573,17 @@ emu10k1_msb(uint32_t i)
 #endif
 }
 
+/* The index of the least significant set bit of a nonzero value. */
+static inline int
+emu10k1_lsb(uint32_t i)
+{
+#if defined(__GNUC__) || defined(__clang__)
+    return __builtin_ctz(i);
+#else
+    return log2i(i & (~i + 1));
+#endif
+}
+
 static uint32_t
 emu10k1_dsp_logcompress(int32_t val, int max_exp)
 {
@@ -1031,16 +1042,20 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
         /* Note that for all capture buffers, neither the base
            nor the size are necessarily aligned to a power of 2. */
         int      buf_size  = record_buffer_sizes[dev->indirect_regs[0x4b]];
-        uint32_t fxwc      = dev->indirect_regs[0x43];
         uint32_t base_addr = dev->indirect_regs[0x47];
         uint32_t idx       = dev->indirect_regs[0x65];
-        for (i = 0; fxwc; i++) {
-            if (fxwc & 1) {                                                      /* loopback enabled for this output? */
-                mem_writew_phys(base_addr + idx, dev->dsp.regs[0x20 | i] >> 16); /* upper 16 bits of output */
-                idx = (idx + 2) % buf_size;
-            }
-            fxwc >>= 1;
-        }
+
+        /* The selected outputs are written in the order 30, 31, 0, 1 ... 29, as the upper
+           16 bits of each. The buffer wraps between any two words, splitting a frame
+           when the frame size doesn't divide the buffer size. */
+        uint32_t fxwc = (dev->indirect_regs[0x43] >> 30) | (dev->indirect_regs[0x43] << 2);
+        do {
+            mem_writew_phys(base_addr + idx, dev->dsp.regs[0x20 | ((emu10k1_lsb(fxwc) + 30) & 31)] >> 16);
+            idx += 2;
+            if (UNLIKELY(idx >= buf_size))
+                idx %= buf_size;
+            fxwc &= fxwc - 1;
+        } while (fxwc);
         dev->indirect_regs[0x65] = idx; /* write new position */
 
         /* Process loop interrupts. */
