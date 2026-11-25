@@ -634,11 +634,11 @@ ac97_codec_reset_ex(ac97_codec_t *dev, uint8_t flags)
         dev->regs[0x1c >> 1] = AC97_MUTE;     /* record gain */
         if (ac97_codecs[dev->model].reset_flags & AC97_MICPCM)
             dev->regs[0x1e >> 1] = AC97_MUTE; /* mic record gain */
-        if (ac97_codecs[dev->model].misc_flags & AC97_LDAC)
+        if (ac97_codecs[dev->model].extid_flags & AC97_LDAC)
             dev->regs[0x36 >> 1] = AC97_MUTE_L;
-        if (ac97_codecs[dev->model].misc_flags & AC97_CDAC)
+        if (ac97_codecs[dev->model].extid_flags & AC97_CDAC)
             dev->regs[0x36 >> 1] |= AC97_MUTE_R;
-        if (ac97_codecs[dev->model].misc_flags & AC97_SDAC)
+        if (ac97_codecs[dev->model].extid_flags & AC97_SDAC)
             dev->regs[0x38 >> 1] = AC97_MUTE_L | AC97_MUTE_R;
 
         /* Set flags. */
