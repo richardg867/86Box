@@ -16,7 +16,7 @@
  *
  * Authors: RichardG, <richardg867@gmail.com>
  *
- *          Copyright 2023 RichardG.
+ *          Copyright 2023-2026 RichardG.
  */
 #include <stdarg.h>
 #include <stdio.h>
