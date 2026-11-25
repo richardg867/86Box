@@ -208,9 +208,10 @@ typedef struct _emu10k1_ {
             uint32_t dmask;
             uint8_t  dshift;
             uint16_t r;
-            uint16_t run_end; /* end of the constant-only run this instruction starts, or 0 */
+            uint16_t run_end;     /* end of the constant-only run this instruction starts, or 0 */
+            int16_t  run_sat;     /* last instruction of the run that saturates, or -1 */
+            uint8_t  const_flags; /* flags this constant-only instruction leaves */
             uint32_t run_flags;
-            uint32_t run_debug;
             int64_t  run_acc;
             uint32_t run_frac;
         } code[512];
@@ -1257,12 +1258,12 @@ emu10k1_dsp_decode(emu10k1_t *dev)
     }
 
     /* Instructions that only read constants and write nowhere always leave
-       the same accumulator, flags and debug register bits behind, which
-       depend on nothing before them. A run of them can be replaced by the
-       state the last one leaves, plus the debug register bits that stick
-       from the others; this is common in the unused part of a program. */
-    int      run_end   = 0;
-    uint32_t run_debug = 0;
+       the same accumulator and flags behind, which depend on nothing before
+       them. A run of them can be replaced by the state the last one leaves,
+       plus what the others leave in the debug register; this is common in
+       the unused part of a program. */
+    int run_end = 0;
+    int run_sat = -1;
     for (int pc = 0x1ff; pc >= 0; pc--) {
         uint64_t fetch = AS_U64(dev->indirect_regs[0x400 + (pc << 1)]);
         int      y     = fetch & 0x3ff;
@@ -1277,8 +1278,8 @@ emu10k1_dsp_decode(emu10k1_t *dev)
             continue;
         }
         if (!run_end) { /* last instruction of a run */
-            run_end   = pc + 1;
-            run_debug = 0;
+            run_end = pc + 1;
+            run_sat = -1;
         }
 
         emu10k1_dsp_state_t st   = { .acc = 0, .flags = 0, .skip = 0 };
@@ -1288,18 +1289,16 @@ emu10k1_dsp_decode(emu10k1_t *dev)
             dev->dsp.code[pc].run_acc   = st.acc;
             dev->dsp.code[pc].run_frac  = st.frac;
             dev->dsp.code[pc].run_flags = st.flags;
-            if (st.flags & 0x10)
-                run_debug |= 0x02000000 | (r << 16);
         } else {
             dev->dsp.code[pc].run_acc   = dev->dsp.code[pc + 1].run_acc;
             dev->dsp.code[pc].run_frac  = dev->dsp.code[pc + 1].run_frac;
             dev->dsp.code[pc].run_flags = dev->dsp.code[pc + 1].run_flags;
-            if (st.flags & 0x10)
-                run_debug |= 0x02000000;
         }
-        run_debug |= st.flags << 9;
-        dev->dsp.code[pc].run_end   = run_end;
-        dev->dsp.code[pc].run_debug = run_debug;
+        if ((st.flags & 0x10) && (run_sat < 0))
+            run_sat = pc;
+        dev->dsp.code[pc].const_flags = st.flags;
+        dev->dsp.code[pc].run_end     = run_end;
+        dev->dsp.code[pc].run_sat     = run_sat;
     }
 }
 
@@ -1393,7 +1392,9 @@ emu10k1_dsp_run(emu10k1_t *dev)
     /* Run state is kept local and stored back at the end. */
     uint32_t           *regs        = dev->indirect_regs;
     emu10k1_dsp_state_t st          = { .acc = dev->dsp.acc, .frac = dev->dsp.frac, .flags = dev->dsp.regs[0x57], .skip = dev->dsp.skip };
-    uint32_t            debug       = regs[0x52];
+    int                 step_pc     = regs[0x52] & 0x1ff; /* DBG reports the flags this instruction leaves, */
+    int                 step_flags  = -1;
+    int                 sat_pc      = -1; /* and the last instruction that saturated */
     uint32_t            last_wo_reg = EMU10K1_DSP_WO_NONE;
     uint32_t            last_wo_val = 0;
     int                 pc          = 0;
@@ -1421,8 +1422,11 @@ emu10k1_dsp_run(emu10k1_t *dev)
             st.frac             = insn->run_frac;
             st.flags            = insn->run_flags;
             dev->dsp.regs[0x57] = st.flags;
-            debug               = (debug & ~0x01ff0000) | insn->run_debug;
-            last_wo_reg         = EMU10K1_DSP_WO_NONE;
+            if (insn->run_sat >= 0)
+                sat_pc = insn->run_sat;
+            if ((step_pc >= pc) && (step_pc < insn->run_end))
+                step_flags = dev->dsp.code[step_pc].const_flags;
+            last_wo_reg = EMU10K1_DSP_WO_NONE;
             pc                  = insn->run_end;
             continue;
         }
@@ -1518,10 +1522,11 @@ emu10k1_dsp_run(emu10k1_t *dev)
                   pc, op, insn->r, rval, (int) RAW_A(), aval, (int) RAW_X(), xval, (int) RAW_Y(), yval, st.flags & 0x1f);
 #endif
 
-        /* Set debug register. */
-        debug = (debug & ~0x01ff0000) | (st.flags << 9);
-        if (st.flags & 0x10)
-            debug |= 0x02000000 | (insn->r << 16);
+        /* Record what the debug register reports. */
+        if (UNLIKELY(st.flags & 0x10))
+            sat_pc = pc;
+        if (UNLIKELY(pc == step_pc))
+            step_flags = st.flags;
 
         /* Write result operand, saving the last written value for special read handling. */
         regs[insn->dst] = (regs[insn->dst] & insn->dkeep) | ((uint32_t) (rval >> insn->dshift) & insn->dmask);
@@ -1544,7 +1549,14 @@ emu10k1_dsp_run(emu10k1_t *dev)
     dev->dsp.acc   = st.acc;
     dev->dsp.frac  = st.frac;
     dev->dsp.skip  = st.skip;
-    regs[0x52]     = debug;
+
+    /* Update the debug register status fields. */
+    uint32_t debug = regs[0x52];
+    if (step_flags >= 0)
+        debug = (debug & ~0x00003e00) | ((step_flags & 0x1f) << 9);
+    if (sat_pc >= 0)
+        debug = (debug & ~0x01ff0000) | 0x02000000 | (sat_pc << 16);
+    regs[0x52] = debug;
 }
 
 void
@@ -2326,11 +2338,10 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                     if (dev->type != EMU10K1)
                         return;
 
-                    /* Reset DBAC if requested. */
-                    if (val & 0x80000000)
-                        dev->dsp.regs[0x5b] = 0;
-
-                    val &= 0x03ffffff;
+                    /* Only ZC, SINGLE_STEP and the step address are writable; ZC is kept but
+                       does not reset DBAC. The saturation and condition code fields are status,
+                       with the saturation flag cleared by writing 1 to it. */
+                    val = (val & 0x800081ff) | (dev->indirect_regs[0x52] & 0x03ff3e00 & ~(val & 0x02000000));
                     break;
 
                 case 0x53: /* REG53 / A_DBG */
