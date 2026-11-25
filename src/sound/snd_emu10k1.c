@@ -2345,20 +2345,24 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                     break;
 
                 case 0x53: /* REG53 / A_DBG */
-                    if (dev->type != EMU10K1) {
-                        /* Reset DBAC if requested. */
-                        if (val & 0x40000000)
-                            dev->dsp.regs[0x5b] = 0;
-                        val &= 0x2ffe03ff;
-                    }
+                    if (dev->type == EMU10K1)
+                        return;
+
+                    /* Reset DBAC if requested. */
+                    if (val & 0x40000000)
+                        dev->dsp.regs[0x5b] = 0;
+                    val &= 0x2ffe03ff;
                     break;
 
                 case 0x54 ... 0x56: /* SPCS0 ... SPCS2 */
-                    val &= 0x3fffffff;
                     break;
 
                 case 0x58 ... 0x59: /* CLIEL ... CLIEH */
                 case 0x66 ... 0x67: /* HLIEL ... HLIEH */
+                    /* The EMU10K1 has no half loop interrupt: HLIE and HLIP read 0 and ignore writes. */
+                    if ((reg >= 0x66) && (dev->type == EMU10K1))
+                        return;
+
                     /* Clear any pending interrupts that are being disabled. */
                     dev->indirect_regs[reg + 2] &= val;
                     emu10k1_update_irqs(dev);
@@ -2366,17 +2370,19 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
 
                 case 0x5a ... 0x5b: /* CLIPL ... CLIPH */
                 case 0x68 ... 0x69: /* HLIPL ... HLIPH */
+                    if ((reg >= 0x68) && (dev->type == EMU10K1))
+                        return;
                     dev->indirect_regs[reg] &= ~val;
                     emu10k1_update_irqs(dev);
                     return;
 
                 case 0x5e: /* SPBYPASS */
-                    val &= 0x00000f0f;
+                    val &= (dev->type == EMU10K1) ? 0x00000003 : 0x00000f0f;
                     break;
 
                 case 0x5f: /* AC97SLOT / A_PCB */
                     if (dev->type == EMU10K1)
-                        val &= 0x00000033;
+                        val &= 0x0000003f;
                     else
                         return;
                     break;
