@@ -691,7 +691,7 @@ ac97_codec_reset_ex(ac97_codec_t *dev, uint8_t flags)
     if (ac97_codecs[dev->model].vendor_regs) {
         for (int i = 0; ac97_codecs[dev->model].vendor_regs[i].index; i++) {
             if (ac97_codecs[dev->model].vendor_regs[i].page > 0)
-                dev->vendor_reg_pages[(ac97_codecs[dev->model].vendor_regs[i].page << 3) | (ac97_codecs[dev->model].vendor_regs[i].index >> 1)] = ac97_codecs[dev->model].vendor_regs[i].value;
+                dev->vendor_reg_pages[(ac97_codecs[dev->model].vendor_regs[i].page << 3) | ((ac97_codecs[dev->model].vendor_regs[i].index & 0x0e) >> 1)] = ac97_codecs[dev->model].vendor_regs[i].value;
             else
                 dev->regs[ac97_codecs[dev->model].vendor_regs[i].index >> 1] = ac97_codecs[dev->model].vendor_regs[i].value;
         }
@@ -826,7 +826,7 @@ ac97_codec_init(const device_t *info)
         /* Allocate pages 1+. */
         if (dev->vendor_reg_page_max > 0) {
             ac97_codec_log("AC97 Codec %d: Allocating %d vendor-specific register pages\n", dev->codec_id, dev->vendor_reg_page_max);
-            int i                 = 16 * dev->vendor_reg_page_max;
+            int i                 = 16 * (dev->vendor_reg_page_max + 1); /* indexed from page 0 */
 
             dev->vendor_reg_pages = (uint16_t *) calloc(1, i);
         }
