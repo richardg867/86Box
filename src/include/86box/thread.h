@@ -17,6 +17,21 @@
 #ifndef THREAD_H
 #    define THREAD_H
 
+/* CPU hint for the body of a spin-wait loop. */
+#if defined(__i386__) || defined(__x86_64__)
+#    define thread_pause() __builtin_ia32_pause()
+#elif defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+#    include <intrin.h>
+#    define thread_pause() _mm_pause()
+#elif defined(_MSC_VER) && defined(_M_ARM64)
+#    include <intrin.h>
+#    define thread_pause() __yield()
+#elif defined(__aarch64__) || defined(__arm__)
+#    define thread_pause() __asm__ __volatile__("yield")
+#else
+#    define thread_pause()
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

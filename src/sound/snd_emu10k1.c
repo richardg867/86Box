@@ -26,9 +26,6 @@
 #include <math.h>
 #include <inttypes.h>
 #include <stdatomic.h>
-#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
-#    include <intrin.h>
-#endif
 #define HAVE_STDARG_H
 #include <86box/86box.h>
 #include <86box/device.h>
@@ -358,18 +355,6 @@ static void     emu10k1_writel(uint16_t addr, uint32_t val, void *priv);
    this many nanoseconds, so it does not burn a host core while emulation is
    paused or the sound card is idle. */
 #define EMU10K1_DSP_SPIN_NS 100000
-
-#if defined(__i386__) || defined(__x86_64__)
-#    define EMU10K1_SPIN_PAUSE() __builtin_ia32_pause()
-#elif defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
-#    define EMU10K1_SPIN_PAUSE() _mm_pause()
-#elif defined(__aarch64__) || defined(__arm__)
-#    define EMU10K1_SPIN_PAUSE() __asm__ __volatile__("yield")
-#elif defined(_MSC_VER) && defined(_M_ARM64)
-#    define EMU10K1_SPIN_PAUSE() __yield()
-#else
-#    define EMU10K1_SPIN_PAUSE()
-#endif
 
 typedef struct {
     int64_t  acc;   /* integer part of the accumulator, unsaturated */
@@ -1030,7 +1015,7 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
 {
     /* Wait for DSP thread. */
     while (!atomic_load_explicit(&dev->dsp.done, memory_order_acquire))
-        EMU10K1_SPIN_PAUSE();
+        thread_pause();
     atomic_store_explicit(&dev->dsp.done, 0, memory_order_relaxed);
 
     /* Send DSP outputs from the previous run to the audio buffer.
@@ -1575,7 +1560,7 @@ emu10k1_dsp_thread(void *priv)
         spin_start = plat_get_ns();
         spins      = 0;
         while (!atomic_load_explicit(&dev->dsp.go, memory_order_acquire)) {
-            EMU10K1_SPIN_PAUSE();
+            thread_pause();
             if (!(++spins & 63) && ((plat_get_ns() - spin_start) >= EMU10K1_DSP_SPIN_NS)) {
                 atomic_store(&dev->dsp.sleeping, 1);
                 while (!atomic_load(&dev->dsp.go)) {
