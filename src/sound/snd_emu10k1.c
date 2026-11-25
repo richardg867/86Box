@@ -191,7 +191,8 @@ typedef struct _emu10k1_ {
         int64_t  acc;  /* claims to be 67-bit in hardware: an integer part... */
         uint32_t frac; /* ...with 31 bits of fraction */
         uint32_t regs[256];
-        int      code_dirty; /* microcode changed since it was last decoded */
+        atomic_uint code_dirty[16]; /* instructions changed since they were last decoded, one bit each */
+        atomic_int  code_dirty_any; /* any bit set above */
         uint32_t sink;       /* destination of results that go nowhere */
         struct {             /* microcode decoded into word indexes from indirect_regs */
             uint32_t mask[3];   /* A, X and Y operands: (word & mask) << shift, with the bits */
@@ -1196,125 +1197,161 @@ extern uint8_t keyboard_get_shift(void);
 #endif
 
 static void
+emu10k1_dsp_decode_insn(emu10k1_t *dev, int pc)
+{
+    uint64_t fetch = AS_U64(dev->indirect_regs[0x400 + (pc << 1)]);
+    int      op    = (fetch >> (*OP_BASE ^ 014)) & 0xf;
+    int      a     = (fetch >> 32) & 0x3ff;
+    int      r     = (fetch >> 42) & 0x3ff;
+
+    dev->dsp.code[pc].op      = op;
+    dev->dsp.code[pc].special = 0;
+    emu10k1_dsp_decode_opnd(dev, pc, 0, a);
+    emu10k1_dsp_decode_opnd(dev, pc, 1, (fetch >> 10) & 0x3ff);
+    emu10k1_dsp_decode_opnd(dev, pc, 2, fetch & 0x3ff);
+
+    /* The A operand has some special cases. */
+    if ((a == 0x56) && (op != 0x07))
+        dev->dsp.code[pc].amode = EMU10K1_DSP_A_ACC;
+    else if (op == 0x0f)
+        dev->dsp.code[pc].amode = (a != 0x57) ? EMU10K1_DSP_A_SKIP_ACC : EMU10K1_DSP_A_SKIP_FLAGS;
+    else
+        dev->dsp.code[pc].amode = EMU10K1_DSP_A_NORMAL;
+
+    /* Result operand. */
+    uint32_t *word   = &dev->dsp.sink;
+    uint32_t  keep   = 0x00000000;
+    uint32_t  mask   = 0xffffffff;
+    int       shift  = 0;
+    int       wo_set = EMU10K1_DSP_WO_NONE;
+    switch (r) {
+        case 0x00 ... 0x3f: /* external and FX bus inputs and outputs */
+            /* Inputs can't be written: either address writes the output. */
+            word = &dev->dsp.regs[0x20 | (r & 0x1f)];
+            fallthrough;
+
+        case 0x80 ... 0xff: /* unmapped */
+            /* Save last written value for special read handling. */
+            wo_set = r;
+            break;
+
+        case 0x5a: /* interrupt register */
+            dev->dsp.code[pc].special |= EMU10K1_DSP_SPECIAL_INT;
+            break;
+
+        case 0x100 ... 0x1ff: /* GPR */
+            word = &dev->indirect_regs[r];
+            break;
+
+        case 0x200 ... 0x2ff: /* TRAM data */
+            /* Justified to most significant bit from the DSP's point of view. */
+            word   = &dev->indirect_regs[r];
+            mask   = 0x000fffff;
+            shift  = 12;
+            wo_set = r;
+            break;
+
+        case 0x300 ... 0x3ff: /* TRAM address */
+            /* Justified to second most significant bit from the DSP's point of view.
+               The opcode in the upper bits is inaccessible and must be kept intact. */
+            word   = &dev->indirect_regs[r];
+            keep   = 0xfff00000;
+            mask   = 0x000fffff;
+            shift  = 11;
+            wo_set = r;
+            break;
+
+        default: /* not writable */
+            break;
+    }
+    dev->dsp.code[pc].r      = r;
+    dev->dsp.code[pc].dst    = word - dev->indirect_regs;
+    dev->dsp.code[pc].dkeep  = keep;
+    dev->dsp.code[pc].dmask  = mask;
+    dev->dsp.code[pc].dshift = shift;
+    dev->dsp.code[pc].wo_set = wo_set;
+}
+
+/* Instructions that only read constants and write nowhere always leave the
+   same accumulator and flags behind, which depend on nothing before them.
+   A run of them can be replaced by the state the last one leaves, plus what
+   the others leave in the debug register; this is common in the unused part
+   of a program. Each instruction's run data is derived from its own and the
+   next instruction's, so an instruction must be analyzed after the next one.
+   Returns whether the instruction is part of a run. */
+static int
+emu10k1_dsp_analyze_run(emu10k1_t *dev, int pc)
+{
+    uint64_t fetch = AS_U64(dev->indirect_regs[0x400 + (pc << 1)]);
+    int      y     = fetch & 0x3ff;
+    int      x     = (fetch >> 10) & 0x3ff;
+    int      a     = (fetch >> 32) & 0x3ff;
+    int      r     = (fetch >> 42) & 0x3ff;
+    int      op    = dev->dsp.code[pc].op;
+    if ((op == 0x07) || emu10k1_dsp_flags_kept[op] || (a < 0x40) || (a > 0x55) || (x < 0x40) || (x > 0x55) || (y < 0x40) || (y > 0x55) ||
+        (r < 0x40) || (r == 0x5a) || (r > 0x7f)) {
+        dev->dsp.code[pc].run_end = 0;
+        return 0;
+    }
+
+    emu10k1_dsp_state_t st   = { .acc = 0, .flags = 0, .skip = 0 };
+    int32_t             rval = emu10k1_dsp_op(&st, op, (int32_t) dev->dsp.regs[a], dev->dsp.regs[x], dev->dsp.regs[y]);
+    st.flags |= ((rval < -0x40000000) || (rval >= 0x40000000)) | ((rval < 0) << 2) | ((rval == 0) << 3);
+    dev->dsp.code[pc].const_flags = st.flags;
+    if ((pc == 0x1ff) || !dev->dsp.code[pc + 1].run_end) { /* last instruction of a run */
+        dev->dsp.code[pc].run_end   = pc + 1;
+        dev->dsp.code[pc].run_sat   = (st.flags & 0x10) ? pc : -1;
+        dev->dsp.code[pc].run_acc   = st.acc;
+        dev->dsp.code[pc].run_frac  = st.frac;
+        dev->dsp.code[pc].run_flags = st.flags;
+    } else {
+        dev->dsp.code[pc].run_end   = dev->dsp.code[pc + 1].run_end;
+        dev->dsp.code[pc].run_sat   = ((dev->dsp.code[pc + 1].run_sat < 0) && (st.flags & 0x10)) ? pc : dev->dsp.code[pc + 1].run_sat;
+        dev->dsp.code[pc].run_acc   = dev->dsp.code[pc + 1].run_acc;
+        dev->dsp.code[pc].run_frac  = dev->dsp.code[pc + 1].run_frac;
+        dev->dsp.code[pc].run_flags = dev->dsp.code[pc + 1].run_flags;
+    }
+    return 1;
+}
+
+/* Decode the instructions changed since the last run. Their run data is
+   updated along with that of the run leading into each, which may change. */
+static void
 emu10k1_dsp_decode(emu10k1_t *dev)
 {
-    for (int pc = 0; pc < 0x200; pc++) {
-        uint64_t fetch = AS_U64(dev->indirect_regs[0x400 + (pc << 1)]);
-        int      op    = (fetch >> (*OP_BASE ^ 014)) & 0xf;
-        int      a     = (fetch >> 32) & 0x3ff;
-        int      r     = (fetch >> 42) & 0x3ff;
+    uint32_t dirty[16];
+    int      lo = 0x200;
+    int      hi = -1;
 
-        dev->dsp.code[pc].op      = op;
-        dev->dsp.code[pc].special = 0;
-        emu10k1_dsp_decode_opnd(dev, pc, 0, a);
-        emu10k1_dsp_decode_opnd(dev, pc, 1, (fetch >> 10) & 0x3ff);
-        emu10k1_dsp_decode_opnd(dev, pc, 2, fetch & 0x3ff);
-
-        /* The A operand has some special cases. */
-        if ((a == 0x56) && (op != 0x07))
-            dev->dsp.code[pc].amode = EMU10K1_DSP_A_ACC;
-        else if (op == 0x0f)
-            dev->dsp.code[pc].amode = (a != 0x57) ? EMU10K1_DSP_A_SKIP_ACC : EMU10K1_DSP_A_SKIP_FLAGS;
-        else
-            dev->dsp.code[pc].amode = EMU10K1_DSP_A_NORMAL;
-
-        /* Result operand. */
-        uint32_t *word   = &dev->dsp.sink;
-        uint32_t  keep   = 0x00000000;
-        uint32_t  mask   = 0xffffffff;
-        int       shift  = 0;
-        int       wo_set = EMU10K1_DSP_WO_NONE;
-        switch (r) {
-            case 0x00 ... 0x3f: /* external and FX bus inputs and outputs */
-                /* Inputs can't be written: either address writes the output. */
-                word = &dev->dsp.regs[0x20 | (r & 0x1f)];
-                fallthrough;
-
-            case 0x80 ... 0xff: /* unmapped */
-                /* Save last written value for special read handling. */
-                wo_set = r;
-                break;
-
-            case 0x5a: /* interrupt register */
-                dev->dsp.code[pc].special |= EMU10K1_DSP_SPECIAL_INT;
-                break;
-
-            case 0x100 ... 0x1ff: /* GPR */
-                word = &dev->indirect_regs[r];
-                break;
-
-            case 0x200 ... 0x2ff: /* TRAM data */
-                /* Justified to most significant bit from the DSP's point of view. */
-                word   = &dev->indirect_regs[r];
-                mask   = 0x000fffff;
-                shift  = 12;
-                wo_set = r;
-                break;
-
-            case 0x300 ... 0x3ff: /* TRAM address */
-                /* Justified to second most significant bit from the DSP's point of view.
-                   The opcode in the upper bits is inaccessible and must be kept intact. */
-                word   = &dev->indirect_regs[r];
-                keep   = 0xfff00000;
-                mask   = 0x000fffff;
-                shift  = 11;
-                wo_set = r;
-                break;
-
-            default: /* not writable */
-                break;
+    atomic_store_explicit(&dev->dsp.code_dirty_any, 0, memory_order_relaxed);
+    for (int i = 0; i < 16; i++) {
+        dirty[i] = atomic_exchange_explicit(&dev->dsp.code_dirty[i], 0, memory_order_acq_rel);
+        for (uint32_t bits = dirty[i]; bits; bits &= bits - 1) {
+            int pc = (i << 5) | emu10k1_lsb(bits);
+            emu10k1_dsp_decode_insn(dev, pc);
+            lo = MIN(lo, pc);
+            hi = pc;
         }
-        dev->dsp.code[pc].r      = r;
-        dev->dsp.code[pc].dst    = word - dev->indirect_regs;
-        dev->dsp.code[pc].dkeep  = keep;
-        dev->dsp.code[pc].dmask  = mask;
-        dev->dsp.code[pc].dshift = shift;
-        dev->dsp.code[pc].wo_set = wo_set;
     }
 
-    /* Instructions that only read constants and write nowhere always leave
-       the same accumulator and flags behind, which depend on nothing before
-       them. A run of them can be replaced by the state the last one leaves,
-       plus what the others leave in the debug register; this is common in
-       the unused part of a program. */
-    int run_end = 0;
-    int run_sat = -1;
-    for (int pc = 0x1ff; pc >= 0; pc--) {
-        uint64_t fetch = AS_U64(dev->indirect_regs[0x400 + (pc << 1)]);
-        int      y     = fetch & 0x3ff;
-        int      x     = (fetch >> 10) & 0x3ff;
-        int      a     = (fetch >> 32) & 0x3ff;
-        int      r     = (fetch >> 42) & 0x3ff;
-        int      op    = dev->dsp.code[pc].op;
-        if ((op == 0x07) || emu10k1_dsp_flags_kept[op] || (a < 0x40) || (a > 0x55) || (x < 0x40) || (x > 0x55) || (y < 0x40) || (y > 0x55) ||
-            (r < 0x40) || (r == 0x5a) || (r > 0x7f)) {
-            dev->dsp.code[pc].run_end = 0;
-            run_end                   = 0;
-            continue;
-        }
-        if (!run_end) { /* last instruction of a run */
-            run_end = pc + 1;
-            run_sat = -1;
-        }
-
-        emu10k1_dsp_state_t st   = { .acc = 0, .flags = 0, .skip = 0 };
-        int32_t             rval = emu10k1_dsp_op(&st, op, (int32_t) dev->dsp.regs[a], dev->dsp.regs[x], dev->dsp.regs[y]);
-        st.flags |= ((rval < -0x40000000) || (rval >= 0x40000000)) | ((rval < 0) << 2) | ((rval == 0) << 3);
-        if (run_end == (pc + 1)) {
-            dev->dsp.code[pc].run_acc   = st.acc;
-            dev->dsp.code[pc].run_frac  = st.frac;
-            dev->dsp.code[pc].run_flags = st.flags;
-        } else {
-            dev->dsp.code[pc].run_acc   = dev->dsp.code[pc + 1].run_acc;
-            dev->dsp.code[pc].run_frac  = dev->dsp.code[pc + 1].run_frac;
-            dev->dsp.code[pc].run_flags = dev->dsp.code[pc + 1].run_flags;
-        }
-        if ((st.flags & 0x10) && (run_sat < 0))
-            run_sat = pc;
-        dev->dsp.code[pc].const_flags = st.flags;
-        dev->dsp.code[pc].run_end     = run_end;
-        dev->dsp.code[pc].run_sat     = run_sat;
+    int chain = 0;
+    for (int pc = hi; pc >= 0; pc--) {
+        int changed = (dirty[pc >> 5] >> (pc & 31)) & 1;
+        if (changed)
+            chain = emu10k1_dsp_analyze_run(dev, pc) | 1; /* the run before may have ended here */
+        else if (chain)
+            chain = emu10k1_dsp_analyze_run(dev, pc);
+        else if (pc < lo)
+            break;
     }
+}
+
+/* Mark an instruction for decoding before the next run. */
+static void
+emu10k1_dsp_code_changed(emu10k1_t *dev, int pc)
+{
+    atomic_fetch_or_explicit(&dev->dsp.code_dirty[pc >> 5], 1U << (pc & 31), memory_order_release);
+    atomic_store_explicit(&dev->dsp.code_dirty_any, 1, memory_order_release);
 }
 
 /* The TRAM engine works through the TRAM slots while the microcode runs, taking a
@@ -1400,11 +1437,9 @@ emu10k1_dsp_tram_access(emu10k1_t *dev, int access)
 static void
 emu10k1_dsp_run(emu10k1_t *dev)
 {
-    /* The microcode is decoded once after it changes. */
-    if (dev->dsp.code_dirty) {
-        dev->dsp.code_dirty = 0;
+    /* Instructions are decoded once after they change. */
+    if (atomic_load_explicit(&dev->dsp.code_dirty_any, memory_order_acquire))
         emu10k1_dsp_decode(dev);
-    }
 
     /* Run state is kept local and stored back at the end. */
     uint32_t           *regs        = dev->indirect_regs;
@@ -2491,7 +2526,7 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
 
             dev->indirect_regs[reg] = val;
             if ((reg >= 0x400) && (reg <= 0x7ff)) /* microcode */
-                dev->dsp.code_dirty = 1;
+                emu10k1_dsp_code_changed(dev, (reg - 0x400) >> 1);
             return;
 
         default: /* 8/16-bit registers or unaligned operation */
@@ -2813,7 +2848,8 @@ emu10k1_reset(void *priv)
         }
     }
     dev->dsp.etram_mask = (8192 << 0) - 1;
-    dev->dsp.code_dirty = 1;
+    for (int pc = 0; pc < 0x200; pc++)
+        emu10k1_dsp_code_changed(dev, pc);
 
     /* Reset I/O mappings. */
     emu10k1_remap(dev);
