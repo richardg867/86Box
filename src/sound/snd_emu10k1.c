@@ -44,6 +44,7 @@
 #include <86box/snd_emu8k.h>
 #include <86box/snd_mpu401.h>
 #include <86box/version.h>
+#include "cpu.h"
 #include <86box/plat_fallthrough.h>
 #include <86box/plat_unused.h>
 
@@ -1683,8 +1684,7 @@ emu10k1_io_trap(uint16_t size, uint16_t addr, uint8_t write, uint8_t val, void *
     trap->dev->io_regs[0x16] = (trap->dev->io_regs[0x16] & ~0xc0) | (write ? 0x80 : 0x00) | ((size > 1) ? 0x40 : 0x00) | 0x20;
     trap->dev->io_regs[0x17] = trap->flag | (addr & 0x1f); /* irrelevant address bits (such as OPL[4:3]) are still passed through */
 
-    /* Raise NMI. */
-    nmi = 1;
+    nmi_raise();
 }
 
 static void
