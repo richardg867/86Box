@@ -77,7 +77,7 @@ static const struct {
     const device_t *codec;
     uint32_t        id;
     const uint8_t   rev[2];
-    uint8_t         clfe_dac; /* codec DAC pair (AC97_DAC_*) on the Center/LFE jack, or 0 */
+    uint8_t         clfe_dac; /* volume register of the codec DAC pair on the Center/LFE jack, or 0 */
 } emu10k1_models[] = {
     {
         .id    = SB_LIVE_CT4670,
@@ -103,7 +103,7 @@ static const struct {
         .id       = SB_LIVE_SB0060,
         .rev      = { 0x07, 0x07 },
         .codec    = &stac9708_device,
-        .clfe_dac = AC97_DAC_SURROUND
+        .clfe_dac = 0x38
     },
     {
         .id    = SB_LIVE_SB0150,
@@ -114,13 +114,13 @@ static const struct {
         .id       = SB_LIVE_SB0220,
         .rev      = { 0x0a, 0x0a },
         .codec    = &stac9708_device,
-        .clfe_dac = AC97_DAC_SURROUND
+        .clfe_dac = 0x38
     },
     {
         .id       = SB_LIVE_0220_6CH,
         .rev      = { 0x0a, 0x0a },
         .codec    = &stac9758_device,
-        .clfe_dac = AC97_DAC_CENTER_LFE
+        .clfe_dac = 0x36
     }
 };
 
@@ -258,7 +258,7 @@ typedef struct _emu10k1_ {
 
     /* AC97 codec DACs, see emu10k1_update_slots. */
     uint8_t front_src[2]; /* DSP outputs on the front DAC's slots, 0 for none */
-    uint8_t clfe_src[2];  /* the same for the Center/LFE jack's DAC: center, LFE */
+    uint8_t clfe_src[2];  /* the same for the Center/LFE jack's DAC */
     int     clfe_vol[2];
     int32_t clfe_buffer[WTBUFLEN * 2];
 } emu10k1_t;
@@ -1070,22 +1070,13 @@ emu10k1_update_slots(emu10k1_t *dev)
     if (slots & 0x20)
         src[8] = 0x32;
 
-    ac97_codec_getslots(dev->codec, AC97_DAC_FRONT, &l, &r);
+    ac97_codec_getslots(dev->codec, 0x18, &l, &r);
     dev->front_src[0] = src[l];
     dev->front_src[1] = src[r];
 
-    switch (clfe_dac) {
-        case AC97_DAC_SURROUND: /* volume in 0x38, left (center) in the upper half */
-            ac97_codec_getattn(dev->codec, 0x38, &dev->clfe_vol[0], &dev->clfe_vol[1]);
-            break;
-
-        case AC97_DAC_CENTER_LFE: /* volume in 0x36, LFE in the upper half */
-            ac97_codec_getattn(dev->codec, 0x36, &dev->clfe_vol[1], &dev->clfe_vol[0]);
-            break;
-
-        default:
-            return;
-    }
+    if (!clfe_dac)
+        return;
+    ac97_codec_getattn(dev->codec, clfe_dac, &dev->clfe_vol[0], &dev->clfe_vol[1]);
     ac97_codec_getslots(dev->codec, clfe_dac, &l, &r);
     dev->clfe_src[0] = src[l];
     dev->clfe_src[1] = src[r];

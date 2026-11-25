@@ -25,6 +25,11 @@
 #include <86box/io.h>
 #include <86box/snd_ac97.h>
 #include <86box/plat_fallthrough.h>
+#include <86box/plat_unused.h>
+
+static int ac97_stac9708_slot_pair(const ac97_codec_t *dev, uint8_t reg);
+static int ac97_stac9721_slot_pair(const ac97_codec_t *dev, uint8_t reg);
+static int ac97_stac9758_slot_pair(const ac97_codec_t *dev, uint8_t reg);
 
 static const struct {
     const device_t *device;
@@ -42,6 +47,8 @@ static const struct {
     uint16_t gpo_mask; /* modem GPIO output-capable bits */
 
     const ac97_vendor_reg_t *vendor_regs;
+
+    int (*slot_pair)(const ac97_codec_t *dev, uint8_t reg); /* DAC slot pair by volume register, see ac97_codec_getslots */
 } ac97_codecs[] = {
   // clang-format off
     {
@@ -99,7 +106,8 @@ static const struct {
         /* 0x72 reads 0x8000 on a real SQ2500's STAC9708. The Aureal driver checks it: with
            bit 15 clear it applies its "LA4 rear inversion" workaround (writes 0x0007 here and
            negates the Vortex EQ, so front and rear leave the chip in opposite polarity). */
-        .vendor_regs = (const ac97_vendor_reg_t[]) {{0, 0x6c, 0x0000, 0x0003}, {0, 0x6e, 0x0000, 0x000f}, {0, 0x72, 0x8000, 0x0007}, {0, 0x74, 0x0000, 0x0003}, {0}}
+        .vendor_regs = (const ac97_vendor_reg_t[]) {{0, 0x6c, 0x0000, 0x0003}, {0, 0x6e, 0x0000, 0x000f}, {0, 0x72, 0x8000, 0x0007}, {0, 0x74, 0x0000, 0x0003}, {0}},
+        .slot_pair   = ac97_stac9708_slot_pair
     },
     {
         .device      = &stac9721_device,
@@ -107,7 +115,8 @@ static const struct {
         .reset_flags = (26 << AC97_3D_SHIFT) | AC97_DAC_18B | AC97_ADC_18B,
         .extid_flags = AC97_AMAP,
         .pcsr_mask   = 0xff,
-        .vendor_regs = (const ac97_vendor_reg_t[]) {{0, 0x6c, 0x0000, 0x0000}, {0, 0x6e, 0x0000, 0x0003}, {0, 0x70, 0x0000, 0xffff}, {0, 0x72, 0x0000, 0x0006}, {0, 0x74, 0x0000, 0x0003}, {0, 0x76, 0x0000, 0xffff}, {0, 0x78, 0x0000, 0x3802}, {0}}
+        .vendor_regs = (const ac97_vendor_reg_t[]) {{0, 0x6c, 0x0000, 0x0000}, {0, 0x6e, 0x0000, 0x0003}, {0, 0x70, 0x0000, 0xffff}, {0, 0x72, 0x0000, 0x0006}, {0, 0x74, 0x0000, 0x0003}, {0, 0x76, 0x0000, 0xffff}, {0, 0x78, 0x0000, 0x3802}, {0}},
+        .slot_pair   = ac97_stac9721_slot_pair
     },
     {
         .device      = &stac9758_device,
@@ -139,7 +148,8 @@ static const struct {
             {1, 0x6c, 0x3760, 0xfff0}, /* DAC slot mapping */
             {1, 0x6e, 0x3000, 0xf001}, /* ADC slot mapping */
             {0}
-        }
+        },
+        .slot_pair   = ac97_stac9758_slot_pair
     },
     {
         .device      = &tr28023_device,
@@ -772,71 +782,89 @@ ac97_codec_getattn(void *priv, uint8_t reg, int *l, int *r)
     ac97_codec_log("AC97 Codec %d: getattn(%02X) = %d %d\n", dev->codec_id, reg, *l, *r);
 }
 
-/* Get the AC-Link output slots feeding one of the DAC pairs (AC97_DAC_*): left and
-   right, or center and LFE. Both are 0 if the codec doesn't have that DAC pair. */
-void
-ac97_codec_getslots(void *priv, int dac, int *l, int *r)
+/* AC-Link output slot pairs, as returned by the slot_pair callbacks. */
+static const uint8_t ac97_slot_pairs[4][2] = { { 3, 4 }, { 7, 8 }, { 6, 9 }, { 10, 11 } };
+
+/* Index of a DAC pair by its volume register: front (PCM Out), surround, center/LFE. */
+static int
+ac97_dac_index(uint8_t reg)
 {
-    const ac97_codec_t *dev    = (ac97_codec_t *) priv;
-    const device_t     *device = ac97_codecs[dev->model].device;
+    return (reg == 0x38) ? 1 : ((reg == 0x36) ? 2 : 0);
+}
+
+/* AC'97 2.3 DAC slot assignment by DSA[1:0]. */
+static int
+ac97_dsa_slot_pair(const ac97_codec_t *dev, uint8_t reg)
+{
+    static const uint8_t pairs[4][3] = { { 0, 1, 2 }, { 1, 2, 3 }, { 2, 3, 0 }, { 3, 0, 1 } };
+
+    return pairs[(dev->regs[0x28 >> 1] >> 4) & 0x0003][ac97_dac_index(reg)];
+}
+
+/* STAC9708 multi-channel programming register (0x74), MC[1:0]. */
+static int
+ac97_stac9708_slot_pair(const ac97_codec_t *dev, uint8_t reg)
+{
+    static const uint8_t pairs[4][2] = { { 0, 1 }, { 1, 2 }, { 2, 1 }, { 2, 3 } }; /* front, surround */
+
+    return pairs[dev->regs[0x74 >> 1] & 0x0003][ac97_dac_index(reg)];
+}
+
+/* STAC9721: the same register, with one DAC pair; as the primary codec. */
+static int
+ac97_stac9721_slot_pair(const ac97_codec_t *dev, UNUSED(uint8_t reg))
+{
+    return dev->regs[0x74 >> 1] & 0x0003;
+}
+
+/* STAC9758 DAC slot mapping (page 01h 0x6C), once marked valid (MV) in page 01h 0x6E:
+   the first slot of each pair, front in bits 15:12 down to center/LFE in 7:4. */
+static int
+ac97_stac9758_slot_pair(const ac97_codec_t *dev, uint8_t reg)
+{
+    if (!(dev->vendor_reg_pages[(1 << 3) | ((0x6e & 0x0e) >> 1)] & 0x0001))
+        return ac97_dsa_slot_pair(dev, reg);
+
+    switch ((dev->vendor_reg_pages[(1 << 3) | ((0x6c & 0x0e) >> 1)] >> (12 - (4 * ac97_dac_index(reg)))) & 0x000f) {
+        case 3:
+            return 0;
+        case 7:
+            return 1;
+        case 6:
+            return 2;
+        case 10:
+            return 3;
+        default:
+            return -1;
+    }
+}
+
+/* Get the AC-Link output slots feeding the DAC pair with the given volume register:
+   0x18 (PCM Out) for front, 0x38 for surround, or 0x36 for center/LFE, with left as
+   LFE and right as center there, as getattn has them. Both are 0 for a DAC pair the
+   codec doesn't have. */
+void
+ac97_codec_getslots(void *priv, uint8_t reg, int *l, int *r)
+{
+    const ac97_codec_t *dev = (ac97_codec_t *) priv;
     int                 pair;
 
-    /* Slot pairs: 0 = 3 & 4, 1 = 7 & 8, 2 = 6 & 9, 3 = 10 & 11. */
-    static const uint8_t pairs[4][2] = { { 3, 4 }, { 7, 8 }, { 6, 9 }, { 10, 11 } };
-    /* AC'97 2.3 DAC slot assignments by DSA[1:0]: front, surround, center/LFE. */
-    static const uint8_t dsa_pairs[4][3] = { { 0, 1, 2 }, { 1, 2, 3 }, { 2, 3, 0 }, { 3, 0, 1 } };
-    /* STAC9708 multi-channel programming register (0x74) by MC[1:0]: front, surround. */
-    static const uint8_t stac9708_pairs[4][2] = { { 0, 1 }, { 1, 2 }, { 2, 1 }, { 2, 3 } };
-
     *l = *r = 0;
-    switch (dac) {
-        case AC97_DAC_FRONT:
-            break;
+    if (((reg == 0x38) && !(ac97_codecs[dev->model].extid_flags & AC97_SDAC)) ||
+        ((reg == 0x36) && !(ac97_codecs[dev->model].extid_flags & (AC97_CDAC | AC97_LDAC))))
+        return;
 
-        case AC97_DAC_SURROUND:
-            if (!(ac97_codecs[dev->model].extid_flags & AC97_SDAC))
-                return;
-            break;
+    pair = ac97_codecs[dev->model].slot_pair ? ac97_codecs[dev->model].slot_pair(dev, reg) : ac97_dsa_slot_pair(dev, reg);
+    if (pair < 0)
+        return;
 
-        case AC97_DAC_CENTER_LFE:
-            if (!(ac97_codecs[dev->model].extid_flags & (AC97_CDAC | AC97_LDAC)))
-                return;
-            break;
-
-        default:
-            return;
-    }
-
-    if (device == &stac9708_device) {
-        pair = stac9708_pairs[dev->regs[0x74 >> 1] & 0x0003][dac - AC97_DAC_FRONT];
-    } else if (device == &stac9721_device) {
-        /* Same register, with one DAC pair; as the primary codec. */
-        pair = dev->regs[0x74 >> 1] & 0x0003;
-    } else if ((device == &stac9758_device) && (dev->vendor_reg_pages[(1 << 3) | ((0x6e & 0x0e) >> 1)] & 0x0001)) {
-        /* DAC slot mapping (page 01h 0x6C), once marked valid (MV) in page 01h 0x6E:
-           the first slot of each pair, front in bits 15:12 down to center/LFE in 7:4. */
-        switch ((dev->vendor_reg_pages[(1 << 3) | ((0x6c & 0x0e) >> 1)] >> (16 - (4 * dac))) & 0x000f) {
-            case 3:
-                pair = 0;
-                break;
-            case 7:
-                pair = 1;
-                break;
-            case 6:
-                pair = 2;
-                break;
-            case 10:
-                pair = 3;
-                break;
-            default:
-                return;
-        }
+    if (reg == 0x36) {
+        *l = ac97_slot_pairs[pair][1];
+        *r = ac97_slot_pairs[pair][0];
     } else {
-        pair = dsa_pairs[(dev->regs[0x28 >> 1] >> 4) & 0x0003][dac - AC97_DAC_FRONT];
+        *l = ac97_slot_pairs[pair][0];
+        *r = ac97_slot_pairs[pair][1];
     }
-
-    *l = pairs[pair][0];
-    *r = pairs[pair][1];
 }
 
 uint32_t

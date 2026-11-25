@@ -103,11 +103,6 @@
 #define AC97_CID2 (1 << 4)
 #define AC97_CIDR (1 << 7) /* special case: not part of register 3C, but rather 56 bit 13 */
 
-/* DAC pairs, for ac97_codec_getslots. */
-#define AC97_DAC_FRONT      1
-#define AC97_DAC_SURROUND   2
-#define AC97_DAC_CENTER_LFE 3
-
 /* Codec IDs. */
 #define AC97_CODEC_AD1881   AC97_VENDOR_ID('A', 'D', 'S', 0x40)
 #define AC97_CODEC_AK4540   AC97_VENDOR_ID('A', 'K', 'M', 0x00)
@@ -146,7 +141,7 @@ extern void            ac97_codec_writew(ac97_codec_t *dev, uint8_t reg, uint16_
 extern void            ac97_codec_reset(void *priv);
 extern void            ac97_codec_getattn(void *priv, uint8_t reg, int *l, int *r);
 extern uint32_t        ac97_codec_getrate(void *priv, uint8_t reg);
-extern void            ac97_codec_getslots(void *priv, int dac, int *l, int *r);
+extern void            ac97_codec_getslots(void *priv, uint8_t reg, int *l, int *r);
 extern void            ac97_codec_setgpi(void *priv, uint16_t gpi);
 extern void            ac97_codec_setgpo(void *priv, uint16_t gpo);
 extern const device_t *ac97_codec_get(uint32_t id);
