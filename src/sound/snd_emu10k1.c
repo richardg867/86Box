@@ -1348,9 +1348,11 @@ emu10k1_dsp_tram_access(emu10k1_t *dev, int access)
     uint32_t tram_op;
     uint32_t addr;
 
-    /* The CLEAR flag has no effect while the DSP runs: it neither clears the location on its own
-       nor after a READ, and it doesn't stop a WRITE. Creative's effects set it on delay line
-       taps, which must keep the data for the taps further down the line. */
+    /* The CLEAR flag has no measurable effect on internal or external TRAM, with or without
+       ALIGN: it neither clears the location on its own nor after a READ, it doesn't stop a
+       WRITE, and the data register reads the same. Nor does it clear anything while the DSP
+       is halted or the tank cache is locked. Creative's effects set it on delay line taps,
+       which must keep the data for the taps further down the line. */
     if (tram < 0x80) {
         tram_op = dev->indirect_regs[0x300 | tram];
         if (access & 1) {
@@ -2325,6 +2327,7 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                     break;
 
                 case 0x44: /* TCBS */
+                    /* External TRAM size in 16-bit words: 8K << TCBS, as measured. */
                     val &= 0x00000007;
                     dev->dsp.etram_mask = (8192 << val) - 1;
                     break;
