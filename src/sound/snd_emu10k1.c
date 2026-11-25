@@ -76,6 +76,7 @@ static const struct {
     const device_t *codec;
     uint32_t        id;
     const uint8_t   rev[2];
+    uint8_t         clfe_dac; /* codec DAC pair (AC97_DAC_*) on the Center/LFE jack, or 0 */
 } emu10k1_models[] = {
     {
         .id    = SB_LIVE_CT4670,
@@ -98,9 +99,10 @@ static const struct {
         .codec = &stac9721_device
     },
     {
-        .id    = SB_LIVE_SB0060,
-        .rev   = { 0x07, 0x07 },
-        .codec = &stac9708_device
+        .id       = SB_LIVE_SB0060,
+        .rev      = { 0x07, 0x07 },
+        .codec    = &stac9708_device,
+        .clfe_dac = AC97_DAC_SURROUND
     },
     {
         .id    = SB_LIVE_SB0150,
@@ -108,9 +110,10 @@ static const struct {
         .codec = &ct1297_device
     },
     {
-        .id    = SB_LIVE_SB0220,
-        .rev   = { 0x0a, 0x0a },
-        .codec = &stac9708_device
+        .id       = SB_LIVE_SB0220,
+        .rev      = { 0x0a, 0x0a },
+        .codec    = &stac9708_device,
+        .clfe_dac = AC97_DAC_SURROUND
     }
 };
 
@@ -246,12 +249,11 @@ typedef struct _emu10k1_ {
     int cd_vol_l;
     int cd_vol_r;
 
-    /* AC97 codec surround DAC, see emu10k1_update_surround. */
-    int     sur_vol_l;
-    int     sur_vol_r;
-    int     sur_center_lfe; /* fed from the center and LFE slots */
-    uint8_t sur_src[2];     /* DSP outputs on its slots, 0 if not enabled */
-    int32_t sur_buffer[WTBUFLEN * 2];
+    /* AC97 codec DACs, see emu10k1_update_slots. */
+    uint8_t front_src[2]; /* DSP outputs on the front DAC's slots, 0 for none */
+    uint8_t clfe_src[2];  /* the same for the Center/LFE jack's DAC: center, LFE */
+    int     clfe_vol[2];
+    int32_t clfe_buffer[WTBUFLEN * 2];
 } emu10k1_t;
 
 #ifdef ENABLE_EMU10K1_LOG
@@ -1031,40 +1033,55 @@ emu10k1_capture_src(emu10k1_capture_src_t *src, uint32_t rate, uint32_t gain, in
     return 1;
 }
 
-/* The STAC9708 on the SB Live! 5.1 boards has a surround DAC, wired to the Center/LFE
-   jack, fed from AC97 slots the EMU10K1 sends DSP outputs on when AC97SLOT enables them:
-   0x31 (left, bit 4) and 0x32 (right, bit 5), or with codec register 0x74 bits 1:0 set
-   to 1, 0x2D (left, bit 0) and 0x2E (right, bit 1); 3 selects neither. Its volume is
-   codec register 0x38, unaffected by the master and PCM volumes. As measured on an SB0220
-   with the jack looped back to Line In. The host output being stereo, center and LFE are
-   mixed into both sides, and a rear pair into its own sides. */
+/* The EMU10K1 sends the front pair (0x20/0x21) on AC-Link output slots 3/4, and when
+   enabled in AC97SLOT, 0x31/0x32 (bits 4/5) on slots 7/8 and 0x2D/0x2E (bits 0/1) on
+   slots 6/9, as measured on an SB0220 with the STAC9708's surround DAC (on the
+   Center/LFE jack) looped back to Line In, through its slot mapping register. The
+   codec decides which slots its DACs take. The rear jack (I2S, or the surround DAC
+   of a 6-channel codec) isn't output, and the Center/LFE jack is mixed into front. */
 static void
-emu10k1_update_surround(emu10k1_t *dev)
+emu10k1_update_slots(emu10k1_t *dev)
 {
-    uint32_t slots = dev->indirect_regs[0x5f];
+    uint32_t slots    = dev->indirect_regs[0x5f];
+    uint8_t  src[12]  = { [3] = 0x20, [4] = 0x21 };
+    int      clfe_dac = emu10k1_models[dev->model].clfe_dac;
+    int      l;
+    int      r;
 
-    dev->sur_src[0] = dev->sur_src[1] = 0;
-    if (!dev->codec || (emu10k1_models[dev->model].codec != &stac9708_device))
+    dev->front_src[0] = 0x20;
+    dev->front_src[1] = 0x21;
+    dev->clfe_src[0]  = dev->clfe_src[1] = 0;
+    if (!dev->codec)
         return;
 
-    ac97_codec_getattn(dev->codec, 0x38, &dev->sur_vol_l, &dev->sur_vol_r);
-    switch (ac97_codec_readw(dev->codec, 0x74) & 0x0003) {
-        case 0x0000:
-        case 0x0002:
-            dev->sur_center_lfe = 1;
-            dev->sur_src[0]     = (slots & 0x10) ? 0x31 : 0;
-            dev->sur_src[1]     = (slots & 0x20) ? 0x32 : 0;
+    if (slots & 0x01)
+        src[6] = 0x2d;
+    if (slots & 0x02)
+        src[9] = 0x2e;
+    if (slots & 0x10)
+        src[7] = 0x31;
+    if (slots & 0x20)
+        src[8] = 0x32;
+
+    ac97_codec_getslots(dev->codec, AC97_DAC_FRONT, &l, &r);
+    dev->front_src[0] = src[l];
+    dev->front_src[1] = src[r];
+
+    switch (clfe_dac) {
+        case AC97_DAC_SURROUND: /* volume in 0x38, left (center) in the upper half */
+            ac97_codec_getattn(dev->codec, 0x38, &dev->clfe_vol[0], &dev->clfe_vol[1]);
             break;
 
-        case 0x0001:
-            dev->sur_center_lfe = 0;
-            dev->sur_src[0]     = (slots & 0x01) ? 0x2d : 0;
-            dev->sur_src[1]     = (slots & 0x02) ? 0x2e : 0;
+        case AC97_DAC_CENTER_LFE: /* volume in 0x36, LFE in the upper half */
+            ac97_codec_getattn(dev->codec, 0x36, &dev->clfe_vol[1], &dev->clfe_vol[0]);
             break;
 
         default:
-            break;
+            return;
     }
+    ac97_codec_getslots(dev->codec, clfe_dac, &l, &r);
+    dev->clfe_src[0] = src[l];
+    dev->clfe_src[1] = src[r];
 }
 
 void
@@ -1077,10 +1094,10 @@ emu10k1_dsp_exec(emu10k1_t *dev, int pos, int32_t *buf)
 
     /* Send DSP outputs from the previous run to the audio buffer.
        This should actually be 20 bits sent to the AC97 codec. */
-    buf[0] = SAMPLE_32_TO_16(dev->dsp.regs[0x20]);
-    buf[1] = SAMPLE_32_TO_16(dev->dsp.regs[0x21]);
-    dev->sur_buffer[pos * 2]     = dev->sur_src[0] ? SAMPLE_32_TO_16(dev->dsp.regs[dev->sur_src[0]]) : 0;
-    dev->sur_buffer[pos * 2 + 1] = dev->sur_src[1] ? SAMPLE_32_TO_16(dev->dsp.regs[dev->sur_src[1]]) : 0;
+    buf[0]                        = dev->front_src[0] ? SAMPLE_32_TO_16(dev->dsp.regs[dev->front_src[0]]) : 0;
+    buf[1]                        = dev->front_src[1] ? SAMPLE_32_TO_16(dev->dsp.regs[dev->front_src[1]]) : 0;
+    dev->clfe_buffer[pos * 2]     = dev->clfe_src[0] ? SAMPLE_32_TO_16(dev->dsp.regs[dev->clfe_src[0]]) : 0;
+    dev->clfe_buffer[pos * 2 + 1] = dev->clfe_src[1] ? SAMPLE_32_TO_16(dev->dsp.regs[dev->clfe_src[1]]) : 0;
 
     /* Loop DSP outputs back into the FX capture buffer if enabled. */
     int i;
@@ -2341,7 +2358,7 @@ emu10k1_writew(uint16_t addr, uint16_t val, void *priv)
                 ac97_codec_getattn(dev->codec, 0x02, &dev->master_vol_l, &dev->master_vol_r);
                 ac97_codec_getattn(dev->codec, 0x18, &dev->pcm_vol_l, &dev->pcm_vol_r);
                 ac97_codec_getattn(dev->codec, 0x12, &dev->cd_vol_l, &dev->cd_vol_r);
-                emu10k1_update_surround(dev);
+                emu10k1_update_slots(dev);
             }
             break;
 
@@ -2487,7 +2504,7 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                     if (dev->type != EMU10K1)
                         return;
                     dev->indirect_regs[reg] = val & 0x0000003f;
-                    emu10k1_update_surround(dev);
+                    emu10k1_update_slots(dev);
                     return;
 
                 case 0x6a ... 0x6f: /* A_SPRI ... A_TDOF */
@@ -2760,13 +2777,11 @@ emu10k1_get_buffer(int32_t *buffer, uint16_t len, void *priv)
             buffer[c] += (((dev->emu8k.buffer[c] * dev->pcm_vol_l) >> 15) * dev->master_vol_l) >> 15;
             buffer[c + 1] += (((dev->emu8k.buffer[c + 1] * dev->pcm_vol_r) >> 15) * dev->master_vol_r) >> 15;
 
-            /* Mix the surround DAC in. */
-            int32_t sur_l = (dev->sur_buffer[c] * dev->sur_vol_l) >> 15;
-            int32_t sur_r = (dev->sur_buffer[c + 1] * dev->sur_vol_r) >> 15;
-            if (dev->sur_center_lfe) /* center and LFE to both sides, at -3 dB */
-                sur_l = sur_r = ((sur_l + sur_r) * 23170) >> 15;
-            buffer[c] += sur_l;
-            buffer[c + 1] += sur_r;
+            /* Mix the Center/LFE jack into both sides, at -3 dB. */
+            int32_t clfe = ((dev->clfe_buffer[c] * dev->clfe_vol[0]) >> 15) + ((dev->clfe_buffer[c + 1] * dev->clfe_vol[1]) >> 15);
+            clfe         = (clfe * 23170) >> 15;
+            buffer[c] += clfe;
+            buffer[c + 1] += clfe;
         }
     }
 
@@ -2845,7 +2860,7 @@ emu10k1_reset(void *priv)
 
     /* Reset indirect and DSP registers. */
     memset(dev->indirect_regs, 0, sizeof(dev->indirect_regs));
-    emu10k1_update_surround(dev);
+    emu10k1_update_slots(dev);
     dev->indirect_regs[0x50]  = 0xffffffff; /* CDCS */
     dev->indirect_regs[0x51]  = 0xffffffff; /* GPSCS */
     dev->indirect_regs[0x52]  = 0x00069400; /* DBG_STEP=0x0a | DBG_SINGLE_STEP | SATURATION_ADDR=0x06 */
