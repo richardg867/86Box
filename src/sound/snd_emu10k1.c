@@ -2296,6 +2296,10 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
                     emu10k1_cache_service(&dev->emu8k, dev->emu8k.cur_voice); /* fetches the CCIS frames right away */
                     return;
 
+                case 0x0a: /* CLP */
+                    dev->emu8k.voice[dev->emu8k.cur_voice].clp_lw_address = val; /* lower bits, upper bits are FXRT */
+                    return;
+
                 case 0x0b:      /* FXRT */
                     val >>= 16; /* upper bits are used, lower bits are shared with CLP */
                     dev->emu8k.voice[dev->emu8k.cur_voice].fxrt = val;
