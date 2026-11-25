@@ -772,6 +772,73 @@ ac97_codec_getattn(void *priv, uint8_t reg, int *l, int *r)
     ac97_codec_log("AC97 Codec %d: getattn(%02X) = %d %d\n", dev->codec_id, reg, *l, *r);
 }
 
+/* Get the AC-Link output slots feeding one of the DAC pairs (AC97_DAC_*): left and
+   right, or center and LFE. Both are 0 if the codec doesn't have that DAC pair. */
+void
+ac97_codec_getslots(void *priv, int dac, int *l, int *r)
+{
+    const ac97_codec_t *dev    = (ac97_codec_t *) priv;
+    const device_t     *device = ac97_codecs[dev->model].device;
+    int                 pair;
+
+    /* Slot pairs: 0 = 3 & 4, 1 = 7 & 8, 2 = 6 & 9, 3 = 10 & 11. */
+    static const uint8_t pairs[4][2] = { { 3, 4 }, { 7, 8 }, { 6, 9 }, { 10, 11 } };
+    /* AC'97 2.3 DAC slot assignments by DSA[1:0]: front, surround, center/LFE. */
+    static const uint8_t dsa_pairs[4][3] = { { 0, 1, 2 }, { 1, 2, 3 }, { 2, 3, 0 }, { 3, 0, 1 } };
+    /* STAC9708 multi-channel programming register (0x74) by MC[1:0]: front, surround. */
+    static const uint8_t stac9708_pairs[4][2] = { { 0, 1 }, { 1, 2 }, { 2, 1 }, { 2, 3 } };
+
+    *l = *r = 0;
+    switch (dac) {
+        case AC97_DAC_FRONT:
+            break;
+
+        case AC97_DAC_SURROUND:
+            if (!(ac97_codecs[dev->model].extid_flags & AC97_SDAC))
+                return;
+            break;
+
+        case AC97_DAC_CENTER_LFE:
+            if (!(ac97_codecs[dev->model].extid_flags & (AC97_CDAC | AC97_LDAC)))
+                return;
+            break;
+
+        default:
+            return;
+    }
+
+    if (device == &stac9708_device) {
+        pair = stac9708_pairs[dev->regs[0x74 >> 1] & 0x0003][dac - AC97_DAC_FRONT];
+    } else if (device == &stac9721_device) {
+        /* Same register, with one DAC pair; as the primary codec. */
+        pair = dev->regs[0x74 >> 1] & 0x0003;
+    } else if ((device == &stac9758_device) && (dev->vendor_reg_pages[(1 << 3) | ((0x6e & 0x0e) >> 1)] & 0x0001)) {
+        /* DAC slot mapping (page 01h 0x6C), once marked valid (MV) in page 01h 0x6E:
+           the first slot of each pair, front in bits 15:12 down to center/LFE in 7:4. */
+        switch ((dev->vendor_reg_pages[(1 << 3) | ((0x6c & 0x0e) >> 1)] >> (16 - (4 * dac))) & 0x000f) {
+            case 3:
+                pair = 0;
+                break;
+            case 7:
+                pair = 1;
+                break;
+            case 6:
+                pair = 2;
+                break;
+            case 10:
+                pair = 3;
+                break;
+            default:
+                return;
+        }
+    } else {
+        pair = dsa_pairs[(dev->regs[0x28 >> 1] >> 4) & 0x0003][dac - AC97_DAC_FRONT];
+    }
+
+    *l = pairs[pair][0];
+    *r = pairs[pair][1];
+}
+
 uint32_t
 ac97_codec_getrate(void *priv, uint8_t reg)
 {
