@@ -322,7 +322,7 @@ static const uint32_t dsp_constants[] = {
     0xffffffff, 0xfffffffe, 0xc0000000, 0x4f1bbcdc, 0x5a7ef9db, 0x00100000                          /* 50 */
 };
 /* ADC capture buffer rates by ADCCR, with the gain their sample rate converter has
-   in 1/16384ths, as measured on the EMU10K1. The Audigy's gains are assumed to match. */
+   in 1/16384ths, as measured on the EMU10K1. The EMU10K2's gains are assumed to match. */
 static const struct {
     uint16_t rate;
     uint16_t gain;
