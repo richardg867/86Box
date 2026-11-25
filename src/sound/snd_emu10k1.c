@@ -52,14 +52,14 @@ enum {
     EMU10K1 = 0x0002
 };
 enum {
-    SB_LIVE_CT4670   = (EMU10K1 << 16) | 0x0020,
-    SB_LIVE_CT4620   = (EMU10K1 << 16) | 0x0021,
-    SB_LIVE_CT4780   = (EMU10K1 << 16) | 0x8022,
-    SB_LIVE_CT4760   = (EMU10K1 << 16) | 0x8024,
-    SB_LIVE_SB0060   = (EMU10K1 << 16) | 0x8061,
-    SB_LIVE_SB0150   = (EMU10K1 << 16) | 0x8071,
-    SB_LIVE_SB0220   = (EMU10K1 << 16) | 0x8065,
-    SB_LIVE_0220_6CH = (EMU10K1 << 16) | 0x100a,
+    SB_LIVE_CT4670     = (EMU10K1 << 16) | 0x0020,
+    SB_LIVE_CT4620     = (EMU10K1 << 16) | 0x0021,
+    SB_LIVE_CT4780     = (EMU10K1 << 16) | 0x8022,
+    SB_LIVE_CT4760     = (EMU10K1 << 16) | 0x8024,
+    SB_LIVE_SB0060     = (EMU10K1 << 16) | 0x8061,
+    SB_LIVE_SB0150     = (EMU10K1 << 16) | 0x8071,
+    SB_LIVE_SB0220     = (EMU10K1 << 16) | 0x8065,
+    SB_LIVE_SB0220_6CH = (EMU10K1 << 16) | 0x100a,
 };
 
 enum {
@@ -114,7 +114,7 @@ static const struct {
         .codec = &stac9708_device
     },
     {
-        .id    = SB_LIVE_0220_6CH,
+        .id    = SB_LIVE_SB0220_6CH,
         .rev   = { 0x0a, 0x0a },
         .codec = &stac9758_device
     }
@@ -3121,7 +3121,7 @@ static const device_config_t sb_live_config[] = {
           { .description = "SB0220 (SigmaTel STAC9708)",
                  .value       = SB_LIVE_SB0220 },
           { .description = "SB0220 (SigmaTel STAC9758)",
-                 .value       = SB_LIVE_0220_6CH },
+                 .value       = SB_LIVE_SB0220_6CH },
           { .description = "" } } },
     { .name = "receive_input", .description = "Receive input (MPU-401)", .type = CONFIG_BINARY, .default_string = "", .default_int = 1 },
     { .name = "", .description = "", .type = CONFIG_END }
