@@ -1927,10 +1927,6 @@ emu10k1_readl(uint16_t addr, void *priv)
                     ret = AS_U32(dev->emu8k.voice[dev->emu8k.cur_voice].cd[(reg & 0x0f) << 2]);
                     break;
 
-                case 0x30 ... 0x3f: /* not storage, despite being next to the cache */
-                    ret = 0;
-                    break;
-
                 case 0x7d: /* A_SENDAMOUNTS */
                     if (dev->type == EMU10K1)
                         goto indirect_reg;
@@ -2305,9 +2301,6 @@ emu10k1_writel(uint16_t addr, uint32_t val, void *priv)
 
                 case 0x20 ... 0x2f: /* CD */
                     AS_U32(dev->emu8k.voice[dev->emu8k.cur_voice].cd[(reg & 0x0f) << 2]) = val;
-                    return;
-
-                case 0x30 ... 0x3f:
                     return;
 
                 case 0x40 ... 0x41: /* PTB ... TCB */
