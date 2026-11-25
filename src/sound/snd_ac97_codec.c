@@ -110,6 +110,38 @@ static const struct {
         .vendor_regs = (const ac97_vendor_reg_t[]) {{0, 0x6c, 0x0000, 0x0000}, {0, 0x6e, 0x0000, 0x0003}, {0, 0x70, 0x0000, 0xffff}, {0, 0x72, 0x0000, 0x0006}, {0, 0x74, 0x0000, 0x0003}, {0, 0x76, 0x0000, 0xffff}, {0, 0x78, 0x0000, 0x3802}, {0}}
     },
     {
+        .device      = &stac9758_device,
+        .misc_flags  = AC97_AUDIO | AC97_MASTER_6B | AC97_AUXOUT | AC97_AUXOUT_6B | AC97_MONOOUT | AC97_MONOOUT_6B | AC97_PCBEEP | AC97_PCBEEP_GEN | AC97_PHONE | AC97_VIDEO | AC97_AUXIN | AC97_POP | AC97_MS | AC97_LPBK | AC97_DSA | AC97_LFE_6B | AC97_CENTER_6B | AC97_SURR_6B,
+        .reset_flags = (26 << AC97_3D_SHIFT) | AC97_HPOUT | AC97_DAC_20B | AC97_ADC_20B,
+        .extid_flags = AC97_VRA | AC97_DRA | AC97_SPDIF | AC97_CDAC | AC97_SDAC | AC97_LDAC | AC97_AMAP | AC97_REV_2_3,
+        .pcsr_mask   = 0xff,
+        .eascr_mask  = 0x07,
+        /* Defaults from the datasheet. 0x04 is the DAC-A (front) volume and 0x14 the DAC-B
+           (surround) to mixer volume; despite a passing mention in the datasheet, 0x74 is
+           the EAPD access register, not the STAC9708/9721 multi-channel slot mapping. */
+        .vendor_regs = (const ac97_vendor_reg_t[]) {
+            {0, 0x64, 0xd794, 0xfffe}, /* Universal Jacks output select */
+            {0, 0x66, 0x0201, 0x0707}, /* Universal Jacks input select */
+            {0, 0x68, 0x2001, 0xffff}, /* I/O misc */
+            {0, 0x6a, 0x0000, 0x000e}, /* digital audio control */
+            {0, 0x6c, 0x0000, 0x0000}, /* revision code */
+            {0, 0x6e, 0x1000, 0xffff}, /* analog special */
+            {0, 0x72, 0x0000, 0xf7ff}, /* various functions */
+            {0, 0x74, 0x0800, 0x8803}, /* EAPD access */
+            {0, 0x76, 0x0000, 0x0003}, /* analog misc */
+            {0, 0x78, 0x0000, 0xf003}, /* ADAT and HPF bypass */
+            {1, 0x60, 0x1800, 0x0000}, /* codec class/revision */
+            {1, 0x62, 0xffff, 0xffff}, /* PCI subsystem vendor ID */
+            {1, 0x64, 0xffff, 0xffff}, /* PCI subsystem ID */
+            {1, 0x66, 0x0000, 0x001f}, /* function select */
+            {1, 0x68, 0x0010, 0xfff1}, /* function information */
+            {1, 0x6a, 0x0000, 0x0000}, /* sense details */
+            {1, 0x6c, 0x3760, 0xfff0}, /* DAC slot mapping */
+            {1, 0x6e, 0x3000, 0xf001}, /* ADC slot mapping */
+            {0}
+        }
+    },
+    {
         .device      = &tr28023_device,
         .misc_flags  = AC97_AUDIO | AC97_MASTER_6B | AC97_MONOOUT | AC97_MONOOUT_6B | AC97_PCBEEP | AC97_PHONE | AC97_POP | AC97_MS | AC97_LPBK,
         .pcsr_mask   = 0x3f
@@ -969,6 +1001,20 @@ const device_t stac9721_device = {
     .internal_name = "stac9721",
     .flags         = DEVICE_AC97,
     .local         = AC97_CODEC_STAC9721,
+    .init          = ac97_codec_init,
+    .close         = ac97_codec_close,
+    .reset         = ac97_codec_reset,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+const device_t stac9758_device = {
+    .name          = "SigmaTel STAC9758",
+    .internal_name = "stac9758",
+    .flags         = DEVICE_AC97,
+    .local         = AC97_CODEC_STAC9758,
     .init          = ac97_codec_init,
     .close         = ac97_codec_close,
     .reset         = ac97_codec_reset,

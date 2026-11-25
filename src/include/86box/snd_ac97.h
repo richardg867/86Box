@@ -112,6 +112,7 @@
 #define AC97_CODEC_ICE1232  AC97_VENDOR_ID('I', 'C', 'E', 0x11)
 #define AC97_CODEC_STAC9708 AC97_VENDOR_ID(0x83, 0x84, 0x76, 0x08)
 #define AC97_CODEC_STAC9721 AC97_VENDOR_ID(0x83, 0x84, 0x76, 0x09)
+#define AC97_CODEC_STAC9758 AC97_VENDOR_ID(0x83, 0x84, 0x76, 0x58)
 #define AC97_CODEC_TR28023  AC97_VENDOR_ID('T', 'R', 'A', 0x03)
 #define AC97_CODEC_W83971D  AC97_VENDOR_ID('W', 'E', 'C', 0x01)
 #define AC97_CODEC_WM9701A  AC97_VENDOR_ID('W', 'M', 'L', 0x00)
@@ -167,6 +168,7 @@ extern const device_t cs4297a_device;
 extern const device_t ice1232_device;
 extern const device_t stac9708_device;
 extern const device_t stac9721_device;
+extern const device_t stac9758_device;
 extern const device_t tr28023_device;
 #    define vt1611a_device ice1232_device
 extern const device_t w83971d_device;
